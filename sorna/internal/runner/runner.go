@@ -19,16 +19,18 @@ import (
 	"time"
 
 	"ingen/sorna/internal/contract"
+	"ingen/sorna/internal/lifecycle"
 	"ingen/sorna/internal/mutation"
 )
 
 // Config controls the public HTTP subject that a run observes.
 type Config struct {
-	BaseURL  string
-	Client   *http.Client
-	Now      func() time.Time
-	Variant  string
-	Mutation *mutation.Spec
+	BaseURL   string
+	Client    *http.Client
+	Now       func() time.Time
+	Variant   string
+	Mutation  *mutation.Spec
+	Lifecycle *lifecycle.Record
 }
 
 // RunRecord is the first machine-readable Sorna run artifact. It is
@@ -42,6 +44,7 @@ type RunRecord struct {
 	Contract  ContractReference `json:"contract"`
 	Verdict   ContractVerdict   `json:"contract_verdict"`
 	Subject   SubjectReference  `json:"subject"`
+	Lifecycle *lifecycle.Record `json:"lifecycle,omitempty"`
 	Summary   Summary           `json:"summary"`
 	Rules     []RuleResult      `json:"rules"`
 	Mutation  *mutation.Result  `json:"mutation,omitempty"`
@@ -137,17 +140,22 @@ func Execute(ctx context.Context, sealed contract.Sealed, config Config) (RunRec
 	createdAt := now().UTC()
 	contractID, _ := sealed.Document.Contract["id"].(string)
 	version, _ := integer(sealed.Document.Contract["version"])
+	limitations := []string{
+		"the runner does not yet enforce a capability boundary",
+	}
+	if config.Lifecycle == nil || config.Lifecycle.Mode != "managed-process" {
+		limitations = append([]string{"the subject was supplied as an already-running URL"}, limitations...)
+	} else {
+		limitations = append([]string{"Sorna managed process startup and teardown, but the process was not capability-isolated"}, limitations...)
+	}
 	record := RunRecord{
 		Schema:    "ingen.run/v1",
 		RunID:     "run-" + strconv.FormatInt(createdAt.UnixNano(), 10),
 		CreatedAt: createdAt,
 		Assurance: Assurance{
-			Level:  0,
-			Status: "self-reported",
-			Limitations: []string{
-				"the subject was supplied as an already-running URL",
-				"the runner does not yet enforce a capability boundary",
-			},
+			Level:       0,
+			Status:      "self-reported",
+			Limitations: limitations,
 		},
 		Contract: ContractReference{
 			ID:      contractID,
@@ -159,7 +167,8 @@ func Execute(ctx context.Context, sealed contract.Sealed, config Config) (RunRec
 			Adapter: "http-json-v1",
 			Variant: config.Variant,
 		},
-		Rules: make([]RuleResult, 0),
+		Lifecycle: config.Lifecycle,
+		Rules:     make([]RuleResult, 0),
 	}
 
 	rules, ok := sealed.Document.Contract["rules"].([]any)

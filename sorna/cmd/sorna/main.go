@@ -5,8 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"ingen/sorna/internal/contract"
+	"ingen/sorna/internal/evidence"
+	"ingen/sorna/internal/lifecycle"
 	"ingen/sorna/internal/mutation"
 	"ingen/sorna/internal/runner"
 )
@@ -24,6 +27,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "contract":
 		return contractCommand(args[1:])
+	case "evidence":
+		return evidenceCommand(args[1:])
 	case "run":
 		return runSubject(args[1:])
 	default:
@@ -31,6 +36,19 @@ func run(args []string) int {
 		usage()
 		return 2
 	}
+}
+
+func evidenceCommand(args []string) int {
+	if len(args) != 2 || args[0] != "verify" {
+		fmt.Fprintln(os.Stderr, "usage: sorna evidence verify <directory>")
+		return 2
+	}
+	if err := evidence.Verify(args[1]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("verified:", args[1])
+	return 0
 }
 
 func contractCommand(args []string) int {
@@ -91,6 +109,13 @@ func runSubject(args []string) int {
 	baseURL := flags.String("base-url", "", "absolute URL of the running subject")
 	outputDir := flags.String("output-dir", ".artifacts/document-pipeline-run", "directory for the run record")
 	variant := flags.String("subject-variant", "clean-baseline", "label for the subject variant")
+	subjectCommand := flags.String("subject-command", "", "executable for a subject Sorna should manage")
+	subjectDir := flags.String("subject-dir", "", "working directory for the managed subject")
+	readyPath := flags.String("ready-path", "/healthz", "HTTP path that must return 2xx before the run")
+	startupTimeout := flags.Duration("startup-timeout", 10*time.Second, "maximum time to wait for subject readiness")
+	shutdownTimeout := flags.Duration("shutdown-timeout", 5*time.Second, "maximum time to wait for graceful subject shutdown")
+	var subjectArgs stringList
+	flags.Var(&subjectArgs, "subject-arg", "argument for the managed subject; may be repeated")
 	mutationID := flags.String("mutation-id", "", "identity of the mutation being evaluated")
 	mutationPlane := flags.String("mutation-plane", "behavior", "mutation plane")
 	mutationDescription := flags.String("mutation-description", "", "description of the mutation")
@@ -99,7 +124,11 @@ func runSubject(args []string) int {
 		return 2
 	}
 	if *contractPath == "" || *baseURL == "" {
-		fmt.Fprintln(os.Stderr, "usage: sorna run --contract <path> --base-url <url> [--output-dir <dir>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna run --contract <path> --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--output-dir <dir>]")
+		return 2
+	}
+	if *subjectCommand == "" && len(subjectArgs) > 0 {
+		fmt.Fprintln(os.Stderr, "--subject-arg requires --subject-command")
 		return 2
 	}
 
@@ -126,16 +155,52 @@ func runSubject(args []string) int {
 			ExpectedRuleIDs: []string{*expectedRule},
 		}
 	}
-	record, err := runner.Execute(context.Background(), sealed, runner.Config{BaseURL: *baseURL, Variant: *variant, Mutation: mutationSpec})
+
+	var managedSubject *lifecycle.Process
+	lifecycleRecord := lifecycle.External(*baseURL, nil)
+	if *subjectCommand != "" {
+		command := append([]string{*subjectCommand}, subjectArgs...)
+		managedSubject, err = lifecycle.Start(context.Background(), lifecycle.Config{
+			Command:         command,
+			Dir:             *subjectDir,
+			BaseURL:         *baseURL,
+			ReadyPath:       *readyPath,
+			StartupTimeout:  *startupTimeout,
+			ShutdownTimeout: *shutdownTimeout,
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		lifecycleRecord = managedSubject.Record()
+	}
+
+	record, runErr := runner.Execute(context.Background(), sealed, runner.Config{
+		BaseURL:   *baseURL,
+		Variant:   *variant,
+		Mutation:  mutationSpec,
+		Lifecycle: &lifecycleRecord,
+	})
+	var stopErr error
+	if managedSubject != nil {
+		stopErr = managedSubject.Close(context.Background())
+		lifecycleRecord = managedSubject.Record()
+	}
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, runErr)
+		return 1
+	}
+	if stopErr != nil {
+		fmt.Fprintln(os.Stderr, stopErr)
+		return 1
+	}
+	record.Lifecycle = &lifecycleRecord
+	bundle, err := evidence.WriteBundle(*outputDir, record)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	path, err := runner.Write(*outputDir, record)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
+	path := bundle.RunPath
 	fmt.Printf("run: %s\ncontract: %s (%s)\nsummary: %d passed, %d failed, %d errors, %d inconclusive, %d skipped\n", path, record.Verdict.Status, record.Verdict.Reason, record.Summary.Passed, record.Summary.Failed, record.Summary.Errors, record.Summary.Inconclusive, record.Summary.Skipped)
 	if record.Mutation != nil {
 		fmt.Printf("mutation: %s -> %s\n", record.Mutation.Spec.ID, record.Mutation.Outcome)
@@ -160,5 +225,17 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  sorna contract validate <path>")
 	fmt.Fprintln(os.Stderr, "  sorna contract seal <path> --output-dir <dir>")
-	fmt.Fprintln(os.Stderr, "  sorna run --contract <path> --base-url <url> [--output-dir <dir>]")
+	fmt.Fprintln(os.Stderr, "  sorna evidence verify <directory>")
+	fmt.Fprintln(os.Stderr, "  sorna run --contract <path> --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--output-dir <dir>]")
+}
+
+type stringList []string
+
+func (list *stringList) String() string {
+	return fmt.Sprint([]string(*list))
+}
+
+func (list *stringList) Set(value string) error {
+	*list = append(*list, value)
+	return nil
 }

@@ -38,6 +38,8 @@ These are starting points, not a second architecture document.
 - [A killed mutation proves sensitivity, not correctness](concepts/a-killed-mutation-proves-sensitivity.md)
 - [Mutation results separate target sensitivity from setup fallout](modules/sorna-mutation-result-model.md)
 - [A live process check adds lifecycle evidence without upgrading isolation assurance](modules/sorna-live-process-check.md)
+- [A managed subject lifecycle improves reproducibility without proving isolation](modules/sorna-managed-subject-lifecycle.md)
+- [A checksum-verified bundle proves artifact integrity, not isolation or correctness](modules/sorna-evidence-bundle.md)
 - [A fair mutation comparison requires the same sealed contract](concepts/fair-mutation-comparison-requires-the-same-contract.md)
 - [Go's JSON map ordering and canonical bytes](language/go-json-maps-and-canonical-bytes.md)
 - [Go's HTTP handler boundary supports serving and isolated testing](language/go-http-handlers-and-httptest.md)

@@ -5,16 +5,17 @@ Running Sorna against a separately started subject validates the real CLI and HT
 ## Origin
 
 The first live clean and defect runs used separate Go processes on localhost.
-The subject was started manually, Sorna connected through the public URL, and
-the subject was stopped after each run.
+The subject was initially started manually, Sorna connected through the public
+URL, and the subject was stopped after each run. The next slice moved that
+lifecycle into Sorna itself.
 
 ## What
 
-A process-level check exercises compilation, startup, port binding, request
-routing, state setup, response capture, artifact writing, and shutdown. It is
-stronger evidence of the integration path than an in-process handler test, but
-the current runner still receives an already-running URL and records assurance
-level 0.
+A process-level check exercises compilation, startup, port binding, readiness,
+request routing, state setup, response capture, artifact writing, and shutdown.
+Sorna now owns that lifecycle when `--subject-command` is supplied; an explicit
+external-URL mode remains available for comparison. Both modes record
+assurance level 0 until capability isolation exists.
 
 ## Why
 
@@ -32,8 +33,9 @@ defect process -> contract fail, status-200-create killed
 
 ## Gotchas
 
-- A future Sorna launcher needs readiness, timeout, teardown, and orphan-process
-  handling rather than relying on two terminal commands.
+- Managed runs need a declared readiness endpoint, startup timeout, shutdown
+  timeout, and process-group teardown rather than relying on two terminal
+  commands.
 - Port availability and process startup are part of the run evidence, not just
   developer convenience.
 - The process boundary should not be reported as capability isolation until the

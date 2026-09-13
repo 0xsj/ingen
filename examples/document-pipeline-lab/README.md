@@ -32,17 +32,23 @@ The current contract is a draft in [`contract/contract.yaml`](contract/contract.
 The clean Go subject now lives in [`subject/`](subject/). The oracle, defect
 variants, and run artifacts will be added one small step at a time.
 
-With the subject running in one terminal, the first Sorna runner can be
-started from another:
+The managed Sorna runner can launch the subject, wait for its readiness
+endpoint, run the contract, and tear the subject down:
 
 ```sh
 make sorna-run
 ```
 
-This runner evaluates all seven rules. Stateful rules use public setup requests
-and captures to establish their preconditions before the target request.
+The subject exposes `GET /healthz` for lifecycle readiness; this endpoint is
+operational plumbing, not one of the seven behavioral contract rules. Sorna
+evaluates all seven rules. Stateful rules use public setup requests and captures
+to establish their preconditions before the target request.
 
-The first controlled defect can be exercised with `make subject-defect-run` and
-then `make sorna-defect-run` in a second terminal. The defect run is expected to
-be red, is labeled `status-200-create`, and reports the mutation as `killed` in
-its run record.
+The first controlled defect can be exercised with:
+
+```sh
+make sorna-defect-run
+```
+
+The defect run is expected to be red, is labeled `status-200-create`, and
+reports the mutation as `killed` in its run record.

@@ -7,14 +7,17 @@ The runner observes a subject through HTTP so the first executable Sorna result 
 The first end-to-end verification slice after the document-pipeline subject was
 implemented. The subject's own tests establish local development behavior, but
 they cannot establish that Sorna is independent of the subject implementation.
+The runner now supports both an external URL and a Sorna-managed subject
+process; this note focuses on the public HTTP evaluation itself.
 
 ## What
 
-The runner loads and seals a contract, sends the rule's public HTTP request to
-an already-running base URL, normalizes the JSON response, evaluates the
-declared status/body predicates, and writes a JSON run record. Stateful rules
-execute their declared public setup sequence first and carry named captures
-into the target path.
+The runner loads and seals a contract, sends each rule's public HTTP request to
+a base URL, normalizes the JSON response, evaluates the declared status/body
+predicates, and writes a JSON run record. Stateful rules execute their
+declared public setup sequence first and carry named captures into the target
+path. The lifecycle manager may establish that base URL before the runner
+starts and records its own evidence beside the rule results.
 
 ## Why
 
@@ -26,8 +29,8 @@ its observations are retained in the rule result.
 ## Example
 
 ```text
-make subject-run       # terminal 1
-make sorna-run         # terminal 2
+make sorna-run         # Sorna manages the subject lifecycle
+make sorna-external-run # use an already-running subject
 ```
 
 The resulting `run.json` contains the sealed contract hash, request and

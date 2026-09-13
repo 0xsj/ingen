@@ -65,6 +65,12 @@ func NewHandler(store *Store) http.Handler {
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case r.URL.Path == "/healthz":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	case r.URL.Path == "/documents":
 		if r.Method != http.MethodPost {
 			methodNotAllowed(w, http.MethodPost)

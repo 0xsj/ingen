@@ -63,6 +63,21 @@ func TestDocumentWorkflowExposesContractedStatesAndResult(t *testing.T) {
 	}
 }
 
+func TestHealthEndpointSupportsManagedSubjectReadiness(t *testing.T) {
+	response := requestJSON(t, NewHandler(NewStore()), http.MethodGet, "/healthz", nil)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("health status = %d, want %d", response.Code, http.StatusOK)
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	decodeJSON(t, response, &body)
+	if body.Status != "ok" {
+		t.Fatalf("health body = %+v, want status=ok", body)
+	}
+}
+
 func TestCreateRejectsUnsupportedType(t *testing.T) {
 	response := requestJSON(t, NewHandler(NewStore()), http.MethodPost, "/documents", map[string]string{
 		"name":    "image.png",

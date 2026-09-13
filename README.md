@@ -45,10 +45,10 @@ becomes useful.
 ## Current status
 
 The design specifications and initial repository skeleton are in place. Sorna
-now has a first Go contract foundation that can load, validate, canonicalize,
-and seal the document-pipeline contract. The next implementation step is the
-subject and runner that prove the information barrier and evaluate known-bad
-and behaviour-preserving controls.
+now has a first Go contract foundation, a public-boundary runner, managed
+subject lifecycle, and a controlled defect that is detected by the sealed
+contract. The next implementation step is to turn lifecycle evidence into a
+real evidence bundle and then introduce capability enforcement.
 
 See [MODULES.md](MODULES.md) for the repository map and the intended status of
 each area.
@@ -60,16 +60,21 @@ make help
 make check
 make contract-validate
 make contract-seal
-make subject-run
-# in another terminal:
 make sorna-run
+make evidence-verify
 ```
 
-The subject listens on `:8080` by default. Use `make subject-run
-SUBJECT_ADDR=:8081` and `make sorna-run SUBJECT_URL=http://localhost:8081` to
-choose another address.
+`make sorna-run` launches the clean subject, waits for `GET /healthz`, runs the
+contract, writes an evidence bundle, and tears the subject down. The
+`make evidence-verify` target checks its recorded artifact hashes. The lower-level
+`make subject-run` plus `make sorna-external-run` targets remain available when
+you need to supply an already-running subject yourself.
 
-To exercise the first controlled defect, use the same two-terminal pattern with
-`make subject-defect-run` and then `make sorna-defect-run`. The output should
-show a failing contract verdict and a `killed` mutation outcome. In mutation
-mode, the command exits successfully when the declared mutation is killed.
+The managed subject listens on `:8080` by default. Use
+`make sorna-run SUBJECT_ADDR=:8081 SUBJECT_URL=http://localhost:8081` to choose
+another address.
+
+To exercise the first controlled defect, run `make sorna-defect-run`. The
+output should show a failing contract verdict and a `killed` mutation outcome.
+In mutation mode, the command exits successfully when the declared mutation is
+killed.
