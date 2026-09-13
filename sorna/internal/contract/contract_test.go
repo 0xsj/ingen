@@ -138,6 +138,21 @@ func TestValidationRejectsDuplicateRulesAndUnboundedGenerator(t *testing.T) {
 	}
 }
 
+func TestValidationRequiresSetupForStatefulRule(t *testing.T) {
+	document := minimalDocument()
+	document.Contract["rules"] = []any{map[string]any{
+		"id":       "stateful-rule",
+		"strength": "must",
+		"subject":  "GET /documents/{document_id}",
+		"given":    map[string]any{"state": "document_accepted"},
+	}}
+
+	problems := Validate(document)
+	if !containsProblem(problems, "given.setup is required") {
+		t.Fatalf("problems = %v, want missing setup problem", problems)
+	}
+}
+
 func minimalDocument() Document {
 	return Document{Contract: map[string]any{
 		"schema":      "ingen.contract/v1",

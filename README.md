@@ -52,3 +52,19 @@ and behaviour-preserving controls.
 
 See [MODULES.md](MODULES.md) for the repository map and the intended status of
 each area.
+
+## Quick start
+
+```sh
+make help
+make check
+make contract-validate
+make contract-seal
+make subject-run
+# in another terminal:
+make sorna-run
+```
+
+The subject listens on `:8080` by default. Use `make subject-run
+SUBJECT_ADDR=:8081` and `make sorna-run SUBJECT_URL=http://localhost:8081` to
+choose another address.

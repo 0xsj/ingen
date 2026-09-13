@@ -31,3 +31,13 @@ GET  /documents/{id}/result
 The current contract is a draft in [`contract/contract.yaml`](contract/contract.yaml).
 The clean Go subject now lives in [`subject/`](subject/). The oracle, defect
 variants, and run artifacts will be added one small step at a time.
+
+With the subject running in one terminal, the first Sorna runner can be
+started from another:
+
+```sh
+make sorna-run
+```
+
+This runner evaluates all seven rules. Stateful rules use public setup requests
+and captures to establish their preconditions before the target request.

@@ -33,10 +33,13 @@ These are starting points, not a second architecture document.
 ## Current notes
 
 - [The contract can cross language boundaries](concepts/the-contract-can-cross-language-boundaries.md)
+- [A state label is not an executable transition](concepts/a-state-label-is-not-a-transition.md)
+- [A subject URL is not an isolation boundary](concepts/a-url-is-not-an-isolation-boundary.md)
 - [Go's JSON map ordering and canonical bytes](language/go-json-maps-and-canonical-bytes.md)
 - [Go's HTTP handler boundary supports serving and isolated testing](language/go-http-handlers-and-httptest.md)
 - [A generated boundary must be finite and reproducible](techniques/a-generated-boundary-must-be-finite.md)
 - [The document subject keeps workflow transitions visible at the boundary](modules/document-pipeline-subject.md)
+- [The first Sorna runner accepts a subject URL instead of a subject package](modules/sorna-http-runner.md)
 
 This is intentionally a small corpus. New entries should come from
 implementation surprises and experiments, not invented prose.

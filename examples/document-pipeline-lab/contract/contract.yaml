@@ -69,9 +69,25 @@ contract:
 
     - id: document.status.exposes-queued-state
       strength: must
-      subject: GET /documents/{id}
+      subject: GET /documents/{document_id}
       given:
         state: document_accepted
+        setup:
+          - id: accept-document
+            request:
+              method: POST
+              path: /documents
+              body:
+                name: welcome.md
+                content: "Read the contract."
+            expect:
+              status: 202
+              body:
+                required: [id]
+                properties:
+                  id: {type: string, non_empty: true}
+            capture:
+              document_id: body.id
       expect:
         status: 200
         body:
@@ -81,9 +97,25 @@ contract:
 
     - id: document.process.valid-completes
       strength: must
-      subject: POST /documents/{id}/process
+      subject: POST /documents/{document_id}/process
       given:
         state: document_queued
+        setup:
+          - id: accept-document
+            request:
+              method: POST
+              path: /documents
+              body:
+                name: welcome.md
+                content: "Read the contract."
+            expect:
+              status: 202
+              body:
+                required: [id]
+                properties:
+                  id: {type: string, non_empty: true}
+            capture:
+              document_id: body.id
       expect:
         status: 200
         body:
@@ -93,12 +125,35 @@ contract:
 
     - id: document.result.exposes-derived-metadata
       strength: must
-      subject: GET /documents/{id}/result
+      subject: GET /documents/{document_id}/result
       given:
         state: document_completed
-        document:
-          name: welcome.md
-          content: "Read the contract."
+        setup:
+          - id: accept-document
+            request:
+              method: POST
+              path: /documents
+              body:
+                name: welcome.md
+                content: "Read the contract."
+            expect:
+              status: 202
+              body:
+                required: [id]
+                properties:
+                  id: {type: string, non_empty: true}
+            capture:
+              document_id: body.id
+          - id: process-document
+            request:
+              method: POST
+              path: /documents/{document_id}/process
+            expect:
+              status: 200
+              body:
+                required: [id, status]
+                properties:
+                  status: {equals: completed}
       expect:
         status: 200
         body:
@@ -111,7 +166,7 @@ contract:
 
     - id: document.process.missing-is-not-success
       strength: must
-      subject: POST /documents/{id}/process
+      subject: POST /documents/does-not-exist/process
       given:
         id: does-not-exist
       expect:

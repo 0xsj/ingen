@@ -159,6 +159,24 @@ func Validate(document Document) []string {
 			if strength != "unspecified" && !nonEmptyString(rule["subject"]) {
 				problems = append(problems, path+".subject is required for executable rules")
 			}
+			if given, present := rule["given"]; present {
+				givenBody, validGiven := given.(map[string]any)
+				if !validGiven {
+					problems = append(problems, path+".given must be an object")
+				} else {
+					if state, hasState := givenBody["state"]; hasState {
+						if !nonEmptyString(state) {
+							problems = append(problems, path+".given.state must be a non-empty string")
+						}
+						if _, hasSetup := givenBody["setup"]; !hasSetup {
+							problems = append(problems, path+".given.setup is required for stateful rules")
+						}
+					}
+					if setup, hasSetup := givenBody["setup"]; hasSetup {
+						validateSetup(setup, path+".given.setup", &problems)
+					}
+				}
+			}
 			validateGeneratedValues(rule, path, &problems)
 		}
 	}
@@ -390,6 +408,63 @@ func validateGeneratedValues(value any, path string, problems *[]string) {
 	case []any:
 		for index, child := range value {
 			validateGeneratedValues(child, fmt.Sprintf("%s[%d]", path, index), problems)
+		}
+	}
+}
+
+func validateSetup(value any, path string, problems *[]string) {
+	steps, ok := value.([]any)
+	if !ok || len(steps) == 0 {
+		*problems = append(*problems, path+" must be a non-empty list")
+		return
+	}
+	seen := make(map[string]bool, len(steps))
+	for index, value := range steps {
+		stepPath := fmt.Sprintf("%s[%d]", path, index)
+		step, validStep := value.(map[string]any)
+		if !validStep {
+			*problems = append(*problems, stepPath+" must be an object")
+			continue
+		}
+		stepID, validID := step["id"].(string)
+		if !validID || strings.TrimSpace(stepID) == "" {
+			*problems = append(*problems, stepPath+".id must be a non-empty string")
+		} else if seen[stepID] {
+			*problems = append(*problems, stepPath+".id duplicates "+fmt.Sprintf("%q", stepID))
+		} else {
+			seen[stepID] = true
+		}
+
+		request, validRequest := step["request"].(map[string]any)
+		if !validRequest {
+			*problems = append(*problems, stepPath+".request must be an object")
+		} else {
+			if !nonEmptyString(request["method"]) {
+				*problems = append(*problems, stepPath+".request.method must be a non-empty string")
+			}
+			requestPath, validPath := request["path"].(string)
+			if !validPath || !strings.HasPrefix(requestPath, "/") {
+				*problems = append(*problems, stepPath+".request.path must start with /")
+			}
+		}
+		if _, validExpect := step["expect"].(map[string]any); !validExpect {
+			*problems = append(*problems, stepPath+".expect must be an object")
+		}
+		if capture, present := step["capture"]; present {
+			captures, validCaptures := capture.(map[string]any)
+			if !validCaptures {
+				*problems = append(*problems, stepPath+".capture must be an object")
+			} else {
+				for name, selector := range captures {
+					if strings.TrimSpace(name) == "" {
+						*problems = append(*problems, stepPath+".capture names must be non-empty")
+					}
+					selectorText, validSelector := selector.(string)
+					if !validSelector || !strings.HasPrefix(selectorText, "body.") {
+						*problems = append(*problems, stepPath+".capture."+name+" must select a body field")
+					}
+				}
+			}
 		}
 	}
 }
