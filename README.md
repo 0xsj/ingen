@@ -68,3 +68,8 @@ make sorna-run
 The subject listens on `:8080` by default. Use `make subject-run
 SUBJECT_ADDR=:8081` and `make sorna-run SUBJECT_URL=http://localhost:8081` to
 choose another address.
+
+To exercise the first controlled defect, use the same two-terminal pattern with
+`make subject-defect-run` and then `make sorna-defect-run`. The output should
+show a failing contract verdict and a `killed` mutation outcome. In mutation
+mode, the command exits successfully when the declared mutation is killed.

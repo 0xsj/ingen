@@ -41,3 +41,8 @@ make sorna-run
 
 This runner evaluates all seven rules. Stateful rules use public setup requests
 and captures to establish their preconditions before the target request.
+
+The first controlled defect can be exercised with `make subject-defect-run` and
+then `make sorna-defect-run` in a second terminal. The defect run is expected to
+be red, is labeled `status-200-create`, and reports the mutation as `killed` in
+its run record.

@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	status200create "ingen/examples/document-pipeline-lab/defects/status-200-create"
 	documentpipeline "ingen/examples/document-pipeline-lab/subject"
 	"ingen/sorna/internal/contract"
+	"ingen/sorna/internal/mutation"
 )
 
 func TestExecuteDocumentPipelineContractAgainstCleanSubject(t *testing.T) {
@@ -38,6 +40,58 @@ func TestExecuteDocumentPipelineContractAgainstCleanSubject(t *testing.T) {
 	}
 	if record.Summary.Passed != 7 || record.Summary.Failed != 0 || record.Summary.Errors != 0 || record.Summary.Inconclusive != 0 {
 		t.Fatalf("summary = %+v, rules = %+v; want all seven rules to pass", record.Summary, record.Rules)
+	}
+	if record.Verdict.Status != "pass" {
+		t.Fatalf("contract verdict = %+v, want pass", record.Verdict)
+	}
+}
+
+func TestExecuteDetectsStatusMutation(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "examples", "document-pipeline-lab", "contract", "contract.yaml")
+	document, err := contract.LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := contract.Seal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cleanSubject := documentpipeline.NewHandler(documentpipeline.NewStore())
+	defectSubject := status200create.NewHandler(cleanSubject)
+	record, err := Execute(context.Background(), sealed, Config{
+		BaseURL: "http://subject.invalid",
+		Variant: "status-200-create",
+		Mutation: &mutation.Spec{
+			ID:              "status-200-create",
+			Plane:           "behavior",
+			Description:     "valid document creation returns 200 instead of 202",
+			ExpectedRuleIDs: []string{"document.create.valid.accepted"},
+		},
+		Client: &http.Client{Transport: handlerTransport{
+			handler: defectSubject,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Subject.Variant != "status-200-create" {
+		t.Fatalf("subject variant = %q, want status-200-create", record.Subject.Variant)
+	}
+	if record.Mutation == nil || record.Mutation.Outcome != "killed" {
+		t.Fatalf("mutation = %+v, want status-200-create killed", record.Mutation)
+	}
+	if record.Verdict.Status != "fail" {
+		t.Fatalf("contract verdict = %+v, want fail while mutation is killed", record.Verdict)
+	}
+	if record.Rules[0].Status != "fail" {
+		t.Fatalf("valid create result = %+v, want fail against status mutation", record.Rules[0])
+	}
+	if record.Rules[0].Assertions[0].Expected != json.Number("202") || record.Rules[0].Assertions[0].Actual != 200 {
+		t.Fatalf("status assertion = %+v, want expected 202 and actual 200", record.Rules[0].Assertions[0])
+	}
+	if record.Summary.Failed != 1 {
+		t.Fatalf("summary = %+v, want exactly one directly failed rule", record.Summary)
 	}
 }
 

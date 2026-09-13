@@ -10,11 +10,15 @@ SEALED_DIR ?= .artifacts/document-pipeline-contract
 SUBJECT_ADDR ?= :8080
 SUBJECT_URL ?= http://localhost:8080
 RUN_OUTPUT_DIR ?= .artifacts/document-pipeline-run
+DEFECT_ADDR ?= :8081
+DEFECT_URL ?= http://localhost:8081
+DEFECT_RUN_OUTPUT_DIR ?= .artifacts/document-pipeline-defect-status-200
 
 .DEFAULT_GOAL := help
 
 .PHONY: help build test test-race vet check \
-	contract-validate contract-seal subject-test subject-run sorna-run
+	contract-validate contract-seal subject-test subject-run sorna-run \
+	subject-defect-run sorna-defect-run
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -46,5 +50,11 @@ subject-test: ## Test the document-pipeline subject only
 subject-run: ## Run the document-pipeline subject on SUBJECT_ADDR
 	$(GO_CMD) run ./examples/document-pipeline-lab/subject/cmd/document-pipeline -addr "$(SUBJECT_ADDR)"
 
-sorna-run: ## Run Sorna against the subject at SUBJECT_URL
-	$(GO_CMD) run ./sorna/cmd/sorna run --contract "$(CONTRACT)" --base-url "$(SUBJECT_URL)" --output-dir "$(RUN_OUTPUT_DIR)"
+sorna-run: ## Run Sorna against the clean subject at SUBJECT_URL
+	$(GO_CMD) run ./sorna/cmd/sorna run --contract "$(CONTRACT)" --base-url "$(SUBJECT_URL)" --subject-variant clean-baseline --output-dir "$(RUN_OUTPUT_DIR)"
+
+subject-defect-run: ## Run the status-200-create defect subject on DEFECT_ADDR
+	$(GO_CMD) run ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect -addr "$(DEFECT_ADDR)"
+
+sorna-defect-run: ## Run Sorna against the status-200-create defect at DEFECT_URL
+	$(GO_CMD) run ./sorna/cmd/sorna run --contract "$(CONTRACT)" --base-url "$(DEFECT_URL)" --subject-variant status-200-create --mutation-id status-200-create --mutation-plane behavior --mutation-description "valid document creation returns 200 instead of 202" --expected-rule document.create.valid.accepted --output-dir "$(DEFECT_RUN_OUTPUT_DIR)"

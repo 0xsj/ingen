@@ -19,13 +19,16 @@ import (
 	"time"
 
 	"ingen/sorna/internal/contract"
+	"ingen/sorna/internal/mutation"
 )
 
 // Config controls the public HTTP subject that a run observes.
 type Config struct {
-	BaseURL string
-	Client  *http.Client
-	Now     func() time.Time
+	BaseURL  string
+	Client   *http.Client
+	Now      func() time.Time
+	Variant  string
+	Mutation *mutation.Spec
 }
 
 // RunRecord is the first machine-readable Sorna run artifact. It is
@@ -37,9 +40,16 @@ type RunRecord struct {
 	CreatedAt time.Time         `json:"created_at"`
 	Assurance Assurance         `json:"assurance"`
 	Contract  ContractReference `json:"contract"`
+	Verdict   ContractVerdict   `json:"contract_verdict"`
 	Subject   SubjectReference  `json:"subject"`
 	Summary   Summary           `json:"summary"`
 	Rules     []RuleResult      `json:"rules"`
+	Mutation  *mutation.Result  `json:"mutation,omitempty"`
+}
+
+type ContractVerdict struct {
+	Status string `json:"status"`
+	Reason string `json:"reason"`
 }
 
 type Assurance struct {
@@ -57,6 +67,7 @@ type ContractReference struct {
 type SubjectReference struct {
 	BaseURL string `json:"base_url"`
 	Adapter string `json:"adapter"`
+	Variant string `json:"variant,omitempty"`
 }
 
 type Summary struct {
@@ -146,6 +157,7 @@ func Execute(ctx context.Context, sealed contract.Sealed, config Config) (RunRec
 		Subject: SubjectReference{
 			BaseURL: strings.TrimRight(base.String(), "/"),
 			Adapter: "http-json-v1",
+			Variant: config.Variant,
 		},
 		Rules: make([]RuleResult, 0),
 	}
@@ -174,7 +186,29 @@ func Execute(ctx context.Context, sealed contract.Sealed, config Config) (RunRec
 			record.Summary.Skipped++
 		}
 	}
+	if config.Mutation != nil {
+		observations := make([]mutation.RuleObservation, 0, len(record.Rules))
+		for _, rule := range record.Rules {
+			observations = append(observations, mutation.RuleObservation{RuleID: rule.RuleID, Status: rule.Status})
+		}
+		classified := mutation.Classify(*config.Mutation, observations)
+		record.Mutation = &classified
+	}
+	record.Verdict = verdictFor(record.Summary)
 	return record, nil
+}
+
+func verdictFor(summary Summary) ContractVerdict {
+	switch {
+	case summary.Errors > 0:
+		return ContractVerdict{Status: "error", Reason: "one or more rules could not be evaluated"}
+	case summary.Failed > 0:
+		return ContractVerdict{Status: "fail", Reason: "one or more rules violated the contract"}
+	case summary.Inconclusive > 0 || summary.Skipped > 0:
+		return ContractVerdict{Status: "inconclusive", Reason: "one or more rules were not fully evaluated"}
+	default:
+		return ContractVerdict{Status: "pass", Reason: "all evaluated rules satisfied the contract"}
+	}
 }
 
 // Write writes the run record as JSON and returns its path.
