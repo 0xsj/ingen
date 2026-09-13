@@ -1,0 +1,318 @@
+# Sorna Evidence Specification
+
+Status: Draft design specification
+
+This document defines the evidence bundle produced by Sorna and the minimum
+provenance needed to make a result reproducible and honest about its level of
+assurance.
+
+Evidence does not make an incorrect contract correct. It makes the relationship
+between contract, oracle, implementation, execution, and result inspectable.
+
+## 1. Goals
+
+Sorna evidence should allow a reviewer to answer:
+
+- Which contract was evaluated?
+- Which oracle and concrete cases were used?
+- Was the oracle frozen before implementation results were visible?
+- What implementation revision ran?
+- What public observations occurred?
+- Which contract rules passed or failed?
+- Which mutations were killed or survived?
+- What access policy and environment were used?
+- Can the run be replayed or explained?
+
+## 2. Evidence levels
+
+The result must state its assurance level rather than implying that all runs
+have the same strength.
+
+### Level 0: self-reported
+
+The runner reports inputs and results, but there is no reliable access-boundary
+evidence. Useful for development; not an independence claim.
+
+### Level 1: reproducible
+
+Contracts, oracle artifacts, implementation revisions, seeds, environment
+versions, and results are hashed and stored. A second party can replay the
+run, but the oracle boundary is not structurally enforced.
+
+### Level 2: capability-isolated
+
+The oracle-generation process runs with explicit allowed inputs, denied roots,
+and runner capabilities. Access policy and enforcement results are recorded.
+
+### Level 3: externally attested
+
+Level 2 plus an independent trusted system attests to the execution boundary
+and artifact custody. This is future scope; Sorna should not claim it in the
+initial release.
+
+The manifest must contain one of these levels and a list of reasons for any
+reduction in assurance.
+
+## 3. Bundle layout
+
+An evidence bundle is an immutable directory or archive:
+
+```text
+run/
+  manifest.json
+  contract/
+    contract.yaml
+    canonical.json
+    hash.txt
+  oracle/
+    source/
+    frozen-cases.jsonl
+    hash.txt
+  policy/
+    isolation.yaml
+    tool-policy.json
+  sut/
+    revision.json
+  observations/
+    case-0001.json
+    case-0002.json
+  results/
+    rules.jsonl
+    summary.json
+  mutations/
+    catalogue.jsonl
+    results.jsonl
+  events/
+    lifecycle.jsonl
+    access.jsonl
+  review/
+    approvals.json
+    waivers.json
+  checksums.sha256
+```
+
+The exact storage backend may change. Logical artifact names and their hashes
+must remain stable.
+
+## 4. Run manifest
+
+The manifest is the entry point for the evidence bundle:
+
+```json
+{
+  "schema": "sorna.evidence/v1",
+  "run_id": "sorna-2026-0001",
+  "created_at": "2026-09-12T12:00:00Z",
+  "assurance": {
+    "level": 2,
+    "status": "capability-isolated",
+    "limitations": []
+  },
+  "contract": {
+    "id": "todo-api",
+    "version": 1,
+    "sha256": "..."
+  },
+  "oracle": {
+    "artifact_sha256": "...",
+    "case_manifest_sha256": "...",
+    "generator_seed": 4242,
+    "frozen_at": "2026-09-12T11:58:00Z"
+  },
+  "sut": {
+    "revision": "git:abc123",
+    "image_digest": null,
+    "adapter": "http-json-v1"
+  },
+  "policy": {
+    "isolation_sha256": "...",
+    "tool_policy_sha256": "..."
+  },
+  "results": {
+    "rules": {"passed": 15, "failed": 3, "inconclusive": 0},
+    "mutations": {"killed": 8, "survived": 1, "equivalent": 1}
+  },
+  "artifacts_sha256": "..."
+}
+```
+
+The manifest must not contain secrets. Secret-bearing observations should be
+redacted with a recorded redaction rule and digest where possible.
+
+## 5. Artifact integrity
+
+Every material artifact is content-addressed or included in
+`checksums.sha256`. At minimum, hash:
+
+- canonical contract;
+- contract fixtures;
+- oracle source and generated cases;
+- isolation and tool policies;
+- implementation revision or image digest;
+- normalized observations;
+- rule results;
+- mutation catalogue and results;
+- approval and waiver records.
+
+The final manifest is written only after these artifact hashes exist. If an
+artifact changes, the run ID must be treated as a new run or explicitly marked
+invalid.
+
+Sorna should provide a verification command that checks hashes and reports the
+first mismatch. Hashing is an integrity mechanism, not proof that an artifact
+was originally correct.
+
+## 6. Lifecycle events
+
+Events are append-only JSON Lines records. Each event includes:
+
+```json
+{
+  "event_id": "evt-0007",
+  "run_id": "sorna-2026-0001",
+  "sequence": 7,
+  "timestamp": "2026-09-12T12:01:00Z",
+  "actor": "oracle-runner",
+  "kind": "oracle.frozen",
+  "payload": {
+    "artifact_sha256": "...",
+    "case_count": 18
+  }
+}
+```
+
+Important lifecycle events include:
+
+- `run.created`;
+- `contract.loaded`;
+- `contract.sealed-verified`;
+- `oracle.generation.started`;
+- `oracle.generation.completed`;
+- `oracle.frozen`;
+- `sut.access.granted`;
+- `case.started` and `case.completed`;
+- `mutation.injected` and `mutation.completed`;
+- `review.approved`, `review.waived`, and `run.finalized`.
+
+Events must be ordered, but wall-clock time alone must not be treated as a
+security boundary. Structural access policy remains authoritative.
+
+## 7. Access evidence
+
+Where the platform supports it, record:
+
+- process identity and sandbox identity;
+- allowed and denied roots;
+- attempted file opens and denied accesses;
+- network policy and connection attempts;
+- tools invoked and arguments after secret redaction;
+- workspace and worktree identifiers;
+- artifact reads and writes;
+- policy violations and enforcement outcomes.
+
+The evidence record must distinguish:
+
+- an action that was not attempted;
+- an action that was attempted and denied;
+- an action that was allowed;
+- an action for which the platform has no observation.
+
+“No event recorded” is not equivalent to “the action did not happen.”
+
+## 8. Rule result schema
+
+Each contract rule result should include:
+
+```json
+{
+  "rule_id": "todo.create.rejects-empty-title",
+  "case_id": "case-0004",
+  "status": "pass",
+  "subject": "POST /api/todos",
+  "observation_sha256": "...",
+  "assertions": [
+    {"path": "status", "expected": 400, "actual": 400, "status": "pass"},
+    {"path": "error.code", "expected": "invalid_title", "actual": "invalid_title", "status": "pass"}
+  ],
+  "duration_ms": 12
+}
+```
+
+Allowed statuses are `pass`, `fail`, `error`, `timeout`, `inconclusive`, and
+`skipped`. Every non-pass result requires a reason. Every result must point to
+a contract rule and a concrete case.
+
+## 9. Mutation evidence
+
+Mutation records must include:
+
+- mutation ID and plane;
+- target revision or artifact hash;
+- mutation description and operator;
+- baseline result reference;
+- affected rule IDs if known;
+- outcome;
+- execution duration;
+- reason for `equivalent`, `invalid`, or `inconclusive` classification;
+- supporting observations.
+
+Mutation score must be calculated from the declared denominator and must not
+silently exclude survivors. Exclusions require a reason and reviewer identity.
+
+## 10. Review and waivers
+
+Review records should identify:
+
+- reviewer or agent identity;
+- artifact hash reviewed;
+- decision and timestamp;
+- comments;
+- scope of any waiver;
+- expiration or follow-up issue.
+
+A waiver changes the acceptance decision; it does not rewrite a failed result.
+
+## 11. Replay
+
+A replay requires:
+
+- the same contract version;
+- the same oracle artifact;
+- the same fixture hashes;
+- the same generator seed;
+- an equivalent adapter and environment;
+- the implementation revision or mutation patch;
+- the recorded policy.
+
+Replay may produce a different result when nondeterminism is part of the
+system. In that case, Sorna must report the divergence rather than replacing
+the original evidence.
+
+## 12. Retention and redaction
+
+Evidence should be retained long enough to investigate regressions and compare
+contract versions. Retention policy must define:
+
+- artifact lifetime;
+- who can read raw observations;
+- what is redacted;
+- how redactions are represented;
+- whether a redacted bundle remains replayable;
+- deletion and legal-hold behavior.
+
+Logs must not accidentally expose credentials, personal data, or private
+implementation source. Redaction must itself be recorded.
+
+## 13. MVP acceptance criteria
+
+The first implementation is evidence-complete when it can:
+
+- produce a manifest with contract, oracle, SUT, and policy hashes;
+- emit rule results as JSONL;
+- emit mutation results as JSONL;
+- verify artifact checksums;
+- identify the assurance level;
+- distinguish denied access from missing access telemetry;
+- preserve failed results and waivers without overwriting them;
+- replay a deterministic HTTP/JSON experiment.
+

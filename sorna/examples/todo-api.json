@@ -1,0 +1,67 @@
+{
+  "contract": {
+    "schema": "sorna.contract/v1",
+    "id": "todo-api",
+    "version": 1,
+    "status": "draft",
+    "title": "Todo HTTP boundary",
+    "interface": {
+      "kind": "http-json",
+      "base_url": "http://sut.invalid",
+      "public_entrypoints": [
+        {"method": "POST", "path": "/api/todos"},
+        {"method": "GET", "path": "/api/todos"},
+        {"method": "POST", "path": "/api/todos/{id}/complete"}
+      ]
+    },
+    "rules": [
+      {
+        "id": "todo.create.valid.status",
+        "strength": "must",
+        "subject": "POST /api/todos",
+        "given": {"body": {"title": "Read the contract"}},
+        "expect": {"status": 201}
+      },
+      {
+        "id": "todo.create.valid.shape",
+        "strength": "must",
+        "subject": "POST /api/todos",
+        "expect": {
+          "body": {
+            "type": "object",
+            "required": ["id", "title", "completed"],
+            "properties": {
+              "id": {"type": "string", "non_empty": true},
+              "title": {"equals": "Read the contract"},
+              "completed": {"type": "boolean", "equals": false}
+            }
+          }
+        }
+      },
+      {
+        "id": "todo.create.empty-title",
+        "strength": "must",
+        "subject": "POST /api/todos",
+        "given": {"body": {"title": ""}},
+        "expect": {"status": 400, "error": {"code": "invalid_title"}}
+      },
+      {
+        "id": "todo.list.includes-created",
+        "strength": "must",
+        "subject": "GET /api/todos",
+        "invariant": "A successfully created todo is observable in a later list."
+      },
+      {
+        "id": "todo.complete.valid",
+        "strength": "must",
+        "subject": "POST /api/todos/{id}/complete",
+        "expect": {"body": {"completed": {"equals": true}}}
+      }
+    ],
+    "unspecified": [
+      "generated id format",
+      "created_at field format",
+      "ordering of unrelated todos"
+    ]
+  }
+}

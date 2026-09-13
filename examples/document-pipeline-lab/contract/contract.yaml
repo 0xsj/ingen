@@ -1,0 +1,126 @@
+contract:
+  schema: ingen.contract/v1
+  id: document-pipeline
+  version: 1
+  status: draft
+  title: Deterministic document processing boundary
+
+  interface:
+    kind: http-json
+    public_entrypoints:
+      - method: POST
+        path: /documents
+      - method: GET
+        path: /documents/{id}
+      - method: POST
+        path: /documents/{id}/process
+      - method: GET
+        path: /documents/{id}/result
+
+  vocabulary:
+    document_name: non-empty UTF-8 string with a supported .md or .txt suffix
+    document_content: UTF-8 text no larger than 4096 bytes
+
+  rules:
+    - id: document.create.valid.accepted
+      strength: must
+      subject: POST /documents
+      given:
+        body:
+          name: welcome.md
+          content: "# Welcome\n\nRead the contract."
+      expect:
+        status: 202
+        body:
+          type: object
+          required: [id, name, status]
+          properties:
+            id: {type: string, non_empty: true}
+            name: {equals: welcome.md}
+            status: {equals: queued}
+
+    - id: document.create.rejects-unsupported-type
+      strength: must
+      subject: POST /documents
+      given:
+        body:
+          name: image.png
+          content: not an accepted document
+      expect:
+        status: 400
+        error:
+          code: unsupported_document_type
+
+    - id: document.create.rejects-oversize
+      strength: must
+      subject: POST /documents
+      given:
+        body:
+          name: too-large.txt
+          content:
+            generated:
+              kind: repeat
+              value: a
+              count: 4097
+      expect:
+        status: 413
+        error:
+          code: document_too_large
+
+    - id: document.status.exposes-queued-state
+      strength: must
+      subject: GET /documents/{id}
+      given:
+        state: document_accepted
+      expect:
+        status: 200
+        body:
+          required: [id, name, status]
+          properties:
+            status: {equals: queued}
+
+    - id: document.process.valid-completes
+      strength: must
+      subject: POST /documents/{id}/process
+      given:
+        state: document_queued
+      expect:
+        status: 200
+        body:
+          required: [id, status]
+          properties:
+            status: {equals: completed}
+
+    - id: document.result.exposes-derived-metadata
+      strength: must
+      subject: GET /documents/{id}/result
+      given:
+        state: document_completed
+        document:
+          name: welcome.md
+          content: "Read the contract."
+      expect:
+        status: 200
+        body:
+          type: object
+          required: [document_id, content_sha256, word_count]
+          properties:
+            document_id: {type: string, non_empty: true}
+            content_sha256: {type: string, non_empty: true}
+            word_count: {type: integer, equals: 3}
+
+    - id: document.process.missing-is-not-success
+      strength: must
+      subject: POST /documents/{id}/process
+      given:
+        id: does-not-exist
+      expect:
+        status: 404
+        error:
+          code: document_not_found
+
+  unspecified:
+    - generated document id format
+    - queue and processor implementation
+    - exact processing duration
+    - JSON member ordering

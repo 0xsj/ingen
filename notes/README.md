@@ -1,0 +1,42 @@
+# InGen notes
+
+This is the learning corpus for InGen. It records language concepts, substrate
+behavior, implementation techniques, reusable patterns, and verification
+principles that the code cannot express by itself.
+
+Start with [NOTES.md](../NOTES.md) for the protocol. Notes are written as the
+work happens, not as a summary pass after the project is finished.
+
+## Categories
+
+| Directory | Use it for | Staleness |
+| --- | --- | --- |
+| [`modules/`](modules/) | one package or implementation slice | code changes |
+| [`substrate/`](substrate/) | Go, the runtime, OS, tools, and dependencies | version changes |
+| [`patterns/`](patterns/) | architectural shapes that recur | architecture changes |
+| [`techniques/`](techniques/) | reusable ways of implementing or testing | rarely |
+| [`language/`](language/) | Go and other language mechanics | language/runtime changes |
+| [`concepts/`](concepts/) | InGen's verification and domain principles | concept changes |
+| [`decision-adjacent/`](decision-adjacent/) | reasoning that needs more room than a decision | decision context changes |
+
+## Reading orders
+
+These are starting points, not a second architecture document.
+
+| Intent | Begin with |
+| --- | --- |
+| I am about to write Go infrastructure | `language/` → `substrate/` → `techniques/` |
+| I am about to add a Sorna capability | `concepts/` → `patterns/` → the relevant `modules/` |
+| I just got an unexpected mutation result | `concepts/` → `techniques/` → the affected module note |
+| I am changing a workflow boundary | `patterns/` → `concepts/` → decision records |
+
+## Current notes
+
+- [The contract can cross language boundaries](concepts/the-contract-can-cross-language-boundaries.md)
+- [Go's JSON map ordering and canonical bytes](language/go-json-maps-and-canonical-bytes.md)
+- [Go's HTTP handler boundary supports serving and isolated testing](language/go-http-handlers-and-httptest.md)
+- [A generated boundary must be finite and reproducible](techniques/a-generated-boundary-must-be-finite.md)
+- [The document subject keeps workflow transitions visible at the boundary](modules/document-pipeline-subject.md)
+
+This is intentionally a small corpus. New entries should come from
+implementation surprises and experiments, not invented prose.
