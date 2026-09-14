@@ -50,6 +50,11 @@ func TestLoadRejectsInvalidPolicies(t *testing.T) {
 			change:  "unsupported-rule",
 			wantErr: `rule "bad-rule" has unsupported kind "unknown"`,
 		},
+		{
+			name:    "unsupported severity",
+			change:  "unsupported-severity",
+			wantErr: `rule "bad-severity" has unsupported severity "notice"`,
+		},
 	}
 
 	for _, test := range tests {
@@ -61,6 +66,8 @@ func TestLoadRejectsInvalidPolicies(t *testing.T) {
 				contents += "  - id: same\n    kind: no-cycles\n  - id: same\n    kind: coverage\n"
 			case "unsupported-rule":
 				contents += "  - id: bad-rule\n    kind: unknown\n"
+			case "unsupported-severity":
+				contents += "  - id: bad-severity\n    kind: no-cycles\n    severity: notice\n"
 			case "language: ''":
 				contents = strings.Replace(contents, "  language: go", "  language: ''", 1)
 			case "language: rust":
@@ -153,6 +160,68 @@ func TestLoadRejectsInvalidWaivers(t *testing.T) {
 				t.Fatalf("error = %q, want substring %q", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestLoadDefaultsSourceUnitByLanguage(t *testing.T) {
+	tests := []struct {
+		name     string
+		language string
+		wantUnit string
+	}{
+		{name: "go", language: "go", wantUnit: "package"},
+		{name: "typescript", language: "typescript", wantUnit: "file"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "policy.yaml")
+			contents := strings.Replace(validPolicy, "  language: go", "  language: "+test.language, 1)
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := policy.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if loaded.Source.Unit != test.wantUnit {
+				t.Fatalf("source.unit = %q, want %q", loaded.Source.Unit, test.wantUnit)
+			}
+		})
+	}
+}
+
+func TestLoadDefaultsRuleSeverity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.yaml")
+	contents := validPolicy + `  - id: default-severity
+    kind: no-cycles
+  - id: warning-severity
+    kind: coverage
+    severity: warning
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := policy.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Rules[0].Severity != "error" || loaded.Rules[1].Severity != "warning" {
+		t.Fatalf("rule severities = %#v, want error and warning", loaded.Rules)
+	}
+}
+
+func TestLoadRejectsTransitiveNonRequiredRule(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.yaml")
+	contents := validPolicy + `  - id: invalid-transitive
+    kind: no-cycles
+    transitive: true
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := policy.Load(path)
+	if err == nil || !strings.Contains(err.Error(), "may use transitive only with required-dependency") {
+		t.Fatalf("policy.Load error = %v, want transitive validation error", err)
 	}
 }
 

@@ -160,16 +160,19 @@ func TestWriteOracleBundleAndVerify(t *testing.T) {
 	}
 	now := time.Date(2026, 9, 14, 5, 0, 0, 0, time.UTC)
 	execution := OracleExecution{
-		ExecutionID:  "oracle-evidence-test",
-		Mode:         "sandboxed-process",
-		Command:      []string{"sorna", "oracle", "generate"},
-		WorkingDir:   directory,
-		Backend:      "test-backend",
-		Enforcement:  "host-enforced",
-		PolicySHA256: sealedPolicy.SHA256,
-		StartedAt:    now,
-		CompletedAt:  now.Add(time.Second),
-		Outcome:      "completed",
+		ExecutionID:      "oracle-evidence-test",
+		Mode:             "sandboxed-process",
+		Command:          []string{"sorna", "oracle", "generate"},
+		WorkingDir:       directory,
+		Backend:          "test-backend",
+		Enforcement:      "host-enforced",
+		PolicySHA256:     sealedPolicy.SHA256,
+		SubjectID:        "contract-test",
+		ExecutablePath:   "/bin/sh",
+		ExecutableSHA256: strings.Repeat("b", 64),
+		StartedAt:        now,
+		CompletedAt:      now.Add(time.Second),
+		Outcome:          "completed",
 		Events: []OracleExecutionEvent{{
 			EventID: "evt-0001", Sequence: 1, Timestamp: now, Kind: "oracle.process.completed",
 		}},
@@ -227,6 +230,6 @@ func testPolicy() policy.Document {
 			"deny":  []any{map[string]any{"path": "implementation", "reason": "blocked"}},
 		},
 		"network": map[string]any{"mode": "disabled"},
-		"process": map[string]any{"can_invoke_subject": false},
+		"process": map[string]any{"subject_id": "contract-test", "can_invoke_subject": false},
 	}}
 }

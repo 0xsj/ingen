@@ -32,4 +32,5 @@ policy:
         purpose: local Sorna readiness and public HTTP requests
 
   process:
+    subject_id: document-pipeline
     can_invoke_subject: false

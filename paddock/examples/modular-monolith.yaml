@@ -3,6 +3,7 @@ project: modular-monolith
 
 source:
   language: go
+  unit: package
   roots: [cmd, internal, pkg]
 
 components:

@@ -19,6 +19,9 @@ func TestLoadAndSealDocumentPipelinePolicy(t *testing.T) {
 	if sealed.SHA256 == "" || sealed.Reference().ID != "document-pipeline-oracle" || sealed.Reference().Version != 1 {
 		t.Fatalf("sealed policy reference = %+v, want stable identity and hash", sealed.Reference())
 	}
+	if subjectID, err := SubjectID(sealed.Document); err != nil || subjectID != "document-pipeline" {
+		t.Fatalf("sealed policy subject ID = %q, err = %v; want document-pipeline", subjectID, err)
+	}
 	if sealed.Document.Policy["status"] != "sealed" {
 		t.Fatalf("sealed status = %v, want sealed", sealed.Document.Policy["status"])
 	}
@@ -48,7 +51,7 @@ func TestValidateReportsOverlappingFilesystemPathsAndNetworkErrors(t *testing.T)
 				"ports":   []any{int64(0), int64(70000)},
 			}},
 		},
-		"process": map[string]any{"can_invoke_subject": "no"},
+		"process": map[string]any{"subject_id": "test-subject", "can_invoke_subject": "no"},
 	}}
 	problems := Validate(document)
 	joined := strings.Join(problems, "\n")
@@ -72,6 +75,15 @@ func TestSealRejectsNonDraftPolicy(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresProcessSubjectIdentity(t *testing.T) {
+	document := validPolicy()
+	delete(document.Policy["process"].(map[string]any), "subject_id")
+	problems := strings.Join(Validate(document), "\n")
+	if !strings.Contains(problems, "policy.process.subject_id must be a non-empty string") {
+		t.Fatalf("validation problems = %s, want missing subject identity", problems)
+	}
+}
+
 func validPolicy() Document {
 	return Document{Policy: map[string]any{
 		"schema":      "ingen.policy/v1",
@@ -86,6 +98,6 @@ func validPolicy() Document {
 			"deny":  []any{map[string]any{"path": "implementation", "reason": "blocked"}},
 		},
 		"network": map[string]any{"mode": "disabled"},
-		"process": map[string]any{"can_invoke_subject": false},
+		"process": map[string]any{"subject_id": "test-subject", "can_invoke_subject": false},
 	}}
 }

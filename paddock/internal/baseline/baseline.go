@@ -15,10 +15,11 @@ import (
 const schema = "paddock.baseline/v1"
 
 type Snapshot struct {
-	Schema     string  `json:"schema"`
-	ModulePath string  `json:"module_path"`
-	Policy     string  `json:"policy,omitempty"`
-	Entries    []Entry `json:"entries"`
+	Schema       string  `json:"schema"`
+	ModulePath   string  `json:"module_path"`
+	Policy       string  `json:"policy,omitempty"`
+	PolicySHA256 string  `json:"policy_sha256"`
+	Entries      []Entry `json:"entries"`
 }
 
 type Entry struct {
@@ -32,7 +33,7 @@ type Entry struct {
 	Message     string `json:"message,omitempty"`
 }
 
-func Build(result *model.Result) Snapshot {
+func Build(result *model.Result, policySHA256 string) Snapshot {
 	entries := make([]Entry, 0, len(result.Findings))
 	seen := map[string]bool{}
 	for _, finding := range result.Findings {
@@ -59,10 +60,11 @@ func Build(result *model.Result) Snapshot {
 		return entries[i].Fingerprint < entries[j].Fingerprint
 	})
 	return Snapshot{
-		Schema:     schema,
-		ModulePath: result.ModulePath,
-		Policy:     result.Policy,
-		Entries:    entries,
+		Schema:       schema,
+		ModulePath:   result.ModulePath,
+		Policy:       result.Policy,
+		PolicySHA256: policySHA256,
+		Entries:      entries,
 	}
 }
 
@@ -112,6 +114,12 @@ func (s Snapshot) Validate() error {
 	if s.Schema != schema {
 		return fmt.Errorf("baseline schema must be %s, got %q", schema, s.Schema)
 	}
+	if len(s.PolicySHA256) != 64 {
+		return fmt.Errorf("baseline policy_sha256 must be a 64-character SHA-256 digest")
+	}
+	if _, err := hex.DecodeString(s.PolicySHA256); err != nil {
+		return fmt.Errorf("baseline policy_sha256 must be a hexadecimal SHA-256 digest")
+	}
 	seen := map[string]bool{}
 	for _, entry := range s.Entries {
 		if entry.Fingerprint == "" {
@@ -134,9 +142,12 @@ func (s Snapshot) Validate() error {
 	return nil
 }
 
-func Apply(result *model.Result, snapshot Snapshot, path string) error {
+func Apply(result *model.Result, snapshot Snapshot, path, policySHA256 string) error {
 	if snapshot.ModulePath != "" && snapshot.ModulePath != result.ModulePath {
 		return fmt.Errorf("baseline module %q does not match source module %q", snapshot.ModulePath, result.ModulePath)
+	}
+	if snapshot.PolicySHA256 == "" || snapshot.PolicySHA256 != policySHA256 {
+		return fmt.Errorf("baseline policy hash does not match the current policy; regenerate the baseline")
 	}
 	byFingerprint := make(map[string]Entry, len(snapshot.Entries))
 	for _, entry := range snapshot.Entries {

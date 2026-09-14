@@ -106,6 +106,7 @@ func LoadGo(root string) (*model.Graph, error) {
 					FromImportPath: item.ImportPath,
 					FromPath:       pkg.RelPath,
 					ToImportPath:   imported.Path,
+					Kind:           "import",
 					TargetKind:     targetKind(imported.Path, target),
 					File:           filepath.ToSlash(filepath.Join(pkg.RelPath, name)),
 					Line:           imported.Line,

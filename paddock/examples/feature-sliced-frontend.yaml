@@ -3,6 +3,7 @@ project: feature-sliced-frontend
 
 source:
   language: typescript
+  unit: file
   roots: [src]
 
 components:
@@ -71,3 +72,6 @@ rules:
     kind: no-cycles
     message: frontend layers and features must remain acyclic
 
+  - id: no-unresolved-imports
+    kind: unresolved
+    message: every relative or configured alias import must resolve to a source file

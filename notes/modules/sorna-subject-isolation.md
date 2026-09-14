@@ -20,6 +20,13 @@ oracle, and Git roots, and allow only the declared local HTTP listener. The
 subject's host access events are written to `events/subject-access.jsonl`,
 separate from the oracle bundle's `events/access.jsonl`.
 
+Both policies now carry `process.subject_id`, and Sorna checks that value
+against the sealed contract ID before launching the relevant process. This is
+a logical identity binding; it is not yet an attested mapping from the ID to
+every OS process in the subject's tree. The sandbox also records the resolved
+launch executable and digest, which binds the evidence to a concrete artifact
+without independently attesting the running process.
+
 ## Why
 
 Oracle generation needs contract inputs and no subject access. A subject needs
@@ -36,18 +43,26 @@ from treating one process's observations as proof about the other.
   outbound-only host/port allowlist is insufficient.
 - The policy schema now carries an optional network direction. Omitting it
   preserves the original outbound allowlist behavior.
+- Seatbelt now restricts a managed subject to its prepared executable and any
+  explicitly resolved `allowed_tools`. The executable is still allowed as the
+  initial process even when `can_invoke_subject` is false; that field describes
+  whether the role may invoke a named subject, which is not yet a distinct
+  process identity in this policy.
+- Access events include the root PID and any descendants observed by the
+  sampler. This improves attribution for helper processes without claiming
+  complete process-tree observation.
 - The run remains assurance level 0. Host enforcement and host logs are useful
   evidence, but they do not independently attest to complete observation or
-  process/tool isolation.
+  subject identity enforcement.
 
 ## Limits
 
 - The current backend is macOS Seatbelt-specific and supports TCP host/port
   rules, not unrestricted network access.
-- Process and tool declarations are still policy data rather than enforced
-  controls.
-- Access telemetry is scoped to the launched process ID; descendant process
-  correlation is a later slice.
+- `can_invoke_subject` remains semantic until the logical subject identity can
+  be independently bound to an OS executable or process namespace.
+- Descendant correlation is best-effort sampling and can miss short-lived
+  processes; it is not an attested process namespace.
 - An already-running external URL cannot receive this subject policy.
 
 ## Used in

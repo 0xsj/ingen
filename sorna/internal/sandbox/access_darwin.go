@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,11 +23,17 @@ var accessProcessIDPattern = regexp.MustCompile(`^Sandbox: [^\s(]+\(([0-9]+)\)`)
 var accessProcessIDSearchPattern = regexp.MustCompile(`Sandbox: [^\s(]+\(([0-9]+)\)`)
 
 type darwinAccessCapture struct {
-	ctx      context.Context
-	started  time.Time
-	stopOnce sync.Once
-	result   AccessReport
-	err      error
+	ctx               context.Context
+	started           time.Time
+	mu                sync.Mutex
+	processIDs        map[int]struct{}
+	samplerStop       chan struct{}
+	samplerDone       chan struct{}
+	samplerStarted    bool
+	processTreeErrors int
+	stopOnce          sync.Once
+	result            AccessReport
+	err               error
 }
 
 type macOSLogEvent struct {
@@ -38,15 +45,50 @@ func startAccessCapture(ctx context.Context) (AccessCapture, error) {
 	if _, err := exec.LookPath("/usr/bin/log"); err != nil {
 		return nil, fmt.Errorf("resolve macOS log collector: %w", err)
 	}
-	return &darwinAccessCapture{ctx: ctx, started: time.Now()}, nil
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &darwinAccessCapture{
+		ctx:        ctx,
+		started:    time.Now(),
+		processIDs: make(map[int]struct{}),
+	}, nil
+}
+
+func (capture *darwinAccessCapture) Attach(processID int) error {
+	if processID <= 0 {
+		return fmt.Errorf("access capture process ID must be positive")
+	}
+	capture.mu.Lock()
+	capture.processIDs[processID] = struct{}{}
+	if !capture.samplerStarted {
+		capture.samplerStarted = true
+		capture.samplerStop = make(chan struct{})
+		capture.samplerDone = make(chan struct{})
+		go capture.sampleProcessTree(processID)
+	}
+	capture.mu.Unlock()
+	return nil
 }
 
 func (capture *darwinAccessCapture) Stop(processID int) (AccessReport, error) {
 	capture.stopOnce.Do(func() {
+		if processID > 0 {
+			capture.mu.Lock()
+			capture.processIDs[processID] = struct{}{}
+			capture.mu.Unlock()
+		}
+		capture.stopSampler()
+		processIDs := capture.snapshotProcessIDs()
+		processTreeErrors := capture.snapshotProcessTreeErrors()
+		if len(processIDs) == 0 {
+			capture.result = AccessReport{Source: "macos-unified-log", ProcessTreeErrors: processTreeErrors}
+			return
+		}
 		ended := time.Now()
 		start := capture.started.Truncate(time.Second).Add(-time.Second)
 		end := ended.Truncate(time.Second).Add(time.Second)
-		predicate := fmt.Sprintf(`eventMessage CONTAINS[c] "Sandbox:" AND eventMessage CONTAINS[c] "(%d)"`, processID)
+		predicate := `eventMessage CONTAINS[c] "Sandbox:"`
 		command := exec.CommandContext(capture.ctx, "/usr/bin/log", "show",
 			"--style", "ndjson",
 			"--debug",
@@ -61,14 +103,115 @@ func (capture *darwinAccessCapture) Stop(processID int) (AccessReport, error) {
 			capture.err = fmt.Errorf("query macOS sandbox log: %w", err)
 			return
 		}
-		events, parseErrors := parseAccessOutput(output, processID)
+		processSet := make(map[int]struct{}, len(processIDs))
+		for _, processID := range processIDs {
+			processSet[processID] = struct{}{}
+		}
+		events, parseErrors := parseAccessOutputForProcesses(output, processSet)
 		capture.result = AccessReport{
-			Source:      "macos-unified-log",
-			Events:      events,
-			ParseErrors: parseErrors,
+			Source:            "macos-unified-log",
+			Events:            events,
+			ProcessIDs:        processIDs,
+			ParseErrors:       parseErrors,
+			ProcessTreeErrors: processTreeErrors,
 		}
 	})
 	return capture.result, capture.err
+}
+
+func (capture *darwinAccessCapture) stopSampler() {
+	capture.mu.Lock()
+	if !capture.samplerStarted {
+		capture.mu.Unlock()
+		return
+	}
+	select {
+	case <-capture.samplerStop:
+	default:
+		close(capture.samplerStop)
+	}
+	done := capture.samplerDone
+	capture.mu.Unlock()
+	<-done
+}
+
+func (capture *darwinAccessCapture) snapshotProcessIDs() []int {
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	processIDs := make([]int, 0, len(capture.processIDs))
+	for processID := range capture.processIDs {
+		processIDs = append(processIDs, processID)
+	}
+	sort.Ints(processIDs)
+	return processIDs
+}
+
+func (capture *darwinAccessCapture) snapshotProcessTreeErrors() int {
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return capture.processTreeErrors
+}
+
+func (capture *darwinAccessCapture) sampleProcessTree(rootProcessID int) {
+	defer close(capture.samplerDone)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		capture.extendProcessTree(rootProcessID)
+		select {
+		case <-capture.samplerStop:
+			return
+		case <-capture.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (capture *darwinAccessCapture) extendProcessTree(rootProcessID int) {
+	output, err := exec.CommandContext(capture.ctx, "/bin/ps", "-axo", "pid=,ppid=").Output()
+	if err != nil {
+		capture.mu.Lock()
+		capture.processTreeErrors++
+		capture.mu.Unlock()
+		return
+	}
+	children := make(map[int][]int)
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) != 2 {
+			capture.mu.Lock()
+			capture.processTreeErrors++
+			capture.mu.Unlock()
+			continue
+		}
+		processID, processErr := strconv.Atoi(fields[0])
+		parentID, parentErr := strconv.Atoi(fields[1])
+		if processErr != nil || parentErr != nil || processID <= 0 || parentID <= 0 {
+			continue
+		}
+		children[parentID] = append(children[parentID], processID)
+	}
+
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	queue := []int{rootProcessID}
+	seen := make(map[int]struct{}, len(queue))
+	for len(queue) > 0 {
+		parentID := queue[0]
+		queue = queue[1:]
+		if _, ok := seen[parentID]; ok {
+			continue
+		}
+		seen[parentID] = struct{}{}
+		for _, childID := range children[parentID] {
+			capture.processIDs[childID] = struct{}{}
+			queue = append(queue, childID)
+		}
+	}
 }
 
 func formatLogTime(value time.Time) string {
@@ -76,6 +219,10 @@ func formatLogTime(value time.Time) string {
 }
 
 func parseAccessOutput(output []byte, processID int) ([]AccessEvent, int) {
+	return parseAccessOutputForProcesses(output, map[int]struct{}{processID: {}})
+}
+
+func parseAccessOutputForProcesses(output []byte, processIDs map[int]struct{}) ([]AccessEvent, int) {
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
 	messages := make([]macOSLogEvent, 0)
@@ -94,15 +241,22 @@ func parseAccessOutput(output []byte, processID int) ([]AccessEvent, int) {
 	if scanner.Err() != nil {
 		unparsedLines = append(unparsedLines, scanner.Err().Error())
 	}
-	return normalizeAccessEvents(messages, unparsedLines, processID)
+	return normalizeAccessEvents(messages, unparsedLines, processIDs)
 }
 
-func normalizeAccessEvents(messages []macOSLogEvent, unparsedLines []string, processID int) ([]AccessEvent, int) {
+func normalizeAccessEvents(messages []macOSLogEvent, unparsedLines []string, processIDs map[int]struct{}) ([]AccessEvent, int) {
 	events := make([]AccessEvent, 0)
 	parseErrors := 0
 	for _, message := range messages {
 		matches := accessProcessIDPattern.FindStringSubmatch(message.EventMessage)
-		if len(matches) != 2 || matches[1] != strconv.Itoa(processID) {
+		if len(matches) != 2 {
+			continue
+		}
+		processID, err := strconv.Atoi(matches[1])
+		if err != nil {
+			continue
+		}
+		if _, ok := processIDs[processID]; !ok {
 			continue
 		}
 		event, err := parseAccessEvent(message)
@@ -114,8 +268,14 @@ func normalizeAccessEvents(messages []macOSLogEvent, unparsedLines []string, pro
 	}
 	for _, line := range unparsedLines {
 		matches := accessProcessIDSearchPattern.FindStringSubmatch(line)
-		if len(matches) == 2 && matches[1] == strconv.Itoa(processID) {
-			parseErrors++
+		if len(matches) != 2 {
+			continue
+		}
+		processID, err := strconv.Atoi(matches[1])
+		if err == nil {
+			if _, ok := processIDs[processID]; ok {
+				parseErrors++
+			}
 		}
 	}
 	return events, parseErrors

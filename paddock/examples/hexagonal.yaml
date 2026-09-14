@@ -3,6 +3,7 @@ project: hexagonal-application
 
 source:
   language: go
+  unit: package
   roots: [cmd, internal]
 
 components:
@@ -83,4 +84,3 @@ rules:
       - {role: outbound-adapter}
       - {role: inbound-adapter}
     message: concrete adapter selection belongs in the composition root
-

@@ -20,6 +20,10 @@ func Text(w io.Writer, result *model.Result) error {
 			summary += fmt.Sprintf(", %d stale", len(result.Baseline.Stale))
 		}
 	}
+	if len(result.Waivers) > 0 {
+		applied, expired, unused := waiverCounts(result.Waivers)
+		summary += fmt.Sprintf(", waivers %d applied, %d expired, %d unused", applied, expired, unused)
+	}
 	if _, err := fmt.Fprintf(w, "%s %s (%d packages, %d edges%s)\n", status, result.Root, result.PackageCount, result.EdgeCount, summary); err != nil {
 		return err
 	}
@@ -45,7 +49,36 @@ func Text(w io.Writer, result *model.Result) error {
 			return err
 		}
 	}
+	for _, waiver := range result.Waivers {
+		if waiver.Status != "unused" && waiver.Status != "unused-expired" {
+			continue
+		}
+		location := waiver.From
+		if waiver.To != "" {
+			location += " -> " + waiver.To
+		}
+		if _, err := fmt.Fprintf(w, "  [warning] unused waiver %s: %s (owner %s, expires %s)\n", waiver.RuleID, location, waiver.Owner, waiver.Expires); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func waiverCounts(waivers []model.WaiverSummary) (applied, expired, unused int) {
+	for _, waiver := range waivers {
+		switch waiver.Status {
+		case "applied":
+			applied++
+		case "expired":
+			expired++
+		case "unused":
+			unused++
+		case "unused-expired":
+			expired++
+			unused++
+		}
+	}
+	return applied, expired, unused
 }
 
 func JSON(w io.Writer, result *model.Result) error {

@@ -245,7 +245,7 @@ func executeCases(ctx context.Context, contractReference ContractReference, case
 		limitations = append(limitations, "the runner does not attest to a capability boundary")
 	} else {
 		assuranceStatus = "host-enforced-subject"
-		limitations = append(limitations, "subject policy was host-enforced, but access completeness and process/tool isolation are not independently attested")
+		limitations = append(limitations, "subject policy was host-enforced, but access completeness and process-tree/subject-identity enforcement are not independently attested")
 	}
 	record := RunRecord{
 		Schema:    "ingen.run/v1",

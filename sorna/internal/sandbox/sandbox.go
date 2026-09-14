@@ -2,7 +2,11 @@
 package sandbox
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -12,14 +16,19 @@ import (
 
 // Prepared is a command wrapped by a host enforcement backend.
 type Prepared struct {
-	Command       []string
-	Backend       string
-	Enforcement   string
-	PolicySHA256  string
-	NetworkMode   string
-	AllowedReads  []string
-	AllowedWrites []string
-	DeniedPaths   []string
+	Command          []string
+	Backend          string
+	Enforcement      string
+	PolicySHA256     string
+	NetworkMode      string
+	SubjectID        string
+	ExecutablePath   string
+	ExecutableSHA256 string
+	CanInvokeSubject bool
+	AllowedTools     []string
+	AllowedReads     []string
+	AllowedWrites    []string
+	DeniedPaths      []string
 }
 
 // NetworkRule is the normalized subset of a policy that a host backend can
@@ -55,6 +64,10 @@ func Prepare(command []string, rootDir string, sealed policy.Sealed) (Prepared, 
 	if err != nil {
 		return Prepared{}, err
 	}
+	subjectID, canInvokeSubject, allowedTools, err := processCapabilities(sealed.Document)
+	if err != nil {
+		return Prepared{}, err
+	}
 	readPaths, writePaths, denyPaths, err := filesystemPaths(sealed, root)
 	if err != nil {
 		return Prepared{}, err
@@ -70,16 +83,84 @@ func Prepare(command []string, rootDir string, sealed policy.Sealed) (Prepared, 
 		}
 	}
 	commandPath = canonicalizeExistingParent(commandPath)
-	prepared, err := preparePlatform(command, commandPath, root, readPaths, writePaths, denyPaths, networkRules)
+	executableSHA256, err := hashExecutable(commandPath)
+	if err != nil {
+		return Prepared{}, err
+	}
+	prepared, err := preparePlatform(command, commandPath, root, readPaths, writePaths, denyPaths, networkRules, allowedTools)
 	if err != nil {
 		return Prepared{}, err
 	}
 	prepared.PolicySHA256 = sealed.SHA256
 	prepared.NetworkMode = networkMode
+	prepared.SubjectID = subjectID
+	prepared.ExecutablePath = commandPath
+	prepared.ExecutableSHA256 = executableSHA256
+	prepared.CanInvokeSubject = canInvokeSubject
+	prepared.AllowedTools = allowedTools
 	prepared.AllowedReads = readPaths
 	prepared.AllowedWrites = writePaths
 	prepared.DeniedPaths = denyPaths
 	return prepared, nil
+}
+
+func hashExecutable(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open sandbox executable %q: %w", path, err)
+	}
+	defer file.Close()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return "", fmt.Errorf("hash sandbox executable %q: %w", path, err)
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+func processCapabilities(document policy.Document) (string, bool, []string, error) {
+	subjectID, err := policy.SubjectID(document)
+	if err != nil {
+		return "", false, nil, err
+	}
+	process, ok := document.Policy["process"].(map[string]any)
+	if !ok {
+		return "", false, nil, fmt.Errorf("sandbox policy process must be an object")
+	}
+	canInvokeSubject, ok := process["can_invoke_subject"].(bool)
+	if !ok {
+		return "", false, nil, fmt.Errorf("sandbox policy process.can_invoke_subject must be a boolean")
+	}
+	rawTools, present := process["allowed_tools"]
+	if !present {
+		return subjectID, canInvokeSubject, nil, nil
+	}
+	tools, ok := rawTools.([]any)
+	if !ok {
+		return "", false, nil, fmt.Errorf("sandbox policy process.allowed_tools must be a list")
+	}
+	resolved := make([]string, 0, len(tools))
+	for index, rawTool := range tools {
+		entry, ok := rawTool.(map[string]any)
+		if !ok {
+			return "", false, nil, fmt.Errorf("sandbox policy process.allowed_tools[%d] must be an object", index)
+		}
+		name, ok := entry["name"].(string)
+		if !ok || strings.TrimSpace(name) == "" {
+			return "", false, nil, fmt.Errorf("sandbox policy process.allowed_tools[%d].name must be a string", index)
+		}
+		path, err := exec.LookPath(name)
+		if err != nil {
+			return "", false, nil, fmt.Errorf("resolve sandbox tool %q: %w", name, err)
+		}
+		if !filepath.IsAbs(path) {
+			path, err = filepath.Abs(path)
+			if err != nil {
+				return "", false, nil, fmt.Errorf("resolve sandbox tool %q: %w", name, err)
+			}
+		}
+		resolved = append(resolved, canonicalizeExistingParent(path))
+	}
+	return subjectID, canInvokeSubject, resolved, nil
 }
 
 // PathCovered reports whether target is inside one of the supplied capability

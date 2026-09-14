@@ -47,10 +47,30 @@ event        producer/consumer to event contract
 schema       code to protobuf/OpenAPI/schema artifact
 ```
 
-Go analysis should use the Go toolchain's package information and parser rather
-than regular expressions. The first adapter invokes `go list` for build-aware
-package resolution and parses import declarations for source locations. Other
-languages should enter through adapters that produce the same graph shape.
+The Go adapter invokes `go list` for build-aware package resolution and parses
+import declarations for source locations. The TypeScript adapter walks
+TypeScript/JavaScript source files and resolves relative imports without
+requiring npm or a project build. Other languages should enter through the
+adapter interface and registry, declare their supported source units and edge
+kinds, and produce the same graph shape.
+
+The graph inspection command exposes this adapter boundary:
+
+```sh
+paddock graph . --policy paddock.yaml --format json
+paddock graph . --language go
+```
+
+The `paddock.graph/v1` result is normalized before output so package and edge
+ordering is stable across runs. Classification and rule evaluation happen
+after graph loading and remain independent of the adapter implementation.
+
+The source unit is explicit: Go currently uses `package` and
+TypeScript/JavaScript currently uses `file`. Policies may omit it for backward
+compatibility, in which case the adapter default is selected from the language.
+The TypeScript adapter also honors `compilerOptions.baseUrl` and `paths` from
+`tsconfig.json`, including local `extends` chains. It accepts the comments and
+trailing commas commonly used in JSONC TypeScript configuration files.
 
 ### Rules
 
@@ -69,7 +89,16 @@ The initial rule vocabulary should cover:
 - `unresolved`: unresolved dependencies are errors or explicit warnings.
 
 Rules should identify the edge that violated them and include a reason that
-helps a developer choose an allowed alternative.
+helps a developer choose an allowed alternative. Every rule has a `severity`:
+`error` (the default) blocks the check, while `warning` and `info` findings are
+reported but do not block it.
+
+Most dependency rules constrain direct import edges. A
+`required-dependency` rule is direct by default; set `transitive: true` when the
+requirement is that a source unit can reach an approved target through internal
+dependencies. Cycle rules use `source.roots` and their optional `from` selectors
+to define the nodes included in the cycle check. An empty `from` selector means
+all source units under the configured roots.
 
 ### Exceptions
 
@@ -94,7 +123,8 @@ An active waiver changes the gate decision but does not remove the underlying
 finding. The report retains the rule, location, owner, reason, and expiry date.
 An expired waiver remains blocking and is marked as expired in text and JSON
 reports. Waiver dates are evaluated in UTC and remain active through the stated
-date.
+date. Waivers that match no current finding are reported as unused so stale
+exceptions can be removed; an unused waiver does not change the gate decision.
 
 ### Baselines
 
@@ -111,8 +141,9 @@ The `paddock.baseline/v1` artifact stores stable finding identities based on
 rule, kind, source package, target, and source file. Line-number changes do not
 invalidate an entry. Baseline findings remain in the report and are marked as
 non-blocking; findings not present in the snapshot still fail the check. The
-source module must match, and stale snapshot entries are reported for cleanup.
-Waived findings are not added to a generated baseline.
+source module and exact policy-file SHA-256 must match, and stale snapshot
+entries are reported for cleanup. If the policy changes, regenerate the
+baseline. Waived findings are not added to a generated baseline.
 
 ### Explanations
 
@@ -136,6 +167,7 @@ schema: paddock.architecture/v1
 project: example
 source:
   language: go
+  unit: package
   roots: [internal, cmd]
 
 components: {}

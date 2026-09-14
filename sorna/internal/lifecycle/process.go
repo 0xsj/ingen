@@ -46,20 +46,27 @@ type Event struct {
 // subject. It is dependency-free so lifecycle evidence does not need to know
 // which platform backend produced it.
 type SandboxRecord struct {
-	Backend      string `json:"backend"`
-	Enforcement  string `json:"enforcement"`
-	PolicySHA256 string `json:"policy_sha256"`
+	Backend          string   `json:"backend"`
+	Enforcement      string   `json:"enforcement"`
+	PolicySHA256     string   `json:"policy_sha256"`
+	SubjectID        string   `json:"subject_id"`
+	ExecutablePath   string   `json:"executable_path"`
+	ExecutableSHA256 string   `json:"executable_sha256"`
+	CanInvokeSubject bool     `json:"can_invoke_subject"`
+	AllowedTools     []string `json:"allowed_tools,omitempty"`
 }
 
 // AccessTelemetry describes the quality of a host access observation. A
 // captured report with zero events is still only an observation window.
 type AccessTelemetry struct {
-	Status      string `json:"status"`
-	Source      string `json:"source"`
-	ProcessID   int    `json:"process_id,omitempty"`
-	EventCount  int    `json:"event_count"`
-	ParseErrors int    `json:"parse_errors"`
-	Reason      string `json:"reason,omitempty"`
+	Status            string `json:"status"`
+	Source            string `json:"source"`
+	ProcessID         int    `json:"process_id,omitempty"`
+	ProcessIDs        []int  `json:"process_ids,omitempty"`
+	EventCount        int    `json:"event_count"`
+	ParseErrors       int    `json:"parse_errors"`
+	ProcessTreeErrors int    `json:"process_tree_errors"`
+	Reason            string `json:"reason,omitempty"`
 }
 
 // AccessEvent is kept out of run.json and written by the evidence package as
@@ -120,12 +127,32 @@ type Process struct {
 	shutdown  time.Duration
 	probe     time.Duration
 	now       func() time.Time
-	stderr    bytes.Buffer
+	stderr    lockedBuffer
 	mu        sync.Mutex
 	waitErr   error
 	closed    bool
 	stopAsked bool
 	record    Record
+}
+
+// lockedBuffer is used for child stderr because os/exec copies the pipe into
+// the writer asynchronously while lifecycle startup may read it to explain a
+// failed readiness check.
+type lockedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (buffer *lockedBuffer) Write(value []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.buffer.Write(value)
+}
+
+func (buffer *lockedBuffer) String() string {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.buffer.String()
 }
 
 // Start launches the subject and waits until its readiness endpoint returns a
@@ -347,9 +374,10 @@ func (process *Process) Record() Record {
 	return process.recordSnapshotLocked()
 }
 
-// PID returns the managed process ID after Start succeeds. A Seatbelt-wrapped
-// command keeps the same PID while it execs the subject, which lets host
-// telemetry remain scoped to the process Sorna launched.
+// PID returns the managed root process ID after Start succeeds. A
+// Seatbelt-wrapped command keeps the same PID while it execs the subject;
+// access telemetry may additionally record descendants observed by its host
+// collector.
 func (process *Process) PID() int {
 	process.mu.Lock()
 	defer process.mu.Unlock()
@@ -399,6 +427,7 @@ func cloneSandboxRecord(record *SandboxRecord) *SandboxRecord {
 		return nil
 	}
 	copy := *record
+	copy.AllowedTools = append([]string(nil), record.AllowedTools...)
 	return &copy
 }
 
@@ -407,6 +436,7 @@ func cloneAccessTelemetry(telemetry *AccessTelemetry) *AccessTelemetry {
 		return nil
 	}
 	copy := *telemetry
+	copy.ProcessIDs = append([]int(nil), telemetry.ProcessIDs...)
 	return &copy
 }
 

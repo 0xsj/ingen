@@ -8,3 +8,9 @@ by Sorna, Sentinel, CI, and future SDKs.
 
 This area should not contain the verification engine itself. Its purpose is to
 make different InGen surfaces interoperable.
+
+The first shared result contract is described in
+[`CI-RESULT-SPEC.md`](CI-RESULT-SPEC.md). Producers such as Paddock own their
+nested report semantics; consumers such as Nublar use the envelope's status,
+exit code, input references, and artifact schemas without duplicating the
+verification engine.

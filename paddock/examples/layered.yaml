@@ -3,6 +3,7 @@ project: layered-monolith
 
 source:
   language: go
+  unit: package
   roots: [cmd, internal]
 
 components:
@@ -49,4 +50,3 @@ rules:
   - id: complete-classification
     kind: coverage
     message: every source unit must belong to a declared layer
-

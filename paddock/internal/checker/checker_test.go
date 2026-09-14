@@ -61,6 +61,18 @@ func TestServiceFixtures(t *testing.T) {
 			source:    "cyclic-go/violating",
 			wantRules: []string{"no-cycles"},
 		},
+		{
+			name:   "feature sliced TypeScript good",
+			policy: "feature-sliced-frontend.yaml",
+			source: "feature-sliced-ts/good",
+			wantOK: true,
+		},
+		{
+			name:      "feature sliced TypeScript violation",
+			policy:    "feature-sliced-frontend.yaml",
+			source:    "feature-sliced-ts/violating",
+			wantRules: []string{"features-do-not-cross", "shared-is-feature-free", "no-unresolved-imports"},
+		},
 	}
 
 	for _, fixture := range fixtures {
@@ -224,7 +236,224 @@ waivers:
 			if finding.WaiverOwner != "platform-team" || finding.WaiverReason == "" {
 				t.Fatalf("waiver metadata was not preserved: %#v", finding)
 			}
+			if len(result.Waivers) != 1 || result.Waivers[0].Status != test.wantStatus {
+				t.Fatalf("waiver summary = %#v, want status %q", result.Waivers, test.wantStatus)
+			}
 		})
+	}
+}
+
+func TestUnusedWaiverIsReported(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	policyPath := filepath.Join(t.TempDir(), "unused-waiver.yaml")
+	contents := `schema: paddock.architecture/v1
+project: unused-waiver-test
+source:
+  language: go
+  roots: [cmd, internal]
+components:
+  domain:
+    match: internal/{context}/domain/**
+    labels:
+      role: domain
+      context: "{context}"
+rules:
+  - id: domain-is-pure
+    kind: allow-dependencies
+    from: {role: domain}
+    allow:
+      - standard-library:errors
+      - standard-library:fmt
+    message: domain dependencies must be approved
+waivers:
+  - rule: domain-is-pure
+    from: internal/orders/domain/does-not-exist.go
+    reason: stale waiver should be visible
+    owner: platform-team
+    expires: 2099-01-01
+`
+	if err := os.WriteFile(policyPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := checker.Check(
+		filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "violating"),
+		policyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK() {
+		t.Fatal("result passed with an unused waiver")
+	}
+	if len(result.Waivers) != 1 || result.Waivers[0].Status != "unused" {
+		t.Fatalf("waiver summary = %#v, want one unused waiver", result.Waivers)
+	}
+}
+
+func TestRequiredDependencyFindsMissingBoundary(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	policyPath := filepath.Join(t.TempDir(), "required.yaml")
+	contents := `schema: paddock.architecture/v1
+project: required-test
+source:
+  language: go
+  roots: [internal]
+components:
+  domain:
+    match: internal/domain/**
+    labels:
+      role: domain
+rules:
+  - id: domain-requires-port
+    kind: required-dependency
+    from: {role: domain}
+    allow:
+      - standard-library:errors
+    message: domain packages must depend on the error boundary
+`
+	if err := os.WriteFile(policyPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := checker.Check(
+		filepath.Join(repoRoot, "paddock", "examples", "services", "layered-go", "good"),
+		policyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, finding := range result.Findings {
+		if finding.RuleID == "domain-requires-port" {
+			return
+		}
+	}
+	t.Fatalf("required dependency finding missing: %#v", result.Findings)
+}
+
+func TestWarningFindingsDoNotBlock(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	policyPath := filepath.Join(t.TempDir(), "warning.yaml")
+	contents := `schema: paddock.architecture/v1
+project: warning-test
+source:
+  language: go
+  roots: [cmd, internal]
+components:
+  domain:
+    match: internal/{context}/domain/**
+    labels:
+      role: domain
+      context: "{context}"
+rules:
+  - id: domain-is-pure-warning
+    kind: allow-dependencies
+    severity: warning
+    from: {role: domain}
+    allow:
+      - standard-library:errors
+      - standard-library:fmt
+    message: domain dependencies should be approved
+`
+	if err := os.WriteFile(policyPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := checker.Check(
+		filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "violating"),
+		policyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK() || len(result.Findings) != 1 || result.Findings[0].Severity != "warning" {
+		t.Fatalf("warning finding changed the verdict: ok=%v findings=%#v", result.OK(), result.Findings)
+	}
+}
+
+func TestRequiredDependencySupportsTransitiveReachability(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	policyPath := filepath.Join(t.TempDir(), "transitive.yaml")
+	contents := `schema: paddock.architecture/v1
+project: transitive-test
+source:
+  language: go
+  roots: [cmd, internal]
+components:
+  api:
+    match: cmd/**
+    labels:
+      role: api
+  service:
+    match: internal/service/**
+    labels:
+      role: service
+  domain:
+    match: internal/domain/**
+    labels:
+      role: domain
+rules:
+  - id: api-reaches-domain
+    kind: required-dependency
+    from: {role: api}
+    allow:
+      - {role: domain}
+    transitive: true
+    message: API code must reach the domain boundary
+`
+	if err := os.WriteFile(policyPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "layered-go", "good")
+	transitive, err := checker.Check(source, policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !transitive.OK() {
+		t.Fatalf("transitive requirement failed: %#v", transitive.Findings)
+	}
+
+	directPolicy := strings.Replace(contents, "    transitive: true\n", "", 1)
+	if err := os.WriteFile(policyPath, []byte(directPolicy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	direct, err := checker.Check(source, policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if direct.OK() || len(direct.Findings) != 1 {
+		t.Fatalf("direct requirement unexpectedly passed: ok=%v findings=%#v", direct.OK(), direct.Findings)
+	}
+}
+
+func TestCycleRuleScopesToSelectedRoots(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	policyPath := filepath.Join(t.TempDir(), "scoped-cycle.yaml")
+	contents := `schema: paddock.architecture/v1
+project: scoped-cycle-test
+source:
+  language: go
+  roots: [internal/alpha]
+components:
+  alpha:
+    match: internal/alpha/**
+    labels:
+      role: alpha
+rules:
+  - id: alpha-must-be-acyclic
+    kind: no-cycles
+    from: {role: alpha}
+    message: selected alpha sources must remain acyclic
+`
+	if err := os.WriteFile(policyPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := checker.Check(
+		filepath.Join(repoRoot, "paddock", "examples", "services", "cyclic-go", "violating"),
+		policyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK() || len(result.Findings) != 0 {
+		t.Fatalf("scoped cycle rule reported an out-of-scope cycle: ok=%v findings=%#v", result.OK(), result.Findings)
 	}
 }
 

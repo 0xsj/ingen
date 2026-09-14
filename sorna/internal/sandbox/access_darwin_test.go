@@ -3,7 +3,9 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,54 @@ func TestParseAccessOutputScopesStructuredEventsToProcess(t *testing.T) {
 	}
 	if events[0].PID != 1234 || events[0].Decision != "deny" {
 		t.Fatalf("event = %+v, want PID 1234 deny decision", events[0])
+	}
+}
+
+func TestParseAccessOutputScopesStructuredEventsToProcessTree(t *testing.T) {
+	output := []byte(fmt.Sprintf(`{"timestamp":"2026-09-14 08:56:34.966769+0300","eventMessage":"Sandbox: parent(%d) deny(1) file-read-data /project/contract.json"}
+{"timestamp":"2026-09-14 08:56:34.966770+0300","eventMessage":"Sandbox: child(%d) deny(1) file-read-data /project/implementation.go"}
+{"timestamp":"2026-09-14 08:56:34.966771+0300","eventMessage":"Sandbox: unrelated(%d) deny(1) file-read-data /other/secret.go"}
+`, 1234, 1235, 5678))
+	events, parseErrors := parseAccessOutputForProcesses(output, map[int]struct{}{1234: {}, 1235: {}})
+	if parseErrors != 0 || len(events) != 2 {
+		t.Fatalf("events = %+v, parse errors = %d; want two process-tree events", events, parseErrors)
+	}
+	if events[0].PID != 1234 || events[1].PID != 1235 {
+		t.Fatalf("events = %+v, want parent and child PIDs", events)
+	}
+}
+
+func TestAccessCaptureSamplesDescendantProcess(t *testing.T) {
+	capture := &darwinAccessCapture{
+		ctx:        context.Background(),
+		started:    time.Now(),
+		processIDs: make(map[int]struct{}),
+	}
+	command := exec.Command("/bin/sh", "-c", "sleep 0.25; exit 0")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if command.ProcessState == nil {
+			_ = command.Process.Kill()
+		}
+	}()
+	rootPID := command.Process.Pid
+	if err := capture.Attach(rootPID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(75 * time.Millisecond)
+	capture.extendProcessTree(rootPID)
+	if err := command.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	capture.stopSampler()
+	processIDs := capture.snapshotProcessIDs()
+	if len(processIDs) < 2 {
+		t.Fatalf("observed process IDs = %v, want root and a descendant", processIDs)
+	}
+	if processIDs[0] != rootPID {
+		t.Fatalf("observed process IDs = %v, want root PID %d included first", processIDs, rootPID)
 	}
 }
 

@@ -166,6 +166,16 @@ func freezeOracle(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	contractID, _ := sealedContract.Document.Contract["id"].(string)
+	policySubjectID, err := policy.SubjectID(sealedPolicy.Document)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if policySubjectID != contractID {
+		fmt.Fprintf(os.Stderr, "oracle policy subject ID %q does not match contract ID %q\n", policySubjectID, contractID)
+		return 1
+	}
 
 	oraclePath := filepath.Join(resolvedOutputDir, "oracle.json")
 	childCommand := []string{os.Args[0], "oracle", "generate", "--contract", resolvedContractPath, "--policy-sha256", sealedPolicy.SHA256, "--output", oraclePath}
@@ -186,18 +196,23 @@ func freezeOracle(args []string) int {
 	executionID := "oracle-" + fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	startedAt := time.Now().UTC()
 	execution := evidence.OracleExecution{
-		ExecutionID:   executionID,
-		Mode:          "sandboxed-process",
-		Command:       append([]string(nil), childCommand...),
-		WorkingDir:    rootAbs,
-		Backend:       prepared.Backend,
-		Enforcement:   prepared.Enforcement,
-		PolicySHA256:  prepared.PolicySHA256,
-		AllowedReads:  append([]string(nil), prepared.AllowedReads...),
-		AllowedWrites: append([]string(nil), prepared.AllowedWrites...),
-		DeniedPaths:   append([]string(nil), prepared.DeniedPaths...),
-		StartedAt:     startedAt,
-		Outcome:       "running",
+		ExecutionID:      executionID,
+		Mode:             "sandboxed-process",
+		Command:          append([]string(nil), childCommand...),
+		WorkingDir:       rootAbs,
+		Backend:          prepared.Backend,
+		Enforcement:      prepared.Enforcement,
+		PolicySHA256:     prepared.PolicySHA256,
+		SubjectID:        prepared.SubjectID,
+		ExecutablePath:   prepared.ExecutablePath,
+		ExecutableSHA256: prepared.ExecutableSHA256,
+		CanInvokeSubject: prepared.CanInvokeSubject,
+		AllowedTools:     append([]string(nil), prepared.AllowedTools...),
+		AllowedReads:     append([]string(nil), prepared.AllowedReads...),
+		AllowedWrites:    append([]string(nil), prepared.AllowedWrites...),
+		DeniedPaths:      append([]string(nil), prepared.DeniedPaths...),
+		StartedAt:        startedAt,
+		Outcome:          "running",
 		Events: []evidence.OracleExecutionEvent{{
 			EventID:     "evt-0001",
 			ExecutionID: executionID,
@@ -249,23 +264,41 @@ func freezeOracle(args []string) int {
 	}
 	processID := process.Process.Pid
 	execution.Access.ProcessID = processID
+	var accessAttachErr error
+	if accessCapture != nil {
+		accessAttachErr = accessCapture.Attach(processID)
+		if accessAttachErr != nil {
+			execution.Access = evidence.AccessTelemetry{
+				Status:    "unavailable",
+				Source:    "macos-unified-log",
+				ProcessID: processID,
+				Reason:    accessAttachErr.Error(),
+			}
+		}
+	}
 	processErr := process.Wait()
 	if accessCapture != nil {
 		report, reportErr := accessCapture.Stop(processID)
-		if reportErr != nil {
+		if reportErr != nil || accessAttachErr != nil {
+			reason := accessAttachErr
+			if reportErr != nil {
+				reason = reportErr
+			}
 			execution.Access = evidence.AccessTelemetry{
 				Status:    "unavailable",
 				Source:    report.Source,
 				ProcessID: processID,
-				Reason:    reportErr.Error(),
+				Reason:    reason.Error(),
 			}
 		} else {
 			execution.Access = evidence.AccessTelemetry{
-				Status:      "captured",
-				Source:      report.Source,
-				ProcessID:   processID,
-				EventCount:  len(report.Events),
-				ParseErrors: report.ParseErrors,
+				Status:            "captured",
+				Source:            report.Source,
+				ProcessID:         processID,
+				ProcessIDs:        append([]int(nil), report.ProcessIDs...),
+				EventCount:        len(report.Events),
+				ParseErrors:       report.ParseErrors,
+				ProcessTreeErrors: report.ProcessTreeErrors,
 			}
 			execution.AccessEvents = makeOracleAccessEvents(executionID, report.Events)
 		}
@@ -588,6 +621,27 @@ func runSubject(args []string) int {
 		}
 		sealedSubjectPolicy = &sealedValue
 	}
+	expectedSubjectID := oracleArtifact.Contract.ID
+	if !usingOracle {
+		expectedSubjectID, _ = sealed.Document.Contract["id"].(string)
+	}
+	for name, candidate := range map[string]*policy.Sealed{
+		"oracle":  sealedPolicy,
+		"subject": sealedSubjectPolicy,
+	} {
+		if candidate == nil {
+			continue
+		}
+		candidateSubjectID, subjectErr := policy.SubjectID(candidate.Document)
+		if subjectErr != nil {
+			fmt.Fprintln(os.Stderr, subjectErr)
+			return 1
+		}
+		if candidateSubjectID != expectedSubjectID {
+			fmt.Fprintf(os.Stderr, "%s policy subject ID %q does not match contract ID %q\n", name, candidateSubjectID, expectedSubjectID)
+			return 1
+		}
+	}
 	if usingOracle && sealedPolicy != nil && oracleArtifact.PolicySHA256 != sealedPolicy.SHA256 {
 		fmt.Fprintln(os.Stderr, "oracle policy hash does not match the supplied policy")
 		return 1
@@ -608,6 +662,7 @@ func runSubject(args []string) int {
 
 	var managedSubject *lifecycle.Process
 	var subjectAccessCapture sandbox.AccessCapture
+	var subjectAccessAttachErr error
 	lifecycleRecord := lifecycle.External(*baseURL, nil)
 	if *subjectCommand != "" {
 		command := append([]string{*subjectCommand}, subjectArgs...)
@@ -622,9 +677,14 @@ func runSubject(args []string) int {
 			}
 			launchCommand = prepared.Command
 			subjectSandbox = &lifecycle.SandboxRecord{
-				Backend:      prepared.Backend,
-				Enforcement:  prepared.Enforcement,
-				PolicySHA256: prepared.PolicySHA256,
+				Backend:          prepared.Backend,
+				Enforcement:      prepared.Enforcement,
+				PolicySHA256:     prepared.PolicySHA256,
+				SubjectID:        prepared.SubjectID,
+				ExecutablePath:   prepared.ExecutablePath,
+				ExecutableSHA256: prepared.ExecutableSHA256,
+				CanInvokeSubject: prepared.CanInvokeSubject,
+				AllowedTools:     append([]string(nil), prepared.AllowedTools...),
 			}
 			subjectAccessCapture, err = sandbox.StartAccessCapture(context.Background())
 			if err != nil {
@@ -653,6 +713,17 @@ func runSubject(args []string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
+		if subjectAccessCapture != nil {
+			subjectAccessAttachErr = subjectAccessCapture.Attach(managedSubject.PID())
+			if subjectAccessAttachErr != nil {
+				subjectAccess = &lifecycle.AccessTelemetry{
+					Status:    "unavailable",
+					Source:    "macos-unified-log",
+					ProcessID: managedSubject.PID(),
+					Reason:    subjectAccessAttachErr.Error(),
+				}
+			}
+		}
 		lifecycleRecord = managedSubject.Record()
 	}
 
@@ -675,20 +746,26 @@ func runSubject(args []string) int {
 		lifecycleRecord = managedSubject.Record()
 		if subjectAccessCapture != nil {
 			report, reportErr := subjectAccessCapture.Stop(managedSubject.PID())
-			if reportErr != nil {
+			if reportErr != nil || subjectAccessAttachErr != nil {
+				reason := subjectAccessAttachErr
+				if reportErr != nil {
+					reason = reportErr
+				}
 				lifecycleRecord.Access = &lifecycle.AccessTelemetry{
 					Status:    "unavailable",
 					Source:    report.Source,
 					ProcessID: managedSubject.PID(),
-					Reason:    reportErr.Error(),
+					Reason:    reason.Error(),
 				}
 			} else {
 				lifecycleRecord.Access = &lifecycle.AccessTelemetry{
-					Status:      "captured",
-					Source:      report.Source,
-					ProcessID:   managedSubject.PID(),
-					EventCount:  len(report.Events),
-					ParseErrors: report.ParseErrors,
+					Status:            "captured",
+					Source:            report.Source,
+					ProcessID:         managedSubject.PID(),
+					ProcessIDs:        append([]int(nil), report.ProcessIDs...),
+					EventCount:        len(report.Events),
+					ParseErrors:       report.ParseErrors,
+					ProcessTreeErrors: report.ProcessTreeErrors,
 				}
 				lifecycleRecord.AccessEvents = makeLifecycleAccessEvents(report.Events)
 			}

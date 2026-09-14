@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,12 +25,73 @@ func TestPrepareResolvesPolicyRootsAndWrapsCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepared.Enforcement != "host-enforced" || prepared.PolicySHA256 != sealed.SHA256 {
-		t.Fatalf("prepared = %+v, want host enforcement and policy hash", prepared)
+	if prepared.Enforcement != "host-enforced" || prepared.PolicySHA256 != sealed.SHA256 || prepared.SubjectID != "sandbox-test" || prepared.ExecutablePath == "" || len(prepared.ExecutableSHA256) != 64 {
+		t.Fatalf("prepared = %+v, want host enforcement, policy hash, subject identity, and executable digest", prepared)
 	}
 	if len(prepared.Command) < 4 || prepared.Command[0] != "/usr/bin/sandbox-exec" {
 		t.Fatalf("wrapped command = %q, want sandbox-exec prefix", prepared.Command)
 	}
+}
+
+func TestPrepareRestrictsProcessExecToCommandAndAllowedTools(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("host enforcement probe is macOS-specific")
+	}
+	document := testPolicy()
+	document.Policy["process"] = map[string]any{
+		"subject_id":         "sandbox-test",
+		"can_invoke_subject": false,
+		"allowed_tools": []any{map[string]any{
+			"name":    "cat",
+			"purpose": "test helper",
+		}},
+	}
+	sealed, err := policy.Seal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := Prepare([]string{"/bin/echo"}, t.TempDir(), sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := prepared.Command[2]
+	if !strings.Contains(profile, `(allow process-exec (literal "/bin/echo"))`) || !strings.Contains(profile, `(allow process-exec (literal "/bin/cat"))`) {
+		t.Fatalf("Seatbelt profile = %s, want command and declared tool exec rules", profile)
+	}
+	if strings.Contains(profile, "(allow process-exec)\n") || prepared.CanInvokeSubject {
+		t.Fatalf("prepared = %+v; want restricted process execution and no subject invocation", prepared)
+	}
+}
+
+func TestSandboxDeniesUnlistedExecHelperProcess(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("host enforcement probe is macOS-specific")
+	}
+	sealed, err := policy.Seal(testPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := Prepare([]string{os.Args[0], "-test.run=TestSandboxUnlistedExecHelperProcess", "--"}, t.TempDir(), sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(prepared.Command[0], prepared.Command[1:]...)
+	command.Env = append(os.Environ(), "INGEN_SANDBOX_UNLISTED_EXEC=1")
+	output, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "unlisted exec denied") {
+		t.Fatalf("sandbox helper = %v; output=%s, want denied unlisted exec", err, output)
+	}
+}
+
+func TestSandboxUnlistedExecHelperProcess(t *testing.T) {
+	if os.Getenv("INGEN_SANDBOX_UNLISTED_EXEC") != "1" {
+		return
+	}
+	if output, err := exec.Command("/bin/echo", "unexpected").CombinedOutput(); err == nil {
+		fmt.Fprintf(os.Stderr, "unlisted exec unexpectedly succeeded: %s", output)
+		os.Exit(1)
+	}
+	fmt.Println("unlisted exec denied")
 }
 
 func TestSandboxEnforcesFilesystemProbe(t *testing.T) {
@@ -159,6 +221,6 @@ func testPolicy() policy.Document {
 			"deny":  []any{map[string]any{"path": "implementation", "reason": "private implementation"}},
 		},
 		"network": map[string]any{"mode": "disabled"},
-		"process": map[string]any{"can_invoke_subject": false},
+		"process": map[string]any{"subject_id": "sandbox-test", "can_invoke_subject": false},
 	}}
 }

@@ -16,15 +16,19 @@ type AccessEvent struct {
 }
 
 // AccessReport contains events observed while an enforced process was alive.
-// An empty Events slice is not evidence that no access was attempted.
+// An empty Events slice is not evidence that no access was attempted. A
+// process-tree error means the descendant PID observation had a gap.
 type AccessReport struct {
-	Source      string
-	Events      []AccessEvent
-	ParseErrors int
+	Source            string
+	Events            []AccessEvent
+	ProcessIDs        []int
+	ParseErrors       int
+	ProcessTreeErrors int
 }
 
 // AccessCapture is the platform-specific host telemetry handle.
 type AccessCapture interface {
+	Attach(processID int) error
 	Stop(processID int) (AccessReport, error)
 }
 

@@ -42,6 +42,7 @@ These are starting points, not a second architecture document.
 - [A checksum-verified bundle proves artifact integrity, not isolation or correctness](modules/sorna-evidence-bundle.md)
 - [A policy declaration is not an enforcement result](modules/sorna-policy-definition.md)
 - [A host policy backend needs bootstrap permissions and canonical paths](modules/sorna-sandbox-enforcement.md)
+- [Process execution is a capability, not an ambient convenience](modules/sorna-process-capabilities.md)
 - [Host access telemetry is evidence, not an absence proof](modules/sorna-access-event-evidence.md)
 - [A managed subject policy is separate from an oracle policy](modules/sorna-subject-isolation.md)
 - [A frozen oracle is a separate artifact from a subject run](modules/sorna-oracle-freeze.md)

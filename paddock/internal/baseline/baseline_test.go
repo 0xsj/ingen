@@ -2,6 +2,7 @@ package baseline_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"ingen/paddock/internal/baseline"
@@ -33,7 +34,8 @@ func TestBuildSaveLoadAndApply(t *testing.T) {
 		},
 	}
 
-	snapshot := baseline.Build(result)
+	policyHash := strings.Repeat("a", 64)
+	snapshot := baseline.Build(result, policyHash)
 	if len(snapshot.Entries) != 1 {
 		t.Fatalf("baseline entries = %d, want 1", len(snapshot.Entries))
 	}
@@ -59,7 +61,7 @@ func TestBuildSaveLoadAndApply(t *testing.T) {
 			},
 		},
 	}
-	if err := baseline.Apply(current, loaded, path); err != nil {
+	if err := baseline.Apply(current, loaded, path, policyHash); err != nil {
 		t.Fatal(err)
 	}
 	if !current.Findings[0].Baselined || !current.OK() {
@@ -73,8 +75,9 @@ func TestBuildSaveLoadAndApply(t *testing.T) {
 func TestApplyReportsStaleEntries(t *testing.T) {
 	result := &model.Result{ModulePath: "example.com/service"}
 	snapshot := baseline.Snapshot{
-		Schema:     "paddock.baseline/v1",
-		ModulePath: "example.com/service",
+		Schema:       "paddock.baseline/v1",
+		ModulePath:   "example.com/service",
+		PolicySHA256: strings.Repeat("a", 64),
 		Entries: []baseline.Entry{{
 			RuleID: "old-rule",
 			Kind:   "deny-dependencies",
@@ -86,7 +89,7 @@ func TestApplyReportsStaleEntries(t *testing.T) {
 		Kind:   snapshot.Entries[0].Kind,
 		From:   snapshot.Entries[0].From,
 	})
-	if err := baseline.Apply(result, snapshot, "baseline.json"); err != nil {
+	if err := baseline.Apply(result, snapshot, "baseline.json", strings.Repeat("a", 64)); err != nil {
 		t.Fatal(err)
 	}
 	if result.Baseline == nil || len(result.Baseline.Stale) != 1 {
@@ -96,11 +99,24 @@ func TestApplyReportsStaleEntries(t *testing.T) {
 
 func TestApplyRejectsDifferentModule(t *testing.T) {
 	snapshot := baseline.Snapshot{
-		Schema:     "paddock.baseline/v1",
-		ModulePath: "example.com/original",
+		Schema:       "paddock.baseline/v1",
+		ModulePath:   "example.com/original",
+		PolicySHA256: strings.Repeat("a", 64),
 	}
 	result := &model.Result{ModulePath: "example.com/other"}
-	if err := baseline.Apply(result, snapshot, "baseline.json"); err == nil {
+	if err := baseline.Apply(result, snapshot, "baseline.json", strings.Repeat("a", 64)); err == nil {
 		t.Fatal("baseline.Apply succeeded, want module mismatch error")
+	}
+}
+
+func TestApplyRejectsDifferentPolicy(t *testing.T) {
+	result := &model.Result{ModulePath: "example.com/service"}
+	snapshot := baseline.Snapshot{
+		Schema:       "paddock.baseline/v1",
+		ModulePath:   "example.com/service",
+		PolicySHA256: strings.Repeat("a", 64),
+	}
+	if err := baseline.Apply(result, snapshot, "baseline.json", strings.Repeat("b", 64)); err == nil {
+		t.Fatal("baseline.Apply succeeded, want policy hash mismatch error")
 	}
 }

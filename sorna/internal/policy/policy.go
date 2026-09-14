@@ -60,6 +60,20 @@ func (sealed Sealed) Reference() Reference {
 	return Reference{ID: id, Version: version, SHA256: sealed.SHA256}
 }
 
+// SubjectID returns the stable logical identity of the system under test that
+// this role's process policy refers to.
+func SubjectID(document Document) (string, error) {
+	process, ok := document.Policy["process"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("policy.process must be an object")
+	}
+	identity, ok := process["subject_id"].(string)
+	if !ok || strings.TrimSpace(identity) == "" {
+		return "", fmt.Errorf("policy.process.subject_id must be a non-empty string")
+	}
+	return identity, nil
+}
+
 // ValidationError contains every structural policy problem found.
 type ValidationError struct {
 	Problems []string
@@ -325,6 +339,9 @@ func validateProcess(value any, problems *[]string) {
 	}
 	if _, ok := body["can_invoke_subject"].(bool); !ok {
 		*problems = append(*problems, "policy.process.can_invoke_subject must be a boolean")
+	}
+	if !nonEmptyString(body["subject_id"]) {
+		*problems = append(*problems, "policy.process.subject_id must be a non-empty string")
 	}
 	if rawTools, present := body["allowed_tools"]; present {
 		tools, valid := rawTools.([]any)

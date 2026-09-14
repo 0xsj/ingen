@@ -17,11 +17,11 @@ func Check(root, policyPath string) (*model.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if config.Source.Language != "go" {
-		return nil, fmt.Errorf("source.language %q is not supported by this checker yet", config.Source.Language)
-	}
-
-	dependencyGraph, err := graph.LoadGo(root)
+	dependencyGraph, err := graph.LoadWithRequest(graph.LoadRequest{
+		Root:  root,
+		Unit:  config.Source.Unit,
+		Roots: append([]string(nil), config.Source.Roots...),
+	}, config.Source.Language)
 	if err != nil {
 		return nil, err
 	}
@@ -36,6 +36,7 @@ func Check(root, policyPath string) (*model.Result, error) {
 		ModulePath:   dependencyGraph.ModulePath,
 		PackageCount: len(dependencyGraph.Packages),
 		EdgeCount:    len(dependencyGraph.Edges),
+		SourceUnit:   config.Source.Unit,
 		Rules:        summarizeRules(config.Rules),
 	}
 
@@ -50,7 +51,9 @@ func Check(root, policyPath string) (*model.Result, error) {
 		case "coverage":
 			checkCoverage(dependencyGraph.Packages, config, rule, result)
 		case "no-cycles":
-			checkCycles(dependencyGraph, rule, result)
+			checkCycles(dependencyGraph, config, rule, result)
+		case "required-dependency":
+			checkRequiredDependencies(dependencyGraph, byImport, config, rule, result)
 		default:
 			checkEdges(dependencyGraph, byImport, config, rule, result)
 		}
@@ -75,16 +78,22 @@ func Check(root, policyPath string) (*model.Result, error) {
 
 func applyWaivers(waivers []policy.Waiver, result *model.Result) {
 	today := time.Now().UTC().Format("2006-01-02")
+	used := make([]string, len(waivers))
 	for _, finding := range result.Findings {
-		for _, waiver := range waivers {
+		for index, waiver := range waivers {
 			if waiver.Rule != finding.RuleID || !waiverMatches(waiver, finding) {
 				continue
 			}
 
+			status := "applied"
+			if waiver.Expires < today {
+				status = "expired"
+			}
+			used[index] = status
 			finding.WaiverReason = waiver.Reason
 			finding.WaiverOwner = waiver.Owner
 			finding.WaiverExpires = waiver.Expires
-			if waiver.Expires < today {
+			if status == "expired" {
 				finding.WaiverStatus = "expired"
 			} else {
 				finding.Waived = true
@@ -92,6 +101,27 @@ func applyWaivers(waivers []policy.Waiver, result *model.Result) {
 			}
 			break
 		}
+	}
+	if len(waivers) == 0 {
+		return
+	}
+	result.Waivers = make([]model.WaiverSummary, 0, len(waivers))
+	for index, waiver := range waivers {
+		status := used[index]
+		if status == "" {
+			status = "unused"
+			if waiver.Expires < today {
+				status = "unused-expired"
+			}
+		}
+		result.Waivers = append(result.Waivers, model.WaiverSummary{
+			RuleID:  waiver.Rule,
+			From:    waiver.From,
+			To:      waiver.To,
+			Owner:   waiver.Owner,
+			Expires: waiver.Expires,
+			Status:  status,
+		})
 	}
 }
 
@@ -167,11 +197,13 @@ func summarizeRules(rules []policy.Rule) []model.RuleSummary {
 		result = append(result, model.RuleSummary{
 			ID:           rule.ID,
 			Kind:         rule.Kind,
+			Severity:     rule.Severity,
 			From:         summarizeSelectors(rule.From),
 			To:           summarizeSelectors(rule.To),
 			Allow:        summarizeTargets(rule.Allow),
 			Deny:         summarizeTargets(rule.Deny),
 			AllowTo:      summarizeTargets(rule.AllowTo),
+			Transitive:   rule.Transitive,
 			Direction:    rule.Direction,
 			ContextLabel: rule.ContextLabel,
 			Message:      rule.Message,
@@ -235,7 +267,7 @@ func checkCoverage(packages []*model.Package, config policy.Policy, rule policy.
 			result.Findings = append(result.Findings, &model.Finding{
 				RuleID:   rule.ID,
 				Kind:     rule.Kind,
-				Severity: "error",
+				Severity: rule.Severity,
 				From:     pkg.RelPath,
 				Message:  message,
 			})
@@ -271,6 +303,8 @@ func checkEdges(g *model.Graph, byImport map[string]*model.Package, config polic
 			bad = crossesContext(rule, from, to) && !anyTargetMatches(rule.AllowTo, edge, from, to)
 		case "public-api-only":
 			bad = crossesContext(rule, from, to) && selectorsMatch(rule.To, to)
+		case "unresolved":
+			bad = edge.TargetKind == "unresolved" && selectorsMatch(rule.From, from)
 		}
 
 		if bad {
@@ -281,7 +315,7 @@ func checkEdges(g *model.Graph, byImport map[string]*model.Package, config polic
 			finding := &model.Finding{
 				RuleID:   rule.ID,
 				Kind:     rule.Kind,
-				Severity: "error",
+				Severity: rule.Severity,
 				From:     edge.FromPath,
 				To:       edgeDisplayPath(edge),
 				File:     edge.File,
@@ -292,6 +326,64 @@ func checkEdges(g *model.Graph, byImport map[string]*model.Package, config polic
 			result.Findings = append(result.Findings, finding)
 		}
 	}
+}
+
+func checkRequiredDependencies(g *model.Graph, byImport map[string]*model.Package, config policy.Policy, rule policy.Rule, result *model.Result) {
+	edgesByFrom := make(map[string][]*model.Edge)
+	for _, edge := range g.Edges {
+		edgesByFrom[edge.FromImportPath] = append(edgesByFrom[edge.FromImportPath], edge)
+	}
+	for _, pkg := range g.Packages {
+		if !underRoots(pkg.RelPath, config.Source.Roots) || !selectorsMatch(rule.From, pkg) {
+			continue
+		}
+		matched := requiredDependencyMatches(pkg, edgesByFrom, byImport, rule)
+		if matched {
+			continue
+		}
+		message := rule.Message
+		if message == "" {
+			message = "source unit must depend on a required boundary"
+		}
+		result.Findings = append(result.Findings, &model.Finding{
+			RuleID:   rule.ID,
+			Kind:     rule.Kind,
+			Severity: rule.Severity,
+			From:     pkg.RelPath,
+			Message:  message,
+		})
+	}
+}
+
+func requiredDependencyMatches(start *model.Package, edgesByFrom map[string][]*model.Edge, byImport map[string]*model.Package, rule policy.Rule) bool {
+	if !rule.Transitive {
+		for _, edge := range edgesByFrom[start.ImportPath] {
+			to := byImport[edge.ToImportPath]
+			if anyTargetMatches(rule.Allow, edge, start, to) {
+				return true
+			}
+		}
+		return false
+	}
+
+	queue := []*model.Package{start}
+	visited := map[string]bool{start.ImportPath: true}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, edge := range edgesByFrom[current.ImportPath] {
+			to := byImport[edge.ToImportPath]
+			if anyTargetMatches(rule.Allow, edge, current, to) {
+				return true
+			}
+			if edge.TargetKind != "internal" || to == nil || visited[to.ImportPath] {
+				continue
+			}
+			visited[to.ImportPath] = true
+			queue = append(queue, to)
+		}
+	}
+	return false
 }
 
 func decorateFinding(finding *model.Finding, from, to *model.Package) {
@@ -441,16 +533,19 @@ func strconvAtoi(value string) (int, bool) {
 	return result, true
 }
 
-func checkCycles(g *model.Graph, rule policy.Rule, result *model.Result) {
+func checkCycles(g *model.Graph, config policy.Policy, rule policy.Rule, result *model.Result) {
 	adjacency := make(map[string][]string)
 	edges := make(map[string]*model.Edge)
 	byImport := make(map[string]*model.Package, len(g.Packages))
 	for _, pkg := range g.Packages {
+		if !underRoots(pkg.RelPath, config.Source.Roots) || !selectorsMatch(rule.From, pkg) {
+			continue
+		}
 		adjacency[pkg.ImportPath] = nil
 		byImport[pkg.ImportPath] = pkg
 	}
 	for _, edge := range g.Edges {
-		if edge.TargetKind != "internal" {
+		if edge.TargetKind != "internal" || !containsPackage(byImport, edge.FromImportPath) || !containsPackage(byImport, edge.ToImportPath) {
 			continue
 		}
 		adjacency[edge.FromImportPath] = append(adjacency[edge.FromImportPath], edge.ToImportPath)
@@ -506,7 +601,7 @@ func checkCycles(g *model.Graph, rule policy.Rule, result *model.Result) {
 		if message == "" {
 			message = "import cycle: " + strings.Join(component, " -> ")
 		}
-		finding := &model.Finding{RuleID: rule.ID, Kind: rule.Kind, Severity: "error", Message: message}
+		finding := &model.Finding{RuleID: rule.ID, Kind: rule.Kind, Severity: rule.Severity, Message: message}
 		if edge != nil {
 			finding.From = edge.FromPath
 			finding.To = edgeDisplayPath(edge)
@@ -526,6 +621,11 @@ func checkCycles(g *model.Graph, rule policy.Rule, result *model.Result) {
 			visit(key)
 		}
 	}
+}
+
+func containsPackage(packages map[string]*model.Package, importPath string) bool {
+	_, ok := packages[importPath]
+	return ok
 }
 
 func firstCycleEdge(component []string, edges map[string]*model.Edge) *model.Edge {

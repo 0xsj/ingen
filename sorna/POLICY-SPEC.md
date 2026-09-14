@@ -65,6 +65,7 @@ policy:
     mode: disabled
 
   process:
+    subject_id: document-pipeline
     can_invoke_subject: false
     allowed_tools:
       - name: go
@@ -72,7 +73,8 @@ policy:
 ```
 
 Required top-level fields are `schema`, `id`, `version`, `status`, `purpose`,
-`enforcement`, `filesystem`, `network`, and `process`.
+`enforcement`, `filesystem`, `network`, and `process`. The process object
+requires `subject_id` and `can_invoke_subject`.
 
 ## 4. Filesystem policy
 
@@ -108,13 +110,26 @@ port must declare inbound access explicitly.
 
 ## 6. Process and tool policy
 
+`process.subject_id` is the stable logical identity of the system under test
+that this role refers to. Sorna binds it to the sealed contract ID before
+execution, so a policy cannot silently be reused for another contract. The
+prepared execution also records the resolved executable path and SHA-256 so
+the logical identity is associated with a concrete launch artifact.
+
 `process.can_invoke_subject` states whether the role may invoke the system
 under test. Oracle generation must set it to `false`; public observation occurs
-only after the oracle is frozen.
+only after the oracle is frozen. The logical binding does not by itself attest
+that every OS process belongs to that subject; the host backend still needs a
+process identity or independent executable attestation for that stronger
+claim. A recorded path and digest establish bundle lineage, not what an OS
+process may have executed after launch.
 
 `allowed_tools` is optional. Each entry names a tool and explains its purpose.
-Tool names are declarations, not proof that the host prevented other tools
-from running.
+The macOS Seatbelt backend resolves each name before launch and restricts
+`process-exec` to the requested command plus those resolved tool paths. This
+does not make the tool's own dependencies available automatically; they must
+also be covered by the filesystem capabilities. Other backends may expose a
+different enforcement result.
 
 ## 7. Evidence requirements
 
@@ -151,9 +166,13 @@ the profile is generated, including macOS symlinked system roots such as
 `/var` and `/private/var`.
 
 This is a capability backend, not yet the complete Sorna oracle lifecycle. It
-does not enforce `can_invoke_subject` or `allowed_tools`. Oracle freezes query
-macOS unified-log Seatbelt events into `events/access.jsonl`, while managed
-subject runs keep their observations in `events/subject-access.jsonl`. Both
-streams are host observations rather than a proof of absence. The
-host-specific implementation returns an explicit unsupported-backend error on
-non-macOS systems.
+enforces command/tool execution paths on macOS. Sorna also binds the policy's
+logical `subject_id` to the sealed contract ID, while
+`can_invoke_subject` remains a semantic permission until a host-level subject
+process identity can be enforced. Oracle freezes query macOS unified-log
+Seatbelt events into `events/access.jsonl`, while managed subject runs keep
+their observations in `events/subject-access.jsonl`. The collector samples the
+process tree so events can be attributed to the root and observed descendants,
+but sampling is best-effort rather than an attestation. Both streams are host
+observations rather than a proof of absence. The host-specific implementation
+returns an explicit unsupported-backend error on non-macOS systems.

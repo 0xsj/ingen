@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"ingen/paddock/internal/artifact"
 	"ingen/paddock/internal/baseline"
 	"ingen/paddock/internal/explain"
 	"ingen/paddock/internal/model"
@@ -74,6 +75,20 @@ func TestCLIEndToEnd(t *testing.T) {
 			exitCode:   1,
 			wantOutput: "no-cycles",
 		},
+		{
+			name:       "feature sliced TypeScript good",
+			policy:     "feature-sliced-frontend.yaml",
+			source:     "feature-sliced-ts/good",
+			exitCode:   0,
+			wantOutput: "PASS",
+		},
+		{
+			name:       "feature sliced TypeScript violation",
+			policy:     "feature-sliced-frontend.yaml",
+			source:     "feature-sliced-ts/violating",
+			exitCode:   1,
+			wantOutput: "features-do-not-cross",
+		},
 	}
 
 	for _, fixture := range fixtures {
@@ -114,6 +129,43 @@ func TestCLIJSONReport(t *testing.T) {
 	}
 	if len(result.Findings) != 2 {
 		t.Fatalf("finding count = %d, want 2; findings: %#v", len(result.Findings), result.Findings)
+	}
+}
+
+func TestCLIGraphCommand(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "feature-sliced-ts", "good")
+	policy := filepath.Join(repoRoot, "paddock", "examples", "feature-sliced-frontend.yaml")
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"graph", source, "--policy", policy, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("graph exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var document struct {
+		Schema       string          `json:"schema"`
+		Language     string          `json:"language"`
+		PackageCount int             `json:"package_count"`
+		EdgeCount    int             `json:"edge_count"`
+		Packages     []model.Package `json:"packages"`
+		Edges        []model.Edge    `json:"edges"`
+	}
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode graph JSON: %v\n%s", err, output)
+	}
+	if document.Schema != "paddock.graph/v1" || document.Language != "typescript" {
+		t.Fatalf("unexpected graph identity: %#v", document)
+	}
+	if document.PackageCount == 0 || document.EdgeCount == 0 || len(document.Packages) != document.PackageCount || len(document.Edges) != document.EdgeCount {
+		t.Fatalf("graph counts are incomplete: %#v", document)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"graph", source, "--language", "typescript",
+	)
+	if exitCode != 0 || !strings.Contains(output, "GRAPH typescript") || !strings.Contains(output, "EDGES") {
+		t.Fatalf("text graph output is incomplete: exit=%d output:\n%s", exitCode, output)
 	}
 }
 
@@ -290,10 +342,34 @@ rules: []
 	output, exitCode = runCLI(t, cli, repoRoot,
 		"check", source, "--policy", cleanPolicyPath, "--baseline", baselinePath,
 	)
+	if exitCode != 2 {
+		t.Fatalf("changed-policy baseline check exit code = %d, want 2; output:\n%s", exitCode, output)
+	}
+	if !strings.Contains(output, "baseline policy hash does not match") {
+		t.Fatalf("policy drift error missing from output:\n%s", output)
+	}
+
+	stale := snapshot
+	stale.Entries = append(stale.Entries, baseline.Entry{
+		RuleID: "old-rule",
+		Kind:   "deny-dependencies",
+		From:   "internal/old",
+	})
+	stale.Entries[len(stale.Entries)-1].Fingerprint = baseline.Fingerprint(&model.Finding{
+		RuleID: stale.Entries[len(stale.Entries)-1].RuleID,
+		Kind:   stale.Entries[len(stale.Entries)-1].Kind,
+		From:   stale.Entries[len(stale.Entries)-1].From,
+	})
+	if err := baseline.Save(baselinePath, stale); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy", policy, "--baseline", baselinePath,
+	)
 	if exitCode != 0 {
 		t.Fatalf("stale baseline check exit code = %d, want 0; output:\n%s", exitCode, output)
 	}
-	if !strings.Contains(output, "2 stale") {
+	if !strings.Contains(output, "1 stale") {
 		t.Fatalf("stale baseline summary missing from output:\n%s", output)
 	}
 
@@ -355,6 +431,47 @@ func TestCLIExplainReport(t *testing.T) {
 	}
 	if document.Schema != "paddock.explanation/v1" || document.Status != "FAIL" || len(document.Findings) != 2 {
 		t.Fatalf("unexpected explanation document: %#v", document)
+	}
+}
+
+func TestCLICIArtifact(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	policy := filepath.Join(repoRoot, "paddock", "examples", "hexagonal.yaml")
+	violating := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "violating")
+	good := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "good")
+
+	failedPath := filepath.Join(t.TempDir(), "failed.json")
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"ci", violating, "--policy", policy, "--output", failedPath,
+	)
+	if exitCode != 1 {
+		t.Fatalf("failed CI exit code = %d, want 1; output:\n%s", exitCode, output)
+	}
+	failedArtifact, err := artifact.Load(failedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failedArtifact.Status != "failed" || failedArtifact.Report == nil || failedArtifact.Explanation == nil {
+		t.Fatalf("failed CI artifact is incomplete: %#v", failedArtifact)
+	}
+	if failedArtifact.Policy.SHA256 == "" || !strings.Contains(output, "CI-RESULT") {
+		t.Fatalf("CI artifact output is incomplete: %s", output)
+	}
+
+	passedPath := filepath.Join(t.TempDir(), "passed.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"ci", good, "--policy", policy, "--output", passedPath,
+	)
+	if exitCode != 0 {
+		t.Fatalf("passed CI exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	passedArtifact, err := artifact.Load(passedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if passedArtifact.Status != "passed" || passedArtifact.Report == nil || !passedArtifact.Report.OK() {
+		t.Fatalf("passed CI artifact is incomplete: %#v", passedArtifact)
 	}
 }
 

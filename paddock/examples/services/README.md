@@ -1,7 +1,7 @@
 # Paddock service fixtures
 
-These are deliberately small Go repositories for testing Paddock's graph and
-rule engine. They are subjects, not production templates.
+These are deliberately small repositories for testing Paddock's graph and rule
+engine. They are subjects, not production templates.
 
 Each architecture has a `good/` baseline and a `violating/` variant with one
 deliberate structural defect:
@@ -12,6 +12,7 @@ deliberate structural defect:
 | `hexagonal-go` | the domain imports `net/http` |
 | `modular-monolith-go` | orders imports billing internals directly |
 | `cyclic-go` | alpha and beta import each other |
+| `feature-sliced-ts` | shared code imports a feature and features cross-import |
 
 The fixtures should remain small enough that a reviewer can hold the whole
 graph in their head. The cyclic subject intentionally does not compile as a Go
@@ -27,4 +28,7 @@ paddock check paddock/examples/services/layered-go/good \
 
 paddock check paddock/examples/services/layered-go/violating \
   --policy paddock/examples/layered.yaml
+
+paddock check paddock/examples/services/feature-sliced-ts/violating \
+  --policy paddock/examples/feature-sliced-frontend.yaml
 ```

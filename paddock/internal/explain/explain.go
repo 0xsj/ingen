@@ -20,6 +20,7 @@ type Document struct {
 	PackageCount int                    `json:"package_count"`
 	EdgeCount    int                    `json:"edge_count"`
 	Baseline     *model.BaselineSummary `json:"baseline,omitempty"`
+	Waivers      []model.WaiverSummary  `json:"waivers,omitempty"`
 	Findings     []FindingExplanation   `json:"findings"`
 }
 
@@ -47,6 +48,7 @@ func Explain(result *model.Result) Document {
 		PackageCount: result.PackageCount,
 		EdgeCount:    result.EdgeCount,
 		Baseline:     result.Baseline,
+		Waivers:      result.Waivers,
 		Findings:     make([]FindingExplanation, 0, len(result.Findings)),
 	}
 	for _, finding := range result.Findings {
@@ -66,6 +68,13 @@ func Explain(result *model.Result) Document {
 func Text(w io.Writer, document Document) error {
 	if _, err := fmt.Fprintf(w, "EXPLAIN %s %s (%d findings)\n", document.Status, document.Root, len(document.Findings)); err != nil {
 		return err
+	}
+	for _, waiver := range document.Waivers {
+		if waiver.Status == "unused" || waiver.Status == "unused-expired" {
+			if _, err := fmt.Fprintf(w, "WARNING: unused waiver %s from %s\n", waiver.RuleID, waiver.From); err != nil {
+				return err
+			}
+		}
 	}
 	for index, finding := range document.Findings {
 		rule := finding.Finding.RuleID
@@ -170,6 +179,13 @@ func suggestedActions(finding *model.Finding, rule *model.RuleSummary) []string 
 		return []string{"Import the other context's public API instead of its internal implementation."}
 	case "coverage":
 		return []string{"Add or adjust a component selector so this source unit has exactly one architectural owner."}
+	case "required-dependency":
+		if len(rule.Allow) > 0 {
+			return []string{"Add a dependency to one of the required targets: " + strings.Join(rule.Allow, ", ")}
+		}
+		return []string{"Add the required architectural boundary dependency."}
+	case "unresolved":
+		return []string{"Fix the import path, add the missing source file, or configure the project alias in tsconfig.json."}
 	case "no-cycles":
 		return []string{"Break the import cycle by extracting a stable boundary, moving shared types, or inverting the dependency."}
 	default:

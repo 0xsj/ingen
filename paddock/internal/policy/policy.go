@@ -22,6 +22,7 @@ type Policy struct {
 type Source struct {
 	Language string   `yaml:"language" json:"language"`
 	Roots    []string `yaml:"roots" json:"roots"`
+	Unit     string   `yaml:"unit" json:"unit"`
 }
 
 type Component struct {
@@ -32,11 +33,13 @@ type Component struct {
 type Rule struct {
 	ID           string    `yaml:"id" json:"id"`
 	Kind         string    `yaml:"kind" json:"kind"`
+	Severity     string    `yaml:"severity" json:"severity"`
 	From         Selectors `yaml:"from" json:"from"`
 	To           Selectors `yaml:"to" json:"to"`
 	Allow        Targets   `yaml:"allow" json:"allow"`
 	Deny         Targets   `yaml:"deny" json:"deny"`
 	AllowTo      Targets   `yaml:"allow-to" json:"allow_to"`
+	Transitive   bool      `yaml:"transitive" json:"transitive"`
 	Direction    string    `yaml:"direction" json:"direction"`
 	ContextLabel string    `yaml:"context-label" json:"context_label"`
 	Message      string    `yaml:"message" json:"message"`
@@ -169,10 +172,26 @@ func Load(path string) (Policy, error) {
 	if err := yaml.Unmarshal(data, &result); err != nil {
 		return Policy{}, fmt.Errorf("parse policy: %w", err)
 	}
+	result.Normalize()
 	if err := result.Validate(); err != nil {
 		return Policy{}, err
 	}
 	return result, nil
+}
+
+func (p *Policy) Normalize() {
+	if p.Source.Unit == "" {
+		if p.Source.Language == "go" {
+			p.Source.Unit = "package"
+		} else if p.Source.Language == "typescript" {
+			p.Source.Unit = "file"
+		}
+	}
+	for index := range p.Rules {
+		if p.Rules[index].Severity == "" {
+			p.Rules[index].Severity = "error"
+		}
+	}
 }
 
 func (p Policy) Validate() error {
@@ -184,6 +203,15 @@ func (p Policy) Validate() error {
 	}
 	if p.Source.Language != "go" && p.Source.Language != "typescript" {
 		return fmt.Errorf("source.language %q is not supported yet", p.Source.Language)
+	}
+	if p.Source.Unit != "package" && p.Source.Unit != "file" {
+		return fmt.Errorf("source.unit must be package or file, got %q", p.Source.Unit)
+	}
+	if p.Source.Language == "go" && p.Source.Unit != "package" {
+		return fmt.Errorf("Go source.unit must be package")
+	}
+	if p.Source.Language == "typescript" && p.Source.Unit != "file" {
+		return fmt.Errorf("TypeScript source.unit must be file")
 	}
 	if len(p.Source.Roots) == 0 {
 		return fmt.Errorf("source.roots must not be empty")
@@ -200,10 +228,24 @@ func (p Policy) Validate() error {
 			return fmt.Errorf("duplicate rule id %q", rule.ID)
 		}
 		seen[rule.ID] = true
+		switch rule.Severity {
+		case "error", "warning", "info":
+		default:
+			return fmt.Errorf("rule %q has unsupported severity %q", rule.ID, rule.Severity)
+		}
 		switch rule.Kind {
-		case "allow-dependencies", "deny-dependencies", "layer-direction", "no-cross-context", "mediated-dependency", "public-api-only", "no-cycles", "coverage":
+		case "allow-dependencies", "deny-dependencies", "layer-direction", "no-cross-context", "mediated-dependency", "public-api-only", "no-cycles", "coverage", "required-dependency", "unresolved":
 		default:
 			return fmt.Errorf("rule %q has unsupported kind %q", rule.ID, rule.Kind)
+		}
+		if rule.Kind == "layer-direction" && rule.Direction != "toward-lower-layer" && rule.Direction != "toward-higher-layer" {
+			return fmt.Errorf("rule %q has invalid direction %q", rule.ID, rule.Direction)
+		}
+		if (rule.Kind == "allow-dependencies" || rule.Kind == "required-dependency") && len(rule.Allow) == 0 {
+			return fmt.Errorf("rule %q needs allow targets", rule.ID)
+		}
+		if rule.Transitive && rule.Kind != "required-dependency" {
+			return fmt.Errorf("rule %q may use transitive only with required-dependency", rule.ID)
 		}
 	}
 	for _, waiver := range p.Waivers {

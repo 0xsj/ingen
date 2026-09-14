@@ -13,11 +13,13 @@ artifact that Sorna verifies.
 
 ## What changed
 
-On macOS, Sorna records the oracle child PID and queries the unified log for the
-exact process execution window. Primary Seatbelt messages are normalized into
+On macOS, Sorna records the oracle child PID and samples its process tree while
+the child is alive. It then queries the unified log for the exact process
+execution window. Primary Seatbelt messages are normalized into
 `events/access.jsonl` with the process, decision (`allow` or `deny`), operation,
-and resource. Duplicate-report envelopes are ignored rather than counted as
-separate accesses.
+and resource. Events are retained for the root and observed descendants;
+duplicate-report envelopes are ignored rather than counted as separate
+accesses.
 
 The oracle manifest records `access_telemetry` and a separate assurance status:
 `host-enforced-observed` means the host log query completed; it does not mean
@@ -41,8 +43,15 @@ generated under Seatbelt.
 ## Findings
 
 - A live `log stream` can miss a very short-lived child, so the Darwin backend
-  queries `log show` after exit using a padded start/end window and exact PID
-  predicate.
+  samples the process table while running and queries `log show` after exit
+  using a padded start/end window. The query is broad enough to include
+  descendants, then the parser filters it to the observed PID set.
+- The evidence now records `process_ids` alongside the root `process_id`. This
+  improves attribution but does not prove the set is complete: a child can
+  start and exit between samples.
+- A failed process-table sample is recorded as `process_tree_errors` and makes
+  the oracle telemetry status `host-enforced-observed-with-gaps`; a missing
+  observation mechanism is not silently reported as complete.
 - The first real freeze recorded denials for the child executable read and the
   system log socket while still producing the oracle. These are useful signals
   that bootstrap allowances and denied network behavior need review; they are

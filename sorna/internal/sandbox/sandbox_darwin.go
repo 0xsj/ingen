@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-func preparePlatform(command []string, commandPath, _ string, readPaths, writePaths, denyPaths []string, networkRules []NetworkRule) (Prepared, error) {
-	profile := seatbeltProfile(commandPath, readPaths, writePaths, denyPaths, networkRules)
+func preparePlatform(command []string, commandPath, _ string, readPaths, writePaths, denyPaths []string, networkRules []NetworkRule, allowedTools []string) (Prepared, error) {
+	profile := seatbeltProfile(commandPath, readPaths, writePaths, denyPaths, networkRules, allowedTools)
 	wrapped := make([]string, 0, len(command)+3)
 	wrapped = append(wrapped, "/usr/bin/sandbox-exec", "-p", profile)
 	wrapped = append(wrapped, command...)
@@ -21,7 +21,7 @@ func preparePlatform(command []string, commandPath, _ string, readPaths, writePa
 	}, nil
 }
 
-func seatbeltProfile(commandPath string, readPaths, writePaths, denyPaths []string, networkRules []NetworkRule) string {
+func seatbeltProfile(commandPath string, readPaths, writePaths, denyPaths []string, networkRules []NetworkRule, allowedTools []string) string {
 	var builder strings.Builder
 	builder.WriteString("(version 1)\n")
 	builder.WriteString("(deny default)\n")
@@ -42,10 +42,13 @@ func seatbeltProfile(commandPath string, readPaths, writePaths, denyPaths []stri
 	commandDir := filepath.Dir(commandPath)
 	writeAncestorTraversalRules(&builder, commandDir)
 	writeRule(&builder, "file-read*", "subpath", commandDir)
-	// Seatbelt evaluates the initial exec through the wrapper rather than as a
-	// normal child path. Keep process execution explicit but broad for this
-	// first backend; filesystem and network capabilities remain deny-by-default.
-	builder.WriteString("(allow process-exec)\n")
+	// The wrapper may start the requested command, and forked descendants may
+	// only exec the command or an explicitly declared tool. This is the host
+	// enforcement of the process/tool portion of the policy.
+	writeRule(&builder, "process-exec", "literal", commandPath)
+	for _, toolPath := range allowedTools {
+		writeRule(&builder, "process-exec", "literal", toolPath)
+	}
 	for _, path := range []string{
 		"/usr/lib",
 		"/usr/share/locale",

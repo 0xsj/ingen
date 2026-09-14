@@ -205,6 +205,9 @@ security boundary. Structural access policy remains authoritative.
 Where the platform supports it, record:
 
 - process identity and sandbox identity;
+- resolved launch executable path and SHA-256 digest;
+- root and observed descendant process IDs, with completeness treated as
+  best-effort unless the platform independently attests the process tree;
 - allowed and denied roots;
 - attempted file opens and denied accesses;
 - network policy and connection attempts;

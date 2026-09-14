@@ -58,11 +58,19 @@ unrestricted network policies rather than silently applying the wrong behavior.
 
 - Seatbelt support is macOS-specific; other systems return an explicit
   unsupported-backend error.
-- `can_invoke_subject` and `allowed_tools` are not yet enforced by this
-  command because command identity and tool expansion need their own contract.
+- The Seatbelt profile now restricts `process-exec` to the prepared command and
+  the policy's resolved `allowed_tools`. A tool's runtime dependencies still
+  need filesystem capabilities of their own.
+- `subject_id` is now bound to the sealed contract ID and the prepared
+  executable path/digest is recorded. `can_invoke_subject` is still not
+  independently enforceable because the host has no attested mapping from
+  that logical identity to every descendant process.
 - Oracle freezes now capture scoped kernel-reported access events in the
   oracle evidence bundle. They remain host observations rather than proof of
   absence.
+- Access telemetry samples the process table to associate descendants with the
+  root PID. The sample can miss a short-lived child and does not provide a
+  process namespace or an attested complete process tree.
 - `sorna run` remains level 0 because host enforcement and access logs are not
   independently attested. With `--subject-policy`, the managed subject has a
   distinct host-enforced boundary; oracle-generation evidence still does not

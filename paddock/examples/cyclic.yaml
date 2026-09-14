@@ -3,6 +3,7 @@ project: cyclic-go
 
 source:
   language: go
+  unit: package
   roots: [internal]
 
 components:
@@ -15,4 +16,3 @@ rules:
   - id: no-cycles
     kind: no-cycles
     message: package dependencies must remain acyclic
-

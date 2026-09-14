@@ -44,6 +44,9 @@ silently become product behavior.
   create a compiled child process.
 - Startup and shutdown failures must remain visible in lifecycle evidence;
   they should not be turned into ordinary contract passes.
+- Child stderr is copied asynchronously by `os/exec`, so readiness-timeout
+  diagnostics need a synchronized writer; otherwise the error-reporting path
+  itself can race with the child process.
 - Managed process control alone is not capability isolation. With
   `--subject-policy`, the host can now enforce a distinct subject boundary,
   but the run remains assurance level 0 until access policy and telemetry have

@@ -50,10 +50,14 @@ make sandbox-contract-read
 This runs `/bin/cat` under a Seatbelt profile generated from the policy. It
 allows the declared contract root and denies undeclared project paths. The
 backend supports `network.mode: disabled` and directional TCP allowlists;
-process/tool declarations are not yet enforced. Oracle freezes record macOS
-unified-log access events in `events/access.jsonl`, while managed subject runs
-use `events/subject-access.jsonl`. Both streams remain observational and do
-not automatically raise run assurance.
+the macOS backend restricts process execution to the requested command and
+declared tools. Policies also bind a logical `subject_id` to the sealed
+contract ID and record the resolved launch executable digest before execution.
+Oracle freezes record macOS unified-log access events in
+`events/access.jsonl`, while managed subject runs use
+`events/subject-access.jsonl`. The collector also records observed descendant
+PIDs. Both streams remain observational and do not automatically raise run
+assurance.
 
 To generate the first evidence-bearing oracle:
 

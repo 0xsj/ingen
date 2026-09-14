@@ -25,6 +25,7 @@ policy:
     mode: disabled
 
   process:
+    subject_id: document-pipeline
     can_invoke_subject: false
     allowed_tools:
       - name: go
