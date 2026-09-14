@@ -35,6 +35,26 @@ export PADDOCK_RESULT=paddock-ci-result.json
 sh paddock/examples/ci/paddock-gate.sh gate
 ```
 
+When the project uses an external language adapter, generate and retain the
+graph first, then point the same gate at it:
+
+```sh
+export PADDOCK_GRAPH=paddock-graph.json
+sh paddock/examples/ci/paddock-gate.sh gate
+```
+
+The graph path is optional; without it, Paddock uses its built-in adapter.
+
+Alternatively, a CI job can let Paddock invoke the adapter and persist the
+graph in one command:
+
+```sh
+paddock ci . --policy-lock paddock.lock.json \
+  --adapter ./tools/paddock-language-adapter \
+  --graph-output paddock-graph.json \
+  --output paddock-ci-result.json
+```
+
 The gate always writes an `ingen.ci-result/v1` artifact when evaluation starts,
 including failed architecture checks. Its exit code is `0` for a pass, `1` for
 blocking findings, and `2` for an evaluation error.
@@ -42,3 +62,17 @@ blocking findings, and `2` for an evaluation error.
 The `seal` phase should not run automatically in ordinary CI. A policy edit
 must remain visible as a diff and require human approval before the replacement
 lock is committed.
+
+For a language that is not built into Paddock, generate the graph before the
+gate and pass the exact file to CI:
+
+```sh
+paddock graph . --policy paddock.yaml \
+  --adapter ./tools/paddock-language-adapter \
+  --format json > paddock-graph.json
+paddock ci . --policy-lock paddock.lock.json --graph paddock-graph.json \
+  --output paddock-ci-result.json
+```
+
+See [`../../ADAPTER-PROTOCOL.md`](../../ADAPTER-PROTOCOL.md) for the request,
+response, capability negotiation, and process failure contract.

@@ -62,16 +62,20 @@ type SandboxRecord struct {
 // AccessTelemetry describes the quality of a host access observation. A
 // captured report with zero events is still only an observation window.
 type AccessTelemetry struct {
-	Status                      string `json:"status"`
-	Source                      string `json:"source"`
-	ProcessID                   int    `json:"process_id,omitempty"`
-	ProcessIDs                  []int  `json:"process_ids,omitempty"`
-	EventCount                  int    `json:"event_count"`
-	ParseErrors                 int    `json:"parse_errors"`
-	ProcessTreeErrors           int    `json:"process_tree_errors"`
-	ExecutableObservationCount  int    `json:"executable_observation_count"`
-	ExecutableObservationErrors int    `json:"executable_observation_errors"`
-	Reason                      string `json:"reason,omitempty"`
+	Status                       string    `json:"status"`
+	Source                       string    `json:"source"`
+	ProcessID                    int       `json:"process_id,omitempty"`
+	ProcessIDs                   []int     `json:"process_ids,omitempty"`
+	EventCount                   int       `json:"event_count"`
+	ParseErrors                  int       `json:"parse_errors"`
+	ProcessTreeErrors            int       `json:"process_tree_errors"`
+	ExecutableSampleCount        int       `json:"executable_sample_count"`
+	ExecutableSamplingIntervalMS int       `json:"executable_sampling_interval_ms"`
+	ExecutableSamplingStartedAt  time.Time `json:"executable_sampling_started_at,omitempty"`
+	ExecutableSamplingStoppedAt  time.Time `json:"executable_sampling_stopped_at,omitempty"`
+	ExecutableObservationCount   int       `json:"executable_observation_count"`
+	ExecutableObservationErrors  int       `json:"executable_observation_errors"`
+	Reason                       string    `json:"reason,omitempty"`
 }
 
 // ExecutableObservation is the dependency-free lifecycle form of a host

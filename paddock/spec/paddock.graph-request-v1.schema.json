@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.graph-request-v1.schema.json",
+  "title": "Paddock graph adapter request",
+  "description": "Request sent to an external Paddock graph adapter over stdin.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "language", "root", "required_capabilities"],
+  "properties": {
+    "schema": {
+      "const": "paddock.graph-request/v1"
+    },
+    "language": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_unit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required_capabilities": {
+      "$ref": "#/$defs/capabilities"
+    }
+  },
+  "$defs": {
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["source_units", "edge_kinds"],
+      "properties": {
+        "source_units": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "edge_kinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

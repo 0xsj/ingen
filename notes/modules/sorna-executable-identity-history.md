@@ -21,7 +21,12 @@ initial chance to appear before the sampler starts.
 
 Oracle evidence writes `events/executables.jsonl`; managed-subject evidence
 writes `events/subject-executables.jsonl`. The manifest records the observation
-count and any hashing or sampling errors. Oracle assurance becomes
+count, attempted sample count, sampling interval, sampling window, and any
+hashing or sampling errors. The evidence verifier checks that this metadata is
+internally consistent and that the JSONL record count matches the manifest.
+The top-level assurance reports `observation_coverage` as
+`periodic-best-effort` or `periodic-best-effort-with-gaps`, making the blind
+spot machine-readable. Oracle assurance becomes
 `host-enforced-observed-with-gaps` when the history has gaps or no successful
 identity observation.
 
@@ -31,20 +36,29 @@ identity observation.
   observation, including the path, SHA-256 digest, PID, and timestamp.
 - A shell-to-`exec` test records two identities for the same PID, proving the
   stream can represent an observed transition rather than only a startup fact.
+- A short-lived-transition probe uses a wider test interval and exits before
+  the next tick; the root's later identity is absent, making the sampling blind
+  spot executable rather than merely theoretical.
 - Process exit can race with the final process-table sample. The identity may
   already be gone or unreadable by the time it is hashed; this is retained as a
   gap instead of silently becoming a green observation.
 - Repeated samples are coalesced, keeping the evidence readable without losing
   transitions.
+- A sample count is an attempted process-table sample, not a count of
+  successfully hashed processes. Process-tree and executable-hash errors remain
+  separate counters, so the verifier can see partial collection.
+- The sampling interval and start/stop window make the observation claim
+  bounded and inspectable. They do not turn periodic sampling into continuous
+  monitoring.
 
 ## Limits
 
 This is still parent-side observation, not independent OS attestation. Sampling
 can miss a very short-lived process or an `exec` between samples, process IDs
 can be reused, and a successful observation does not prove that no other
-process existed outside the observed tree. The next strengthening step is to
-make the sampling/identity event model explicit enough for a verifier to reason
-about coverage, rather than treating a non-empty stream as complete proof.
+process existed outside the observed tree. A future strengthening step can
+replace periodic parent-side sampling with an independently attested process
+transition source, if the target platform provides one.
 
 ## Used in
 

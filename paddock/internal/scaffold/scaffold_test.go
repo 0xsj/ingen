@@ -92,6 +92,42 @@ func TestGeneratePythonDraftHandlesPackageInitializers(t *testing.T) {
 	}
 }
 
+func TestGenerateSupportsGenericExternalFileLanguage(t *testing.T) {
+	contents, err := scaffold.Generate(scaffold.Options{
+		Language: "rust",
+		Unit:     "file",
+		Template: "layered",
+		Root:     ".",
+		Graph: &model.Graph{
+			ModulePath: "example-rust",
+			Packages: []*model.Package{
+				{ImportPath: "example-rust/src/domain", RelPath: "src/domain.rs"},
+				{ImportPath: "example-rust/src/http", RelPath: "src/http.rs"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "language: rust") ||
+		!strings.Contains(string(contents), "unit: file") ||
+		!strings.Contains(string(contents), "match: src/**") {
+		t.Fatalf("generic external file draft is incomplete:\n%s", contents)
+	}
+	if _, err := policy.Load(writePolicy(t, contents)); err != nil {
+		t.Fatalf("generated external policy is invalid: %v\n%s", err, contents)
+	}
+}
+
+func writePolicy(t *testing.T, contents []byte) string {
+	t.Helper()
+	path := t.TempDir() + "/paddock.yaml"
+	if err := writeFile(path, contents); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func writeFile(path string, contents []byte) error {
 	return os.WriteFile(path, contents, 0o600)
 }

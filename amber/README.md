@@ -53,10 +53,14 @@ amber/
   typescript/    TypeScript SDK
   conformance/   Cross-language fixtures and scenarios
   adapters/      HTTP, messaging, logging, tracing, and storage integrations
-  docs/          Guides, examples, and design notes
+  docs/          Guides, examples, design notes, and implementation notes
 ```
 
 ## Status
 
-Project scaffold only. The language-neutral specification comes first, followed
-by the Go and TypeScript implementations.
+Core specification draft v1 is in place under `spec/`. The Go and TypeScript
+implementations, conformance fixtures, and adapters will follow the shared
+contract defined there.
+
+Implementation reasoning and verification notes are indexed in
+[`docs/notes/README.md`](docs/notes/README.md).

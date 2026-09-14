@@ -69,6 +69,19 @@ func WriteBundleWithPolicies(outputDir string, record runner.RunRecord, sealedPo
 	if strings.TrimSpace(outputDir) == "" {
 		return Bundle{}, fmt.Errorf("evidence output directory must not be empty")
 	}
+	if record.Lifecycle != nil && record.Lifecycle.Access != nil {
+		access := record.Lifecycle.Access
+		if err := validateExecutableSampling(
+			access.ExecutableSampleCount,
+			access.ExecutableSamplingIntervalMS,
+			access.ExecutableSamplingStartedAt,
+			access.ExecutableSamplingStoppedAt,
+			access.ExecutableObservationCount,
+			access.ExecutableObservationErrors,
+		); err != nil {
+			return Bundle{}, fmt.Errorf("invalid executable sampling metadata: %w", err)
+		}
+	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return Bundle{}, err
 	}
@@ -252,6 +265,170 @@ func Verify(outputDir string) error {
 	}
 	if len(seen) == 0 {
 		return fmt.Errorf("checksum file contains no artifacts")
+	}
+	return verifyBundleSemantics(outputDir, seen)
+}
+
+func validateExecutableSampling(sampleCount, intervalMS int, startedAt, stoppedAt time.Time, observationCount, observationErrors int) error {
+	if sampleCount < 0 {
+		return fmt.Errorf("sample count must not be negative")
+	}
+	if intervalMS < 0 {
+		return fmt.Errorf("sampling interval must not be negative")
+	}
+	if observationCount < 0 {
+		return fmt.Errorf("observation count must not be negative")
+	}
+	if observationErrors < 0 {
+		return fmt.Errorf("observation error count must not be negative")
+	}
+	if sampleCount == 0 {
+		if intervalMS != 0 || !startedAt.IsZero() || !stoppedAt.IsZero() {
+			return fmt.Errorf("sampling window is present without a sample attempt")
+		}
+		if observationCount != 0 || observationErrors != 0 {
+			return fmt.Errorf("observations or errors are present without a sample attempt")
+		}
+		return nil
+	}
+	if intervalMS <= 0 {
+		return fmt.Errorf("sampling interval must be positive when samples were attempted")
+	}
+	if startedAt.IsZero() || stoppedAt.IsZero() {
+		return fmt.Errorf("sampling window timestamps are required when samples were attempted")
+	}
+	if stoppedAt.Before(startedAt) {
+		return fmt.Errorf("sampling window stopped before it started")
+	}
+	return nil
+}
+
+func verifyBundleSemantics(outputDir string, checksums map[string]bool) error {
+	manifestBytes, err := os.ReadFile(filepath.Join(outputDir, "manifest.json"))
+	if err != nil {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+	var envelope struct {
+		Schema string `json:"schema"`
+	}
+	if err := json.Unmarshal(manifestBytes, &envelope); err != nil {
+		return fmt.Errorf("decode manifest: %w", err)
+	}
+	switch envelope.Schema {
+	case "sorna.oracle-evidence/v1":
+		var manifest OracleManifest
+		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+			return fmt.Errorf("decode oracle manifest: %w", err)
+		}
+		if err := validateExecutableSampling(
+			manifest.Execution.Access.ExecutableSampleCount,
+			manifest.Execution.Access.ExecutableSamplingIntervalMS,
+			manifest.Execution.Access.ExecutableSamplingStartedAt,
+			manifest.Execution.Access.ExecutableSamplingStoppedAt,
+			manifest.Execution.Access.ExecutableObservationCount,
+			manifest.Execution.Access.ExecutableObservationErrors,
+		); err != nil {
+			return fmt.Errorf("invalid oracle executable sampling metadata: %w", err)
+		}
+		return verifyExecutableObservationStream(
+			filepath.Join(outputDir, "events", "executables.jsonl"),
+			checksums["events/executables.jsonl"],
+			manifest.Execution.Access.ExecutableObservationCount,
+			manifest.Execution.Access.ExecutableSamplingStartedAt,
+			manifest.Execution.Access.ExecutableSamplingStoppedAt,
+			func(line []byte) error {
+				var observation OracleExecutableObservation
+				if err := json.Unmarshal(line, &observation); err != nil {
+					return err
+				}
+				if observation.EventID == "" || observation.ExecutionID == "" || observation.PID <= 0 || observation.Path == "" || observation.SHA256 == "" || observation.Timestamp.IsZero() {
+					return fmt.Errorf("observation identity fields are incomplete")
+				}
+				return nil
+			},
+		)
+	case "sorna.evidence/v1":
+		var manifest Manifest
+		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+			return fmt.Errorf("decode evidence manifest: %w", err)
+		}
+		runBytes, err := os.ReadFile(filepath.Join(outputDir, "run.json"))
+		if err != nil {
+			return fmt.Errorf("read run: %w", err)
+		}
+		var record runner.RunRecord
+		if err := json.Unmarshal(runBytes, &record); err != nil {
+			return fmt.Errorf("decode run: %w", err)
+		}
+		if record.Lifecycle == nil || record.Lifecycle.Access == nil {
+			return nil
+		}
+		access := record.Lifecycle.Access
+		if err := validateExecutableSampling(
+			access.ExecutableSampleCount,
+			access.ExecutableSamplingIntervalMS,
+			access.ExecutableSamplingStartedAt,
+			access.ExecutableSamplingStoppedAt,
+			access.ExecutableObservationCount,
+			access.ExecutableObservationErrors,
+		); err != nil {
+			return fmt.Errorf("invalid subject executable sampling metadata: %w", err)
+		}
+		return verifyExecutableObservationStream(
+			filepath.Join(outputDir, "events", "subject-executables.jsonl"),
+			checksums["events/subject-executables.jsonl"],
+			access.ExecutableObservationCount,
+			access.ExecutableSamplingStartedAt,
+			access.ExecutableSamplingStoppedAt,
+			func(line []byte) error {
+				var observation SubjectExecutableObservation
+				if err := json.Unmarshal(line, &observation); err != nil {
+					return err
+				}
+				if observation.EventID == "" || observation.RunID == "" || observation.PID <= 0 || observation.Path == "" || observation.SHA256 == "" || observation.Timestamp.IsZero() {
+					return fmt.Errorf("observation identity fields are incomplete")
+				}
+				return nil
+			},
+		)
+	default:
+		return nil
+	}
+}
+
+func verifyExecutableObservationStream(path string, listed bool, expected int, startedAt, stoppedAt time.Time, validate func([]byte) error) error {
+	if !listed {
+		return fmt.Errorf("executable observation stream is not checksummed")
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read executable observation stream: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(contents))
+	if trimmed == "" {
+		if expected != 0 {
+			return fmt.Errorf("executable observation stream contains 0 records, expected %d", expected)
+		}
+		return nil
+	}
+	count := 0
+	for lineNumber, line := range strings.Split(trimmed, "\n") {
+		if err := validate([]byte(line)); err != nil {
+			return fmt.Errorf("invalid executable observation line %d: %w", lineNumber+1, err)
+		}
+		var envelope struct {
+			Timestamp time.Time `json:"timestamp"`
+		}
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+			return fmt.Errorf("invalid executable observation line %d: %w", lineNumber+1, err)
+		}
+		if !startedAt.IsZero() && (envelope.Timestamp.Before(startedAt) || envelope.Timestamp.After(stoppedAt)) {
+			return fmt.Errorf("executable observation line %d timestamp is outside the sampling window", lineNumber+1)
+		}
+		count++
+	}
+	if count != expected {
+		return fmt.Errorf("executable observation stream contains %d records, expected %d", count, expected)
 	}
 	return nil
 }

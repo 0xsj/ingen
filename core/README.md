@@ -14,3 +14,6 @@ The first shared result contract is described in
 nested report semantics; consumers such as Nublar use the envelope's status,
 exit code, input references, and artifact schemas without duplicating the
 verification engine.
+
+The Go representation lives in [`ciresult/`](ciresult/). It validates only the
+shared envelope and intentionally keeps producer reports as raw JSON.

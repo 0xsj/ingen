@@ -46,6 +46,8 @@ These are starting points, not a second architecture document.
 - [Adversarial boundary probes test negative claims, not just green paths](modules/sorna-adversarial-boundary-probes.md)
 - [Host access telemetry is evidence, not an absence proof](modules/sorna-access-event-evidence.md)
 - [Executable identity is a timeline, not a startup fact](modules/sorna-executable-identity-history.md)
+- [CI should gate behavior first and observation quality explicitly](modules/sorna-assurance-gates.md)
+- [A producer report can cross the CI boundary without losing its semantics](modules/sorna-ci-result-envelope.md)
 - [A managed subject policy is separate from an oracle policy](modules/sorna-subject-isolation.md)
 - [A frozen oracle is a separate artifact from a subject run](modules/sorna-oracle-freeze.md)
 - [A subject run consumes the frozen oracle, not the contract source](modules/sorna-run-consumes-frozen-oracle.md)

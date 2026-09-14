@@ -244,9 +244,6 @@ func (p Policy) Validate() error {
 	if p.Source.Language == "" {
 		return fmt.Errorf("source.language is required")
 	}
-	if p.Source.Language != "go" && p.Source.Language != "typescript" && p.Source.Language != "python" {
-		return fmt.Errorf("source.language %q is not supported yet", p.Source.Language)
-	}
 	if p.Source.Unit != "package" && p.Source.Unit != "file" {
 		return fmt.Errorf("source.unit must be package or file, got %q", p.Source.Unit)
 	}

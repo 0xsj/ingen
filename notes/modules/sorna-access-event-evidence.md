@@ -32,7 +32,10 @@ The oracle manifest records `access_telemetry` and a separate assurance status:
 `host-enforced-observed` means the host log query completed; it does not mean
 that every possible access was observed. Parse gaps produce a distinct
 `host-enforced-observed-with-gaps` status. An unavailable collector produces
-`telemetry-unavailable`.
+`telemetry-unavailable`. The top-level assurance also records
+`observation_coverage`: `periodic-best-effort` means the identity sampler ran
+without recorded gaps, while `periodic-best-effort-with-gaps` means sampling or
+hashing gaps were recorded. Neither value claims continuous observation.
 
 ## Why this matters
 

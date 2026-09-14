@@ -15,6 +15,7 @@ SUBJECT_ROOT ?= .
 SUBJECT_BINARY_DIR ?= .artifacts/document-pipeline-subject
 SUBJECT_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline
 RUN_OUTPUT_DIR ?= .artifacts/document-pipeline-run
+CI_RESULT_OUTPUT ?= .artifacts/document-pipeline-ci-result.json
 DEFECT_ADDR ?= 127.0.0.1:8081
 DEFECT_URL ?= http://127.0.0.1:8081
 DEFECT_READY_PATH ?= /healthz
@@ -28,7 +29,7 @@ ORACLE_OUTPUT_DIR ?= .artifacts/document-pipeline-oracle
 
 .PHONY: help build test test-race vet check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
-	sorna-external-run evidence-verify oracle-evidence-verify sorna-oracle-freeze \
+	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result sorna-oracle-freeze \
 	subject-defect-run sorna-defect-run sandbox-contract-read
 
 help: ## Show the available development commands
@@ -83,6 +84,13 @@ sorna-external-run: sorna-oracle-freeze ## Freeze the oracle, then run against a
 
 evidence-verify: ## Verify the checksums in RUN_OUTPUT_DIR
 	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(RUN_OUTPUT_DIR)"
+
+sorna-gate: ## Apply the default CI gate to RUN_OUTPUT_DIR; set GATE_MIN_OBSERVATION_COVERAGE for a strict minimum
+	$(GO_CMD) run ./sorna/cmd/sorna gate $(if $(GATE_MIN_OBSERVATION_COVERAGE),--minimum-observation-coverage "$(GATE_MIN_OBSERVATION_COVERAGE)",) "$(RUN_OUTPUT_DIR)"
+
+sorna-ci-result: ## Write the language-neutral CI result envelope for RUN_OUTPUT_DIR
+	mkdir -p "$(dir $(CI_RESULT_OUTPUT))"
+	$(GO_CMD) run ./sorna/cmd/sorna gate --format ci-result $(if $(GATE_MIN_OBSERVATION_COVERAGE),--minimum-observation-coverage "$(GATE_MIN_OBSERVATION_COVERAGE)",) "$(RUN_OUTPUT_DIR)" > "$(CI_RESULT_OUTPUT)"
 
 sandbox-contract-read: ## Run /bin/cat under the macOS Seatbelt policy backend
 	$(GO_CMD) run ./sorna/cmd/sorna sandbox exec --policy "$(POLICY)" --root "$(SANDBOX_ROOT)" -- /bin/cat "$(SANDBOX_PROBE_PATH)"

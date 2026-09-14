@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"ingen/core/ciresult"
 	"ingen/sorna/internal/contract"
 	"ingen/sorna/internal/evidence"
 	"ingen/sorna/internal/lifecycle"
@@ -36,6 +38,8 @@ func run(args []string) int {
 		return contractCommand(args[1:])
 	case "evidence":
 		return evidenceCommand(args[1:])
+	case "gate":
+		return gateCommand(args[1:])
 	case "policy":
 		return policyCommand(args[1:])
 	case "sandbox":
@@ -318,15 +322,19 @@ func freezeOracle(args []string) int {
 			}
 		} else {
 			execution.Access = evidence.AccessTelemetry{
-				Status:                      "captured",
-				Source:                      report.Source,
-				ProcessID:                   processID,
-				ProcessIDs:                  append([]int(nil), report.ProcessIDs...),
-				EventCount:                  len(report.Events),
-				ParseErrors:                 report.ParseErrors,
-				ProcessTreeErrors:           report.ProcessTreeErrors,
-				ExecutableObservationCount:  len(report.ExecutableObservations),
-				ExecutableObservationErrors: report.ExecutableObservationErrors,
+				Status:                       "captured",
+				Source:                       report.Source,
+				ProcessID:                    processID,
+				ProcessIDs:                   append([]int(nil), report.ProcessIDs...),
+				EventCount:                   len(report.Events),
+				ParseErrors:                  report.ParseErrors,
+				ProcessTreeErrors:            report.ProcessTreeErrors,
+				ExecutableSampleCount:        report.ExecutableSampleCount,
+				ExecutableSamplingIntervalMS: int(report.ExecutableSamplingInterval / time.Millisecond),
+				ExecutableSamplingStartedAt:  report.ExecutableSamplingStartedAt,
+				ExecutableSamplingStoppedAt:  report.ExecutableSamplingStoppedAt,
+				ExecutableObservationCount:   len(report.ExecutableObservations),
+				ExecutableObservationErrors:  report.ExecutableObservationErrors,
 			}
 			execution.AccessEvents = makeOracleAccessEvents(executionID, report.Events)
 			execution.ExecutableObservations = makeOracleExecutableObservations(executionID, report.ExecutableObservations)
@@ -487,6 +495,23 @@ func makeLifecycleExecutableObservations(observations []sandbox.ExecutableObserv
 	return converted
 }
 
+func lifecycleObservationCoverage(access *lifecycle.AccessTelemetry) string {
+	if access == nil || access.Status != "captured" {
+		return "unavailable"
+	}
+	if access.ExecutableSampleCount == 0 || access.ExecutableObservationCount == 0 || access.ProcessTreeErrors > 0 || access.ExecutableObservationErrors > 0 {
+		return "periodic-best-effort-with-gaps"
+	}
+	return "periodic-best-effort"
+}
+
+func lifecycleObservationLimitation(access *lifecycle.AccessTelemetry) string {
+	if access.ExecutableSamplingIntervalMS > 0 {
+		return fmt.Sprintf("executable identity was sampled every %d ms; transitions between samples may be unobserved", access.ExecutableSamplingIntervalMS)
+	}
+	return "executable identity coverage is periodic; transitions between samples may be unobserved"
+}
+
 func evidenceCommand(args []string) int {
 	if len(args) != 2 || args[0] != "verify" {
 		fmt.Fprintln(os.Stderr, "usage: sorna evidence verify <directory>")
@@ -498,6 +523,69 @@ func evidenceCommand(args []string) int {
 	}
 	fmt.Println("verified:", args[1])
 	return 0
+}
+
+func gateCommand(args []string) int {
+	flags := flag.NewFlagSet("gate", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	minimumCoverage := flags.String("minimum-observation-coverage", "", "minimum observation coverage required to pass: periodic-best-effort or periodic-best-effort-with-gaps")
+	format := flags.String("format", "text", "output format: text, json, or ci-result")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 1 || (*format != "text" && *format != "json" && *format != "ci-result") {
+		fmt.Fprintln(os.Stderr, "usage: sorna gate [--minimum-observation-coverage <state>] [--format text|json|ci-result] <evidence-directory>")
+		return 2
+	}
+	result, err := evidence.EvaluateGate(flags.Args()[0], evidence.GatePolicy{MinimumObservationCoverage: *minimumCoverage})
+	if err != nil {
+		if *format == "ci-result" {
+			artifact, artifactErr := evidence.BuildCIErrorResult(flags.Args()[0], err)
+			if artifactErr == nil {
+				if writeErr := ciresult.WriteJSON(os.Stdout, artifact); writeErr == nil {
+					return artifact.ExitCode
+				}
+			}
+		}
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if *format == "ci-result" {
+		artifact, err := evidence.BuildCIResult(flags.Args()[0], result)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		if err := ciresult.WriteJSON(os.Stdout, artifact); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+	} else if *format == "json" {
+		encoded, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		fmt.Println(string(encoded))
+	} else {
+		fmt.Printf("gate: %s\ncoverage: %s (%s)\n", result.Status, result.ObservationCoverage, result.ObservationPolicy)
+		if result.ContractStatus != "" {
+			fmt.Println("contract:", result.ContractStatus)
+		}
+		if result.MutationOutcome != "" {
+			fmt.Println("mutation:", result.MutationOutcome)
+		}
+		if result.OracleOutcome != "" {
+			fmt.Println("oracle:", result.OracleOutcome)
+		}
+		for _, warning := range result.Warnings {
+			fmt.Println("warning:", warning)
+		}
+		for _, reason := range result.Reasons {
+			fmt.Println("reason:", reason)
+		}
+	}
+	return result.ExitCode
 }
 
 func policyCommand(args []string) int {
@@ -849,15 +937,19 @@ func runSubject(args []string) int {
 				}
 			} else {
 				lifecycleRecord.Access = &lifecycle.AccessTelemetry{
-					Status:                      "captured",
-					Source:                      report.Source,
-					ProcessID:                   managedSubject.PID(),
-					ProcessIDs:                  append([]int(nil), report.ProcessIDs...),
-					EventCount:                  len(report.Events),
-					ParseErrors:                 report.ParseErrors,
-					ProcessTreeErrors:           report.ProcessTreeErrors,
-					ExecutableObservationCount:  len(report.ExecutableObservations),
-					ExecutableObservationErrors: report.ExecutableObservationErrors,
+					Status:                       "captured",
+					Source:                       report.Source,
+					ProcessID:                    managedSubject.PID(),
+					ProcessIDs:                   append([]int(nil), report.ProcessIDs...),
+					EventCount:                   len(report.Events),
+					ParseErrors:                  report.ParseErrors,
+					ProcessTreeErrors:            report.ProcessTreeErrors,
+					ExecutableSampleCount:        report.ExecutableSampleCount,
+					ExecutableSamplingIntervalMS: int(report.ExecutableSamplingInterval / time.Millisecond),
+					ExecutableSamplingStartedAt:  report.ExecutableSamplingStartedAt,
+					ExecutableSamplingStoppedAt:  report.ExecutableSamplingStoppedAt,
+					ExecutableObservationCount:   len(report.ExecutableObservations),
+					ExecutableObservationErrors:  report.ExecutableObservationErrors,
 				}
 				lifecycleRecord.AccessEvents = makeLifecycleAccessEvents(report.Events)
 				lifecycleRecord.ExecutableObservations = makeLifecycleExecutableObservations(report.ExecutableObservations)
@@ -873,6 +965,14 @@ func runSubject(args []string) int {
 		return 1
 	}
 	record.Lifecycle = &lifecycleRecord
+	if lifecycleRecord.Access != nil {
+		record.Assurance.ObservationCoverage = lifecycleObservationCoverage(lifecycleRecord.Access)
+		if lifecycleRecord.Access.Status == "captured" {
+			record.Assurance.Limitations = append(record.Assurance.Limitations, lifecycleObservationLimitation(lifecycleRecord.Access))
+		} else {
+			record.Assurance.Limitations = append(record.Assurance.Limitations, "subject executable identity observation was unavailable")
+		}
+	}
 	bundle, err := evidence.WriteBundleWithPolicies(*outputDir, record, sealedPolicy, sealedSubjectPolicy)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -911,6 +1011,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sorna sandbox exec --policy <path> [--root <dir>] -- <command> [args...]")
 	fmt.Fprintln(os.Stderr, "  sorna oracle freeze --contract <path> --policy <path> [--root <dir>] [--output-dir <dir>]")
 	fmt.Fprintln(os.Stderr, "  sorna evidence verify <directory>")
+	fmt.Fprintln(os.Stderr, "  sorna gate [--minimum-observation-coverage <state>] [--format text|json|ci-result] <evidence-directory>")
 	fmt.Fprintln(os.Stderr, "  sorna run [--oracle <path> | --contract <path>] [--policy <path>] --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--subject-policy <path>] [--output-dir <dir>]")
 }
 

@@ -34,6 +34,10 @@ type AccessReport struct {
 	ProcessIDs                  []int
 	ParseErrors                 int
 	ProcessTreeErrors           int
+	ExecutableSampleCount       int
+	ExecutableSamplingInterval  time.Duration
+	ExecutableSamplingStartedAt time.Time
+	ExecutableSamplingStoppedAt time.Time
 	ExecutableObservations      []ExecutableObservation
 	ExecutableObservationErrors int
 }

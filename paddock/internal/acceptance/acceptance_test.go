@@ -194,6 +194,130 @@ func TestCLIGraphCommand(t *testing.T) {
 	}
 }
 
+func TestCLIExternalGraphAdapter(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "good")
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal.yaml")
+	directory := t.TempDir()
+	graphPath := filepath.Join(directory, "graph.json")
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"graph", source, "--policy", policyPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("source graph exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	if err := os.WriteFile(graphPath, []byte(output), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	adapterPath := filepath.Join(repoRoot, "paddock", "examples", "adapter", "fixture-adapter.sh")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"graph", source, "--policy", policyPath,
+		"--adapter", "sh", "--adapter-arg", adapterPath, "--adapter-arg", graphPath, "--format", "json",
+	)
+	if exitCode != 0 || !strings.Contains(output, `"schema": "paddock.graph/v1"`) || !strings.Contains(output, `"language": "go"`) {
+		t.Fatalf("external graph adapter failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy", policyPath,
+		"--adapter", "sh", "--adapter-arg", adapterPath, "--adapter-arg", graphPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("direct adapter check failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	ciPath := filepath.Join(directory, "ci-result.json")
+	generatedGraphPath := filepath.Join(directory, "generated-graph.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"ci", source, "--policy", policyPath,
+		"--adapter", "sh", "--adapter-arg", adapterPath, "--adapter-arg", graphPath,
+		"--graph-output", generatedGraphPath, "--output", ciPath,
+	)
+	if exitCode != 0 {
+		t.Fatalf("direct adapter CI failed: exit=%d output:\n%s", exitCode, output)
+	}
+	ciArtifact, err := artifact.Load(ciPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ciArtifact.Graph == nil || ciArtifact.Graph.Path != generatedGraphPath || ciArtifact.Graph.SHA256 == "" {
+		t.Fatalf("direct adapter CI omitted graph evidence: %#v", ciArtifact)
+	}
+}
+
+func TestCLIGraphInputBoundary(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "good")
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal.yaml")
+	directory := t.TempDir()
+	graphPath := filepath.Join(directory, "paddock-graph.json")
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"graph", source, "--policy", policyPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("source graph exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	if err := os.WriteFile(graphPath, []byte(output), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"graph", source, "--input", graphPath, "--format", "json",
+	)
+	if exitCode != 0 || !strings.Contains(output, `"schema": "paddock.graph/v1"`) {
+		t.Fatalf("graph-input inspection failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy", policyPath, "--graph", graphPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("graph-input check failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	ciPath := filepath.Join(directory, "ci-result.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"ci", source, "--policy", policyPath, "--graph", graphPath, "--output", ciPath,
+	)
+	if exitCode != 0 {
+		t.Fatalf("graph-input CI exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	ciArtifact, err := artifact.Load(ciPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ciArtifact.Graph == nil || ciArtifact.Graph.SHA256 == "" {
+		t.Fatalf("CI artifact omitted graph evidence: %#v", ciArtifact)
+	}
+
+	foreignGraphPath := filepath.Join(directory, "foreign-graph.json")
+	foreignPolicyPath := filepath.Join(directory, "foreign-policy.yaml")
+	graphData, err := os.ReadFile(graphPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignGraph := strings.Replace(string(graphData), `"language": "go"`, `"language": "rust"`, 1)
+	if err := os.WriteFile(foreignGraphPath, []byte(foreignGraph), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	policyData, err := os.ReadFile(policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignPolicy := strings.Replace(string(policyData), "  language: go", "  language: rust", 1)
+	if err := os.WriteFile(foreignPolicyPath, []byte(foreignPolicy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy", foreignPolicyPath, "--graph", foreignGraphPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("external-language graph check failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
 func TestCLIInitCreatesReviewableDraft(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	cli := buildCLI(t, repoRoot)
@@ -223,6 +347,42 @@ func TestCLIInitCreatesReviewableDraft(t *testing.T) {
 	)
 	if exitCode != 2 || !strings.Contains(output, "already exists") {
 		t.Fatalf("init overwrite protection failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIInitWithExternalAdapter(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "good")
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal.yaml")
+	directory := t.TempDir()
+	graphPath := filepath.Join(directory, "rust-graph.json")
+	outputPath := filepath.Join(directory, "paddock.yaml")
+	graphOutput, exitCode := runCLI(t, cli, repoRoot,
+		"graph", source, "--policy", policyPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("graph exit code = %d, want 0; output:\n%s", exitCode, graphOutput)
+	}
+	graphOutput = strings.Replace(graphOutput, `"language": "go"`, `"language": "rust"`, 1)
+	if err := os.WriteFile(graphPath, []byte(graphOutput), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := filepath.Join(repoRoot, "paddock", "examples", "adapter", "fixture-adapter.sh")
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"init", source, "--language", "rust",
+		"--adapter", "sh", "--adapter-arg", fixture, "--adapter-arg", graphPath,
+		"--output", outputPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "draft; review before CI") {
+		t.Fatalf("external init failed: exit=%d output:\n%s", exitCode, output)
+	}
+	loaded, err := policy.Load(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Source.Language != "rust" || loaded.Source.Unit != "package" || len(loaded.Components) == 0 {
+		t.Fatalf("external starter policy is incomplete: %#v", loaded)
 	}
 }
 
@@ -388,6 +548,16 @@ func TestPortableCIWorkflow(t *testing.T) {
 	lockPath := filepath.Join(directory, "paddock.lock.json")
 	diffPath := filepath.Join(directory, "paddock-policy-diff.json")
 	resultPath := filepath.Join(directory, "paddock-ci-result.json")
+	graphPath := filepath.Join(directory, "paddock-graph.json")
+	graphOutput, graphExitCode := runCLI(t, cli, repoRoot,
+		"graph", source, "--policy", policyPath, "--format", "json",
+	)
+	if graphExitCode != 0 {
+		t.Fatalf("workflow graph generation exit code = %d, want 0; output:\n%s", graphExitCode, graphOutput)
+	}
+	if err := os.WriteFile(graphPath, []byte(graphOutput), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	policyData, err := os.ReadFile(policyPath)
 	if err != nil {
 		t.Fatal(err)
@@ -403,6 +573,7 @@ func TestPortableCIWorkflow(t *testing.T) {
 		"PADDOCK_SOURCE_ROOT=" + source,
 		"PADDOCK_DIFF=" + diffPath,
 		"PADDOCK_RESULT=" + resultPath,
+		"PADDOCK_GRAPH=" + graphPath,
 	}
 
 	output, exitCode := runWorkflow(t, workflow, repoRoot, env, "review")
@@ -427,8 +598,12 @@ func TestPortableCIWorkflow(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("workflow gate exit code = %d, want 0; output:\n%s", exitCode, output)
 	}
-	if _, err := artifact.Load(resultPath); err != nil {
+	workflowArtifact, err := artifact.Load(resultPath)
+	if err != nil {
 		t.Fatalf("load workflow CI artifact: %v", err)
+	}
+	if workflowArtifact.Graph == nil || workflowArtifact.Graph.SHA256 == "" {
+		t.Fatalf("workflow CI artifact omitted graph evidence: %#v", workflowArtifact)
 	}
 }
 
@@ -669,6 +844,47 @@ rules: []
 	}
 	if !strings.Contains(output, "cross-context-access-is-mediated") {
 		t.Fatalf("new finding missing from output:\n%s", output)
+	}
+}
+
+func TestCLIBaselineWithExternalGraph(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "violating")
+	policy := filepath.Join(repoRoot, "paddock", "examples", "hexagonal.yaml")
+	directory := t.TempDir()
+	graphPath := filepath.Join(directory, "paddock-graph.json")
+	baselinePath := filepath.Join(directory, "paddock-baseline.json")
+	graphOutput, exitCode := runCLI(t, cli, repoRoot,
+		"graph", source, "--policy", policy, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("graph exit code = %d, want 0; output:\n%s", exitCode, graphOutput)
+	}
+	if err := os.WriteFile(graphPath, []byte(graphOutput), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := filepath.Join(repoRoot, "paddock", "examples", "adapter", "fixture-adapter.sh")
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"baseline", source, "--policy", policy,
+		"--adapter", "sh", "--adapter-arg", fixture, "--adapter-arg", graphPath,
+		"--output", baselinePath,
+	)
+	if exitCode != 0 {
+		t.Fatalf("external baseline exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	snapshot, err := baseline.Load(baselinePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Entries) == 0 {
+		t.Fatalf("external baseline contained no findings: %#v", snapshot)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy", policy, "--graph", graphPath, "--baseline", baselinePath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("external baseline did not suppress its graph findings: exit=%d output:\n%s", exitCode, output)
 	}
 }
 

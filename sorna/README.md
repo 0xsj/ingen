@@ -61,7 +61,9 @@ Oracle freezes record macOS unified-log access events in
 PIDs. Each bundle separately records coalesced live executable identities in
 `events/executables.jsonl` or `events/subject-executables.jsonl`; a changed
 path or digest creates a new observation. These streams remain parent-side
-observations and do not automatically raise run assurance.
+observations and do not automatically raise run assurance. The assurance
+record also reports `observation_coverage` as `periodic-best-effort` or
+`periodic-best-effort-with-gaps`, making the between-sample blind spot explicit.
 
 To generate the first evidence-bearing oracle:
 
@@ -69,6 +71,23 @@ To generate the first evidence-bearing oracle:
 make sorna-oracle-freeze
 make oracle-evidence-verify
 ```
+
+To apply the default CI interpretation to a run bundle:
+
+```sh
+make sorna-gate
+GATE_MIN_OBSERVATION_COVERAGE=periodic-best-effort make sorna-gate
+go run ./sorna/cmd/sorna gate --format json .artifacts/document-pipeline-run
+go run ./sorna/cmd/sorna gate --format ci-result .artifacts/document-pipeline-run \
+  > .artifacts/document-pipeline-ci-result.json
+```
+
+The default gate blocks contract failures and surviving or inconclusive
+mutations, while observation coverage remains report-only. The optional
+minimum makes periodic sampling gaps blocking.
+
+When the evidence bundle cannot be verified, `--format ci-result` emits an
+`error` envelope with exit code `2` so a CI collector can retain the failure.
 
 The parent Sorna process seals and verifies the contract and policy, while a
 separate child process reads the contract and writes the frozen `oracle.json`

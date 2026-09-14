@@ -25,6 +25,9 @@ from the running process; Seatbelt still denies it.
 - A path-only check would accept the replacement; the digest check rejects it.
 - Process-exec restrictions remain active after startup: a late descendant
   transition to an unlisted executable is denied, not just an immediate probe.
+- The identity history records an `exec` transition when a sample catches it,
+  but the short-lived-transition probe demonstrates that a process can change
+  identity and exit between sampling ticks without appearing in the history.
 - The existing filesystem canary proves that an implementation path is denied
   by the host policy, while the unlisted-helper probe proves that process
   execution is not ambient.
@@ -39,8 +42,8 @@ from the running process; Seatbelt still denies it.
   inspection; unsupported platforms must report that limitation explicitly.
 - A successful launch identity check does not attest later `exec` transitions,
   complete descendant observation, or absence of an access attempt. The late
-  probe proves enforcement of one denied transition, but Sorna does not yet
-  record a complete identity history for allowed transitions.
+  probe proves enforcement of one denied transition, while the sampling probe
+  makes the allowed-transition observation gap explicit.
 - Negative probes should remain separate from contract correctness tests so a
   green behavioral result cannot hide a failed boundary assumption.
 

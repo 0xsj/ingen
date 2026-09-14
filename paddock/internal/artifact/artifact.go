@@ -35,6 +35,7 @@ type Artifact struct {
 	Source      Source            `json:"source"`
 	Policy      FileRef           `json:"policy"`
 	PolicyLock  *FileRef          `json:"policy_lock,omitempty"`
+	Graph       *FileRef          `json:"graph,omitempty"`
 	Baseline    *FileRef          `json:"baseline,omitempty"`
 	Report      *model.Result     `json:"report,omitempty"`
 	Explanation *explain.Document `json:"explanation,omitempty"`
@@ -42,10 +43,14 @@ type Artifact struct {
 }
 
 func New(result *model.Result, policy FileRef, baseline *FileRef, createdAt time.Time) Artifact {
-	return NewWithPolicyLock(result, policy, nil, baseline, createdAt)
+	return NewWithInputs(result, policy, nil, nil, baseline, createdAt)
 }
 
 func NewWithPolicyLock(result *model.Result, policy FileRef, policyLock *FileRef, baseline *FileRef, createdAt time.Time) Artifact {
+	return NewWithInputs(result, policy, policyLock, nil, baseline, createdAt)
+}
+
+func NewWithInputs(result *model.Result, policy FileRef, policyLock, graph *FileRef, baseline *FileRef, createdAt time.Time) Artifact {
 	status := "passed"
 	exitCode := 0
 	if !result.OK() {
@@ -63,6 +68,7 @@ func NewWithPolicyLock(result *model.Result, policy FileRef, policyLock *FileRef
 		Source:      Source{Root: result.Root, ModulePath: result.ModulePath},
 		Policy:      policy,
 		PolicyLock:  policyLock,
+		Graph:       graph,
 		Baseline:    baseline,
 		Report:      result,
 		Explanation: &explanation,
@@ -70,10 +76,14 @@ func NewWithPolicyLock(result *model.Result, policy FileRef, policyLock *FileRef
 }
 
 func NewError(root string, policy FileRef, baseline *FileRef, err error, createdAt time.Time) Artifact {
-	return NewErrorWithPolicyLock(root, policy, nil, baseline, err, createdAt)
+	return NewErrorWithInputs(root, policy, nil, nil, baseline, err, createdAt)
 }
 
 func NewErrorWithPolicyLock(root string, policy FileRef, policyLock *FileRef, baseline *FileRef, err error, createdAt time.Time) Artifact {
+	return NewErrorWithInputs(root, policy, policyLock, nil, baseline, err, createdAt)
+}
+
+func NewErrorWithInputs(root string, policy FileRef, policyLock, graph, baseline *FileRef, err error, createdAt time.Time) Artifact {
 	return Artifact{
 		Schema:     Schema,
 		Tool:       "paddock",
@@ -84,6 +94,7 @@ func NewErrorWithPolicyLock(root string, policy FileRef, policyLock *FileRef, ba
 		Source:     Source{Root: root},
 		Policy:     policy,
 		PolicyLock: policyLock,
+		Graph:      graph,
 		Baseline:   baseline,
 		Error:      err.Error(),
 	}
@@ -149,6 +160,12 @@ func (a Artifact) Validate() error {
 	}
 	if a.PolicyLock != nil && a.PolicyLock.SHA256 == "" {
 		return fmt.Errorf("CI artifact policy_lock sha256 is required")
+	}
+	if a.Graph != nil && a.Graph.Path == "" {
+		return fmt.Errorf("CI artifact graph path is required")
+	}
+	if a.Graph != nil && a.Graph.SHA256 == "" {
+		return fmt.Errorf("CI artifact graph sha256 is required")
 	}
 	if a.Status == "error" {
 		if a.ExitCode != 2 || a.Error == "" {

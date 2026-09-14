@@ -58,9 +58,10 @@ type ContractVerdict struct {
 }
 
 type Assurance struct {
-	Level       int      `json:"level"`
-	Status      string   `json:"status"`
-	Limitations []string `json:"limitations"`
+	Level               int      `json:"level"`
+	Status              string   `json:"status"`
+	ObservationCoverage string   `json:"observation_coverage,omitempty"`
+	Limitations         []string `json:"limitations"`
 }
 
 type ContractReference struct {
@@ -252,9 +253,10 @@ func executeCases(ctx context.Context, contractReference ContractReference, case
 		RunID:     "run-" + strconv.FormatInt(createdAt.UnixNano(), 10),
 		CreatedAt: createdAt,
 		Assurance: Assurance{
-			Level:       0,
-			Status:      assuranceStatus,
-			Limitations: limitations,
+			Level:               0,
+			Status:              assuranceStatus,
+			ObservationCoverage: "not-observed",
+			Limitations:         limitations,
 		},
 		Contract: contractReference,
 		Oracle:   oracleReference,

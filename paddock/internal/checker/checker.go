@@ -29,7 +29,14 @@ func CheckPolicy(root, policyPath string, config policy.Policy) (*model.Result, 
 	if err != nil {
 		return nil, err
 	}
-	root, err = filepath.Abs(root)
+	return CheckGraph(root, policyPath, config, dependencyGraph)
+}
+
+func CheckGraph(root, policyPath string, config policy.Policy, dependencyGraph *model.Graph) (*model.Result, error) {
+	if dependencyGraph == nil {
+		return nil, fmt.Errorf("checker graph is required")
+	}
+	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve source root: %w", err)
 	}

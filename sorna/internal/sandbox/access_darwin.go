@@ -22,6 +22,8 @@ var accessProcessIDPattern = regexp.MustCompile(`^Sandbox: [^\s(]+\(([0-9]+)\)`)
 
 var accessProcessIDSearchPattern = regexp.MustCompile(`Sandbox: [^\s(]+\(([0-9]+)\)`)
 
+const executableSamplingInterval = 25 * time.Millisecond
+
 type darwinAccessCapture struct {
 	ctx               context.Context
 	started           time.Time
@@ -30,6 +32,10 @@ type darwinAccessCapture struct {
 	lastExecutables   map[int]ExecutableIdentity
 	executableHistory []ExecutableObservation
 	executableErrors  int
+	executableSamples int
+	samplingInterval  time.Duration
+	samplingStartedAt time.Time
+	samplingStoppedAt time.Time
 	samplerStop       chan struct{}
 	samplerDone       chan struct{}
 	samplerStarted    bool
@@ -52,10 +58,11 @@ func startAccessCapture(ctx context.Context) (AccessCapture, error) {
 		ctx = context.Background()
 	}
 	return &darwinAccessCapture{
-		ctx:             ctx,
-		started:         time.Now(),
-		processIDs:      make(map[int]struct{}),
-		lastExecutables: make(map[int]ExecutableIdentity),
+		ctx:              ctx,
+		started:          time.Now(),
+		processIDs:       make(map[int]struct{}),
+		lastExecutables:  make(map[int]ExecutableIdentity),
+		samplingInterval: executableSamplingInterval,
 	}, nil
 }
 
@@ -65,6 +72,12 @@ func (capture *darwinAccessCapture) Attach(processID int) error {
 	}
 	capture.mu.Lock()
 	capture.processIDs[processID] = struct{}{}
+	if capture.samplingInterval <= 0 {
+		capture.samplingInterval = executableSamplingInterval
+	}
+	if capture.samplingStartedAt.IsZero() {
+		capture.samplingStartedAt = time.Now().UTC()
+	}
 	if !capture.samplerStarted {
 		capture.samplerStarted = true
 		capture.samplerStop = make(chan struct{})
@@ -86,14 +99,24 @@ func (capture *darwinAccessCapture) Stop(processID int) (AccessReport, error) {
 			capture.mu.Unlock()
 		}
 		capture.stopSampler()
+		capture.mu.Lock()
+		if capture.executableSamples > 0 && capture.samplingStoppedAt.IsZero() {
+			capture.samplingStoppedAt = time.Now().UTC()
+		}
+		capture.mu.Unlock()
 		processIDs := capture.snapshotProcessIDs()
 		processTreeErrors := capture.snapshotProcessTreeErrors()
+		executableSamples, samplingInterval, samplingStartedAt, samplingStoppedAt := capture.snapshotExecutableSampling()
 		executableHistory := capture.snapshotExecutableHistory()
 		executableErrors := capture.snapshotExecutableErrors()
 		if len(processIDs) == 0 {
 			capture.result = AccessReport{
 				Source:                      "macos-unified-log",
 				ProcessTreeErrors:           processTreeErrors,
+				ExecutableSampleCount:       executableSamples,
+				ExecutableSamplingInterval:  samplingInterval,
+				ExecutableSamplingStartedAt: samplingStartedAt,
+				ExecutableSamplingStoppedAt: samplingStoppedAt,
 				ExecutableObservations:      executableHistory,
 				ExecutableObservationErrors: executableErrors,
 			}
@@ -128,6 +151,10 @@ func (capture *darwinAccessCapture) Stop(processID int) (AccessReport, error) {
 			ProcessIDs:                  processIDs,
 			ParseErrors:                 parseErrors,
 			ProcessTreeErrors:           processTreeErrors,
+			ExecutableSampleCount:       executableSamples,
+			ExecutableSamplingInterval:  samplingInterval,
+			ExecutableSamplingStartedAt: samplingStartedAt,
+			ExecutableSamplingStoppedAt: samplingStoppedAt,
 			ExecutableObservations:      executableHistory,
 			ExecutableObservationErrors: executableErrors,
 		}
@@ -180,9 +207,21 @@ func (capture *darwinAccessCapture) snapshotExecutableErrors() int {
 	return capture.executableErrors
 }
 
+func (capture *darwinAccessCapture) snapshotExecutableSampling() (int, time.Duration, time.Time, time.Time) {
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return capture.executableSamples, capture.samplingInterval, capture.samplingStartedAt, capture.samplingStoppedAt
+}
+
 func (capture *darwinAccessCapture) sampleProcessTree(rootProcessID int) {
 	defer close(capture.samplerDone)
-	ticker := time.NewTicker(25 * time.Millisecond)
+	capture.mu.Lock()
+	interval := capture.samplingInterval
+	if interval <= 0 {
+		interval = executableSamplingInterval
+	}
+	capture.mu.Unlock()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		capture.extendProcessTree(rootProcessID)
@@ -197,6 +236,12 @@ func (capture *darwinAccessCapture) sampleProcessTree(rootProcessID int) {
 }
 
 func (capture *darwinAccessCapture) extendProcessTree(rootProcessID int) {
+	capture.mu.Lock()
+	if capture.samplingStartedAt.IsZero() {
+		capture.samplingStartedAt = time.Now().UTC()
+	}
+	capture.executableSamples++
+	capture.mu.Unlock()
 	entries, err := processTable()
 	if err != nil {
 		capture.mu.Lock()

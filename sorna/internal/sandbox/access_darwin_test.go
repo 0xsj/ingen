@@ -114,6 +114,40 @@ func TestAccessCaptureRecordsExecutableTransition(t *testing.T) {
 	}
 }
 
+func TestAccessCaptureCanMissShortLivedTransitionBetweenSamples(t *testing.T) {
+	capture := &darwinAccessCapture{
+		ctx:              context.Background(),
+		started:          time.Now(),
+		processIDs:       make(map[int]struct{}),
+		samplingInterval: 500 * time.Millisecond,
+	}
+	command := exec.Command("/bin/sh", "-c", "sleep 0.05; exec /bin/sleep 0.05")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	rootPID := command.Process.Pid
+	if err := capture.Attach(rootPID); err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	capture.stopSampler()
+
+	rootObservations := make([]ExecutableObservation, 0)
+	for _, observation := range capture.snapshotExecutableHistory() {
+		if observation.PID == rootPID {
+			rootObservations = append(rootObservations, observation)
+		}
+	}
+	if len(rootObservations) != 1 || !strings.HasSuffix(rootObservations[0].Path, "/sh") {
+		t.Fatalf("root executable observations = %+v; want only the initial shell identity", rootObservations)
+	}
+	if capture.executableSamples < 2 {
+		t.Fatalf("executable sample count = %d; want initial synchronous and sampler attempts", capture.executableSamples)
+	}
+}
+
 func TestParseAccessEventNormalizesSeatbeltMessage(t *testing.T) {
 	event, err := parseAccessEvent(macOSLogEvent{
 		Timestamp:    "2026-09-14 08:56:34.966769+0300",

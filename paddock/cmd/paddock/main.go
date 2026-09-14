@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -77,6 +78,9 @@ func check(args []string) error {
 	root := "."
 	policyPath := ""
 	policyLockPath := ""
+	graphInputPath := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
 	baselinePath := ""
 	format := "text"
 	rootSet := false
@@ -107,6 +111,24 @@ func check(args []string) error {
 			}
 			index++
 			policyLockPath = args[index]
+		case "--graph":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a graph document path", arg)
+			}
+			index++
+			graphInputPath = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an executable path", arg)
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an argument", arg)
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return fmt.Errorf("unknown option %q", arg)
@@ -121,11 +143,29 @@ func check(args []string) error {
 	if policyPath == "" && policyLockPath == "" {
 		return fmt.Errorf("check requires --policy <path> or --policy-lock <path>")
 	}
+	if graphInputPath != "" && adapterExecutable != "" {
+		return fmt.Errorf("check accepts either --graph or --adapter, not both")
+	}
 	evaluation, err := loadEvaluationPolicy(policyPath, policyLockPath)
 	if err != nil {
 		return err
 	}
-	result, err := checker.CheckPolicy(root, evaluation.Path, evaluation.Config)
+	var result *model.Result
+	if graphInputPath != "" {
+		loaded, err := loadGraphInput(graphInputPath, evaluation.Config)
+		if err != nil {
+			return err
+		}
+		result, err = checker.CheckGraph(root, evaluation.Path, evaluation.Config, loaded)
+	} else if adapterExecutable != "" {
+		loaded, err := loadExternalGraph(root, evaluation.Config, adapterExecutable, adapterArgs)
+		if err != nil {
+			return err
+		}
+		result, err = checker.CheckGraph(root, evaluation.Path, evaluation.Config, loaded)
+	} else {
+		result, err = checker.CheckPolicy(root, evaluation.Path, evaluation.Config)
+	}
 	if err != nil {
 		return err
 	}
@@ -151,24 +191,15 @@ func check(args []string) error {
 	return nil
 }
 
-type graphDocument struct {
-	Schema       string                    `json:"schema"`
-	Language     string                    `json:"language"`
-	Unit         string                    `json:"source_unit,omitempty"`
-	Root         string                    `json:"root"`
-	Roots        []string                  `json:"roots,omitempty"`
-	ModulePath   string                    `json:"module_path"`
-	Capabilities paddockgraph.Capabilities `json:"capabilities"`
-	PackageCount int                       `json:"package_count"`
-	EdgeCount    int                       `json:"edge_count"`
-	Packages     []*model.Package          `json:"packages"`
-	Edges        []*model.Edge             `json:"edges"`
-}
+type graphDocument = paddockgraph.Document
 
 func graphCommand(args []string) error {
 	root := "."
 	language := ""
 	policyPath := ""
+	graphInputPath := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
 	format := "text"
 	rootSet := false
 	for index := 0; index < len(args); index++ {
@@ -186,6 +217,24 @@ func graphCommand(args []string) error {
 			}
 			index++
 			policyPath = args[index]
+		case "--input", "--graph":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a graph document path", arg)
+			}
+			index++
+			graphInputPath = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an executable path", arg)
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an argument", arg)
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
 		case "--format", "-f":
 			if index+1 >= len(args) {
 				return fmt.Errorf("%s requires text or json", arg)
@@ -203,46 +252,110 @@ func graphCommand(args []string) error {
 			rootSet = true
 		}
 	}
-
-	request := paddockgraph.LoadRequest{Root: root}
-	if policyPath != "" {
-		config, err := paddockpolicy.Load(policyPath)
-		if err != nil {
-			return err
-		}
-		if language != "" && language != config.Source.Language {
-			return fmt.Errorf("graph language %q does not match policy language %q", language, config.Source.Language)
-		}
-		language = config.Source.Language
-		request.Unit = config.Source.Unit
-		request.Roots = append([]string(nil), config.Source.Roots...)
-	}
-	if language == "" {
-		return fmt.Errorf("graph requires --language <go|typescript|python> or --policy <path>")
+	if graphInputPath != "" && adapterExecutable != "" {
+		return fmt.Errorf("graph accepts either --input/--graph or --adapter, not both")
 	}
 
-	registry := paddockgraph.DefaultRegistry()
-	adapter, err := registry.Lookup(language)
-	if err != nil {
-		return err
-	}
-	loaded, err := registry.Load(language, request)
-	if err != nil {
-		return err
-	}
-	loaded = paddockgraph.StableCopy(loaded)
+	var loaded *model.Graph
+	unit := ""
+	roots := []string(nil)
+	modulePath := ""
+	capabilities := paddockgraph.Capabilities{}
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return fmt.Errorf("resolve source root: %w", err)
 	}
+	if graphInputPath != "" {
+		var document paddockgraph.Document
+		var err error
+		loaded, document, err = paddockgraph.LoadDocument(graphInputPath)
+		if err != nil {
+			return err
+		}
+		if language != "" && language != document.Language {
+			return fmt.Errorf("graph language %q does not match input language %q", language, document.Language)
+		}
+		language = document.Language
+		unit = document.Unit
+		roots = append([]string(nil), document.Roots...)
+		modulePath = document.ModulePath
+		capabilities = document.Capabilities
+		if policyPath != "" {
+			config, err := paddockpolicy.Load(policyPath)
+			if err != nil {
+				return err
+			}
+			if config.Source.Language != document.Language {
+				return fmt.Errorf("graph input language %q does not match policy language %q", document.Language, config.Source.Language)
+			}
+			if document.Unit != "" && document.Unit != config.Source.Unit {
+				return fmt.Errorf("graph input source unit %q does not match policy source unit %q", document.Unit, config.Source.Unit)
+			}
+		}
+	} else {
+		request := paddockgraph.LoadRequest{Root: root}
+		if policyPath != "" {
+			config, err := paddockpolicy.Load(policyPath)
+			if err != nil {
+				return err
+			}
+			if language != "" && language != config.Source.Language {
+				return fmt.Errorf("graph language %q does not match policy language %q", language, config.Source.Language)
+			}
+			language = config.Source.Language
+			request.Unit = config.Source.Unit
+			request.Roots = append([]string(nil), config.Source.Roots...)
+		}
+		if language == "" {
+			return fmt.Errorf("graph requires --language <language>, --policy <path>, or --input <graph.json>")
+		}
+		if adapterExecutable != "" {
+			requiredCapabilities := paddockgraph.Capabilities{}
+			if request.Unit != "" {
+				requiredCapabilities.SourceUnits = []string{request.Unit}
+			}
+			adapterRequest := paddockgraph.Request{
+				Schema:               paddockgraph.RequestSchema,
+				Language:             language,
+				Unit:                 request.Unit,
+				Root:                 absRoot,
+				Roots:                append([]string(nil), request.Roots...),
+				RequiredCapabilities: requiredCapabilities,
+			}
+			var document paddockgraph.Document
+			loaded, document, err = paddockgraph.LoadExternal(context.Background(), adapterExecutable, adapterArgs, adapterRequest)
+			if err != nil {
+				return err
+			}
+			unit = document.Unit
+			roots = append([]string(nil), document.Roots...)
+			modulePath = document.ModulePath
+			capabilities = document.Capabilities
+		} else {
+			registry := paddockgraph.DefaultRegistry()
+			adapter, err := registry.Lookup(language)
+			if err != nil {
+				return err
+			}
+			loaded, err = registry.Load(language, request)
+			if err != nil {
+				return err
+			}
+			unit = request.Unit
+			roots = request.Roots
+			modulePath = loaded.ModulePath
+			capabilities = adapter.Capabilities()
+		}
+	}
+	loaded = paddockgraph.StableCopy(loaded)
 	document := graphDocument{
 		Schema:       "paddock.graph/v1",
 		Language:     language,
-		Unit:         request.Unit,
+		Unit:         unit,
 		Root:         absRoot,
-		Roots:        request.Roots,
-		ModulePath:   loaded.ModulePath,
-		Capabilities: adapter.Capabilities(),
+		Roots:        roots,
+		ModulePath:   modulePath,
+		Capabilities: capabilities,
 		PackageCount: len(loaded.Packages),
 		EdgeCount:    len(loaded.Edges),
 		Packages:     loaded.Packages,
@@ -300,6 +413,10 @@ func printGraphText(w io.Writer, document graphDocument) error {
 func initCommand(args []string) error {
 	root := "."
 	language := ""
+	unit := ""
+	graphInputPath := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
 	template := ""
 	outputPath := "paddock.yaml"
 	force := false
@@ -313,6 +430,30 @@ func initCommand(args []string) error {
 			}
 			index++
 			language = args[index]
+		case "--unit", "--source-unit":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a source unit", arg)
+			}
+			index++
+			unit = args[index]
+		case "--graph", "--input":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a graph document path", arg)
+			}
+			index++
+			graphInputPath = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an executable path", arg)
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an argument", arg)
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
 		case "--template", "-t":
 			if index+1 >= len(args) {
 				return fmt.Errorf("%s requires a template", arg)
@@ -338,24 +479,73 @@ func initCommand(args []string) error {
 			rootSet = true
 		}
 	}
+	if graphInputPath != "" && adapterExecutable != "" {
+		return fmt.Errorf("init accepts either --graph/--input or --adapter, not both")
+	}
+
+	var loaded *model.Graph
+	if graphInputPath != "" {
+		var document paddockgraph.Document
+		var err error
+		loaded, document, err = paddockgraph.LoadDocument(graphInputPath)
+		if err != nil {
+			return err
+		}
+		if language != "" && language != document.Language {
+			return fmt.Errorf("graph language %q does not match input language %q", language, document.Language)
+		}
+		language = document.Language
+		if unit != "" && document.Unit != "" && unit != document.Unit {
+			return fmt.Errorf("graph source unit %q does not match input source unit %q", unit, document.Unit)
+		}
+		if unit == "" {
+			unit = document.Unit
+		}
+	} else if adapterExecutable != "" {
+		if language == "" {
+			return fmt.Errorf("init with --adapter requires --language <language>")
+		}
+		if unit == "" {
+			unit = sourceUnit(language)
+		}
+		var document paddockgraph.Document
+		var err error
+		loaded, document, err = loadExternalGraphRequest(root, language, unit, nil, adapterExecutable, adapterArgs)
+		if err != nil {
+			return err
+		}
+		unit = document.Unit
+	} else {
+		if language == "" {
+			language = detectLanguage(root)
+		}
+		if language == "" {
+			return fmt.Errorf("cannot detect source language; use --language go|typescript|python")
+		}
+		if unit == "" {
+			unit = sourceUnit(language)
+		}
+		request := paddockgraph.LoadRequest{Root: root, Unit: unit}
+		registry := paddockgraph.DefaultRegistry()
+		var err error
+		loaded, err = registry.Load(language, request)
+		if err != nil {
+			return err
+		}
+	}
 
 	if language == "" {
-		language = detectLanguage(root)
+		return fmt.Errorf("cannot determine source language from graph")
 	}
-	if language == "" {
-		return fmt.Errorf("cannot detect source language; use --language go|typescript|python")
+	if unit == "" {
+		unit = sourceUnit(language)
 	}
 	if template == "" {
 		template = defaultTemplate(language)
 	}
-	request := paddockgraph.LoadRequest{Root: root, Unit: sourceUnit(language)}
-	registry := paddockgraph.DefaultRegistry()
-	loaded, err := registry.Load(language, request)
-	if err != nil {
-		return err
-	}
 	contents, err := paddockscaffold.Generate(paddockscaffold.Options{
 		Language: language,
+		Unit:     unit,
 		Template: template,
 		Root:     root,
 		Graph:    paddockgraph.StableCopy(loaded),
@@ -596,6 +786,63 @@ type evaluationPolicy struct {
 	Lock            *paddockpolicylock.Artifact
 }
 
+func loadGraphInput(path string, config paddockpolicy.Policy) (*model.Graph, error) {
+	loaded, document, err := paddockgraph.LoadDocument(path)
+	if err != nil {
+		return nil, err
+	}
+	if document.Language != config.Source.Language {
+		return nil, fmt.Errorf("graph input language %q does not match policy language %q", document.Language, config.Source.Language)
+	}
+	if document.Unit != "" && document.Unit != config.Source.Unit {
+		return nil, fmt.Errorf("graph input source unit %q does not match policy source unit %q", document.Unit, config.Source.Unit)
+	}
+	return loaded, nil
+}
+
+func loadExternalGraph(root string, config paddockpolicy.Policy, executable string, args []string) (*model.Graph, error) {
+	loaded, _, err := loadExternalGraphDocument(root, config, executable, args)
+	return loaded, err
+}
+
+func loadExternalGraphDocument(root string, config paddockpolicy.Policy, executable string, args []string) (*model.Graph, paddockgraph.Document, error) {
+	return loadExternalGraphRequest(root, config.Source.Language, config.Source.Unit, config.Source.Roots, executable, args)
+}
+
+func loadExternalGraphRequest(root, language, unit string, roots []string, executable string, args []string) (*model.Graph, paddockgraph.Document, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, paddockgraph.Document{}, fmt.Errorf("resolve source root: %w", err)
+	}
+	requiredCapabilities := paddockgraph.Capabilities{}
+	if unit != "" {
+		requiredCapabilities.SourceUnits = []string{unit}
+	}
+	return paddockgraph.LoadExternal(context.Background(), executable, args, paddockgraph.Request{
+		Schema:               paddockgraph.RequestSchema,
+		Language:             language,
+		Unit:                 unit,
+		Root:                 absRoot,
+		Roots:                append([]string(nil), roots...),
+		RequiredCapabilities: requiredCapabilities,
+	})
+}
+
+func saveGraphDocument(path string, document paddockgraph.Document) error {
+	if err := document.Validate(); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode graph document: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write graph document: %w", err)
+	}
+	return nil
+}
+
 func loadEvaluationPolicy(policyPath, policyLockPath string) (evaluationPolicy, error) {
 	if policyLockPath != "" {
 		locked, err := paddockpolicylock.Load(policyLockPath)
@@ -674,6 +921,9 @@ func canonicalPolicyHash(path string) (string, error) {
 func createBaseline(args []string) error {
 	root := "."
 	policyPath := ""
+	graphInputPath := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
 	outputPath := ""
 	rootSet := false
 	for index := 0; index < len(args); index++ {
@@ -685,6 +935,24 @@ func createBaseline(args []string) error {
 			}
 			index++
 			policyPath = args[index]
+		case "--graph":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a graph document path", arg)
+			}
+			index++
+			graphInputPath = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an executable path", arg)
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an argument", arg)
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
 		case "--output", "-o":
 			if index+1 >= len(args) {
 				return fmt.Errorf("%s requires a path", arg)
@@ -705,14 +973,36 @@ func createBaseline(args []string) error {
 	if policyPath == "" {
 		return fmt.Errorf("baseline requires --policy <path>")
 	}
+	if graphInputPath != "" && adapterExecutable != "" {
+		return fmt.Errorf("baseline accepts either --graph or --adapter, not both")
+	}
 	if outputPath == "" {
 		return fmt.Errorf("baseline requires --output <path>")
 	}
-	result, err := checker.Check(root, policyPath)
+	config, err := paddockpolicy.Load(policyPath)
 	if err != nil {
 		return err
 	}
-	policyHash, err := canonicalPolicyHash(policyPath)
+	var result *model.Result
+	if graphInputPath != "" {
+		loaded, err := loadGraphInput(graphInputPath, config)
+		if err != nil {
+			return err
+		}
+		result, err = checker.CheckGraph(root, policyPath, config, loaded)
+	} else if adapterExecutable != "" {
+		loaded, err := loadExternalGraph(root, config, adapterExecutable, adapterArgs)
+		if err != nil {
+			return err
+		}
+		result, err = checker.CheckGraph(root, policyPath, config, loaded)
+	} else {
+		result, err = checker.Check(root, policyPath)
+	}
+	if err != nil {
+		return err
+	}
+	policyHash, err := paddockpolicy.CanonicalSHA256(config)
 	if err != nil {
 		return err
 	}
@@ -728,6 +1018,10 @@ func createCIArtifact(args []string) (int, error) {
 	root := "."
 	policyPath := ""
 	policyLockPath := ""
+	graphInputPath := ""
+	graphOutputPath := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
 	baselinePath := ""
 	outputPath := ""
 	rootSet := false
@@ -746,6 +1040,30 @@ func createCIArtifact(args []string) (int, error) {
 			}
 			index++
 			policyLockPath = args[index]
+		case "--graph":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a graph document path", arg)
+			}
+			index++
+			graphInputPath = args[index]
+		case "--graph-output":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a graph document path", arg)
+			}
+			index++
+			graphOutputPath = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an executable path", arg)
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an argument", arg)
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
 		case "--baseline":
 			if index+1 >= len(args) {
 				return 0, fmt.Errorf("%s requires a path", arg)
@@ -772,6 +1090,15 @@ func createCIArtifact(args []string) (int, error) {
 	if policyPath == "" && policyLockPath == "" {
 		return 0, fmt.Errorf("ci requires --policy <path> or --policy-lock <path>")
 	}
+	if graphInputPath != "" && adapterExecutable != "" {
+		return 0, fmt.Errorf("ci accepts either --graph or --adapter, not both")
+	}
+	if adapterExecutable != "" && graphOutputPath == "" {
+		return 0, fmt.Errorf("ci requires --graph-output <path> when --adapter is used")
+	}
+	if adapterExecutable == "" && graphOutputPath != "" {
+		return 0, fmt.Errorf("ci --graph-output requires --adapter")
+	}
 	if outputPath == "" {
 		return 0, fmt.Errorf("ci requires --output <path>")
 	}
@@ -795,9 +1122,17 @@ func createCIArtifact(args []string) (int, error) {
 		}
 		policyLockRef = &ref
 	}
+	var graphRef *paddockartifact.FileRef
+	if graphInputPath != "" {
+		ref, err := paddockartifact.File(graphInputPath)
+		if err != nil {
+			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, nil, nil, err, createdAt)
+		}
+		graphRef = &ref
+	}
 	evaluation, err := loadEvaluationPolicy(policyPath, policyLockPath)
 	if err != nil {
-		return saveCIErrorWithPolicyLock(outputPath, root, policyRef, policyLockRef, nil, err, createdAt)
+		return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, graphRef, nil, err, createdAt)
 	}
 	if policyPath == "" {
 		policyRef = paddockartifact.FileRef{
@@ -805,25 +1140,52 @@ func createCIArtifact(args []string) (int, error) {
 			SHA256: evaluation.Lock.SourceSHA256,
 		}
 	}
+	var externalGraph *model.Graph
+	if adapterExecutable != "" {
+		loaded, document, err := loadExternalGraphDocument(root, evaluation.Config, adapterExecutable, adapterArgs)
+		if err != nil {
+			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, nil, nil, err, createdAt)
+		}
+		if err := saveGraphDocument(graphOutputPath, document); err != nil {
+			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, nil, nil, err, createdAt)
+		}
+		ref, err := paddockartifact.File(graphOutputPath)
+		if err != nil {
+			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, nil, nil, err, createdAt)
+		}
+		graphRef = &ref
+		externalGraph = loaded
+	}
 	var baselineRef *paddockartifact.FileRef
 	if baselinePath != "" {
 		ref, err := paddockartifact.File(baselinePath)
 		if err != nil {
-			return saveCIErrorWithPolicyLock(outputPath, root, policyRef, policyLockRef, &ref, err, createdAt)
+			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, graphRef, &ref, err, createdAt)
 		}
 		baselineRef = &ref
 	}
 
-	result, err := checker.CheckPolicy(root, evaluation.Path, evaluation.Config)
+	var result *model.Result
+	if graphInputPath != "" {
+		loaded, err := loadGraphInput(graphInputPath, evaluation.Config)
+		if err != nil {
+			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, graphRef, baselineRef, err, createdAt)
+		}
+		result, err = checker.CheckGraph(root, evaluation.Path, evaluation.Config, loaded)
+	} else if externalGraph != nil {
+		result, err = checker.CheckGraph(root, evaluation.Path, evaluation.Config, externalGraph)
+	} else {
+		result, err = checker.CheckPolicy(root, evaluation.Path, evaluation.Config)
+	}
 	if err != nil {
-		return saveCIErrorWithPolicyLock(outputPath, root, policyRef, policyLockRef, baselineRef, err, createdAt)
+		return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, graphRef, baselineRef, err, createdAt)
 	}
 	if baselinePath != "" {
 		if err := applyBaselineHash(result, baselinePath, evaluation.CanonicalSHA256); err != nil {
-			return saveCIErrorWithPolicyLock(outputPath, root, policyRef, policyLockRef, baselineRef, err, createdAt)
+			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, graphRef, baselineRef, err, createdAt)
 		}
 	}
-	ciArtifact := paddockartifact.NewWithPolicyLock(result, policyRef, policyLockRef, baselineRef, createdAt)
+	ciArtifact := paddockartifact.NewWithInputs(result, policyRef, policyLockRef, graphRef, baselineRef, createdAt)
 	if err := paddockartifact.Save(outputPath, ciArtifact); err != nil {
 		return 0, err
 	}
@@ -838,7 +1200,11 @@ func saveCIError(outputPath, root string, policy paddockartifact.FileRef, baseli
 }
 
 func saveCIErrorWithPolicyLock(outputPath, root string, policy paddockartifact.FileRef, policyLock *paddockartifact.FileRef, baseline *paddockartifact.FileRef, cause error, createdAt time.Time) (int, error) {
-	ciArtifact := paddockartifact.NewErrorWithPolicyLock(root, policy, policyLock, baseline, cause, createdAt)
+	return saveCIErrorWithInputs(outputPath, root, policy, policyLock, nil, baseline, cause, createdAt)
+}
+
+func saveCIErrorWithInputs(outputPath, root string, policy paddockartifact.FileRef, policyLock, graph, baseline *paddockartifact.FileRef, cause error, createdAt time.Time) (int, error) {
+	ciArtifact := paddockartifact.NewErrorWithInputs(root, policy, policyLock, graph, baseline, cause, createdAt)
 	if err := paddockartifact.Save(outputPath, ciArtifact); err != nil {
 		return 0, err
 	}
@@ -897,13 +1263,13 @@ func explainReport(args []string) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: paddock check <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--baseline <file>] [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock graph <source-root> [--policy <policy.yaml> | --language go|typescript|python] [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock init <source-root> [--language go|typescript|python] [--template <name>] [--output paddock.yaml] [--force]")
+	fmt.Fprintln(os.Stderr, "usage: paddock check <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--baseline <file>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock graph <source-root> [--policy <policy.yaml> | --language <language> | --input <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock init <source-root> [--language <language>] [--unit package|file] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--template <name>] [--output paddock.yaml] [--force]")
 	fmt.Fprintln(os.Stderr, "       paddock policy diff --before <policy.yaml> --after <policy.yaml> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy seal --input <policy.yaml> --output <policy.lock.json> [--force]")
 	fmt.Fprintln(os.Stderr, "       paddock policy verify --policy <policy.yaml> --lock <policy.lock.json>")
-	fmt.Fprintln(os.Stderr, "       paddock baseline <source-root> --policy <policy.yaml> --output <baseline.json>")
-	fmt.Fprintln(os.Stderr, "       paddock ci <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--baseline <file>] --output <ci-result.json>")
+	fmt.Fprintln(os.Stderr, "       paddock baseline <source-root> --policy <policy.yaml> [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] --output <baseline.json>")
+	fmt.Fprintln(os.Stderr, "       paddock ci <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] --graph-output <graph.json>] [--baseline <file>] --output <ci-result.json>")
 	fmt.Fprintln(os.Stderr, "       paddock explain <paddock-report.json> [--format text|json]")
 }

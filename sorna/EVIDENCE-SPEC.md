@@ -110,6 +110,7 @@ The manifest is the entry point for the evidence bundle:
   "assurance": {
     "level": 2,
     "status": "capability-isolated",
+    "observation_coverage": "not-observed",
     "limitations": []
   },
   "contract": {
@@ -211,6 +212,8 @@ Where the platform supports it, record:
 - host-observed live executable path, digest, and observation timestamp;
 - coalesced executable identity observations for the root and observed
   descendants, including path/digest transitions and observation gaps;
+- executable sampling interval, attempted-sample count, and UTC sampling
+  start/stop timestamps;
 - root and observed descendant process IDs, with completeness treated as
   best-effort unless the platform independently attests the process tree;
 - allowed and denied roots;
@@ -242,7 +245,21 @@ it runs and writes a record when a PID's executable path or digest changes;
 repeated identical samples are coalesced. The stream is therefore a timeline
 of parent-side observations, not an attestation that every process transition
 was seen. Observation errors remain in the manifest rather than being treated
-as successful coverage.
+as successful coverage. A verifier requires a positive interval and complete
+sampling window whenever samples were attempted, and requires the JSONL record
+count to match the manifest observation count. The top-level
+`assurance.observation_coverage` field makes this limitation machine-readable:
+`not-observed`, `unavailable`, `periodic-best-effort`, or
+`periodic-best-effort-with-gaps`.
+
+Sorna's `gate` command applies CI policy after evidence verification. By
+default, ordinary contract failures, non-killed mutations, and incomplete
+oracle executions block. A killed mutation is a passing sensitivity result even
+though its contract verdict is expected to fail. Observation coverage is
+reported but does not block. A caller may require `periodic-best-effort`, or
+allow known gaps by requiring `periodic-best-effort-with-gaps`. The gate emits
+`ingen.gate/v1` and uses exit code `0` for a passing policy, `1` for a policy
+failure, and `2` for invalid inputs or unverifiable evidence.
 
 ## 8. Rule result schema
 

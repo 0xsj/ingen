@@ -61,16 +61,20 @@ type OracleExecution struct {
 // captured stream may still contain zero events; that means only that no
 // matching event was observed during the collection window.
 type AccessTelemetry struct {
-	Status                      string `json:"status"`
-	Source                      string `json:"source"`
-	ProcessID                   int    `json:"process_id,omitempty"`
-	ProcessIDs                  []int  `json:"process_ids,omitempty"`
-	EventCount                  int    `json:"event_count"`
-	ParseErrors                 int    `json:"parse_errors"`
-	ProcessTreeErrors           int    `json:"process_tree_errors"`
-	ExecutableObservationCount  int    `json:"executable_observation_count"`
-	ExecutableObservationErrors int    `json:"executable_observation_errors"`
-	Reason                      string `json:"reason,omitempty"`
+	Status                       string    `json:"status"`
+	Source                       string    `json:"source"`
+	ProcessID                    int       `json:"process_id,omitempty"`
+	ProcessIDs                   []int     `json:"process_ids,omitempty"`
+	EventCount                   int       `json:"event_count"`
+	ParseErrors                  int       `json:"parse_errors"`
+	ProcessTreeErrors            int       `json:"process_tree_errors"`
+	ExecutableSampleCount        int       `json:"executable_sample_count"`
+	ExecutableSamplingIntervalMS int       `json:"executable_sampling_interval_ms"`
+	ExecutableSamplingStartedAt  time.Time `json:"executable_sampling_started_at,omitempty"`
+	ExecutableSamplingStoppedAt  time.Time `json:"executable_sampling_stopped_at,omitempty"`
+	ExecutableObservationCount   int       `json:"executable_observation_count"`
+	ExecutableObservationErrors  int       `json:"executable_observation_errors"`
+	Reason                       string    `json:"reason,omitempty"`
 }
 
 // OracleAccessEvent is the append-only JSONL representation of a normalized
@@ -178,6 +182,16 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 	}
 	if execution.Access.ExecutableObservationCount != len(execution.ExecutableObservations) {
 		return OracleBundle{}, fmt.Errorf("oracle executable observation count is %d, but %d observations were supplied", execution.Access.ExecutableObservationCount, len(execution.ExecutableObservations))
+	}
+	if err := validateExecutableSampling(
+		execution.Access.ExecutableSampleCount,
+		execution.Access.ExecutableSamplingIntervalMS,
+		execution.Access.ExecutableSamplingStartedAt,
+		execution.Access.ExecutableSamplingStoppedAt,
+		execution.Access.ExecutableObservationCount,
+		execution.Access.ExecutableObservationErrors,
+	); err != nil {
+		return OracleBundle{}, fmt.Errorf("invalid executable sampling metadata: %w", err)
 	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return OracleBundle{}, err
@@ -330,7 +344,12 @@ func oracleAssurance(execution OracleExecution) runner.Assurance {
 	}
 	if execution.Access.Status != "captured" {
 		limitations = append([]string{"host access telemetry was unavailable"}, limitations...)
-		return runner.Assurance{Level: 0, Status: "telemetry-unavailable", Limitations: limitations}
+		return runner.Assurance{
+			Level:               0,
+			Status:              "telemetry-unavailable",
+			ObservationCoverage: "unavailable",
+			Limitations:         limitations,
+		}
 	}
 	if execution.Access.ParseErrors > 0 || execution.Access.ProcessTreeErrors > 0 || execution.Access.ExecutableObservationErrors > 0 || execution.Access.ExecutableObservationCount == 0 {
 		gaps := make([]string, 0, 4)
@@ -346,10 +365,39 @@ func oracleAssurance(execution OracleExecution) runner.Assurance {
 		if execution.Access.ExecutableObservationCount == 0 {
 			gaps = append(gaps, "no executable identity samples were captured")
 		}
-		limitations = append(gaps, limitations...)
-		return runner.Assurance{Level: 0, Status: "host-enforced-observed-with-gaps", Limitations: limitations}
+		limitations = append(gaps, executableObservationLimitation(execution.Access))
+		limitations = append(limitations, "access events are host log observations and do not prove the absence of unobserved actions", "this assurance describes oracle generation only; subject-run isolation remains separate")
+		return runner.Assurance{
+			Level:               0,
+			Status:              "host-enforced-observed-with-gaps",
+			ObservationCoverage: executableObservationCoverage(execution.Access),
+			Limitations:         limitations,
+		}
 	}
-	return runner.Assurance{Level: 0, Status: "host-enforced-observed", Limitations: limitations}
+	limitations = append([]string{executableObservationLimitation(execution.Access)}, limitations...)
+	return runner.Assurance{
+		Level:               0,
+		Status:              "host-enforced-observed",
+		ObservationCoverage: executableObservationCoverage(execution.Access),
+		Limitations:         limitations,
+	}
+}
+
+func executableObservationCoverage(access AccessTelemetry) string {
+	if access.Status != "captured" {
+		return "unavailable"
+	}
+	if access.ExecutableSampleCount == 0 || access.ExecutableObservationCount == 0 || access.ProcessTreeErrors > 0 || access.ExecutableObservationErrors > 0 {
+		return "periodic-best-effort-with-gaps"
+	}
+	return "periodic-best-effort"
+}
+
+func executableObservationLimitation(access AccessTelemetry) string {
+	if access.ExecutableSamplingIntervalMS > 0 {
+		return fmt.Sprintf("executable identity was sampled every %d ms; transitions between samples may be unobserved", access.ExecutableSamplingIntervalMS)
+	}
+	return "executable identity coverage is periodic; transitions between samples may be unobserved"
 }
 
 func writeOracleEvents(path string, execution OracleExecution) error {

@@ -61,18 +61,42 @@ The graph inspection command exposes this adapter boundary:
 ```sh
 paddock graph . --policy paddock.yaml --format json
 paddock graph . --language go
+paddock graph . --policy paddock.yaml \
+  --adapter ./tools/paddock-language-adapter \
+  --adapter-arg --workspace --adapter-arg . \
+  --format json > paddock-graph.json
 ```
 
 The `paddock.graph/v1` result is normalized before output so package and edge
 ordering is stable across runs. Classification and rule evaluation happen
 after graph loading and remain independent of the adapter implementation.
+External process invocation and the `paddock.graph-request/v1` negotiation
+contract are specified in [`ADAPTER-PROTOCOL.md`](ADAPTER-PROTOCOL.md).
+
+### External graph adapters
+
+An adapter implemented in another tool or language may emit a validated
+`paddock.graph/v1` document and pass it to the policy engine:
+
+```sh
+my-rust-adapter --root . > paddock-graph.json
+paddock check . --policy paddock.yaml --graph paddock-graph.json
+paddock ci . --policy-lock paddock.lock.json --graph paddock-graph.json \
+  --output paddock-ci-result.json
+```
+
+The document declares its language and source unit, and Paddock rejects a
+graph that does not match the policy. The graph hash is recorded in CI results
+so an external adapter's exact input is part of the evidence. This is an
+interchange boundary, not a way to bypass graph validation or policy rules.
 
 `paddock init` builds a draft policy from that graph. Its component matches are
 directory-based guesses and its template rules are emitted with `warning`
 severity. The generated file must be reviewed, renamed, and promoted to
 blocking severities before it becomes a CI policy; initialization never treats
 the existing dependency graph as proof that the proposed architecture is
-correct.
+correct. Generic layered and cyclic drafts may be generated for external
+languages; language-specific templates remain adapter-aware.
 
 The source unit is explicit: Go currently uses `package`, while
 TypeScript/JavaScript and Python use `file`. Policies may omit it for backward
@@ -147,6 +171,10 @@ current check:
 ```sh
 paddock baseline . --policy paddock.yaml --output paddock-baseline.json
 paddock check . --policy paddock.yaml --baseline paddock-baseline.json
+paddock baseline . --policy paddock.yaml \
+  --adapter ./tools/paddock-language-adapter \
+  --adapter-arg --workspace --adapter-arg . \
+  --output paddock-baseline.json
 ```
 
 The `paddock.baseline/v1` artifact stores stable finding identities based on

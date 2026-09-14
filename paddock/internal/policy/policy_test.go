@@ -26,11 +26,6 @@ func TestLoadRejectsInvalidPolicies(t *testing.T) {
 			wantErr: "source.language is required",
 		},
 		{
-			name:    "unsupported language",
-			change:  "language: rust",
-			wantErr: `source.language "rust" is not supported yet`,
-		},
-		{
 			name:    "missing roots",
 			change:  "roots: []",
 			wantErr: "source.roots must not be empty",
@@ -70,8 +65,6 @@ func TestLoadRejectsInvalidPolicies(t *testing.T) {
 				contents += "  - id: bad-severity\n    kind: no-cycles\n    severity: notice\n"
 			case "language: ''":
 				contents = strings.Replace(contents, "  language: go", "  language: ''", 1)
-			case "language: rust":
-				contents = strings.Replace(contents, "  language: go", "  language: rust", 1)
 			case "roots: []":
 				contents = strings.Replace(contents, "  roots: [internal]", "  roots: []", 1)
 			case "components: {}":
@@ -188,6 +181,21 @@ func TestLoadDefaultsSourceUnitByLanguage(t *testing.T) {
 				t.Fatalf("source.unit = %q, want %q", loaded.Source.Unit, test.wantUnit)
 			}
 		})
+	}
+}
+
+func TestLoadAcceptsExternalGraphLanguageWithExplicitUnit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.yaml")
+	contents := strings.Replace(validPolicy, "  language: go", "  language: rust\n  unit: file", 1)
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := policy.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Source.Language != "rust" || loaded.Source.Unit != "file" {
+		t.Fatalf("external graph policy = %#v", loaded.Source)
 	}
 }
 

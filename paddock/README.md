@@ -50,6 +50,14 @@ go run ./paddock/cmd/paddock baseline \
   --policy paddock/examples/modular-monolith.yaml \
   --output paddock-baseline.json
 
+go run ./paddock/cmd/paddock baseline \
+  . \
+  --policy paddock.yaml \
+  --adapter ./tools/paddock-language-adapter \
+  --adapter-arg --workspace \
+  --adapter-arg . \
+  --output paddock-baseline.json
+
 go run ./paddock/cmd/paddock check \
   paddock/examples/services/modular-monolith-go/violating \
   --policy paddock/examples/modular-monolith.yaml \
@@ -59,6 +67,28 @@ go run ./paddock/cmd/paddock graph \
   paddock/examples/services/feature-sliced-ts/good \
   --policy paddock/examples/feature-sliced-frontend.yaml \
   --format json
+
+go run ./paddock/cmd/paddock graph \
+  . \
+  --policy paddock.yaml \
+  --adapter ./tools/paddock-language-adapter \
+  --adapter-arg --workspace \
+  --adapter-arg . \
+  --format json > paddock-graph.json
+
+go run ./paddock/cmd/paddock check \
+  paddock/examples/services/hexagonal-go/good \
+  --policy paddock/examples/hexagonal.yaml \
+  --graph paddock-graph.json
+
+go run ./paddock/cmd/paddock ci \
+  . \
+  --policy-lock paddock.lock.json \
+  --adapter ./tools/paddock-language-adapter \
+  --adapter-arg --workspace \
+  --adapter-arg . \
+  --graph-output paddock-graph.json \
+  --output paddock-ci-result.json
 
 go run ./paddock/cmd/paddock policy diff \
   --before paddock.yaml \
@@ -99,12 +129,23 @@ it never changes the underlying verdict.
 `graph` exposes the adapter output before classification and rule evaluation.
 It accepts either `--policy` or an explicit `--language`, and emits the stable
 `paddock.graph/v1` shape for tools and agents that need to inspect the graph.
+The same shape can be supplied back to `check` or `ci` with `--graph`, allowing
+an external language adapter to provide the graph without being compiled into
+Paddock. The policy language and source unit must match the graph document.
+An external adapter can be invoked with `--adapter` and repeated
+`--adapter-arg` flags; its stdin/stdout contract is documented in
+[`ADAPTER-PROTOCOL.md`](ADAPTER-PROTOCOL.md).
+`check` can invoke an adapter directly. `ci` can do the same when
+`--graph-output` names the durable graph file whose hash is recorded in the
+CI artifact.
 
 `init` creates a deterministic draft policy from the current graph. It groups
 source units by directory, applies conservative template role guesses, and
 writes all generated rules as warnings. The output is intentionally not an
 architecture verdict and will not overwrite an existing file without
-`--force`.
+`--force`. It accepts `--graph` or `--adapter` for languages outside the
+built-in adapter registry; generic layered and cyclic drafts remain available
+for those languages.
 
 `policy diff` validates both policy files and compares their normalized
 semantics. Its `paddock.policy-diff/v1` JSON output includes raw and canonical
@@ -127,12 +168,20 @@ go run ./paddock/cmd/paddock init \
   paddock/examples/services/layered-go/good \
   --template layered \
   --output paddock.yaml
+
+go run ./paddock/cmd/paddock init \
+  . \
+  --language rust \
+  --unit file \
+  --adapter ./tools/paddock-language-adapter \
+  --output paddock.yaml
 ```
 
 `ci` writes the language-neutral `ingen.ci-result/v1` envelope defined in
 [`core/CI-RESULT-SPEC.md`](../core/CI-RESULT-SPEC.md). It includes the
 deterministic report, explanation, policy hash, optional policy-lock hash,
-source identity, and the same exit code that the CI gate receives.
+optional graph hash, source identity, and the same exit code that the CI gate
+receives.
 
 The CI verdict must be deterministic. An LLM may propose policies, explain
 findings, and suggest migrations, but it must not decide whether a build passes.
@@ -170,6 +219,8 @@ baseline is tied to the source module and canonical policy SHA-256, uses stable
 finding identities, and does not hide new findings. Formatting-only changes do
 not require regeneration; semantic policy changes do. Stale entries are
 reported so the snapshot can be cleaned up as the architecture improves.
+Baseline generation also accepts `--graph` or `--adapter`, so external-language
+projects can adopt the same “no new violations” workflow.
 
 The service fixtures are in [`examples/services/`](examples/services/README.md).
 The acceptance suite runs every good and violating subject through the CLI,
@@ -186,6 +237,9 @@ The current adapters support Go, TypeScript/JavaScript, and Python. All
 implement the same adapter registry contract and expose capabilities for source
 units and edge kinds. The policy schema is language-neutral, so additional
 adapters should produce the same graph model rather than change the rule engine.
+External adapter authors can use the machine-readable contracts in
+[`spec/`](spec/) and the pass-through conformance fixture in
+[`examples/adapter/`](examples/adapter/README.md).
 The Python adapter resolves absolute and relative project modules without
 importing or executing project code, and classifies standard-library,
 third-party, and unresolved imports for policy rules.

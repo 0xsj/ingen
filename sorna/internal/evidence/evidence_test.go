@@ -2,13 +2,17 @@ package evidence
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"ingen/core/ciresult"
 	"ingen/sorna/internal/lifecycle"
+	"ingen/sorna/internal/mutation"
 	"ingen/sorna/internal/oracle"
 	"ingen/sorna/internal/policy"
 	"ingen/sorna/internal/runner"
@@ -94,11 +98,15 @@ func TestWriteBundleEmbedsSealedPolicyAndHashesIt(t *testing.T) {
 			Mode:    "managed-process",
 			Outcome: "stopped",
 			Access: &lifecycle.AccessTelemetry{
-				Status:                     "captured",
-				Source:                     "test",
-				ProcessID:                  42,
-				EventCount:                 1,
-				ExecutableObservationCount: 1,
+				Status:                       "captured",
+				Source:                       "test",
+				ProcessID:                    42,
+				EventCount:                   1,
+				ExecutableSampleCount:        1,
+				ExecutableSamplingIntervalMS: 25,
+				ExecutableSamplingStartedAt:  now,
+				ExecutableSamplingStoppedAt:  now.Add(time.Millisecond),
+				ExecutableObservationCount:   1,
 			},
 			AccessEvents: []lifecycle.AccessEvent{{
 				Timestamp: now,
@@ -192,10 +200,14 @@ func TestWriteOracleBundleAndVerify(t *testing.T) {
 		CompletedAt:              now.Add(time.Second),
 		Outcome:                  "completed",
 		Access: AccessTelemetry{
-			Status:                     "captured",
-			Source:                     "test",
-			ProcessID:                  42,
-			ExecutableObservationCount: 1,
+			Status:                       "captured",
+			Source:                       "test",
+			ProcessID:                    42,
+			ExecutableSampleCount:        1,
+			ExecutableSamplingIntervalMS: 25,
+			ExecutableSamplingStartedAt:  now,
+			ExecutableSamplingStoppedAt:  now.Add(time.Second),
+			ExecutableObservationCount:   1,
 		},
 		ExecutableObservations: []OracleExecutableObservation{{
 			EventID:     "executable-0001",
@@ -227,7 +239,7 @@ func TestWriteOracleBundleAndVerify(t *testing.T) {
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Schema != "sorna.oracle-evidence/v1" || manifest.Oracle.SHA256 == "" || manifest.Contract != artifact.Contract || manifest.Assurance.Status != "host-enforced-observed" {
+	if manifest.Schema != "sorna.oracle-evidence/v1" || manifest.Oracle.SHA256 == "" || manifest.Contract != artifact.Contract || manifest.Assurance.Status != "host-enforced-observed" || manifest.Assurance.ObservationCoverage != "periodic-best-effort" {
 		t.Fatalf("manifest = %+v, want oracle evidence identity", manifest)
 	}
 	if _, ok := manifest.ArtifactsSHA256["events/access.jsonl"]; !ok {
@@ -239,9 +251,114 @@ func TestWriteOracleBundleAndVerify(t *testing.T) {
 	if err := Verify(directory); err != nil {
 		t.Fatalf("Verify() = %v, want valid oracle bundle", err)
 	}
+	gateResult, err := EvaluateGate(directory, GatePolicy{MinimumObservationCoverage: "periodic-best-effort"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gateResult.Status != "passed" || gateResult.ExitCode != 0 || gateResult.OracleOutcome != "completed" || gateResult.ObservationCoverage != "periodic-best-effort" {
+		t.Fatalf("oracle gate result = %+v; want passing completed oracle gate", gateResult)
+	}
+	ciArtifact, err := BuildCIResult(directory, gateResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ciArtifact.Validate(); err != nil {
+		t.Fatalf("shared CI result validation = %v", err)
+	}
+	if ciArtifact.Tool != "sorna" || ciArtifact.Kind != "behavioral-verification" || ciArtifact.Status != "passed" || ciArtifact.ExitCode != 0 {
+		t.Fatalf("shared CI result = %+v, want passing Sorna envelope", ciArtifact)
+	}
+	if ciArtifact.Policy == nil || ciArtifact.Policy.Path != "policy/canonical.json" {
+		t.Fatalf("shared CI policy = %+v, want canonical policy reference", ciArtifact.Policy)
+	}
+	for _, input := range []string{"manifest", "oracle", "oracle_events", "access_events", "executable_events"} {
+		if _, ok := ciArtifact.Inputs[input]; !ok {
+			t.Fatalf("shared CI inputs = %+v, want %q", ciArtifact.Inputs, input)
+		}
+	}
+	var report GateResult
+	if err := json.Unmarshal(ciArtifact.Report, &report); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(report, gateResult) {
+		t.Fatalf("shared CI report = %+v, want unchanged gate result %+v", report, gateResult)
+	}
+	if ciArtifact.Schema != ciresult.Schema {
+		t.Fatalf("shared CI schema = %q, want %q", ciArtifact.Schema, ciresult.Schema)
+	}
+	executableStreamPath := filepath.Join(directory, "events", "executables.jsonl")
+	executableStream, err := os.ReadFile(executableStreamPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(executableStreamPath, append(executableStream, executableStream...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	checksumsPath := filepath.Join(directory, "checksums.sha256")
+	checksums, err := os.ReadFile(checksumsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedExecutableHash, err := hashFile(executableStreamPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checksumsText := strings.Replace(string(checksums), hashBytes(executableStream), updatedExecutableHash, 1)
+	if err := os.WriteFile(checksumsPath, []byte(checksumsText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Verify(directory); err == nil || !strings.Contains(err.Error(), "contains 2 records, expected 1") {
+		t.Fatalf("Verify() after executable stream duplication = %v, want semantic count error", err)
+	}
 	execution.ObservedExecutableSHA256 = strings.Repeat("c", 64)
 	if _, err := WriteOracleBundle(directory, artifact, execution, sealedPolicy); err == nil || !strings.Contains(err.Error(), "does not match prepared identity") {
 		t.Fatalf("WriteOracleBundle() = %v, want observed identity mismatch", err)
+	}
+}
+
+func TestValidateExecutableSamplingRejectsInconsistentMetadata(t *testing.T) {
+	now := time.Date(2026, 9, 14, 5, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name              string
+		sampleCount       int
+		intervalMS        int
+		startedAt         time.Time
+		stoppedAt         time.Time
+		observationCount  int
+		observationErrors int
+	}{
+		{name: "observations without attempts", sampleCount: 0, observationCount: 1},
+		{name: "missing window", sampleCount: 1, intervalMS: 25, startedAt: now},
+		{name: "non-positive interval", sampleCount: 1, startedAt: now, stoppedAt: now},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateExecutableSampling(
+				test.sampleCount,
+				test.intervalMS,
+				test.startedAt,
+				test.stoppedAt,
+				test.observationCount,
+				test.observationErrors,
+			)
+			if err == nil {
+				t.Fatal("validateExecutableSampling() = nil, want metadata error")
+			}
+		})
+	}
+}
+
+func TestVerifyExecutableObservationStreamRejectsOutsideWindow(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "executables.jsonl")
+	if err := os.WriteFile(path, []byte(`{"timestamp":"2026-09-14T04:59:59Z"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 9, 14, 5, 0, 0, 0, time.UTC)
+	stop := start.Add(time.Second)
+	err := verifyExecutableObservationStream(path, true, 1, start, stop, func([]byte) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "outside the sampling window") {
+		t.Fatalf("verifyExecutableObservationStream() = %v, want sampling-window error", err)
 	}
 }
 
@@ -253,6 +370,95 @@ func TestVerifyRejectsUnsafeChecksumPath(t *testing.T) {
 	}
 	if err := Verify(directory); err == nil || !strings.Contains(err.Error(), "inside the evidence bundle") {
 		t.Fatalf("Verify() = %v, want unsafe path error", err)
+	}
+}
+
+func TestEvaluateGateKeepsCoverageReportOnlyByDefault(t *testing.T) {
+	directory := t.TempDir()
+	record := runner.RunRecord{
+		Schema:    "ingen.run/v1",
+		RunID:     "run-gate-report-only",
+		CreatedAt: time.Now().UTC(),
+		Assurance: runner.Assurance{
+			Level:               0,
+			Status:              "host-enforced-subject",
+			ObservationCoverage: "periodic-best-effort-with-gaps",
+		},
+		Contract: runner.ContractReference{ID: "contract-test", Version: 1, SHA256: strings.Repeat("a", 64)},
+		Subject:  runner.SubjectReference{BaseURL: "http://subject.invalid", Adapter: "http-json-v1"},
+		Verdict:  runner.ContractVerdict{Status: "pass", Reason: "all rules passed"},
+	}
+	if _, err := WriteBundle(directory, record, nil); err != nil {
+		t.Fatal(err)
+	}
+	result, err := EvaluateGate(directory, GatePolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "passed" || result.ExitCode != 0 || len(result.Warnings) != 1 || len(result.Reasons) != 0 {
+		t.Fatalf("report-only result = %+v; want passing gate with one warning", result)
+	}
+	strict, err := EvaluateGate(directory, GatePolicy{MinimumObservationCoverage: "periodic-best-effort"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strict.Status != "failed" || strict.ExitCode != 1 || len(strict.Reasons) != 1 {
+		t.Fatalf("strict result = %+v; want coverage gate failure", strict)
+	}
+	record.Verdict = runner.ContractVerdict{Status: "fail", Reason: "ordinary contract failure"}
+	failedDirectory := t.TempDir()
+	if _, err := WriteBundle(failedDirectory, record, nil); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := EvaluateGate(failedDirectory, GatePolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != "failed" || failed.ExitCode != 1 || len(failed.Reasons) != 1 || !strings.Contains(failed.Reasons[0], "contract verdict") {
+		t.Fatalf("ordinary failure result = %+v; want blocking contract gate", failed)
+	}
+}
+
+func TestEvaluateGateTreatsKilledMutationAsPassing(t *testing.T) {
+	directory := t.TempDir()
+	record := runner.RunRecord{
+		Schema:    "ingen.run/v1",
+		RunID:     "run-gate-killed",
+		CreatedAt: time.Now().UTC(),
+		Assurance: runner.Assurance{ObservationCoverage: "periodic-best-effort"},
+		Contract:  runner.ContractReference{ID: "contract-test", Version: 1, SHA256: strings.Repeat("a", 64)},
+		Subject:   runner.SubjectReference{BaseURL: "http://subject.invalid", Adapter: "http-json-v1"},
+		Verdict:   runner.ContractVerdict{Status: "fail", Reason: "mutation was detected"},
+		Mutation:  &mutation.Result{Outcome: "killed"},
+	}
+	if _, err := WriteBundle(directory, record, nil); err != nil {
+		t.Fatal(err)
+	}
+	result, err := EvaluateGate(directory, GatePolicy{MinimumObservationCoverage: "periodic-best-effort"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "passed" || result.ExitCode != 0 || result.MutationOutcome != "killed" {
+		t.Fatalf("killed mutation result = %+v; want passing gate", result)
+	}
+}
+
+func TestEvaluateGateRejectsUnknownCoveragePolicy(t *testing.T) {
+	if _, err := EvaluateGate(t.TempDir(), GatePolicy{MinimumObservationCoverage: "continuous-attested"}); err == nil || !strings.Contains(err.Error(), "minimum observation coverage") {
+		t.Fatalf("EvaluateGate() = %v, want invalid coverage policy error", err)
+	}
+}
+
+func TestBuildCIErrorResultPreservesVerificationFailure(t *testing.T) {
+	artifact, err := BuildCIErrorResult(".artifacts/missing", fmt.Errorf("checksums.sha256 is missing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := artifact.Validate(); err != nil {
+		t.Fatalf("shared CI error validation = %v", err)
+	}
+	if artifact.Status != "error" || artifact.ExitCode != 2 || artifact.Error != "checksums.sha256 is missing" {
+		t.Fatalf("shared CI error = %+v, want preserved verification failure", artifact)
 	}
 }
 

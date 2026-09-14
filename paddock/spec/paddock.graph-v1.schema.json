@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.graph-v1.schema.json",
+  "title": "Paddock dependency graph",
+  "description": "Language-neutral graph returned by a Paddock source adapter.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "language",
+    "root",
+    "module_path",
+    "capabilities",
+    "package_count",
+    "edge_count",
+    "packages",
+    "edges"
+  ],
+  "properties": {
+    "schema": {
+      "const": "paddock.graph/v1"
+    },
+    "language": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_unit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "module_path": {
+      "type": "string"
+    },
+    "capabilities": {
+      "$ref": "#/$defs/capabilities"
+    },
+    "package_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "edge_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "packages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/package"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    }
+  },
+  "$defs": {
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["source_units", "edge_kinds"],
+      "properties": {
+        "source_units": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "edge_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["import_path"],
+      "properties": {
+        "import_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "component": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["from", "to", "kind", "target_kind"],
+      "properties": {
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from_path": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to_path": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

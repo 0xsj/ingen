@@ -1,0 +1,26 @@
+{
+  "name": "@0xsj/amber",
+  "version": "0.1.0",
+  "description": "Portable application-level provenance for TypeScript",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node dist/provenance.test.js && node test/conformance.test.mjs"
+  },
+  "keywords": [
+    "provenance",
+    "correlation",
+    "causation"
+  ],
+  "author": "InGen",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

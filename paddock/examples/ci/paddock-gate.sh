@@ -7,6 +7,7 @@ policy=${PADDOCK_POLICY:-paddock.yaml}
 proposed_policy=${PADDOCK_PROPOSED_POLICY:-}
 lock=${PADDOCK_LOCK:-paddock.lock.json}
 source_root=${PADDOCK_SOURCE_ROOT:-.}
+graph_input=${PADDOCK_GRAPH:-}
 diff_output=${PADDOCK_DIFF:-paddock-policy-diff.json}
 result_output=${PADDOCK_RESULT:-paddock-ci-result.json}
 
@@ -32,9 +33,16 @@ verify)
 		--lock "$lock"
 	;;
 gate)
-	"$paddock" ci "$source_root" \
-		--policy-lock "$lock" \
-		--output "$result_output"
+	if [ -n "$graph_input" ]; then
+		"$paddock" ci "$source_root" \
+			--policy-lock "$lock" \
+			--graph "$graph_input" \
+			--output "$result_output"
+	else
+		"$paddock" ci "$source_root" \
+			--policy-lock "$lock" \
+			--output "$result_output"
+	fi
 	;;
 *)
 	echo "usage: $0 review|seal|verify|gate" >&2

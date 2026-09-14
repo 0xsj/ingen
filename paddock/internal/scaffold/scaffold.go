@@ -12,6 +12,7 @@ import (
 
 type Options struct {
 	Language string
+	Unit     string
 	Template string
 	Root     string
 	Graph    *model.Graph
@@ -36,10 +37,14 @@ func Generate(options Options) ([]byte, error) {
 	if options.Graph == nil {
 		return nil, fmt.Errorf("scaffold graph is required")
 	}
-	if !templates[options.Template][options.Language] {
+	if !templateSupported(options.Template, options.Language) {
 		return nil, fmt.Errorf("template %q is not supported for language %q", options.Template, options.Language)
 	}
-	components := discoverComponents(options.Graph, options.Language, options.Template)
+	unit := options.Unit
+	if unit == "" {
+		unit = defaultUnit(options.Language)
+	}
+	components := discoverComponents(options.Graph, options.Language, options.Template, unit)
 	if len(components) == 0 {
 		return nil, fmt.Errorf("cannot scaffold a policy without source components")
 	}
@@ -48,11 +53,6 @@ func Generate(options Options) ([]byte, error) {
 	if project == "" {
 		project = filepath.Base(options.Root)
 	}
-	unit := "package"
-	if options.Language == "typescript" || options.Language == "python" {
-		unit = "file"
-	}
-
 	var output strings.Builder
 	output.WriteString("# Paddock starter policy — DRAFT\n")
 	output.WriteString("# Review component matches, labels, and severities before using this in CI.\n")
@@ -79,9 +79,23 @@ func Generate(options Options) ([]byte, error) {
 		}
 	}
 	output.WriteString("\nrules:\n")
-	writeRules(&output, options.Language, options.Template)
+	writeRules(&output, options.Language, options.Template, unit)
 	output.WriteString("\nwaivers: []\n")
 	return []byte(output.String()), nil
+}
+
+func templateSupported(template, language string) bool {
+	if template == "layered" || template == "cyclic" {
+		return true
+	}
+	return templates[template][language]
+}
+
+func defaultUnit(language string) string {
+	if language == "typescript" || language == "python" {
+		return "file"
+	}
+	return "package"
 }
 
 func discoverRoots(dependencyGraph *model.Graph) []string {
@@ -105,7 +119,7 @@ func discoverRoots(dependencyGraph *model.Graph) []string {
 	return roots
 }
 
-func discoverComponents(dependencyGraph *model.Graph, language, template string) []component {
+func discoverComponents(dependencyGraph *model.Graph, language, template, unit string) []component {
 	groups := map[string]bool{}
 	recursive := map[string]bool{}
 	pythonDirectoriesWithSource := map[string]bool{}
@@ -125,7 +139,7 @@ func discoverComponents(dependencyGraph *model.Graph, language, template string)
 				continue
 			}
 			isRecursive = false
-		} else if language == "typescript" || language == "python" {
+		} else if unit == "file" {
 			path = filepath.ToSlash(filepath.Dir(path))
 		}
 		parts := splitPath(path)
@@ -233,7 +247,7 @@ func inferLayer(path, template string) (int, bool) {
 	return 0, false
 }
 
-func writeRules(output *strings.Builder, language, template string) {
+func writeRules(output *strings.Builder, language, template, unit string) {
 	writeRule(output, "complete-classification", "coverage", "Every source unit should have one reviewed component.")
 	switch template {
 	case "layered":
@@ -248,7 +262,7 @@ func writeRules(output *strings.Builder, language, template string) {
 	case "cyclic":
 		writeRuleWithDetails(output, "no-cycles", "no-cycles", "The selected dependency graph should remain acyclic.", "")
 	}
-	if language == "typescript" || language == "python" {
+	if unit == "file" {
 		writeRule(output, "no-unresolved-imports", "unresolved", "Relative and configured alias imports should resolve.")
 	}
 }
