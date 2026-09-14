@@ -5,11 +5,38 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "files": [
-    "dist"
+    "dist/context.d.ts",
+    "dist/context.js",
+    "dist/http.d.ts",
+    "dist/http.js",
+    "dist/incoming.d.ts",
+    "dist/incoming.js",
+    "dist/index.d.ts",
+    "dist/index.js",
+    "dist/logging.d.ts",
+    "dist/logging.js",
+    "dist/messaging.d.ts",
+    "dist/messaging.js",
+    "dist/provenance.d.ts",
+    "dist/provenance.js",
+    "dist/storage.d.ts",
+    "dist/storage.js",
+    "dist/tracing.d.ts",
+    "dist/tracing.js",
+    "dist/transport.d.ts",
+    "dist/transport.js"
   ],
+  "sideEffects": false,
   "scripts": {
     "build": "tsc",
+    "example": "npm run build && node dist/example.js",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node dist/provenance.test.js && node dist/incoming.test.js && node dist/http.test.js && node dist/messaging.test.js && node dist/logging.test.js && node dist/tracing.test.js && node dist/storage.test.js && node test/conformance.test.mjs"
   },

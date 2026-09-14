@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"ingen/paddock/internal/policy"
+	"ingen/paddock/internal/policytest"
 )
 
 const Schema = "paddock.policy-diff/v1"
@@ -20,12 +21,13 @@ type Input struct {
 }
 
 type Document struct {
-	Schema  string   `json:"schema"`
-	Status  string   `json:"status"`
-	Before  Input    `json:"before"`
-	After   Input    `json:"after"`
-	Summary Summary  `json:"summary"`
-	Changes []Change `json:"changes"`
+	Schema  string               `json:"schema"`
+	Status  string               `json:"status"`
+	Before  Input                `json:"before"`
+	After   Input                `json:"after"`
+	Summary Summary              `json:"summary"`
+	Changes []Change             `json:"changes"`
+	Tests   *policytest.Document `json:"tests,omitempty"`
 }
 
 type Summary struct {
@@ -185,6 +187,16 @@ func Text(w io.Writer, document Document) error {
 	}
 	if _, err := fmt.Fprintf(w, "  summary: +%d added, -%d removed, ~%d changed\n", document.Summary.Added, document.Summary.Removed, document.Summary.Changed); err != nil {
 		return err
+	}
+	if document.Tests != nil {
+		if _, err := fmt.Fprintf(w, "  tests: %s (%d/%d passed)\n", document.Tests.Status, document.Tests.Passed, len(document.Tests.Cases)); err != nil {
+			return err
+		}
+		for _, testCase := range document.Tests.Cases {
+			if _, err := fmt.Fprintf(w, "    %s %s (expected %s, got %s)\n", testCase.Status, testCase.Name, testCase.Expected, testCase.Actual); err != nil {
+				return err
+			}
+		}
 	}
 	for _, change := range document.Changes {
 		before := string(bytes.TrimSpace(change.Before))

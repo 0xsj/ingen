@@ -90,7 +90,62 @@ IDs. `sorna mutation list` provides a compact review view. The catalogue is
 not yet an instruction to mutate source code, and validation does not claim
 that an operator is safe or supported by a provider.
 
-## 3. Operator families
+## 3. Campaign plan
+
+`sorna mutation plan` resolves a validated catalogue against a frozen oracle
+and a passing, unmutated baseline. It writes `ingen.mutation-plan/v1`, which
+contains:
+
+- the exact catalogue file hash and ordered mutation entries;
+- the oracle and sealed contract identities;
+- the baseline evidence path, run ID, and comparison identities;
+- the oracle and managed-subject policy hashes.
+
+The plan is a deterministic handoff to a mutation provider. Creating it does
+not edit a working tree, apply an operator, or launch a subject process. The
+provider must consume the plan and preserve its identities in the resulting
+evidence.
+
+## 4. Provider and execution boundary
+
+A provider maps a plan mutation ID to a prepared subject command. The first
+provider manifest uses `ingen.mutation-provider/v1` and supports only literal
+argv plus the explicit `${SORA_ADDR}` and `${SORA_URL}` runtime tokens. It does
+not use shell interpolation.
+
+`sorna mutation run` launches one fresh managed Sorna run per plan entry. Each
+entry receives its own address and evidence directory, and the campaign result
+records the entry's evidence path, verified manifest/checksum hashes, run ID,
+exit code, and mutation outcome. The runner verifies the supplied oracle and
+policy hashes against the plan before launching anything and rejects output
+paths that overlap the clean baseline.
+
+Each per-mutation evidence bundle also copies the exact plan and provider bytes
+under `campaign/`. Its manifest and `checksums.sha256` bind those copies to the
+run; `campaign/provenance.json` records the source paths, hashes, sequence, and
+mutation ID. This proves which campaign inputs the executor consumed, while
+remaining distinct from a future attestation of how a provider built a
+mutated subject.
+
+`sorna mutation verify` re-verifies each referenced evidence bundle and compares
+its current manifest and checksum-file hashes with the campaign result. A
+result with a changed or replaced evidence directory is therefore rejected by
+the same workflow that produced it.
+
+The document-pipeline provider is a temporary prebuilt fixture provider. It
+proves the workflow boundary using the existing controlled defect; it is not
+the final language-specific mutation system.
+
+The first source-level Go provider is an optional replacement for that fixture.
+It reads one captured canonical plan, copies the source root once per mutation,
+applies a reviewed AST transformation to the copy, builds a fresh executable,
+and emits the same `ingen.mutation-provider/v1` handoff. The source root is
+never an output target. This keeps Go build mechanics separate from the
+language-neutral campaign semantics without making the provider a second
+campaign executor. Generated providers may include `plan_sha256`; Sorna
+compares it with the exact plan bytes captured by the campaign before launch.
+
+## 5. Operator families
 
 The first HTTP/JSON implementation should support a small, deterministic set.
 
@@ -134,7 +189,7 @@ Operators should target public behavior whenever possible. Source-level
 operators are acceptable as an implementation mechanism but the mutation's
 description and expected effect must be observable at the contract boundary.
 
-## 4. Mutation lifecycle
+## 6. Mutation lifecycle
 
 ```text
 candidate -> validated -> executed -> classified -> reported
@@ -151,7 +206,7 @@ candidate -> validated -> executed -> classified -> reported
 Mutation runs must not modify the contract or frozen oracle. A mutation that
 requires changing the oracle is a different experiment and must be labeled.
 
-## 5. Outcomes
+## 7. Outcomes
 
 ### `killed`
 
@@ -184,7 +239,7 @@ timeout is a contract-visible failure.
 The run cannot distinguish the mutation because the contract or adapter lacks
 the required observation. This must remain visible in the report.
 
-## 6. Baseline requirements
+## 8. Baseline requirements
 
 Mutation results are valid only when:
 
@@ -202,7 +257,7 @@ baseline run ID and comparison identities in the mutation run.
 If the baseline fails, mutation scoring should stop or be reported as
 `baseline-invalid` rather than producing a misleading score.
 
-## 7. Score and denominator
+## 9. Score and denominator
 
 For implementation mutations, a basic sensitivity score is:
 
@@ -227,7 +282,7 @@ A high score does not establish that the contract is correct. A low score does
 not by itself identify the missing requirement; it identifies a place to
 investigate.
 
-## 8. Contract mutations
+## 10. Contract mutations
 
 Initial contract mutation operators may include:
 
@@ -251,7 +306,7 @@ The report should identify whether the mutation was detected by:
 Contract mutation testing should not silently treat an implementation that
 already violates the original contract as a valid oracle of the mutation.
 
-## 9. Flakiness and nondeterminism
+## 11. Flakiness and nondeterminism
 
 If a mutation changes timing, generated IDs, random ordering, or another
 nondeterministic factor, Sorna should use the contract's declared normalization
@@ -266,7 +321,7 @@ and repeat policy. It must record:
 Unstable outcomes are `inconclusive` until the experiment defines a justified
 classification policy.
 
-## 10. Safety controls
+## 12. Safety controls
 
 Mutation execution must:
 
@@ -278,7 +333,7 @@ Mutation execution must:
 - stop on destructive or out-of-scope mutation attempts;
 - redact secrets from observations and patches.
 
-## 11. MVP mutation set
+## 13. MVP mutation set
 
 The first Sorna slice should implement at least:
 

@@ -41,8 +41,44 @@ type Manifest struct {
 	Subject         runner.SubjectReference   `json:"subject"`
 	Policy          *policy.Reference         `json:"policy,omitempty"`
 	SubjectPolicy   *policy.Reference         `json:"subject_policy,omitempty"`
+	Campaign        *CampaignProvenance       `json:"campaign,omitempty"`
 	ArtifactsSHA256 map[string]string         `json:"artifacts_sha256"`
 }
+
+// CampaignProvenance records the exact campaign inputs used to produce one
+// per-mutation evidence bundle. The raw inputs are copied into the bundle so
+// later source-file changes cannot silently change what the evidence means.
+type CampaignProvenance struct {
+	Schema     string                    `json:"schema"`
+	RunID      string                    `json:"run_id"`
+	Sequence   int                       `json:"sequence"`
+	MutationID string                    `json:"mutation_id"`
+	Plan       CampaignArtifactReference `json:"plan"`
+	Provider   CampaignArtifactReference `json:"provider"`
+}
+
+// CampaignArtifactReference binds a copied campaign input to the source path
+// supplied to the campaign executor and to its exact byte hash.
+type CampaignArtifactReference struct {
+	SourcePath string `json:"source_path"`
+	BundlePath string `json:"bundle_path"`
+	SHA256     string `json:"sha256"`
+}
+
+// CampaignProvenanceInput identifies the campaign inputs to copy into one
+// mutation evidence bundle. When bytes are provided, they are the exact
+// captured inputs that the executor parsed; otherwise the paths are read at
+// attachment time. Files are copied byte-for-byte, without re-serializing.
+type CampaignProvenanceInput struct {
+	PlanPath      string
+	PlanBytes     []byte
+	ProviderPath  string
+	ProviderBytes []byte
+	Sequence      int
+	MutationID    string
+}
+
+const campaignProvenanceSchema = "sorna.campaign-provenance/v1"
 
 // LifecycleEvent is the append-only JSONL form of a lifecycle record event.
 // The event envelope gives each line run identity and an actor without making
@@ -226,6 +262,122 @@ func WriteBundleWithPolicies(outputDir string, record runner.RunRecord, sealedPo
 	}, nil
 }
 
+// AttachCampaignProvenance adds the exact campaign plan and provider bytes to
+// an already-written mutation evidence bundle. It is intentionally a separate
+// step because the child run writer knows about the run, while the campaign
+// executor knows which plan and provider selected that run.
+func AttachCampaignProvenance(outputDir string, input CampaignProvenanceInput) error {
+	if strings.TrimSpace(outputDir) == "" {
+		return fmt.Errorf("evidence output directory must not be empty")
+	}
+	if input.Sequence < 1 {
+		return fmt.Errorf("campaign sequence must be positive")
+	}
+	if strings.TrimSpace(input.MutationID) == "" {
+		return fmt.Errorf("campaign mutation ID must be non-empty")
+	}
+	if err := Verify(outputDir); err != nil {
+		return fmt.Errorf("verify evidence before attaching campaign provenance: %w", err)
+	}
+
+	manifestPath := filepath.Join(outputDir, "manifest.json")
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read evidence manifest: %w", err)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return fmt.Errorf("decode evidence manifest: %w", err)
+	}
+	if manifest.Schema != "sorna.evidence/v1" {
+		return fmt.Errorf("campaign provenance requires a Sorna run evidence bundle, got %q", manifest.Schema)
+	}
+	if manifest.Campaign != nil {
+		return fmt.Errorf("evidence bundle already contains campaign provenance")
+	}
+
+	planBytes := input.PlanBytes
+	if planBytes == nil {
+		planBytes, err = os.ReadFile(input.PlanPath)
+		if err != nil {
+			return fmt.Errorf("read campaign plan: %w", err)
+		}
+	}
+	providerBytes := input.ProviderBytes
+	if providerBytes == nil {
+		providerBytes, err = os.ReadFile(input.ProviderPath)
+		if err != nil {
+			return fmt.Errorf("read mutation provider: %w", err)
+		}
+	}
+	planReference := CampaignArtifactReference{
+		SourcePath: input.PlanPath,
+		BundlePath: "campaign/plan.json",
+		SHA256:     hashBytes(planBytes),
+	}
+	providerReference := CampaignArtifactReference{
+		SourcePath: input.ProviderPath,
+		BundlePath: "campaign/provider.yaml",
+		SHA256:     hashBytes(providerBytes),
+	}
+	provenance := CampaignProvenance{
+		Schema:     campaignProvenanceSchema,
+		RunID:      manifest.RunID,
+		Sequence:   input.Sequence,
+		MutationID: input.MutationID,
+		Plan:       planReference,
+		Provider:   providerReference,
+	}
+	if err := validateCampaignProvenance(provenance, manifest.RunID); err != nil {
+		return fmt.Errorf("invalid campaign provenance: %w", err)
+	}
+
+	campaignDir := filepath.Join(outputDir, "campaign")
+	if _, err := os.Stat(campaignDir); err == nil {
+		return fmt.Errorf("campaign evidence directory already exists")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect campaign evidence directory: %w", err)
+	}
+	if err := os.Mkdir(campaignDir, 0o755); err != nil {
+		return fmt.Errorf("create campaign evidence directory: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, planReference.BundlePath), planBytes, 0o644); err != nil {
+		return fmt.Errorf("write campaign plan evidence: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, providerReference.BundlePath), providerBytes, 0o644); err != nil {
+		return fmt.Errorf("write campaign provider evidence: %w", err)
+	}
+	provenanceBytes, err := marshalJSON(provenance)
+	if err != nil {
+		return fmt.Errorf("encode campaign provenance: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "campaign/provenance.json"), provenanceBytes, 0o644); err != nil {
+		return fmt.Errorf("write campaign provenance evidence: %w", err)
+	}
+
+	artifacts := cloneArtifacts(manifest.ArtifactsSHA256)
+	artifacts[planReference.BundlePath] = hashBytes(planBytes)
+	artifacts[providerReference.BundlePath] = hashBytes(providerBytes)
+	artifacts["campaign/provenance.json"] = hashBytes(provenanceBytes)
+	manifest.Campaign = &provenance
+	manifest.ArtifactsSHA256 = artifacts
+	updatedManifestBytes, err := marshalJSON(manifest)
+	if err != nil {
+		return fmt.Errorf("encode updated evidence manifest: %w", err)
+	}
+	if err := os.WriteFile(manifestPath, updatedManifestBytes, 0o644); err != nil {
+		return fmt.Errorf("write updated evidence manifest: %w", err)
+	}
+	artifacts["manifest.json"] = hashBytes(updatedManifestBytes)
+	if err := writeChecksums(filepath.Join(outputDir, "checksums.sha256"), artifacts); err != nil {
+		return fmt.Errorf("rewrite evidence checksums: %w", err)
+	}
+	if err := Verify(outputDir); err != nil {
+		return fmt.Errorf("verify evidence after attaching campaign provenance: %w", err)
+	}
+	return nil
+}
+
 // Verify checks every path listed in checksums.sha256 and reports the first
 // missing, malformed, duplicated, or mismatched artifact.
 func Verify(outputDir string) error {
@@ -365,6 +517,9 @@ func verifyBundleSemantics(outputDir string, checksums map[string]bool) error {
 		if record.Schema != "ingen.run/v1" || manifest.RunID != record.RunID || manifest.Contract != record.Contract || !sameOracle(manifest.Oracle, record.Oracle) || manifest.Subject != record.Subject || !sameBaseline(manifest.Baseline, record.Baseline) {
 			return fmt.Errorf("evidence manifest identity does not match run identity")
 		}
+		if err := verifyCampaignProvenance(outputDir, manifest, checksums); err != nil {
+			return err
+		}
 		if record.Lifecycle == nil || record.Lifecycle.Access == nil {
 			return nil
 		}
@@ -399,6 +554,111 @@ func verifyBundleSemantics(outputDir string, checksums map[string]bool) error {
 	default:
 		return nil
 	}
+}
+
+func verifyCampaignProvenance(outputDir string, manifest Manifest, checksums map[string]bool) error {
+	campaignPaths := []string{"campaign/plan.json", "campaign/provider.yaml", "campaign/provenance.json"}
+	hasCampaignArtifacts := false
+	for _, path := range campaignPaths {
+		if checksums[path] {
+			hasCampaignArtifacts = true
+			break
+		}
+	}
+	if manifest.Campaign == nil {
+		if hasCampaignArtifacts {
+			return fmt.Errorf("campaign artifacts are present without campaign provenance")
+		}
+		return nil
+	}
+	if err := validateCampaignProvenance(*manifest.Campaign, manifest.RunID); err != nil {
+		return fmt.Errorf("invalid campaign provenance: %w", err)
+	}
+	if !checksums["campaign/plan.json"] || !checksums["campaign/provider.yaml"] || !checksums["campaign/provenance.json"] {
+		return fmt.Errorf("campaign provenance artifacts are not all checksummed")
+	}
+	provenanceBytes, err := os.ReadFile(filepath.Join(outputDir, "campaign/provenance.json"))
+	if err != nil {
+		return fmt.Errorf("read campaign provenance: %w", err)
+	}
+	var provenance CampaignProvenance
+	if err := json.Unmarshal(provenanceBytes, &provenance); err != nil {
+		return fmt.Errorf("decode campaign provenance: %w", err)
+	}
+	if provenance != *manifest.Campaign {
+		return fmt.Errorf("campaign provenance does not match evidence manifest")
+	}
+	for _, reference := range []CampaignArtifactReference{manifest.Campaign.Plan, manifest.Campaign.Provider} {
+		actual, err := hashFile(filepath.Join(outputDir, reference.BundlePath))
+		if err != nil {
+			return fmt.Errorf("hash campaign artifact %s: %w", reference.BundlePath, err)
+		}
+		if actual != reference.SHA256 {
+			return fmt.Errorf("campaign artifact %s hash does not match provenance", reference.BundlePath)
+		}
+		if manifest.ArtifactsSHA256[reference.BundlePath] != reference.SHA256 {
+			return fmt.Errorf("campaign artifact %s hash does not match manifest", reference.BundlePath)
+		}
+	}
+	if manifest.ArtifactsSHA256["campaign/provenance.json"] != hashBytes(provenanceBytes) {
+		return fmt.Errorf("campaign provenance hash does not match manifest")
+	}
+	return nil
+}
+
+func validateCampaignProvenance(provenance CampaignProvenance, runID string) error {
+	if provenance.Schema != campaignProvenanceSchema {
+		return fmt.Errorf("schema must be %s", campaignProvenanceSchema)
+	}
+	if strings.TrimSpace(provenance.RunID) == "" || provenance.RunID != runID {
+		return fmt.Errorf("run ID must match evidence run")
+	}
+	if provenance.Sequence < 1 {
+		return fmt.Errorf("sequence must be positive")
+	}
+	if strings.TrimSpace(provenance.MutationID) == "" {
+		return fmt.Errorf("mutation ID must be non-empty")
+	}
+	for name, reference := range map[string]CampaignArtifactReference{"plan": provenance.Plan, "provider": provenance.Provider} {
+		if strings.TrimSpace(reference.SourcePath) == "" {
+			return fmt.Errorf("%s source path must be non-empty", name)
+		}
+		if reference.BundlePath == "" {
+			return fmt.Errorf("%s bundle path must be non-empty", name)
+		}
+		if _, err := safeRelativePath(reference.BundlePath); err != nil {
+			return fmt.Errorf("%s bundle path: %w", name, err)
+		}
+		if reference.SHA256 == "" || len(reference.SHA256) != sha256.Size*2 {
+			return fmt.Errorf("%s hash must be a SHA-256 digest", name)
+		}
+		if _, err := hex.DecodeString(reference.SHA256); err != nil {
+			return fmt.Errorf("%s hash must be hexadecimal: %w", name, err)
+		}
+	}
+	if provenance.Plan.BundlePath != "campaign/plan.json" {
+		return fmt.Errorf("plan bundle path must be campaign/plan.json")
+	}
+	if provenance.Provider.BundlePath != "campaign/provider.yaml" {
+		return fmt.Errorf("provider bundle path must be campaign/provider.yaml")
+	}
+	return nil
+}
+
+func cloneArtifacts(artifacts map[string]string) map[string]string {
+	clone := make(map[string]string, len(artifacts)+4)
+	for path, digest := range artifacts {
+		clone[path] = digest
+	}
+	return clone
+}
+
+func marshalJSON(value any) ([]byte, error) {
+	contents, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(contents, '\n'), nil
 }
 
 func verifyExecutableObservationStream(path string, listed bool, expected int, startedAt, stoppedAt time.Time, validate func([]byte) error) error {

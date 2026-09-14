@@ -1,0 +1,113 @@
+# Paddock architecture proposal — REVIEW REQUIRED
+# This is inferred from the current UI graph and is not an approved CI policy.
+# It is intentionally small: it captures only boundaries supported by observed imports.
+
+schema: paddock.architecture/v1
+project: "overwatch-ui-layered-proposal"
+
+source:
+  language: typescript
+  unit: file
+  roots: [app, components, instrumentation.ts, lib, next-env.d.ts, next.config.ts, styles, tests]
+
+components:
+  root:
+    match: "*"
+    labels:
+      role: "unclassified"
+  app-layout:
+    match: app/layout.tsx
+    labels:
+      layer: "4"
+      role: "composition"
+  app-(app):
+    match: app/(app)/**
+    labels:
+      layer: "4"
+      role: "composition"
+  app-(auth):
+    match: app/(auth)/**
+    labels:
+      layer: "4"
+      role: "composition"
+  app-(dev):
+    match: app/(dev)/**
+    labels:
+      layer: "4"
+      role: "composition"
+  app-(marketing):
+    match: app/(marketing)/**
+    labels:
+      layer: "4"
+      role: "composition"
+  components:
+    match: components/**
+    labels:
+      layer: "3"
+      role: "presentation"
+  styles:
+    match: styles/**
+    labels:
+      layer: "3"
+      role: "presentation"
+  lib-root:
+    match: lib/root/**
+    labels:
+      layer: "2"
+      role: "composition-support"
+  lib-query:
+    match: lib/query/**
+    labels:
+      layer: "2"
+      role: "runtime"
+  lib-runtime:
+    match: lib/runtime/**
+    labels:
+      layer: "2"
+      role: "runtime"
+  lib-services:
+    match: lib/services/**
+    labels:
+      layer: "1"
+      role: "application"
+  lib-http:
+    match: lib/http/**
+    labels:
+      layer: "0"
+      role: "infrastructure"
+  lib-kernel:
+    match: lib/kernel/**
+    labels:
+      layer: "0"
+      role: "shared"
+  tests:
+    match: tests/**
+    labels:
+      layer: "4"
+      role: "verification"
+
+rules:
+  - id: layers-point-inward
+    kind: layer-direction
+    severity: error
+    direction: toward-lower-layer
+    message: "UI dependencies should point toward lower layers."
+  - id: services-do-not-import-ui
+    kind: deny-dependencies
+    severity: error
+    from:
+      role: application
+    deny:
+      - {role: presentation}
+      - {role: composition}
+    message: "Service modules must not depend on route composition or presentation components."
+  - id: complete-classification
+    kind: coverage
+    severity: warning
+    message: "Every source unit should have one reviewed component."
+  - id: no-unresolved-imports
+    kind: unresolved
+    severity: warning
+    message: "Relative and configured alias imports should resolve."
+
+waivers: []

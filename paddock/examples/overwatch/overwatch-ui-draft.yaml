@@ -1,0 +1,138 @@
+# Paddock starter policy — DRAFT
+# Review component matches, labels, and severities before using this in CI.
+# Generated from the current source graph; it does not certify the existing architecture.
+# Template: layered
+
+schema: paddock.architecture/v1
+project: "overwatch-ui"
+
+source:
+  language: typescript
+  unit: file
+  roots: [app, components, instrumentation.ts, lib, next-env.d.ts, next.config.ts, styles, tests]
+
+components:
+  root:
+    match: "*"
+    labels:
+      role: "unclassified"
+  app:
+    match: app
+    labels:
+      layer: "4"
+      role: "composition"
+  app-layout:
+    match: app/layout.tsx
+    labels:
+      layer: "4"
+      role: "composition"
+  app-(app):
+    match: app/(app)/**
+    labels:
+      layer: "4"
+      role: "composition"
+  app-(auth):
+    match: app/(auth)/**
+    labels:
+      layer: "4"
+      role: "composition"
+  app-(dev):
+    match: app/(dev)/**
+    labels:
+      layer: "4"
+      role: "composition"
+  app-(marketing):
+    match: app/(marketing)/**
+    labels:
+      layer: "4"
+      role: "composition"
+  components-charts:
+    match: components/charts/**
+    labels:
+      role: "unclassified"
+  components-chrome:
+    match: components/chrome/**
+    labels:
+      role: "unclassified"
+  components-display:
+    match: components/display/**
+    labels:
+      role: "unclassified"
+  components-feedback:
+    match: components/feedback/**
+    labels:
+      role: "unclassified"
+  components-forms:
+    match: components/forms/**
+    labels:
+      role: "unclassified"
+  components-layout:
+    match: components/layout/**
+    labels:
+      role: "unclassified"
+  components-navigation:
+    match: components/navigation/**
+    labels:
+      role: "unclassified"
+  components-overlays:
+    match: components/overlays/**
+    labels:
+      role: "unclassified"
+  components-typography:
+    match: components/typography/**
+    labels:
+      role: "unclassified"
+  components-utility:
+    match: components/utility/**
+    labels:
+      role: "unclassified"
+  lib-http:
+    match: lib/http/**
+    labels:
+      role: "unclassified"
+  lib-kernel:
+    match: lib/kernel/**
+    labels:
+      role: "unclassified"
+  lib-query:
+    match: lib/query/**
+    labels:
+      role: "unclassified"
+  lib-root:
+    match: lib/root/**
+    labels:
+      role: "unclassified"
+  lib-runtime:
+    match: lib/runtime/**
+    labels:
+      role: "unclassified"
+  lib-services:
+    match: lib/services/**
+    labels:
+      layer: "1"
+      role: "application"
+  styles:
+    match: styles/**
+    labels:
+      role: "unclassified"
+  tests:
+    match: tests/**
+    labels:
+      role: "unclassified"
+
+rules:
+  - id: complete-classification
+    kind: coverage
+    severity: warning
+    message: "Every source unit should have one reviewed component."
+  - id: layers-point-inward
+    kind: layer-direction
+    severity: warning
+    direction: toward-lower-layer
+    message: "Dependencies should point toward lower layers."
+  - id: no-unresolved-imports
+    kind: unresolved
+    severity: warning
+    message: "Relative and configured alias imports should resolve."
+
+waivers: []

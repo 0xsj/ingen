@@ -83,6 +83,10 @@ run/
   mutations/
     catalogue.jsonl
     results.jsonl
+  campaign/
+    plan.json
+    provider.yaml
+    provenance.json
   events/
     lifecycle.jsonl
     access.jsonl              # oracle-generation observations
@@ -158,6 +162,7 @@ Every material artifact is content-addressed or included in
 - normalized observations;
 - rule results;
 - mutation catalogue and results;
+- exact campaign plan and provider inputs for each per-mutation bundle;
 - approval and waiver records.
 
 The final manifest is written only after these artifact hashes exist. If an
@@ -237,6 +242,17 @@ Oracle-generation and managed-subject access streams must remain separate. A
 subject's access report cannot be used to claim that oracle generation was
 independent, and oracle-generation telemetry cannot be transferred to the
 subject run.
+
+For a mutation campaign, the per-mutation bundle also contains the exact bytes
+of the campaign plan and provider manifest that selected the subject variant.
+`campaign/provenance.json` records their source paths, bundle paths, SHA-256
+digests, mutation sequence, and mutation ID. These files are included in the
+bundle manifest and `checksums.sha256`; changing either input invalidates the
+bundle rather than silently changing its meaning.
+
+The campaign aggregate must record the SHA-256 values of the verified
+per-mutation `manifest.json` and `checksums.sha256` files. A path alone is not
+an evidence binding because a later run could reuse or replace that directory.
 
 Executable identity streams follow the same separation. `executables.jsonl`
 belongs to oracle generation and `subject-executables.jsonl` belongs to the

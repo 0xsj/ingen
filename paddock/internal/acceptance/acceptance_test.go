@@ -16,6 +16,7 @@ import (
 	"ingen/paddock/internal/policy"
 	"ingen/paddock/internal/policydiff"
 	"ingen/paddock/internal/policylock"
+	"ingen/paddock/internal/policyreview"
 	"ingen/paddock/internal/policytest"
 )
 
@@ -265,6 +266,20 @@ func TestCLIExternalGraphAdapter(t *testing.T) {
 		t.Fatalf("direct adapter check failed: exit=%d output:\n%s", exitCode, output)
 	}
 
+	manifestPath := filepath.Join(directory, "adapter-policy-tests.yaml")
+	manifest := "schema: paddock.policy-tests/v1\ncases:\n" +
+		"  - name: external-good-service\n    root: " + filepath.ToSlash(source) + "\n    expect: pass\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "test", "--policy", policyPath, "--cases", manifestPath,
+		"--adapter", "sh", "--adapter-arg", adapterPath, "--adapter-arg", graphPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "POLICY-TEST PASS") {
+		t.Fatalf("external adapter policy test failed: exit=%d output:\n%s", exitCode, output)
+	}
+
 	ciPath := filepath.Join(directory, "ci-result.json")
 	generatedGraphPath := filepath.Join(directory, "generated-graph.json")
 	output, exitCode = runCLI(t, cli, repoRoot,
@@ -462,6 +477,13 @@ rules:
 	if err := os.WriteFile(afterPath, []byte(after), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	manifestPath := filepath.Join(directory, "policy-tests.yaml")
+	goodRoot := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "good")
+	manifest := "schema: paddock.policy-tests/v1\ncases:\n" +
+		"  - name: good-service\n    root: " + filepath.ToSlash(goodRoot) + "\n    expect: pass\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	output, exitCode := runCLI(t, cli, repoRoot,
 		"policy", "diff", "--before", beforePath, "--after", afterPath,
@@ -482,6 +504,84 @@ rules:
 	}
 	if document.Schema != "paddock.policy-diff/v1" || document.Summary.Total != 2 {
 		t.Fatalf("unexpected policy diff document: %#v", document)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--cases", manifestPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "tests: PASS") || !strings.Contains(output, "good-service") {
+		t.Fatalf("policy diff with tests is incomplete: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--cases", manifestPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("JSON policy diff with tests exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode policy diff with tests JSON: %v\n%s", err, output)
+	}
+	if document.Tests == nil || document.Tests.Status != "PASS" || document.Tests.Passed != 1 {
+		t.Fatalf("policy diff test results are incomplete: %#v", document.Tests)
+	}
+
+	badManifestPath := filepath.Join(directory, "failing-policy-tests.yaml")
+	badManifest := strings.Replace(manifest, "expect: pass", "expect: fail", 1)
+	if err := os.WriteFile(badManifestPath, []byte(badManifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--cases", badManifestPath,
+	)
+	if exitCode != 1 || !strings.Contains(output, "tests: FAIL") {
+		t.Fatalf("mismatched policy diff tests returned exit=%d output:\n%s", exitCode, output)
+	}
+
+	reviewPath := filepath.Join(directory, "policy-review.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "review", "--before", beforePath, "--after", afterPath, "--cases", manifestPath, "--output", reviewPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "POLICY-REVIEW PASS") {
+		t.Fatalf("policy review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	reviewData, err := os.ReadFile(reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var review policyreview.Document
+	if err := json.Unmarshal(reviewData, &review); err != nil {
+		t.Fatalf("decode policy review: %v\n%s", err, reviewData)
+	}
+	if review.Schema != policyreview.Schema || review.Status != "PASS" || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" {
+		t.Fatalf("unexpected policy review: %#v", review)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath)
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("policy review verification failed: exit=%d output:\n%s", exitCode, output)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("policy review file verification failed: exit=%d output:\n%s", exitCode, output)
+	}
+	afterData, err := os.ReadFile(afterPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(afterPath, append(afterData, []byte("\n# changed after review\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
+	if exitCode != 2 || !strings.Contains(output, "hash mismatch") {
+		t.Fatalf("changed policy review inputs returned exit=%d output:\n%s", exitCode, output)
+	}
+
+	badReviewPath := filepath.Join(directory, "failing-policy-review.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "review", "--before", beforePath, "--after", afterPath, "--cases", badManifestPath, "--output", badReviewPath,
+	)
+	if exitCode != 1 || !strings.Contains(output, "POLICY-REVIEW FAIL") {
+		t.Fatalf("mismatched policy review returned exit=%d output:\n%s", exitCode, output)
 	}
 }
 

@@ -24,6 +24,17 @@ evolves, not as a replacement for the code or specification.
 | Tracing projection | Framework-neutral `amber.*` attributes and cloned span-attribute map merging added | Tracing projection tests pass in both languages |
 | Storage contract | Append-only execution-keyed store, idempotent writes, conflict detection, and missing-record behavior added | Storage tests pass in both languages |
 | Root verification | One project-level command runs both SDK suites and all shared fixtures | `make test` passes |
+| HTTP middleware | Request context installation, response-header propagation, and reject/ignore handling added for standard HTTP runtimes | HTTP middleware tests pass in both languages |
+| Messaging middleware | Generic message wrappers clone metadata, install context, and propagate outgoing provenance | Messaging middleware tests pass in both languages |
+| Durable storage seam | Go file-backed snapshots and a TypeScript atomic key-value backend contract preserve storage invariants | Durable storage tests pass in both languages |
+| End-to-end examples | Runnable Go and TypeScript flows compose HTTP, child derivation, storage, logging, and tracing | `make examples` passes |
+| Continuous verification | GitHub Actions runs the root test suite and composition examples for main pushes and pull requests | Workflow mirrors `make test` and `make examples` |
+| Static check gate | Root lint and check targets run Go vet and TypeScript typechecking alongside tests | `make check` passes |
+| Work-history queries | Stores list executions by logical work ID in deterministic history order | Shared storage history fixture passes in both SDKs |
+| Causation queries | Stores find immediate children and retries by causation kind and execution ID | Shared storage causation fixture passes in both SDKs |
+| Correlation queries | Stores find related executions across logical works by correlation ID | Shared storage correlation fixture passes in both SDKs |
+| Package artifact contract | TypeScript exports are explicit and the publishable artifact is checked before release | `make package-check` passes |
+| Trust boundary | v1 remains unsigned by default and optional validators run before context installation | Trust-hook tests pass in both SDKs |
 
 When a later change alters one of these results, update the relevant note and
 this milestone table in the same change.
@@ -41,6 +52,17 @@ this milestone table in the same change.
 9. [The tracing projection should not decide span lifecycle semantics](009-framework-neutral-tracing-projection.md)
 10. [Storage must distinguish idempotent re-insertion from overwriting history](010-append-only-storage-contract.md)
 11. [A project needs one verification command that crosses its language boundaries](011-root-verification-command.md)
+12. [HTTP middleware should own the request and response provenance boundary](012-http-boundary-middleware.md)
+13. [Messaging middleware should own context and metadata at the consumer boundary](013-messaging-boundary-middleware.md)
+14. [Durable storage should preserve append-only semantics behind an explicit backend seam](014-durable-storage-backend-seam.md)
+15. [A runnable composition example should cross the adapters without external services](015-end-to-end-composition-example.md)
+16. [CI should run the same cross-language checks and examples as local development](016-continuous-verification-workflow.md)
+17. [The root check gate should combine static analysis with cross-language tests](017-static-check-gate.md)
+18. [Storage needs a deterministic work-history query over execution records](018-work-history-query.md)
+19. [Storage should expose immediate-cause lookup separately from work history](019-causation-query.md)
+20. [Correlation queries should link related work without changing work membership](020-correlation-query.md)
+21. [The TypeScript package should publish one explicit, testable entry artifact](021-package-artifact-contract.md)
+22. [Amber v1 should stay unsigned by default while exposing an explicit trust seam](022-unsigned-v1-trust-seam.md)
 
 ## Current open questions
 
@@ -48,3 +70,5 @@ this milestone table in the same change.
   ownership and publishing are finalized.
 - Which transport-specific context formats should follow HTTP after the core
   model stabilizes.
+- Whether a future authenticated transport extension should define a signed
+  envelope, key rotation, replay protection, and asynchronous key lookup.

@@ -12,10 +12,12 @@ also freeze a deterministic oracle in a sandbox and checksum its evidence.
 Package areas:
 
 - `internal/contract`: validation, canonicalization, sealing, and lineage;
+- `internal/campaign`: deterministic mutation campaign planning;
 - `internal/oracle`: deterministic case generation and freezing;
 - `internal/adapter`: HTTP/JSON and later public-boundary adapters;
 - `internal/verification`: baseline and rule execution;
 - `internal/mutation`: mutation providers, campaigns, and classification;
+- `providers/golang`: source-copy and build mechanics for Go mutation variants;
 - `internal/evidence`: manifests, lifecycle JSONL, checksums, and verification;
 - `internal/policy`: capability policy validation, sealing, and references;
 - `internal/sandbox`: process, filesystem, network, and resource policy;
@@ -109,9 +111,41 @@ inputs. Validate or inspect the first example with:
 make mutation-catalogue-validate
 go run ./sorna/cmd/sorna mutation validate examples/document-pipeline-lab/mutations/catalogue.yaml --contract examples/document-pipeline-lab/contract/contract.yaml
 go run ./sorna/cmd/sorna mutation list examples/document-pipeline-lab/mutations/catalogue.yaml
+make mutation-plan
+make mutation-provider-validate
+make mutation-campaign-run
+make mutation-campaign-verify
+make mutation-go-provider-build
+make mutation-go-campaign-run
+make mutation-go-campaign-verify
 ```
 
 Catalogue validation checks stable IDs, canonical mutation planes, operators,
 targets, reproducible changes, expected contract rules, and lifecycle status.
-It does not apply mutations or launch a subject; campaign orchestration remains
-the next Sorna slice.
+It does not apply mutations or launch a subject. `make mutation-plan` creates
+the reviewable handoff for an execution provider and requires the passing clean
+baseline.
+
+The first execution provider is intentionally a prebuilt-variant manifest for
+the document lab. `make mutation-campaign-run` consumes the plan, launches one
+fresh managed subject for each provider entry, verifies each resulting evidence
+bundle, attaches the exact plan/provider inputs to that bundle, binds the
+bundle's manifest/checksum hashes into the entry, and writes
+`campaign-result.json`. `make mutation-campaign-verify` rechecks each recorded
+evidence bundle and compares its current hashes with the aggregate result. A
+`killed` mutation is a successful campaign entry; the nested contract run may
+still be red by design.
+
+The first source-level Go provider is deliberately narrow. It copies the clean
+Go module once per plan entry, applies the document lab's reviewed
+`response.status.replace` change with the Go AST, builds a fresh binary, and
+then hands the normal `ingen.mutation-provider/v1` manifest to Sorna:
+
+```sh
+make mutation-go-campaign-run
+make mutation-go-campaign-verify
+```
+
+The provider retains copied variant sources for review and places runnable
+binaries under the existing managed-subject read root. It does not modify the
+working tree and does not claim to support arbitrary Go operators yet.

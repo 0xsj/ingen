@@ -9,6 +9,8 @@ lock=${PADDOCK_LOCK:-paddock.lock.json}
 source_root=${PADDOCK_SOURCE_ROOT:-.}
 graph_input=${PADDOCK_GRAPH:-}
 diff_output=${PADDOCK_DIFF:-paddock-policy-diff.json}
+policy_cases=${PADDOCK_CASES:-}
+review_output=${PADDOCK_REVIEW:-paddock-policy-review.json}
 result_output=${PADDOCK_RESULT:-paddock-ci-result.json}
 
 case "$command_name" in
@@ -16,6 +18,18 @@ review)
 	if [ -z "$proposed_policy" ]; then
 		echo "PADDOCK_PROPOSED_POLICY is required for review" >&2
 		exit 2
+	fi
+	if [ -n "$policy_cases" ]; then
+		review_status=0
+		"$paddock" policy review \
+			--before "$policy" \
+			--after "$proposed_policy" \
+			--cases "$policy_cases" \
+			--output "$review_output" || review_status=$?
+		if [ "$review_status" -eq 0 ] || [ "$review_status" -eq 1 ]; then
+			"$paddock" policy review verify --input "$review_output"
+		fi
+		exit "$review_status"
 	fi
 	"$paddock" policy diff \
 		--before "$policy" \

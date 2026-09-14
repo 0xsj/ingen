@@ -3,7 +3,9 @@ package amberhttp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -80,6 +82,133 @@ func TestOutgoingRequestDoesNotMutateSource(t *testing.T) {
 	missing, present, err := WithIncomingRequest(source, amber.IncomingReject)
 	if err != nil || present || missing != source {
 		t.Fatalf("missing request header should preserve request: present=%v err=%v", present, err)
+	}
+}
+
+func TestMiddlewareInstallsIncomingContextAndEchoesResponseHeader(t *testing.T) {
+	root, err := amber.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, err := EncodeHeader(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	next := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		called = true
+		current, ok := amber.ProvenanceFromContext(request.Context())
+		if !ok || current.ExecutionID() != root.ExecutionID() {
+			t.Fatal("middleware did not install incoming provenance")
+		}
+		writer.WriteHeader(http.StatusCreated)
+	})
+	handler := Middleware(next, amber.IncomingReject)
+	request := httptest.NewRequest(http.MethodGet, "https://example.test", nil)
+	request.Header.Set(HeaderName, header)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if !called || recorder.Code != http.StatusCreated {
+		t.Fatalf("middleware did not call next correctly: called=%v status=%d", called, recorder.Code)
+	}
+	if recorder.Header().Get(HeaderName) != header {
+		t.Fatal("middleware did not propagate provenance to the response")
+	}
+	if _, ok := amber.ProvenanceFromContext(request.Context()); ok {
+		t.Fatal("middleware mutated the source request context")
+	}
+}
+
+func TestMiddlewareRejectsMalformedInputBeforeNext(t *testing.T) {
+	called := false
+	handler := Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	}), amber.IncomingReject)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://example.test", nil)
+	request.Header.Set(HeaderName, "not-base64")
+
+	handler.ServeHTTP(recorder, request)
+
+	if called {
+		t.Fatal("rejected input reached the next handler")
+	}
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("rejected input returned status %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+	if recorder.Header().Get(HeaderName) != "" {
+		t.Fatal("rejected input returned an Amber response header")
+	}
+}
+
+func TestMiddlewareIgnoreContinuesWithoutProvenance(t *testing.T) {
+	called := false
+	handler := Middleware(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		called = true
+		if _, ok := amber.ProvenanceFromContext(request.Context()); ok {
+			t.Fatal("ignored input was installed in the request context")
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}), amber.IncomingIgnore)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://example.test", nil)
+	request.Header.Set(HeaderName, "not-base64")
+
+	handler.ServeHTTP(recorder, request)
+
+	if !called || recorder.Code != http.StatusNoContent {
+		t.Fatalf("ignored input did not continue: called=%v status=%d", called, recorder.Code)
+	}
+	if recorder.Header().Get(HeaderName) != "" {
+		t.Fatal("ignored input returned an Amber response header")
+	}
+}
+
+func TestHTTPValidatorRunsBeforeContextInstallation(t *testing.T) {
+	trusted, err := amber.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	untrusted, err := amber.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedHeader, err := EncodeHeader(trusted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untrustedHeader, err := EncodeHeader(untrusted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator := func(provenance amber.Provenance) error {
+		if provenance.ExecutionID() != trusted.ExecutionID() {
+			return fmt.Errorf("execution is not trusted")
+		}
+		return nil
+	}
+
+	decoded, present, err := DecodeHeaderWithValidator(trustedHeader, amber.IncomingReject, validator)
+	if err != nil || !present || decoded.ExecutionID() != trusted.ExecutionID() {
+		t.Fatalf("trusted header was rejected: present=%v err=%v", present, err)
+	}
+	if _, present, err := DecodeHeaderWithValidator(untrustedHeader, amber.IncomingIgnore, validator); err != nil || present {
+		t.Fatalf("ignored untrusted header should be absent: present=%v err=%v", present, err)
+	}
+
+	called := false
+	handler := MiddlewareWithValidator(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	}), amber.IncomingReject, validator)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://example.test", nil)
+	request.Header.Set(HeaderName, untrustedHeader)
+	handler.ServeHTTP(recorder, request)
+	if called || recorder.Code != http.StatusBadRequest {
+		t.Fatalf("untrusted header reached handler: called=%v status=%d", called, recorder.Code)
 	}
 }
 

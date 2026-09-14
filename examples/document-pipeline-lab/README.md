@@ -54,3 +54,23 @@ make sorna-defect-run
 
 The defect run is expected to be red, is labeled `status-200-create`, and
 reports the mutation as `killed` in its run record.
+
+The temporary fixture provider maps that defect binary to the mutation plan.
+The complete first campaign can be exercised with:
+
+```sh
+make mutation-campaign-run
+```
+
+This creates one verified evidence bundle under
+`.artifacts/document-pipeline-campaign/` and an aggregate
+`campaign-result.json`. The prebuilt fixture remains available as a minimal
+workflow proof. The first narrow source-level Go provider can be run
+with:
+
+```sh
+make mutation-go-campaign-run
+```
+
+It copies the subject source, applies the reviewed status mutation with the Go
+AST, and builds the variant without modifying the clean subject tree.

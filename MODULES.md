@@ -29,6 +29,7 @@ terminal or CI without Herdr. It will eventually own:
 - contract validation, sealing, and canonicalization;
 - isolated oracle generation and freezing;
 - public-interface adapters;
+- language-specific mutation providers that prepare isolated subject variants;
 - baseline verification;
 - behavioral, contract, and implementation mutation campaigns;
 - evidence bundles, replay, and assurance reporting.

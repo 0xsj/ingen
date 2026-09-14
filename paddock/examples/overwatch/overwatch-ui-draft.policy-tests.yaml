@@ -1,0 +1,5 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: current-ui-draft
+    root: ../../../../overwatch/overwatch-ui
+    expect: pass

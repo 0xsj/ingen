@@ -47,3 +47,5 @@ paddock policy test \
 
 The manifest uses `paddock.policy-tests/v1`. Each case names a source root and
 expects `pass`, `fail`, or `error`; roots are relative to the manifest file.
+Negative cases may add `require_rules` to assert which rule IDs must explain
+the violation, preventing a weakened policy from passing for the wrong reason.

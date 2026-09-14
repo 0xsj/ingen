@@ -269,13 +269,40 @@ An agent proposing a policy should write a candidate file and run:
 paddock policy diff \
   --before paddock.yaml \
   --after proposed-paddock.yaml \
+  --cases paddock-policy-tests.yaml \
   --format json
 ```
 
 The diff is deterministic, validates both inputs, and records both raw and
-canonical hashes for review. A human must approve the proposed policy before it
-replaces the sealed CI policy. After approval, the new policy should be sealed
-and passed to CI with `--policy-lock`.
+canonical hashes for review. When `--cases` is supplied, it also evaluates the
+proposed policy against the expected fixture outcomes and embeds the results in
+the diff. For an external language, pass `--adapter` and repeated
+`--adapter-arg` options; Paddock invokes that adapter once per case root. A
+human must approve the proposed policy before it replaces the sealed CI policy.
+After approval, the new policy should be sealed and passed to CI with
+`--policy-lock`.
+
+For durable review evidence, use:
+
+```sh
+paddock policy review \
+  --before paddock.yaml \
+  --after proposed-paddock.yaml \
+  --cases paddock-policy-tests.yaml \
+  --output paddock-policy-review.json
+```
+
+This writes `paddock.policy-review/v1`, bundling the policy diff and fixture
+test results without making the agent the source of the verdict.
+
+The saved artifact can be schema-checked before another system consumes it:
+
+```sh
+paddock policy review verify --input paddock-policy-review.json
+```
+
+Add `--files` when the original policy and manifest files are available; this
+also checks their recorded SHA-256 values and detects post-review edits.
 
 The LLM must not silently alter a sealed policy or produce the authoritative CI
 verdict. Proposed changes should appear as a policy diff for human review.

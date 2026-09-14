@@ -1,0 +1,47 @@
+# @0xsj/amber
+
+Portable application-level provenance for TypeScript applications. The
+package provides immutable provenance values, scoped contexts, HTTP and
+messaging propagation, logging and tracing projections, and storage contracts.
+
+## Install
+
+```sh
+npm install @0xsj/amber
+```
+
+## Quick start
+
+```ts
+import {
+  Provenance,
+  ProvenanceContext,
+  httpMiddleware,
+  withOutgoingRequest,
+} from "@0xsj/amber";
+
+const root = Provenance.start();
+const request = withOutgoingRequest(new Request("https://example.test"), root);
+const handler = httpMiddleware(async (_request, context) => {
+  const child = context.provenance?.child({ origin: "incoming" });
+  return new Response(child ? "tracked" : "untracked");
+}, "reject");
+
+const response = await handler(request, ProvenanceContext.empty());
+```
+
+The wire format and incoming-data policy are defined in the repository's
+[`spec/v1.md`](../spec/v1.md). The package is currently version `0.1.0` and is
+still evolving with the shared Go implementation.
+
+## Development
+
+From the repository root:
+
+```sh
+make check          # static checks, tests, conformance, and package check
+make examples       # runnable composition examples
+```
+
+The package exports its public entry point through `dist/index.js` and
+`dist/index.d.ts`; test files are not part of the published `dist` artifact.

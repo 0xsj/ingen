@@ -53,6 +53,7 @@ amber/
   typescript/    TypeScript SDK
   conformance/   Cross-language fixtures and scenarios
   adapters/      HTTP, messaging, logging, tracing, and storage integrations
+  examples/      Runnable composition examples
   docs/          Guides, examples, design notes, and implementation notes
 ```
 
@@ -61,12 +62,16 @@ amber/
 Core specification draft v1 is in place under `spec/`. The Go and TypeScript
 implementations, conformance fixtures, and adapters will follow the shared
 contract defined there. The first HTTP adapter is now implemented under
-`adapters/http/`, and the transport-neutral messaging adapter is implemented
+`adapters/http/`, including request/response middleware for the standard HTTP
+runtimes. The transport-neutral messaging adapter is implemented
 under `adapters/messaging/`. A framework-neutral structured logging projection
 is implemented under `adapters/logging/`, and a framework-neutral tracing
 projection is implemented under `adapters/tracing/`. A process-local reference
-storage adapter is implemented under `adapters/storage/`; durable database
-adapters are still future work.
+storage adapter and a Go file-backed store are implemented under
+`adapters/storage/`; database-specific adapters are still future work.
+Runnable end-to-end composition examples are available through `make examples`.
+Incoming trust validators are available as opt-in hooks; v1 transport values
+remain unsigned by default.
 
 Implementation reasoning and verification notes are indexed in
 [`docs/notes/README.md`](docs/notes/README.md).
@@ -81,3 +86,24 @@ make test
 
 This runs the Go packages, TypeScript build/tests, and shared conformance
 fixtures.
+
+The broader check gate also validates Go vet, TypeScript typechecking, and the
+publishable TypeScript package artifact:
+
+```sh
+make check
+```
+
+Run the full check gate, including Go vet and TypeScript typechecking, with:
+
+```sh
+make check
+```
+
+Run the composition examples from the project root with:
+
+```sh
+make examples
+```
+
+GitHub Actions runs both commands on pushes to `main` and on pull requests.

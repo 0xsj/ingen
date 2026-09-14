@@ -2,7 +2,9 @@ import { ProvenanceContext } from "./context.js";
 import {
   MAX_INCOMING_JSON_BYTES,
   inspectIncomingJSON,
+  inspectIncomingJSONWithValidator,
   withIncomingJSON,
+  withIncomingJSONWithValidator,
 } from "./incoming.js";
 import { Provenance } from "./provenance.js";
 
@@ -43,5 +45,24 @@ const installed = withIncomingJSON(empty, input, "reject");
 assert(installed.present && installed.context.provenance?.execution_id === root.execution_id, "incoming context was not installed");
 const unchanged = withIncomingJSON(installed.context, "", "reject");
 assert(!unchanged.present && unchanged.context === installed.context, "absent input must preserve context");
+
+const validator = (provenance: Provenance): void => {
+  if (provenance.execution_id !== root.execution_id) {
+    throw new Error("execution is not trusted");
+  }
+};
+const validated = inspectIncomingJSONWithValidator(input, "reject", validator);
+assert(validated.present && validated.provenance?.execution_id === root.execution_id, "trusted value was rejected");
+const untrusted = JSON.stringify(Provenance.start());
+assert(!inspectIncomingJSONWithValidator(untrusted, "ignore", validator).present, "ignored untrusted value must be absent");
+let validationRejected = false;
+try {
+  inspectIncomingJSONWithValidator(untrusted, "reject", validator);
+} catch {
+  validationRejected = true;
+}
+assert(validationRejected, "rejected untrusted value must throw");
+const validatedContext = withIncomingJSONWithValidator(empty, input, "reject", validator);
+assert(validatedContext.present && validatedContext.context.provenance?.execution_id === root.execution_id, "validated value was not installed");
 
 console.log("TypeScript incoming context tests passed");

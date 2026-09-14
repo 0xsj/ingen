@@ -42,8 +42,10 @@ go run ./sorna/cmd/sorna mutation list examples/document-pipeline-lab/mutations/
 ## Limits
 
 The first format supports structured `from`/`to` changes and structural
-validation only. It does not yet apply mutations, compare catalogue entries
-with a sealed contract, run a campaign, or provide language-specific SDKs.
+validation. It remains a declaration rather than an execution instruction;
+the Go provider and campaign runner consume it only after plan construction.
+The current Go provider supports one document-lab operator, not a general
+language SDK or operator pack.
 
 ## Used in
 

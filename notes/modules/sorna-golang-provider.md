@@ -1,0 +1,61 @@
+# A Go provider must mutate a copy before building
+
+The first language-specific provider is intentionally a thin Go source
+preparation layer. It consumes the already-reviewed canonical
+`ingen.mutation-plan/v1` in memory, copies the source root once per mutation,
+applies a lab-specific AST transformation to that copy, builds a fresh binary,
+and emits the existing `ingen.mutation-provider/v1` manifest. The generated
+manifest also carries `plan_sha256`, and Sorna rejects it when the manifest was
+prepared from a different plan.
+
+The boundary matters:
+
+- the campaign still owns the contract, frozen oracle, baseline, expected rules,
+  and classification;
+- the Go provider owns source copying, Go parsing/building, and prepared binary
+  paths;
+- Sorna still owns the managed process, public-boundary execution, evidence,
+  and mutation outcome.
+
+For the document lab, the first operator is deliberately narrow:
+`response.status.replace` at `POST /documents`, from status 202 to 200. The
+operator callback finds the `createDocument` function and changes the
+`http.StatusAccepted` selector to `http.StatusOK` using `go/ast`. Requiring
+exactly one matching node makes an ambiguous source shape a preparation error
+instead of silently producing an unknown mutation.
+
+The provider keeps copied source variants under its output directory for
+review, while placing only built binaries under the managed subject's allowed
+read root. The original source tree is never an output target, and existing
+provider output directories are rejected to prevent accidental reuse. Source
+and binary outputs are staged and published only after every planned variant
+has been prepared, so an AST or build failure does not publish a partial
+provider.
+Generated dependency/cache trees such as `node_modules`, `.artifacts`, and
+`.cache` are excluded; symlinks in the remaining source tree are rejected so
+the copied build input cannot silently escape the source root.
+
+## Command
+
+```sh
+make mutation-go-provider-build
+make mutation-go-campaign-run
+make mutation-go-campaign-verify
+```
+
+The generated provider manifest remains the normal Sorna handoff. Its exact
+bytes are copied into each mutation evidence bundle, while the managed-subject
+evidence records the executable identity that actually ran.
+
+## Limits
+
+This is not a general Go mutation engine. It proves the source-copy, AST
+transformation, isolated build, and Sorna handoff mechanics for one controlled
+example. Future operators need their own target-resolution and ambiguity
+rules, plus a provider-level record of build diagnostics and source identity.
+
+## Used in
+
+- [`sorna/providers/golang`](../../sorna/providers/golang/)
+- [`sorna-go-provider`](../../sorna/cmd/sorna-go-provider/)
+- [`document-pipeline catalogue`](../../examples/document-pipeline-lab/mutations/catalogue.yaml)

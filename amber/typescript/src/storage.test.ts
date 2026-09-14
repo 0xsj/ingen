@@ -1,4 +1,6 @@
 import {
+  KeyValueStore,
+  MapKeyValueBackend,
   MemoryStore,
   StorageConflictError,
 } from "./storage.js";
@@ -27,5 +29,29 @@ try {
   rejected = error instanceof StorageConflictError;
 }
 assert(rejected, "same execution_id with different data must conflict");
+
+const backend = new MapKeyValueBackend();
+const durable = new KeyValueStore(backend, "test/amber");
+await durable.put(root);
+const reopened = new KeyValueStore(backend, "test/amber");
+const reopenedValue = await reopened.get(root.execution_id);
+assert(reopenedValue?.execution_id === root.execution_id, "key-value store did not persist across instances");
+const history = await reopened.listByWorkId(root.work_id);
+assert(history.length === 1 && history[0].execution_id === root.execution_id, "key-value store returned wrong history");
+await reopened.put(root);
+const retry = root.retry();
+await reopened.put(retry);
+const causal = await reopened.listByCausation("execution", root.execution_id);
+assert(causal.length === 1 && causal[0].execution_id === retry.execution_id, "key-value store returned wrong causal history");
+const correlated = await reopened.listByCorrelationId(root.correlation_id);
+assert(correlated.length === 2, "key-value store returned wrong correlation history");
+
+let durableRejected = false;
+try {
+  await reopened.put(conflicting);
+} catch (error) {
+  durableRejected = error instanceof StorageConflictError;
+}
+assert(durableRejected, "key-value store must preserve append-only conflicts");
 
 console.log("TypeScript storage adapter tests passed");

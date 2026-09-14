@@ -7,12 +7,16 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"ingen/core/ciresult"
+	"ingen/sorna/internal/campaign"
 	"ingen/sorna/internal/contract"
 	"ingen/sorna/internal/evidence"
 	"ingen/sorna/internal/lifecycle"
@@ -699,6 +703,14 @@ func mutationCommand(args []string) int {
 	switch args[0] {
 	case "validate":
 		return validateMutationCatalogue(args[1:])
+	case "plan":
+		return planMutationCampaign(args[1:])
+	case "provider":
+		return validateMutationProvider(args[1:])
+	case "run":
+		return runMutationCampaign(args[1:])
+	case "verify":
+		return verifyMutationCampaign(args[1:])
 	case "list":
 		if len(args) != 2 {
 			fmt.Fprintln(os.Stderr, "usage: sorna mutation list <catalogue>")
@@ -716,6 +728,10 @@ func mutationCommand(args []string) int {
 	default:
 		fmt.Fprintln(os.Stderr, "unknown mutation command:", args[0])
 		fmt.Fprintln(os.Stderr, "usage: sorna mutation validate <catalogue> [--contract <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation plan <catalogue> --contract <path> --oracle <path> --baseline-evidence <dir> [--subject-policy <path>] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation provider validate <path>")
+		fmt.Fprintln(os.Stderr, "       sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation verify <campaign-result>")
 		fmt.Fprintln(os.Stderr, "       sorna mutation list <catalogue>")
 		return 2
 	}
@@ -764,6 +780,507 @@ func validateMutationCatalogue(args []string) int {
 	return 0
 }
 
+func validateMutationProvider(args []string) int {
+	if len(args) != 2 || args[0] != "validate" {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation provider validate <path>")
+		return 2
+	}
+	provider, err := campaign.LoadProviderFile(args[1])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("valid: %s (%d entries)\n", args[1], len(provider.Entries))
+	return 0
+}
+
+func runMutationCampaign(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
+		return 2
+	}
+	flags := flag.NewFlagSet("mutation run", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	providerPath := flags.String("provider", "", "provider manifest for prepared subject variants")
+	oraclePath := flags.String("oracle", "", "path to the frozen oracle artifact")
+	policyPath := flags.String("policy", "", "path to the oracle isolation policy")
+	subjectPolicyPath := flags.String("subject-policy", "", "path to the managed-subject isolation policy")
+	baseAddress := flags.String("base-address", "127.0.0.1:8081", "first subject address; each mutation receives the next port")
+	readyPath := flags.String("ready-path", "/healthz", "HTTP path used to wait for each subject")
+	outputDir := flags.String("output-dir", ".artifacts/document-pipeline-campaign", "root directory for per-mutation evidence")
+	outputPath := flags.String("output", "", "campaign result output path; defaults inside output-dir")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 || *providerPath == "" || *oraclePath == "" || *policyPath == "" {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
+		return 2
+	}
+	planPath := args[0]
+	planBytes, err := os.ReadFile(planPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	plan, err := campaign.LoadBytes(planPath, planBytes)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	planHash := campaign.HashBytes(planBytes)
+	providerBytes, err := os.ReadFile(*providerPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	provider, err := campaign.LoadProviderBytes(*providerPath, providerBytes)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if problems := provider.ValidateForPlan(plan); len(problems) > 0 {
+		fmt.Fprintln(os.Stderr, "provider does not cover campaign plan:")
+		for _, problem := range problems {
+			fmt.Fprintln(os.Stderr, "-", problem)
+		}
+		return 1
+	}
+	if provider.PlanSHA256 != "" && provider.PlanSHA256 != planHash {
+		fmt.Fprintf(os.Stderr, "campaign provider was built from plan hash %q, want %q\n", provider.PlanSHA256, planHash)
+		return 1
+	}
+	oracleArtifact, err := oracle.LoadFile(*oraclePath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	oracleHash, err := oracle.Hash(oracleArtifact)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hash campaign oracle:", err)
+		return 1
+	}
+	if oracleHash != plan.Oracle.SHA256 || oracleArtifact.Schema != plan.Oracle.Schema || oracleArtifact.Contract.ID != plan.Contract.ID || oracleArtifact.Contract.Version != plan.Contract.Version || oracleArtifact.Contract.SHA256 != plan.Contract.SHA256 {
+		fmt.Fprintln(os.Stderr, "campaign oracle does not match the plan")
+		return 1
+	}
+	oraclePolicy, err := policy.LoadFile(*policyPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	sealedOraclePolicy, err := policy.Seal(oraclePolicy)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if sealedOraclePolicy.SHA256 != plan.OraclePolicySHA256 {
+		fmt.Fprintln(os.Stderr, "campaign oracle policy does not match the plan")
+		return 1
+	}
+	subjectPolicyHash := ""
+	if *subjectPolicyPath != "" {
+		document, err := policy.LoadFile(*subjectPolicyPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		sealed, err := policy.Seal(document)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		subjectPolicyHash = sealed.SHA256
+	}
+	if subjectPolicyHash != plan.SubjectPolicySHA256 {
+		fmt.Fprintf(os.Stderr, "campaign subject policy hash %q does not match plan hash %q\n", subjectPolicyHash, plan.SubjectPolicySHA256)
+		return 1
+	}
+	if pathsOverlap(*outputDir, plan.Baseline.EvidencePath) {
+		fmt.Fprintln(os.Stderr, "campaign output directory must be separate from baseline evidence")
+		return 2
+	}
+	host, portText, err := net.SplitHostPort(*baseAddress)
+	if err != nil || strings.TrimSpace(host) == "" {
+		fmt.Fprintln(os.Stderr, "base address must have the form host:port")
+		return 2
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 || port+len(plan.Mutations)-1 > 65535 {
+		fmt.Fprintln(os.Stderr, "base address port must leave room for every mutation")
+		return 2
+	}
+	if err := os.MkdirAll(*outputDir, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "create campaign output directory:", err)
+		return 1
+	}
+	resultPath := *outputPath
+	if resultPath == "" {
+		resultPath = filepath.Join(*outputDir, "campaign-result.json")
+	}
+	if pathsOverlap(resultPath, plan.Baseline.EvidencePath) {
+		fmt.Fprintln(os.Stderr, "campaign result output must be separate from baseline evidence")
+		return 2
+	}
+	startedAt := time.Now().UTC()
+	entries := make([]campaign.EntryResult, 0, len(plan.Mutations))
+	for _, planned := range plan.Mutations {
+		address := net.JoinHostPort(host, strconv.Itoa(port+planned.Sequence-1))
+		baseURL := "http://" + address
+		prepared, err := provider.Resolve(planned.Spec.ID, address, baseURL)
+		if err != nil {
+			entries = append(entries, campaign.EntryResult{Sequence: planned.Sequence, MutationID: planned.Spec.ID, EvidencePath: campaignEntryPath(*outputDir, planned), Status: "error", ExitCode: -1, Reason: err.Error()})
+			continue
+		}
+		if len(prepared.Command) == 0 {
+			entries = append(entries, campaign.EntryResult{Sequence: planned.Sequence, MutationID: planned.Spec.ID, EvidencePath: campaignEntryPath(*outputDir, planned), Status: "error", ExitCode: -1, Reason: "provider resolved an empty subject command"})
+			continue
+		}
+		entryDir := campaignEntryPath(*outputDir, planned)
+		if _, statErr := os.Stat(entryDir); statErr == nil {
+			entries = append(entries, campaign.EntryResult{Sequence: planned.Sequence, MutationID: planned.Spec.ID, EvidencePath: entryDir, Status: "error", ExitCode: -1, Reason: "mutation evidence directory already exists"})
+			continue
+		} else if !os.IsNotExist(statErr) {
+			entries = append(entries, campaign.EntryResult{Sequence: planned.Sequence, MutationID: planned.Spec.ID, EvidencePath: entryDir, Status: "error", ExitCode: -1, Reason: statErr.Error()})
+			continue
+		}
+		runArgs := []string{
+			"run",
+			"--oracle", *oraclePath,
+			"--policy", *policyPath,
+			"--subject-root", prepared.SubjectRoot,
+			"--base-url", baseURL,
+			"--subject-command", prepared.Command[0],
+			"--baseline-evidence", plan.Baseline.EvidencePath,
+			"--ready-path", *readyPath,
+			"--subject-variant", prepared.Variant,
+			"--mutation-id", planned.Spec.ID,
+			"--mutation-plane", planned.Spec.Plane,
+			"--mutation-description", planned.Spec.Description,
+			"--output-dir", entryDir,
+		}
+		if *subjectPolicyPath != "" {
+			runArgs = append(runArgs, "--subject-policy", *subjectPolicyPath)
+		}
+		if prepared.SubjectDir != "" {
+			runArgs = append(runArgs, "--subject-dir", prepared.SubjectDir)
+		}
+		for _, argument := range prepared.Command[1:] {
+			runArgs = append(runArgs, "--subject-arg", argument)
+		}
+		for _, ruleID := range planned.Spec.ExpectedRuleIDs {
+			runArgs = append(runArgs, "--expected-rule", ruleID)
+		}
+		fmt.Printf("campaign mutation %d/%d: %s\n", planned.Sequence, len(plan.Mutations), planned.Spec.ID)
+		process := osexec.Command(os.Args[0], runArgs...)
+		process.Stdin = os.Stdin
+		process.Stdout = os.Stdout
+		process.Stderr = os.Stderr
+		runErr := process.Run()
+		exitCode := 0
+		if runErr != nil {
+			exitCode = -1
+			var exitErr *osexec.ExitError
+			if errors.As(runErr, &exitErr) {
+				exitCode = exitErr.ExitCode()
+			}
+		}
+		entryResult := campaign.EntryResult{Sequence: planned.Sequence, MutationID: planned.Spec.ID, EvidencePath: entryDir, ExitCode: exitCode}
+		if provenanceErr := evidence.AttachCampaignProvenance(entryDir, evidence.CampaignProvenanceInput{
+			PlanPath:      planPath,
+			PlanBytes:     planBytes,
+			ProviderPath:  *providerPath,
+			ProviderBytes: providerBytes,
+			Sequence:      planned.Sequence,
+			MutationID:    planned.Spec.ID,
+		}); provenanceErr != nil {
+			entryResult.Status = "error"
+			entryResult.Reason = fmt.Sprintf("attach campaign provenance: %v", provenanceErr)
+		} else if verifyErr := evidence.Verify(entryDir); verifyErr != nil {
+			entryResult.Status = "error"
+			entryResult.Reason = fmt.Sprintf("verify mutation evidence: %v", verifyErr)
+		} else if evidenceHashes, hashErr := campaign.HashEvidence(entryDir); hashErr != nil {
+			entryResult.Status = "error"
+			entryResult.Reason = fmt.Sprintf("hash mutation evidence: %v", hashErr)
+		} else {
+			entryResult.Evidence = &evidenceHashes
+			record, readErr := readRunRecord(entryDir)
+			if readErr != nil {
+				entryResult.Status = "error"
+				entryResult.Reason = readErr.Error()
+			} else if record.Mutation == nil {
+				entryResult.Status = "error"
+				entryResult.Reason = "mutation evidence does not contain a mutation result"
+			} else {
+				entryResult.RunID = record.RunID
+				entryResult.Outcome = record.Mutation.Outcome
+				entryResult.Reason = record.Mutation.Reason
+				if record.Mutation.Outcome == "killed" {
+					entryResult.Status = "passed"
+				} else {
+					entryResult.Status = "failed"
+				}
+			}
+		}
+		if runErr != nil && entryResult.Status == "" {
+			entryResult.Status = "error"
+			entryResult.Reason = runErr.Error()
+		}
+		entries = append(entries, entryResult)
+	}
+	result := buildCampaignResult(planPath, planHash, startedAt, entries)
+	resultHash, err := campaign.WriteResult(resultPath, result)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	fmt.Printf("campaign result: %s\nstatus: %s\nplan: %s\nresult hash: %s\n", resultPath, result.Status, planHash, resultHash)
+	return campaignExitCode(result.Status)
+}
+
+func verifyMutationCampaign(args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation verify <campaign-result>")
+		return 2
+	}
+	result, err := campaign.LoadResult(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	verified := 0
+	for _, entry := range result.Entries {
+		if entry.Evidence == nil {
+			continue
+		}
+		if err := evidence.Verify(entry.EvidencePath); err != nil {
+			fmt.Fprintf(os.Stderr, "verify mutation %s evidence: %v\n", entry.MutationID, err)
+			return 1
+		}
+		actual, err := campaign.HashEvidence(entry.EvidencePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "hash mutation %s evidence: %v\n", entry.MutationID, err)
+			return 1
+		}
+		if actual != *entry.Evidence {
+			fmt.Fprintf(os.Stderr, "mutation %s evidence hashes do not match campaign result\n", entry.MutationID)
+			return 1
+		}
+		verified++
+	}
+	fmt.Printf("verified: %s (%d evidence entries)\n", args[0], verified)
+	return 0
+}
+
+func campaignEntryPath(outputDir string, planned campaign.MutationEntry) string {
+	return filepath.Join(outputDir, fmt.Sprintf("%03d-%s", planned.Sequence, safeCampaignID(planned.Spec.ID)))
+}
+
+func safeCampaignID(id string) string {
+	var builder strings.Builder
+	for _, character := range id {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' || character == '_' || character == '.' {
+			builder.WriteRune(character)
+		} else {
+			builder.WriteByte('-')
+		}
+	}
+	value := strings.Trim(builder.String(), "-.")
+	if value == "" {
+		return "mutation"
+	}
+	return value
+}
+
+func pathsOverlap(left, right string) bool {
+	leftAbsolute, leftErr := filepath.Abs(left)
+	rightAbsolute, rightErr := filepath.Abs(right)
+	if leftErr != nil || rightErr != nil {
+		return true
+	}
+	leftAbsolute = filepath.Clean(leftAbsolute)
+	rightAbsolute = filepath.Clean(rightAbsolute)
+	return leftAbsolute == rightAbsolute || pathContains(leftAbsolute, rightAbsolute) || pathContains(rightAbsolute, leftAbsolute)
+}
+
+func pathContains(parent, child string) bool {
+	relative, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	return relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+}
+
+func readRunRecord(outputDir string) (runner.RunRecord, error) {
+	contents, err := os.ReadFile(filepath.Join(outputDir, "run.json"))
+	if err != nil {
+		return runner.RunRecord{}, fmt.Errorf("read mutation run record: %w", err)
+	}
+	var record runner.RunRecord
+	if err := json.Unmarshal(contents, &record); err != nil {
+		return runner.RunRecord{}, fmt.Errorf("decode mutation run record: %w", err)
+	}
+	return record, nil
+}
+
+func buildCampaignResult(planPath, planHash string, startedAt time.Time, entries []campaign.EntryResult) campaign.Result {
+	result := campaign.Result{
+		Schema:     campaign.ResultSchema,
+		Status:     "passed",
+		Plan:       campaign.PlanReference{Path: planPath, SHA256: planHash},
+		StartedAt:  startedAt,
+		FinishedAt: time.Now().UTC(),
+		Summary:    campaign.Summary{Total: len(entries)},
+		Entries:    entries,
+	}
+	for _, entry := range entries {
+		switch entry.Status {
+		case "error":
+			result.Summary.Errors++
+			result.Status = "error"
+		case "failed":
+			if result.Status == "passed" {
+				result.Status = "failed"
+			}
+		}
+		switch entry.Outcome {
+		case "killed":
+			result.Summary.Killed++
+		case "survived":
+			result.Summary.Survived++
+		case "inconclusive":
+			result.Summary.Inconclusive++
+		case "":
+		default:
+			result.Summary.Other++
+		}
+	}
+	return result
+}
+
+func campaignExitCode(status string) int {
+	switch status {
+	case "passed":
+		return 0
+	case "failed":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func planMutationCampaign(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation plan <catalogue> --contract <path> --oracle <path> --baseline-evidence <dir> [--subject-policy <path>] [--output <path>]")
+		return 2
+	}
+	flags := flag.NewFlagSet("mutation plan", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	contractPath := flags.String("contract", "", "path to the contract used to validate the catalogue binding")
+	oraclePath := flags.String("oracle", "", "path to a canonical frozen oracle artifact")
+	baselinePath := flags.String("baseline-evidence", "", "passing unmutated evidence bundle used for comparison")
+	subjectPolicyPath := flags.String("subject-policy", "", "optional managed-subject policy used by the baseline")
+	outputPath := flags.String("output", ".artifacts/document-pipeline-mutation-plan.json", "output path for the canonical campaign plan")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 || *contractPath == "" || *oraclePath == "" || *baselinePath == "" {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation plan <catalogue> --contract <path> --oracle <path> --baseline-evidence <dir> [--subject-policy <path>] [--output <path>]")
+		return 2
+	}
+	catalogue, err := mutation.LoadFile(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	catalogueHash, err := campaign.HashFile(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hash mutation catalogue:", err)
+		return 1
+	}
+	contractDocument, err := contract.LoadFile(*contractPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	contractPathAbsolute, err := filepath.Abs(*contractPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "resolve campaign contract path:", err)
+		return 1
+	}
+	sealedContract, err := contract.SealAt(contractDocument, filepath.Dir(contractPathAbsolute))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "seal campaign contract:", err)
+		return 1
+	}
+	oracleArtifact, err := oracle.LoadFile(*oraclePath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	oracleHash, err := oracle.Hash(oracleArtifact)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hash frozen oracle:", err)
+		return 1
+	}
+	if sealedContract.SHA256 != oracleArtifact.Contract.SHA256 {
+		fmt.Fprintf(os.Stderr, "campaign contract hash %q does not match frozen oracle contract hash %q\n", sealedContract.SHA256, oracleArtifact.Contract.SHA256)
+		return 1
+	}
+	contractReference := runner.ContractReference{
+		ID:      oracleArtifact.Contract.ID,
+		Version: oracleArtifact.Contract.Version,
+		SHA256:  oracleArtifact.Contract.SHA256,
+	}
+	oracleReference := &runner.OracleReference{Schema: oracleArtifact.Schema, SHA256: oracleHash}
+	subjectPolicyHash := ""
+	if *subjectPolicyPath != "" {
+		document, err := policy.LoadFile(*subjectPolicyPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		sealed, err := policy.Seal(document)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		subjectPolicyHash = sealed.SHA256
+	}
+	baseline, err := evidence.ValidateBaseline(*baselinePath, evidence.BaselineRequirements{
+		Contract:            contractReference,
+		Oracle:              oracleReference,
+		PolicySHA256:        oracleArtifact.PolicySHA256,
+		SubjectPolicySHA256: subjectPolicyHash,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	plan, err := campaign.Build(campaign.BuildRequest{
+		CataloguePath:       args[0],
+		CatalogueSHA256:     catalogueHash,
+		Catalogue:           catalogue,
+		Contract:            contractDocument,
+		ContractSHA256:      sealedContract.SHA256,
+		Oracle:              oracleArtifact,
+		Baseline:            baseline,
+		SubjectPolicySHA256: subjectPolicyHash,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	planHash, err := campaign.WriteFile(*outputPath, plan)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("plan:", *outputPath)
+	fmt.Println("hash:", planHash)
+	fmt.Println("mutations:", len(plan.Mutations))
+	return 0
+}
+
 func runSubject(args []string) int {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -785,7 +1302,8 @@ func runSubject(args []string) int {
 	mutationID := flags.String("mutation-id", "", "identity of the mutation being evaluated")
 	mutationPlane := flags.String("mutation-plane", "implementation", "mutation plane")
 	mutationDescription := flags.String("mutation-description", "", "description of the mutation")
-	expectedRule := flags.String("expected-rule", "", "rule ID expected to observe the mutation")
+	var expectedRules stringList
+	flags.Var(&expectedRules, "expected-rule", "rule ID expected to observe the mutation; may be repeated")
 	baselineEvidencePath := flags.String("baseline-evidence", "", "passing unmutated evidence bundle required for mutation comparison")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -890,7 +1408,7 @@ func runSubject(args []string) int {
 	var mutationSpec *mutation.Spec
 	var baselineReference *runner.BaselineReference
 	if *mutationID != "" {
-		if *expectedRule == "" {
+		if len(expectedRules) == 0 {
 			fmt.Fprintln(os.Stderr, "--expected-rule is required when --mutation-id is provided")
 			return 2
 		}
@@ -906,7 +1424,7 @@ func runSubject(args []string) int {
 			ID:              *mutationID,
 			Plane:           *mutationPlane,
 			Description:     *mutationDescription,
-			ExpectedRuleIDs: []string{*expectedRule},
+			ExpectedRuleIDs: append([]string(nil), expectedRules...),
 		}
 		baseline, baselineErr := evidence.ValidateBaseline(*baselineEvidencePath, evidence.BaselineRequirements{
 			Contract:            expectedContract,
@@ -1163,6 +1681,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sorna sandbox exec --policy <path> [--root <dir>] -- <command> [args...]")
 	fmt.Fprintln(os.Stderr, "  sorna oracle freeze --contract <path> --policy <path> [--root <dir>] [--output-dir <dir>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation validate <catalogue> [--contract <path>]")
+	fmt.Fprintln(os.Stderr, "  sorna mutation plan <catalogue> --contract <path> --oracle <path> --baseline-evidence <dir> [--subject-policy <path>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  sorna mutation provider validate <path>")
+	fmt.Fprintln(os.Stderr, "  sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation list <catalogue>")
 	fmt.Fprintln(os.Stderr, "  sorna evidence verify <directory>")
 	fmt.Fprintln(os.Stderr, "  sorna gate [--minimum-observation-coverage <state>] [--format text|json|ci-result] <evidence-directory>")

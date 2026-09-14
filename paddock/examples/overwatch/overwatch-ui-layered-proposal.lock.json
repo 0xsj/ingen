@@ -1,0 +1,234 @@
+{
+  "schema": "paddock.policy-lock/v1",
+  "policy_path": "paddock/examples/overwatch/overwatch-ui-layered-proposal.yaml",
+  "source_sha256": "accad48224ec33a503e71567cc915c701ea050d84f5be5688133548b46fd9dbd",
+  "canonical_sha256": "982fd57d408233d5fbe41145165f38e9fd7045e762b90d3f0cd76f776fbe9b7f",
+  "policy": {
+    "schema": "paddock.architecture/v1",
+    "project": "overwatch-ui-layered-proposal",
+    "source": {
+      "language": "typescript",
+      "roots": [
+        "app",
+        "components",
+        "instrumentation.ts",
+        "lib",
+        "next-env.d.ts",
+        "next.config.ts",
+        "styles",
+        "tests"
+      ],
+      "unit": "file"
+    },
+    "components": {
+      "app-(app)": {
+        "match": [
+          "app/(app)/**"
+        ],
+        "labels": {
+          "layer": "4",
+          "role": "composition"
+        }
+      },
+      "app-(auth)": {
+        "match": [
+          "app/(auth)/**"
+        ],
+        "labels": {
+          "layer": "4",
+          "role": "composition"
+        }
+      },
+      "app-(dev)": {
+        "match": [
+          "app/(dev)/**"
+        ],
+        "labels": {
+          "layer": "4",
+          "role": "composition"
+        }
+      },
+      "app-(marketing)": {
+        "match": [
+          "app/(marketing)/**"
+        ],
+        "labels": {
+          "layer": "4",
+          "role": "composition"
+        }
+      },
+      "app-layout": {
+        "match": [
+          "app/layout.tsx"
+        ],
+        "labels": {
+          "layer": "4",
+          "role": "composition"
+        }
+      },
+      "components": {
+        "match": [
+          "components/**"
+        ],
+        "labels": {
+          "layer": "3",
+          "role": "presentation"
+        }
+      },
+      "lib-http": {
+        "match": [
+          "lib/http/**"
+        ],
+        "labels": {
+          "layer": "0",
+          "role": "infrastructure"
+        }
+      },
+      "lib-kernel": {
+        "match": [
+          "lib/kernel/**"
+        ],
+        "labels": {
+          "layer": "0",
+          "role": "shared"
+        }
+      },
+      "lib-query": {
+        "match": [
+          "lib/query/**"
+        ],
+        "labels": {
+          "layer": "2",
+          "role": "runtime"
+        }
+      },
+      "lib-root": {
+        "match": [
+          "lib/root/**"
+        ],
+        "labels": {
+          "layer": "2",
+          "role": "composition-support"
+        }
+      },
+      "lib-runtime": {
+        "match": [
+          "lib/runtime/**"
+        ],
+        "labels": {
+          "layer": "2",
+          "role": "runtime"
+        }
+      },
+      "lib-services": {
+        "match": [
+          "lib/services/**"
+        ],
+        "labels": {
+          "layer": "1",
+          "role": "application"
+        }
+      },
+      "root": {
+        "match": [
+          "*"
+        ],
+        "labels": {
+          "role": "unclassified"
+        }
+      },
+      "styles": {
+        "match": [
+          "styles/**"
+        ],
+        "labels": {
+          "layer": "3",
+          "role": "presentation"
+        }
+      },
+      "tests": {
+        "match": [
+          "tests/**"
+        ],
+        "labels": {
+          "layer": "4",
+          "role": "verification"
+        }
+      }
+    },
+    "rules": [
+      {
+        "id": "complete-classification",
+        "kind": "coverage",
+        "severity": "warning",
+        "from": null,
+        "to": null,
+        "allow": null,
+        "deny": null,
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "Every source unit should have one reviewed component."
+      },
+      {
+        "id": "layers-point-inward",
+        "kind": "layer-direction",
+        "severity": "error",
+        "from": null,
+        "to": null,
+        "allow": null,
+        "deny": null,
+        "allow_to": null,
+        "transitive": false,
+        "direction": "toward-lower-layer",
+        "context_label": "",
+        "message": "UI dependencies should point toward lower layers."
+      },
+      {
+        "id": "no-unresolved-imports",
+        "kind": "unresolved",
+        "severity": "warning",
+        "from": null,
+        "to": null,
+        "allow": null,
+        "deny": null,
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "Relative and configured alias imports should resolve."
+      },
+      {
+        "id": "services-do-not-import-ui",
+        "kind": "deny-dependencies",
+        "severity": "error",
+        "from": [
+          {
+            "role": "application"
+          }
+        ],
+        "to": null,
+        "allow": null,
+        "deny": [
+          {
+            "labels": {
+              "role": "presentation"
+            }
+          },
+          {
+            "labels": {
+              "role": "composition"
+            }
+          }
+        ],
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "Service modules must not depend on route composition or presentation components."
+      }
+    ],
+    "waivers": []
+  }
+}

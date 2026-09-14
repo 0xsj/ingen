@@ -9,7 +9,8 @@ according to the specification.
 [`logging-v1.json`](logging-v1.json) covers the default structured-log field
 projection, and [`tracing-v1.json`](tracing-v1.json) covers the matching
 framework-neutral tracing attribute projection. [`storage-v1.json`](storage-v1.json)
-covers idempotent writes, conflict detection, and missing-record behavior.
+covers idempotent writes, conflict detection, missing-record behavior, logical
+work history, immediate causation lookup, and correlation history.
 
 Conformance runners SHOULD:
 

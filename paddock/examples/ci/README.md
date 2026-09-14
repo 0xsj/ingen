@@ -16,6 +16,20 @@ export PADDOCK_DIFF=paddock-policy-diff.json
 sh paddock/examples/ci/paddock-gate.sh review
 ```
 
+For a proposal with fixture expectations, use the durable review artifact:
+
+```sh
+export PADDOCK_CASES=paddock-policy-tests.yaml
+export PADDOCK_REVIEW=paddock-policy-review.json
+
+sh paddock/examples/ci/paddock-gate.sh review
+```
+
+This runs `paddock policy review`, verifies the saved artifact, and preserves
+its exit code (`0` for passing tests, `1` for an expected-outcome mismatch).
+Without `PADDOCK_CASES`, `review` retains the lightweight policy-diff behavior
+and writes `PADDOCK_DIFF`.
+
 After human approval, seal the approved policy and commit the lock artifact:
 
 ```sh

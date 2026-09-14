@@ -1,0 +1,9 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: current-backend-review
+    root: ../../../../overwatch/overwatch-backend
+    expect: fail
+    require_rules:
+      - application-not-infrastructure
+      - domain-is-pure
+      - layers-point-inward

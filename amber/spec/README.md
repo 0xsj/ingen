@@ -13,6 +13,8 @@ will build on top of it.
 ## Documents
 
 - [`v1.md`](v1.md) — core concepts, invariants, transitions, and JSON shape
+- [`trust-v1.md`](trust-v1.md) — structural validity, trust validation, and the
+  unsigned-by-default boundary
 
 ## Design rule
 

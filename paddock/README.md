@@ -123,6 +123,12 @@ go run ./paddock/cmd/paddock explain paddock-ci-result.json \
 go run ./paddock/cmd/paddock policy test \
   --policy paddock/examples/hexagonal.yaml \
   --cases paddock/examples/hexagonal.policy-tests.yaml
+
+go run ./paddock/cmd/paddock policy review \
+  --before paddock/examples/hexagonal.yaml \
+  --after proposed-paddock.yaml \
+  --cases paddock/examples/hexagonal.policy-tests.yaml \
+  --output paddock-policy-review.json
 ```
 
 Use `--format json` for machine-readable findings. A violating subject exits
@@ -168,13 +174,25 @@ for those languages.
 semantics. Its `paddock.policy-diff/v1` JSON output includes raw and canonical
 input hashes plus stable changes to source settings, components, rules, and waivers. It is the
 review boundary for agent-proposed policy edits; it does not apply or approve
-the proposal.
+the proposal. Add `--cases <manifest.yaml>` to evaluate the proposed `--after`
+policy against a `paddock.policy-tests/v1` manifest. The test results are
+embedded in the diff, and a mismatched case exits `1`.
 
 `policy test` runs a policy against a versioned case manifest using the same
 checker as `check` and `ci`. The `paddock.policy-tests/v1` manifest accepts
 expected `pass`, `fail`, or `error` outcomes. A case mismatch exits `1`; an
 invalid policy or manifest exits `2`. Use `--format json` for an agent-facing
-`paddock.policy-test-result/v1` document.
+`paddock.policy-test-result/v1` document. External-language cases can pass the
+same `--adapter` and repeated `--adapter-arg` options as `check`.
+Cases can also use `require_rules` to assert that a failure is attributed to
+specific rule IDs rather than merely observing any failure.
+
+`policy review` writes a durable `paddock.policy-review/v1` JSON artifact that
+bundles the before/after policy diff and the proposed policy's test results.
+The artifact is suitable for pull-request or agent evidence; a failed case
+returns exit code `1`. Validate a saved artifact with
+`paddock policy review verify --input paddock-policy-review.json`; add `--files`
+to verify the recorded policy and manifest hashes against the current files.
 
 `policy seal` writes a `paddock.policy-lock/v1` artifact containing the exact
 policy-file SHA-256, canonical semantic SHA-256, and canonical policy payload.

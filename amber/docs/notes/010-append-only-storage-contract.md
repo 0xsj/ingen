@@ -14,8 +14,14 @@ or adding durability-specific dependencies.
 The storage contract keys immutable provenance by `execution_id`. `Put` validates
 the value, stores a new record, treats the exact same serialized value as an
 idempotent write, and returns a conflict for a different value with the same
-key. `Get` returns the stored value or a not-found result. Go accepts a context
-for cancellation; TypeScript exposes the same operations asynchronously.
+key. `Get` returns the stored value or a not-found result. `ListByWorkID` in Go
+and `listByWorkId` in TypeScript return all stored executions for a logical work
+in deterministic `depth`, `attempt`, and `execution_id` order. Go accepts a
+context for cancellation; TypeScript exposes the same operations
+asynchronously.
+
+`ListByCausation` in Go and `listByCausation` in TypeScript provide the
+corresponding immediate-cause lookup by causation kind and ID.
 
 The current `MemoryStore` implementations are concurrency-safe/process-local
 references, not durable databases.
@@ -35,14 +41,16 @@ Put(E1, value A) -> stored
 Put(E1, value A) -> idempotent success
 Put(E1, value B) -> conflict; value A remains readable
 Get(E2)          -> not found
+ListByWorkID(W1) -> [E1, E2, ...] in deterministic history order
+ListByCausation(execution, E1) -> direct children/retries
 ```
 
 ## Gotchas
 
 - A memory store proves adapter semantics, not crash recovery, transactions,
   replication, or durable ordering.
-- The key is `execution_id`; work-level history queries and causal ordering are
-  separate capabilities that have not been added yet.
+- The key remains `execution_id`; work-level history is a scan/query over those
+  records and does not yet provide a causal graph index.
 - Equality uses the canonical serialized provenance value, so wire-shape
   changes are storage-visible changes.
 - A delivery retry is not automatically an Amber `Retry` transition; callers

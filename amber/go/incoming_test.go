@@ -3,6 +3,7 @@ package amber
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -56,5 +57,49 @@ func TestWithIncomingJSONDoesNotOverwriteOnAbsentInput(t *testing.T) {
 	current, ok := ProvenanceFromContext(unchanged)
 	if !ok || current.ExecutionID() != root.ExecutionID() {
 		t.Fatal("existing context was overwritten or lost")
+	}
+}
+
+func TestIncomingValidatorRunsBeforeContextInstallation(t *testing.T) {
+	trusted, err := Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	untrusted, err := Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedData, err := json.Marshal(trusted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untrustedData, err := json.Marshal(untrusted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator := func(provenance Provenance) error {
+		if provenance.ExecutionID() != trusted.ExecutionID() {
+			return fmt.Errorf("execution is not trusted")
+		}
+		return nil
+	}
+
+	accepted, present, err := InspectIncomingJSONWithValidator(trustedData, IncomingReject, validator)
+	if err != nil || !present || accepted.ExecutionID() != trusted.ExecutionID() {
+		t.Fatalf("trusted value was rejected: present=%v err=%v", present, err)
+	}
+	if _, present, err := InspectIncomingJSONWithValidator(untrustedData, IncomingIgnore, validator); err != nil || present {
+		t.Fatalf("ignored untrusted value should be absent: present=%v err=%v", present, err)
+	}
+	if _, present, err := InspectIncomingJSONWithValidator(untrustedData, IncomingReject, validator); err == nil || present {
+		t.Fatalf("rejected untrusted value should return an error: present=%v err=%v", present, err)
+	}
+	ctx, present, err := WithIncomingJSONWithValidator(context.Background(), trustedData, IncomingReject, validator)
+	if err != nil || !present {
+		t.Fatalf("trusted value was not installed: present=%v err=%v", present, err)
+	}
+	current, ok := ProvenanceFromContext(ctx)
+	if !ok || current.ExecutionID() != trusted.ExecutionID() {
+		t.Fatal("validated value was not installed in context")
 	}
 }

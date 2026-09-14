@@ -27,13 +27,22 @@ SANDBOX_ROOT ?= .
 SANDBOX_PROBE_PATH ?= examples/document-pipeline-lab/contract/contract.yaml
 ORACLE_OUTPUT_DIR ?= .artifacts/document-pipeline-oracle
 MUTATION_CATALOGUE ?= examples/document-pipeline-lab/mutations/catalogue.yaml
+MUTATION_PLAN_OUTPUT ?= .artifacts/document-pipeline-mutation-plan.json
+MUTATION_PROVIDER ?= examples/document-pipeline-lab/mutations/provider.yaml
+MUTATION_CAMPAIGN_OUTPUT_DIR ?= .artifacts/document-pipeline-campaign
+MUTATION_CAMPAIGN_RESULT_OUTPUT ?= $(MUTATION_CAMPAIGN_OUTPUT_DIR)/campaign-result.json
+MUTATION_GO_PROVIDER_OUTPUT_DIR ?= .artifacts/document-pipeline-go-provider
+MUTATION_GO_PROVIDER_BINARY_DIR ?= .artifacts/document-pipeline-subject/go-mutations
+MUTATION_GO_PROVIDER ?= $(MUTATION_GO_PROVIDER_OUTPUT_DIR)/provider.yaml
+MUTATION_GO_CAMPAIGN_OUTPUT_DIR ?= .artifacts/document-pipeline-go-campaign
+MUTATION_GO_CAMPAIGN_RESULT_OUTPUT ?= $(MUTATION_GO_CAMPAIGN_OUTPUT_DIR)/campaign-result.json
 
 .DEFAULT_GOAL := help
 
 .PHONY: help build test test-race vet check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
 	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate sorna-oracle-freeze \
-	subject-defect-run sorna-defect-run mutation-catalogue-validate sandbox-contract-read
+	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-campaign-run mutation-campaign-verify mutation-go-provider-build mutation-go-campaign-run mutation-go-campaign-verify sandbox-contract-read
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -110,6 +119,29 @@ oracle-evidence-verify: ## Verify the frozen oracle evidence bundle
 
 mutation-catalogue-validate: ## Validate the document-pipeline mutation catalogue
 	$(GO_CMD) run ./sorna/cmd/sorna mutation validate "$(MUTATION_CATALOGUE)" --contract "$(CONTRACT)"
+
+mutation-plan: sorna-run mutation-catalogue-validate ## Build a ready mutation campaign plan from the frozen oracle and clean baseline
+	mkdir -p "$(dir $(MUTATION_PLAN_OUTPUT))"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation plan "$(MUTATION_CATALOGUE)" --contract "$(CONTRACT)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --baseline-evidence "$(RUN_OUTPUT_DIR)" --subject-policy "$(SUBJECT_POLICY)" --output "$(MUTATION_PLAN_OUTPUT)"
+
+mutation-provider-validate: ## Validate the document-pipeline mutation provider manifest
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider validate "$(MUTATION_PROVIDER)"
+
+mutation-campaign-run: mutation-plan defect-build mutation-provider-validate ## Execute every planned document-pipeline mutation in an isolated fresh subject
+	$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_PROVIDER)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --base-address "$(DEFECT_ADDR)" --output-dir "$(MUTATION_CAMPAIGN_OUTPUT_DIR)" --output "$(MUTATION_CAMPAIGN_RESULT_OUTPUT)"
+
+mutation-campaign-verify: ## Verify campaign entries against their recorded evidence hashes
+	$(GO_CMD) run ./sorna/cmd/sorna mutation verify "$(MUTATION_CAMPAIGN_RESULT_OUTPUT)"
+
+mutation-go-provider-build: mutation-plan ## Copy, mutate, and build Go variants from the reviewed campaign plan
+	$(GO_CMD) run ./sorna/cmd/sorna-go-provider --plan "$(MUTATION_PLAN_OUTPUT)" --source-root . --output-dir "$(MUTATION_GO_PROVIDER_OUTPUT_DIR)" --binary-dir "$(MUTATION_GO_PROVIDER_BINARY_DIR)" --provider "$(MUTATION_GO_PROVIDER)"
+
+mutation-go-campaign-run: mutation-go-provider-build ## Execute the campaign using the source-level Go provider
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider validate "$(MUTATION_GO_PROVIDER)"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_GO_PROVIDER)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --base-address "$(DEFECT_ADDR)" --output-dir "$(MUTATION_GO_CAMPAIGN_OUTPUT_DIR)" --output "$(MUTATION_GO_CAMPAIGN_RESULT_OUTPUT)"
+
+mutation-go-campaign-verify: ## Verify the source-level Go campaign result and evidence bindings
+	$(GO_CMD) run ./sorna/cmd/sorna mutation verify "$(MUTATION_GO_CAMPAIGN_RESULT_OUTPUT)"
 
 subject-defect-run: ## Run the status-200-create defect subject on DEFECT_ADDR
 	$(GO_CMD) run ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect -addr "$(DEFECT_ADDR)"

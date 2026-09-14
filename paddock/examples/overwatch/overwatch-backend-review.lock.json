@@ -1,0 +1,308 @@
+{
+  "schema": "paddock.policy-lock/v1",
+  "policy_path": "paddock/examples/overwatch/overwatch-backend-review.yaml",
+  "source_sha256": "0349489f266851bbd53c440d3c1af24e66e7e90693f49e35e10bfc9f90a83f46",
+  "canonical_sha256": "7ffdc86634b373bcf312b624c5c88d6cc4afb6068f86d6fb613ad3791d39b41b",
+  "policy": {
+    "schema": "paddock.architecture/v1",
+    "project": "overwatch-backend-review",
+    "source": {
+      "language": "go",
+      "roots": [
+        "cmd",
+        "internal",
+        "pkg",
+        "root"
+      ],
+      "unit": "package"
+    },
+    "components": {
+      "adapter": {
+        "match": [
+          "internal/{context}/transport/**"
+        ],
+        "labels": {
+          "context": "{context}",
+          "layer": "3",
+          "role": "adapter"
+        }
+      },
+      "application": {
+        "match": [
+          "internal/{context}/app/**"
+        ],
+        "labels": {
+          "context": "{context}",
+          "layer": "1",
+          "role": "application"
+        }
+      },
+      "command": {
+        "match": [
+          "cmd/**"
+        ],
+        "labels": {
+          "role": "composition"
+        }
+      },
+      "context-root": {
+        "match": [
+          "internal/{context}"
+        ],
+        "labels": {
+          "context": "{context}",
+          "role": "context-root"
+        }
+      },
+      "domain": {
+        "match": [
+          "internal/{context}/domain/**"
+        ],
+        "labels": {
+          "context": "{context}",
+          "layer": "0",
+          "role": "domain"
+        }
+      },
+      "infrastructure": {
+        "match": [
+          "internal/{context}/infra/**"
+        ],
+        "labels": {
+          "context": "{context}",
+          "layer": "2",
+          "role": "infrastructure"
+        }
+      },
+      "root": {
+        "match": [
+          "root/**"
+        ],
+        "labels": {
+          "role": "composition-root"
+        }
+      },
+      "shared": {
+        "match": [
+          "pkg/{package}/**"
+        ],
+        "labels": {
+          "layer": "0",
+          "package": "{package}",
+          "role": "shared"
+        }
+      }
+    },
+    "rules": [
+      {
+        "id": "application-not-infrastructure",
+        "kind": "deny-dependencies",
+        "severity": "error",
+        "from": [
+          {
+            "role": "application"
+          }
+        ],
+        "to": null,
+        "allow": null,
+        "deny": [
+          {
+            "labels": {
+              "role": "infrastructure"
+            }
+          },
+          {
+            "labels": {
+              "role": "adapter"
+            }
+          }
+        ],
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "application code must not reach into infrastructure or transport"
+      },
+      {
+        "id": "complete-classification",
+        "kind": "coverage",
+        "severity": "warning",
+        "from": null,
+        "to": null,
+        "allow": null,
+        "deny": null,
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "every source package must have one reviewed component"
+      },
+      {
+        "id": "contexts-are-islands",
+        "kind": "no-cross-context",
+        "severity": "error",
+        "from": null,
+        "to": null,
+        "allow": null,
+        "deny": null,
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "a bounded context must not import another bounded context"
+      },
+      {
+        "id": "domain-is-pure",
+        "kind": "allow-dependencies",
+        "severity": "error",
+        "from": [
+          {
+            "role": "domain"
+          }
+        ],
+        "to": null,
+        "allow": [
+          {
+            "kind": "standard-library",
+            "value": "approved"
+          },
+          {
+            "labels": {
+              "package": "errors",
+              "role": "shared"
+            }
+          },
+          {
+            "labels": {
+              "context": "same",
+              "role": "domain"
+            }
+          }
+        ],
+        "deny": null,
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "domain code may use the standard library and pkg/errors only"
+      },
+      {
+        "id": "layers-point-inward",
+        "kind": "layer-direction",
+        "severity": "error",
+        "from": null,
+        "to": null,
+        "allow": null,
+        "deny": null,
+        "allow_to": null,
+        "transitive": false,
+        "direction": "toward-lower-layer",
+        "context_label": "",
+        "message": "dependencies should point toward lower layers"
+      },
+      {
+        "id": "no-cycles",
+        "kind": "no-cycles",
+        "severity": "error",
+        "from": null,
+        "to": null,
+        "allow": null,
+        "deny": null,
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "the backend dependency graph must remain acyclic"
+      },
+      {
+        "id": "root-is-a-leaf",
+        "kind": "deny-dependencies",
+        "severity": "error",
+        "from": [
+          {
+            "role": "context-root"
+          },
+          {
+            "role": "domain"
+          },
+          {
+            "role": "application"
+          },
+          {
+            "role": "infrastructure"
+          },
+          {
+            "role": "adapter"
+          },
+          {
+            "role": "shared"
+          }
+        ],
+        "to": null,
+        "allow": null,
+        "deny": [
+          {
+            "labels": {
+              "role": "composition-root"
+            }
+          }
+        ],
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "only the composition layer may import the composition root"
+      },
+      {
+        "id": "shared-is-context-free",
+        "kind": "deny-dependencies",
+        "severity": "error",
+        "from": [
+          {
+            "role": "shared"
+          }
+        ],
+        "to": null,
+        "allow": null,
+        "deny": [
+          {
+            "labels": {
+              "role": "context-root"
+            }
+          },
+          {
+            "labels": {
+              "role": "domain"
+            }
+          },
+          {
+            "labels": {
+              "role": "application"
+            }
+          },
+          {
+            "labels": {
+              "role": "infrastructure"
+            }
+          },
+          {
+            "labels": {
+              "role": "adapter"
+            }
+          },
+          {
+            "labels": {
+              "role": "composition-root"
+            }
+          }
+        ],
+        "allow_to": null,
+        "transitive": false,
+        "direction": "",
+        "context_label": "",
+        "message": "shared code must not depend on application-specific code"
+      }
+    ],
+    "waivers": []
+  }
+}

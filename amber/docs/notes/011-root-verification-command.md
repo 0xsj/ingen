@@ -12,10 +12,11 @@ verify the whole implementation.
 
 ## What
 
-The root `Makefile` provides `make test` and `make check`. The test target runs
-`go test ./...` inside `go/` and `npm test` inside `typescript/`, which includes
-the core, context, HTTP, messaging, logging, tracing, storage, and shared
-conformance checks.
+The root `Makefile` provides `make test`, `make lint`, and `make check`. The
+test target runs `go test ./...` inside `go/` and `npm test` inside
+`typescript/`, which includes the core, context, HTTP, messaging, logging,
+tracing, storage, and shared conformance checks. The lint target runs `go vet
+./...` and `npm run typecheck`; check combines both.
 
 ## Why
 
@@ -28,13 +29,16 @@ without hiding the package-local commands used for focused work.
 
 ```sh
 make test    # full Go + TypeScript + conformance verification
-make check   # alias for the full verification target
+make lint    # static checks without running the test suites
+make check   # static checks plus the full test suite
 ```
 
 ## Gotchas
 
 - `make test` expects the TypeScript dependencies to have been installed with
   `npm install` or `npm ci`.
+- `make lint-typescript` also expects the TypeScript dependencies to be
+  installed.
 - The Go suite uses the module under `go/`; the root is not itself a Go module.
 - A passing root test establishes compatibility with the current fixtures; it
   does not prove transport security, storage durability, or application-level

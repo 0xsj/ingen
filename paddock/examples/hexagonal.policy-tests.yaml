@@ -6,3 +6,5 @@ cases:
   - name: violating-service
     root: services/hexagonal-go/violating
     expect: fail
+    require_rules:
+      - domain-is-pure

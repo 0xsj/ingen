@@ -34,7 +34,7 @@ func TestRunRecordsExpectedFixtureOutcomes(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "tests.yaml")
 	contents := "schema: paddock.policy-tests/v1\ncases:\n" +
 		"  - name: good\n    root: " + goodRoot + "\n    expect: pass\n" +
-		"  - name: violating\n    root: " + violatingRoot + "\n    expect: fail\n"
+		"  - name: violating\n    root: " + violatingRoot + "\n    expect: fail\n    require_rules: [domain-is-pure]\n"
 	if err := os.WriteFile(manifestPath, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -52,5 +52,8 @@ func TestRunRecordsExpectedFixtureOutcomes(t *testing.T) {
 	}
 	if document.Cases[0].Actual != "pass" || document.Cases[1].Actual != "fail" {
 		t.Fatalf("unexpected case outcomes: %#v", document.Cases)
+	}
+	if len(document.Cases[1].MissingRules) != 0 {
+		t.Fatalf("required rule was not found: %#v", document.Cases[1])
 	}
 }

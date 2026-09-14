@@ -3,6 +3,7 @@ package ambermessaging
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -54,6 +55,121 @@ func TestMetadataPoliciesAndAbsentValues(t *testing.T) {
 	}
 	if _, present, err := DecodeMetadata(Metadata{ProvenanceKey: strings.Repeat("A", ambertransport.MaxEncodedValueBytes+1)}, amber.IncomingIgnore); err != nil || present {
 		t.Fatalf("oversized ignored metadata should be absent: present=%v err=%v", present, err)
+	}
+}
+
+func TestMessageMiddlewareInstallsContextAndPropagatesMetadata(t *testing.T) {
+	root, err := amber.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := WithOutgoingMetadata(Metadata{"request-id": "request-1"}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	handler := Middleware[string](func(ctx context.Context, message Message[string]) (Message[string], error) {
+		called = true
+		current, ok := amber.ProvenanceFromContext(ctx)
+		if !ok || current.ExecutionID() != root.ExecutionID() {
+			t.Fatal("message middleware did not install incoming provenance")
+		}
+		if message.Metadata["request-id"] != "request-1" {
+			t.Fatal("message middleware changed incoming metadata")
+		}
+		message.Metadata["consumer-only"] = "yes"
+		return Message[string]{Body: message.Body + "-handled", Metadata: Metadata{"reply": "yes"}}, nil
+	}, amber.IncomingReject)
+
+	input := Message[string]{Body: "input", Metadata: metadata}
+	output, err := handler(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called || output.Body != "input-handled" {
+		t.Fatalf("message middleware did not call consumer correctly: called=%v body=%q", called, output.Body)
+	}
+	if output.Metadata[ProvenanceKey] == "" {
+		t.Fatal("message middleware did not propagate outgoing metadata")
+	}
+	if _, exists := metadata["consumer-only"]; exists {
+		t.Fatal("message middleware exposed the source metadata map to the consumer")
+	}
+}
+
+func TestMessageMiddlewareRejectsBeforeConsumer(t *testing.T) {
+	called := false
+	handler := Middleware[string](func(context.Context, Message[string]) (Message[string], error) {
+		called = true
+		return Message[string]{Body: "unexpected"}, nil
+	}, amber.IncomingReject)
+
+	_, err := handler(context.Background(), Message[string]{Body: "bad", Metadata: Metadata{ProvenanceKey: "bad!"}})
+	if err == nil || called {
+		t.Fatalf("rejected message metadata should stop consumer: called=%v err=%v", called, err)
+	}
+}
+
+func TestMessageMiddlewareIgnoreContinuesWithoutPropagation(t *testing.T) {
+	called := false
+	handler := Middleware[string](func(ctx context.Context, message Message[string]) (Message[string], error) {
+		called = true
+		if _, ok := amber.ProvenanceFromContext(ctx); ok {
+			t.Fatal("ignored metadata was installed in the context")
+		}
+		return message, nil
+	}, amber.IncomingIgnore)
+
+	output, err := handler(context.Background(), Message[string]{Body: "ignored", Metadata: Metadata{ProvenanceKey: "bad!"}})
+	if err != nil || !called || output.Body != "ignored" {
+		t.Fatalf("ignored message metadata did not continue: called=%v body=%q err=%v", called, output.Body, err)
+	}
+	if output.Metadata[ProvenanceKey] != "bad!" {
+		t.Fatal("ignored message metadata should remain unchanged")
+	}
+}
+
+func TestMessagingValidatorRunsBeforeConsumer(t *testing.T) {
+	trusted, err := amber.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	untrusted, err := amber.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedMetadata, err := WithOutgoingMetadata(nil, trusted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untrustedMetadata, err := WithOutgoingMetadata(nil, untrusted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator := func(provenance amber.Provenance) error {
+		if provenance.ExecutionID() != trusted.ExecutionID() {
+			return fmt.Errorf("execution is not trusted")
+		}
+		return nil
+	}
+
+	decoded, present, err := DecodeMetadataWithValidator(trustedMetadata, amber.IncomingReject, validator)
+	if err != nil || !present || decoded.ExecutionID() != trusted.ExecutionID() {
+		t.Fatalf("trusted metadata was rejected: present=%v err=%v", present, err)
+	}
+	if _, present, err := DecodeMetadataWithValidator(untrustedMetadata, amber.IncomingIgnore, validator); err != nil || present {
+		t.Fatalf("ignored untrusted metadata should be absent: present=%v err=%v", present, err)
+	}
+
+	called := false
+	handler := MiddlewareWithValidator[string](func(context.Context, Message[string]) (Message[string], error) {
+		called = true
+		return Message[string]{Body: "unexpected"}, nil
+	}, amber.IncomingReject, validator)
+	_, err = handler(context.Background(), Message[string]{Body: "bad", Metadata: untrustedMetadata})
+	if err == nil || called {
+		t.Fatalf("untrusted metadata reached consumer: called=%v err=%v", called, err)
 	}
 }
 

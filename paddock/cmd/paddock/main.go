@@ -19,6 +19,7 @@ import (
 	paddockpolicy "ingen/paddock/internal/policy"
 	paddockpolicydiff "ingen/paddock/internal/policydiff"
 	paddockpolicylock "ingen/paddock/internal/policylock"
+	paddockpolicyreview "ingen/paddock/internal/policyreview"
 	paddockpolicytest "ingen/paddock/internal/policytest"
 	"ingen/paddock/internal/report"
 	paddockscaffold "ingen/paddock/internal/scaffold"
@@ -625,13 +626,18 @@ func policyCommand(args []string) (int, error) {
 	}
 	switch args[0] {
 	case "diff":
-		return 0, diffPolicies(args[1:])
+		return diffPolicies(args[1:])
 	case "seal":
 		return 0, sealPolicy(args[1:])
 	case "verify":
 		return 0, verifyPolicy(args[1:])
 	case "test":
 		return testPolicy(args[1:])
+	case "review":
+		if len(args) > 1 && args[1] == "verify" {
+			return verifyPolicyReview(args[2:])
+		}
+		return reviewPolicy(args[1:])
 	default:
 		return 0, fmt.Errorf("unsupported policy subcommand %q", args[0])
 	}
@@ -640,6 +646,8 @@ func policyCommand(args []string) (int, error) {
 func testPolicy(args []string) (int, error) {
 	policyPath := ""
 	casesPath := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
 	format := "text"
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
@@ -656,6 +664,18 @@ func testPolicy(args []string) (int, error) {
 			}
 			index++
 			casesPath = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an executable path", arg)
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an argument", arg)
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
 		case "--format", "-f":
 			if index+1 >= len(args) {
 				return 0, fmt.Errorf("%s requires text or json", arg)
@@ -673,7 +693,10 @@ func testPolicy(args []string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	document, err := paddockpolicytest.Run(casesPath, policyPath, config)
+	document, err := paddockpolicytest.RunWithOptions(casesPath, policyPath, config, paddockpolicytest.Options{
+		AdapterExecutable: adapterExecutable,
+		AdapterArgs:       adapterArgs,
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -694,75 +717,287 @@ func testPolicy(args []string) (int, error) {
 	return 0, nil
 }
 
-func diffPolicies(args []string) error {
+func diffPolicies(args []string) (int, error) {
 	beforePath := ""
 	afterPath := ""
+	casesPath := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
 	format := "text"
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		switch arg {
 		case "--before", "-b":
 			if index+1 >= len(args) {
-				return fmt.Errorf("%s requires a policy path", arg)
+				return 0, fmt.Errorf("%s requires a policy path", arg)
 			}
 			index++
 			beforePath = args[index]
 		case "--after", "-a":
 			if index+1 >= len(args) {
-				return fmt.Errorf("%s requires a policy path", arg)
+				return 0, fmt.Errorf("%s requires a policy path", arg)
 			}
 			index++
 			afterPath = args[index]
+		case "--cases", "-c":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a test manifest path", arg)
+			}
+			index++
+			casesPath = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an executable path", arg)
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an argument", arg)
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
 		case "--format", "-f":
 			if index+1 >= len(args) {
-				return fmt.Errorf("%s requires text or json", arg)
+				return 0, fmt.Errorf("%s requires text or json", arg)
 			}
 			index++
 			format = args[index]
 		default:
-			return fmt.Errorf("unknown option %q", arg)
+			return 0, fmt.Errorf("unknown option %q", arg)
 		}
 	}
 	if beforePath == "" || afterPath == "" {
-		return fmt.Errorf("policy diff requires --before <policy.yaml> and --after <policy.yaml>")
+		return 0, fmt.Errorf("policy diff requires --before <policy.yaml> and --after <policy.yaml>")
+	}
+	if (adapterExecutable != "" || len(adapterArgs) > 0) && casesPath == "" {
+		return 0, fmt.Errorf("policy diff adapter options require --cases <manifest.yaml>")
 	}
 	before, err := paddockpolicy.Load(beforePath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	after, err := paddockpolicy.Load(afterPath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	beforeRef, err := paddockartifact.File(beforePath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	afterRef, err := paddockartifact.File(afterPath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	beforeCanonicalHash, err := paddockpolicy.CanonicalSHA256(before)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	afterCanonicalHash, err := paddockpolicy.CanonicalSHA256(after)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	document := paddockpolicydiff.Compare(before, after)
 	document.Before = paddockpolicydiff.Input{Path: beforeRef.Path, SHA256: beforeRef.SHA256, CanonicalSHA256: beforeCanonicalHash}
 	document.After = paddockpolicydiff.Input{Path: afterRef.Path, SHA256: afterRef.SHA256, CanonicalSHA256: afterCanonicalHash}
+	if casesPath != "" {
+		tests, err := paddockpolicytest.RunWithOptions(casesPath, afterPath, after, paddockpolicytest.Options{
+			AdapterExecutable: adapterExecutable,
+			AdapterArgs:       adapterArgs,
+		})
+		if err != nil {
+			return 0, err
+		}
+		document.Tests = &tests
+	}
 	switch format {
 	case "text":
-		return paddockpolicydiff.Text(os.Stdout, document)
+		err = paddockpolicydiff.Text(os.Stdout, document)
 	case "json":
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(document)
+		err = encoder.Encode(document)
 	default:
-		return fmt.Errorf("unsupported format %q; use text or json", format)
+		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
 	}
+	if err != nil {
+		return 0, err
+	}
+	if document.Tests != nil && document.Tests.Status == "FAIL" {
+		return 1, nil
+	}
+	return 0, nil
+}
+
+func reviewPolicy(args []string) (int, error) {
+	beforePath := ""
+	afterPath := ""
+	casesPath := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
+	outputPath := ""
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "--before", "-b":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a policy path", arg)
+			}
+			index++
+			beforePath = args[index]
+		case "--after", "-a":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a policy path", arg)
+			}
+			index++
+			afterPath = args[index]
+		case "--cases", "-c":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a test manifest path", arg)
+			}
+			index++
+			casesPath = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an executable path", arg)
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an argument", arg)
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
+		case "--output", "-o":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an output path", arg)
+			}
+			index++
+			outputPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires text or json", arg)
+			}
+			index++
+			format = args[index]
+		default:
+			return 0, fmt.Errorf("unknown option %q", arg)
+		}
+	}
+	if beforePath == "" || afterPath == "" || casesPath == "" || outputPath == "" {
+		return 0, fmt.Errorf("policy review requires --before <policy.yaml>, --after <policy.yaml>, --cases <manifest.yaml>, and --output <review.json>")
+	}
+	if format != "text" && format != "json" {
+		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+	before, err := paddockpolicy.Load(beforePath)
+	if err != nil {
+		return 0, err
+	}
+	after, err := paddockpolicy.Load(afterPath)
+	if err != nil {
+		return 0, err
+	}
+	beforeRef, err := paddockartifact.File(beforePath)
+	if err != nil {
+		return 0, err
+	}
+	afterRef, err := paddockartifact.File(afterPath)
+	if err != nil {
+		return 0, err
+	}
+	beforeCanonicalHash, err := paddockpolicy.CanonicalSHA256(before)
+	if err != nil {
+		return 0, err
+	}
+	afterCanonicalHash, err := paddockpolicy.CanonicalSHA256(after)
+	if err != nil {
+		return 0, err
+	}
+	diff := paddockpolicydiff.Compare(before, after)
+	diff.Before = paddockpolicydiff.Input{Path: beforeRef.Path, SHA256: beforeRef.SHA256, CanonicalSHA256: beforeCanonicalHash}
+	diff.After = paddockpolicydiff.Input{Path: afterRef.Path, SHA256: afterRef.SHA256, CanonicalSHA256: afterCanonicalHash}
+	tests, err := paddockpolicytest.RunWithOptions(casesPath, afterPath, after, paddockpolicytest.Options{
+		AdapterExecutable: adapterExecutable,
+		AdapterArgs:       adapterArgs,
+	})
+	if err != nil {
+		return 0, err
+	}
+	diff.Tests = &tests
+	document := paddockpolicyreview.New(diff)
+	if err := paddockpolicyreview.Save(outputPath, document); err != nil {
+		return 0, err
+	}
+	switch format {
+	case "text":
+		err = paddockpolicyreview.Text(os.Stdout, document)
+	case "json":
+		err = paddockpolicyreview.JSON(os.Stdout, document)
+	}
+	if err != nil {
+		return 0, err
+	}
+	if _, err := fmt.Fprintf(os.Stdout, "  output: %s\n", outputPath); err != nil {
+		return 0, err
+	}
+	if document.Status == "FAIL" {
+		return 1, nil
+	}
+	return 0, nil
+}
+
+func verifyPolicyReview(args []string) (int, error) {
+	inputPath := ""
+	format := "text"
+	verifyFiles := false
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "--input", "-i":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a review path", arg)
+			}
+			index++
+			inputPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires text or json", arg)
+			}
+			index++
+			format = args[index]
+		case "--files":
+			verifyFiles = true
+		default:
+			return 0, fmt.Errorf("unknown option %q", arg)
+		}
+	}
+	if inputPath == "" {
+		return 0, fmt.Errorf("policy review verify requires --input <review.json>")
+	}
+	document, err := paddockpolicyreview.Load(inputPath)
+	if err != nil {
+		return 0, err
+	}
+	if verifyFiles {
+		if err := paddockpolicyreview.VerifyFiles(document); err != nil {
+			return 0, err
+		}
+	}
+	switch format {
+	case "text":
+		_, err = fmt.Fprintf(os.Stdout, "VERIFIED %s (%s)\n", inputPath, document.Status)
+	case "json":
+		err = paddockpolicyreview.JSON(os.Stdout, document)
+	default:
+		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+	if err != nil {
+		return 0, err
+	}
+	return 0, nil
 }
 
 func sealPolicy(args []string) error {
@@ -1370,10 +1605,12 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: paddock check <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--baseline <file>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock graph <source-root> [--policy <policy.yaml> | --language <language> | --input <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock init <source-root> [--language <language>] [--unit package|file] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--template <name>] [--output paddock.yaml] [--force]")
-	fmt.Fprintln(os.Stderr, "       paddock policy diff --before <policy.yaml> --after <policy.yaml> [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock policy diff --before <policy.yaml> --after <policy.yaml> [--cases <manifest.yaml>] [--adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock policy review --before <policy.yaml> --after <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...]] --output <review.json> [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock policy review verify --input <review.json> [--files] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy seal --input <policy.yaml> --output <policy.lock.json> [--force]")
 	fmt.Fprintln(os.Stderr, "       paddock policy verify --policy <policy.yaml> --lock <policy.lock.json>")
-	fmt.Fprintln(os.Stderr, "       paddock policy test --policy <policy.yaml> --cases <manifest.yaml> [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock policy test --policy <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock baseline <source-root> --policy <policy.yaml> [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] --output <baseline.json>")
 	fmt.Fprintln(os.Stderr, "       paddock ci <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] --graph-output <graph.json>] [--baseline <file>] --output <ci-result.json>")
 	fmt.Fprintln(os.Stderr, "       paddock explain <paddock-report.json|paddock-ci-result.json> [--format text|json] [--rule <id>] [--status all|active|blocking|advisory|waived|baselined|expired-waiver]")

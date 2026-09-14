@@ -239,4 +239,38 @@ if (!storageConflict) {
 if (await storage.get(storageFixture.missing_execution_id) !== undefined) {
   throw new Error("missing storage fixture value was found");
 }
+const historyStore = new MemoryStore();
+for (const value of storageFixture.history.values) {
+  await historyStore.put(Provenance.fromJSON(value));
+}
+const history = await historyStore.listByWorkId(storageFixture.history.work_id);
+if (history.length !== storageFixture.history.expected_execution_ids.length) {
+  throw new Error("storage history length mismatch");
+}
+for (let index = 0; index < history.length; index += 1) {
+  if (history[index].execution_id !== storageFixture.history.expected_execution_ids[index]) {
+    throw new Error(`storage history order mismatch at ${index}`);
+  }
+}
+const causal = await historyStore.listByCausation(
+  storageFixture.causation.kind,
+  storageFixture.causation.id,
+);
+if (causal.length !== storageFixture.causation.expected_execution_ids.length) {
+  throw new Error("storage causation history length mismatch");
+}
+for (let index = 0; index < causal.length; index += 1) {
+  if (causal[index].execution_id !== storageFixture.causation.expected_execution_ids[index]) {
+    throw new Error(`storage causation order mismatch at ${index}`);
+  }
+}
+const correlated = await historyStore.listByCorrelationId(storageFixture.correlation.id);
+if (correlated.length !== storageFixture.correlation.expected_execution_ids.length) {
+  throw new Error("storage correlation history length mismatch");
+}
+for (let index = 0; index < correlated.length; index += 1) {
+  if (correlated[index].execution_id !== storageFixture.correlation.expected_execution_ids[index]) {
+    throw new Error(`storage correlation order mismatch at ${index}`);
+  }
+}
 console.log("TypeScript storage conformance fixture passed");

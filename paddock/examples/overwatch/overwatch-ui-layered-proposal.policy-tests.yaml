@@ -1,0 +1,13 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: current-ui-layered-proposal
+    root: ../../../../overwatch/overwatch-ui
+    expect: pass
+  - name: ui-boundary-good
+    root: ../services/ui-boundary-ts/good
+    expect: pass
+  - name: ui-boundary-violating
+    root: ../services/ui-boundary-ts/violating
+    expect: fail
+    require_rules:
+      - services-do-not-import-ui

@@ -9,6 +9,9 @@ export const MAX_INCOMING_JSON_BYTES = 16 * 1024;
 
 export type IncomingPolicy = "reject" | "ignore";
 
+/** Apply an application or deployment trust rule after structural decoding. */
+export type IncomingValidator = (provenance: Provenance) => void;
+
 export type IncomingInspection = {
   readonly provenance?: Provenance;
   readonly present: boolean;
@@ -44,7 +47,16 @@ export function inspectIncomingJSON(
   input: string | null | undefined,
   policy: IncomingPolicy,
 ): IncomingInspection {
-  validatePolicy(policy);
+	return inspectIncomingJSONWithValidator(input, policy);
+}
+
+/** Validate incoming JSON and apply an optional trust validator. */
+export function inspectIncomingJSONWithValidator(
+  input: string | null | undefined,
+  policy: IncomingPolicy,
+  validator?: IncomingValidator,
+): IncomingInspection {
+	validatePolicy(policy);
   if (input === undefined || input === null || input.length === 0) {
     return absent();
   }
@@ -56,11 +68,19 @@ export function inspectIncomingJSON(
       policy,
       new Error(`incoming JSON exceeds ${MAX_INCOMING_JSON_BYTES} bytes`),
     );
-  }
-  try {
-    return { provenance: Provenance.fromJSON(input), present: true };
-  } catch (error) {
-    return invalid(policy, error);
+	}
+	try {
+		const provenance = Provenance.fromJSON(input);
+		if (validator !== undefined) {
+			try {
+				validator(provenance);
+			} catch (error) {
+				return invalid(policy, new Error(`incoming validation failed: ${String(error)}`));
+			}
+		}
+		return { provenance, present: true };
+	} catch (error) {
+		return invalid(policy, error);
   }
 }
 
@@ -73,10 +93,20 @@ export function withIncomingJSON(
   input: string | null | undefined,
   policy: IncomingPolicy,
 ): IncomingContextResult {
-  if (!(context instanceof ProvenanceContext)) {
-    throw new AmberTransitionError("context must be a ProvenanceContext instance");
-  }
-  const inspected = inspectIncomingJSON(input, policy);
+	return withIncomingJSONWithValidator(context, input, policy);
+}
+
+/** Install incoming JSON only after an optional trust validator accepts it. */
+export function withIncomingJSONWithValidator(
+  context: ProvenanceContext,
+  input: string | null | undefined,
+  policy: IncomingPolicy,
+  validator?: IncomingValidator,
+): IncomingContextResult {
+	if (!(context instanceof ProvenanceContext)) {
+		throw new AmberTransitionError("context must be a ProvenanceContext instance");
+	}
+	const inspected = inspectIncomingJSONWithValidator(input, policy, validator);
   if (!inspected.present || inspected.provenance === undefined) {
     return { context, present: false };
   }
