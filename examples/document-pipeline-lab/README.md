@@ -29,11 +29,13 @@ GET  /documents/{id}/result
 ```
 
 The current contract is a draft in [`contract/contract.yaml`](contract/contract.yaml).
-The clean Go subject now lives in [`subject/`](subject/). The oracle, defect
-variants, and run artifacts will be added one small step at a time.
+The clean Go subject now lives in [`subject/`](subject/). The oracle is frozen
+through the Sorna sandbox, while defect variants and run artifacts are added
+one small step at a time.
 
-The managed Sorna runner can launch the subject, wait for its readiness
-endpoint, run the contract, and tear the subject down:
+The managed Sorna runner first freezes the oracle, launches the subject, waits
+for its readiness endpoint, runs from the frozen oracle, and tears the subject
+down:
 
 ```sh
 make sorna-run

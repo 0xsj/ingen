@@ -1,0 +1,52 @@
+schema: paddock.architecture/v1
+project: layered-monolith
+
+source:
+  language: go
+  roots: [cmd, internal]
+
+components:
+  domain:
+    match: internal/domain/**
+    labels:
+      role: domain
+      layer: 0
+
+  repository:
+    match: internal/repository/**
+    labels:
+      role: repository
+      layer: 1
+
+  service:
+    match: internal/service/**
+    labels:
+      role: service
+      layer: 2
+
+  transport:
+    match: internal/transport/**
+    labels:
+      role: transport
+      layer: 3
+
+  composition:
+    match: cmd/**
+    labels:
+      role: composition
+      layer: 4
+
+rules:
+  - id: dependencies-point-inward
+    kind: layer-direction
+    direction: toward-lower-layer
+    message: higher layers may depend on lower layers, never the reverse
+
+  - id: no-cycles
+    kind: no-cycles
+    message: layered components must remain acyclic
+
+  - id: complete-classification
+    kind: coverage
+    message: every source unit must belong to a declared layer
+

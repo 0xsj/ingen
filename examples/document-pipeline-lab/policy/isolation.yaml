@@ -1,0 +1,31 @@
+policy:
+  schema: ingen.policy/v1
+  id: document-pipeline-oracle
+  version: 1
+  status: draft
+  purpose: independent-oracle-generation
+  enforcement: declared-only
+
+  filesystem:
+    read:
+      - path: examples/document-pipeline-lab/contract
+        reason: sealed contract and explicitly attached public fixtures
+    write:
+      - path: .artifacts/document-pipeline-oracle
+        reason: frozen oracle output and generation evidence
+    deny:
+      - path: examples/document-pipeline-lab/subject
+        reason: implementation source must not enter oracle generation
+      - path: examples/document-pipeline-lab/defects
+        reason: mutation source must not enter oracle generation
+      - path: .git
+        reason: repository history and metadata are not oracle inputs
+
+  network:
+    mode: disabled
+
+  process:
+    can_invoke_subject: false
+    allowed_tools:
+      - name: go
+        purpose: deterministic Sorna SDK and oracle tooling

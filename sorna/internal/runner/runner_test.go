@@ -16,6 +16,7 @@ import (
 	documentpipeline "ingen/examples/document-pipeline-lab/subject"
 	"ingen/sorna/internal/contract"
 	"ingen/sorna/internal/mutation"
+	"ingen/sorna/internal/oracle"
 )
 
 func TestExecuteDocumentPipelineContractAgainstCleanSubject(t *testing.T) {
@@ -43,6 +44,45 @@ func TestExecuteDocumentPipelineContractAgainstCleanSubject(t *testing.T) {
 	}
 	if record.Verdict.Status != "pass" {
 		t.Fatalf("contract verdict = %+v, want pass", record.Verdict)
+	}
+}
+
+func TestExecuteOracleUsesFrozenCasesAndRecordsOracleLineage(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "examples", "document-pipeline-lab", "contract", "contract.yaml")
+	document, err := contract.LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := contract.Seal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := oracle.Generate(sealed, strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oracleHash, err := oracle.Hash(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := ExecuteOracle(context.Background(), artifact, Config{
+		BaseURL: "http://subject.invalid",
+		Client: &http.Client{Transport: handlerTransport{
+			handler: documentpipeline.NewHandler(documentpipeline.NewStore()),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Summary.Passed != 7 || record.Verdict.Status != "pass" {
+		t.Fatalf("summary = %+v, verdict = %+v; want all frozen cases to pass", record.Summary, record.Verdict)
+	}
+	if record.Oracle == nil || record.Oracle.Schema != oracle.Schema || record.Oracle.SHA256 != oracleHash {
+		t.Fatalf("oracle reference = %+v, want schema %s and hash %s", record.Oracle, oracle.Schema, oracleHash)
+	}
+	if record.Rules[0].CaseID != artifact.Cases[0].CaseID || record.Contract.SHA256 != artifact.Contract.SHA256 {
+		t.Fatalf("record lineage = contract %s, case %s; want contract %s, case %s", record.Contract.SHA256, record.Rules[0].CaseID, artifact.Contract.SHA256, artifact.Cases[0].CaseID)
 	}
 }
 
@@ -210,6 +250,47 @@ func TestExecuteMaterializesRepeatGeneratorAndReportsFailedAssertions(t *testing
 	}
 	if len(record.Rules[0].Assertions) != 2 || record.Rules[0].Assertions[0].Status != "fail" {
 		t.Fatalf("assertions = %+v, want status mismatch and error mismatch", record.Rules[0].Assertions)
+	}
+}
+
+func TestExecuteOracleSendsMaterializedFrozenBody(t *testing.T) {
+	rule := map[string]any{
+		"id":       "document.create.oversize",
+		"strength": "must",
+		"subject":  "POST /documents",
+		"given": map[string]any{
+			"body": map[string]any{
+				"name": "too-large.txt",
+				"content": map[string]any{
+					"generated": map[string]any{"kind": "repeat", "value": "a", "count": int64(4097)},
+				},
+			},
+		},
+		"expect": map[string]any{"status": int64(400)},
+	}
+	sealed := sealForTest(t, []any{rule})
+	artifact, err := oracle.Generate(sealed, strings.Repeat("d", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := artifact.Cases[0].Given["body"].(map[string]any)
+	if body["content"] != strings.Repeat("a", 4097) {
+		t.Fatalf("frozen content = %v, want materialized input", body["content"])
+	}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var requestBody struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if len(requestBody.Content) != 4097 {
+			t.Fatalf("request content length = %d, want 4097", len(requestBody.Content))
+		}
+		return responseFor(r, 400, `{"error":{"code":"wrong_code"}}`), nil
+	})}
+	if _, err := ExecuteOracle(context.Background(), artifact, Config{BaseURL: "http://subject.invalid", Client: client}); err != nil {
+		t.Fatal(err)
 	}
 }
 

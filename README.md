@@ -46,9 +46,10 @@ becomes useful.
 
 The design specifications and initial repository skeleton are in place. Sorna
 now has a first Go contract foundation, a public-boundary runner, managed
-subject lifecycle, and a controlled defect that is detected by the sealed
-contract. The next implementation step is to turn lifecycle evidence into a
-real evidence bundle and then introduce capability enforcement.
+subject lifecycle, a controlled defect detected by the sealed contract, and a
+macOS Seatbelt-backed workflow that freezes an oracle before running a subject.
+The next step is to capture host access events and connect them to the evidence
+assurance level.
 
 See [MODULES.md](MODULES.md) for the repository map and the intended status of
 each area.
@@ -60,12 +61,17 @@ make help
 make check
 make contract-validate
 make contract-seal
+make policy-validate
+make sandbox-contract-read
+make sorna-oracle-freeze
+make oracle-evidence-verify
 make sorna-run
 make evidence-verify
 ```
 
-`make sorna-run` launches the clean subject, waits for `GET /healthz`, runs the
-contract, writes an evidence bundle, and tears the subject down. The
+`make sorna-run` freezes the oracle, launches the clean subject, waits for
+`GET /healthz`, runs from `oracle.json`, writes an evidence bundle, and tears
+the subject down. The
 `make evidence-verify` target checks its recorded artifact hashes. The lower-level
 `make subject-run` plus `make sorna-external-run` targets remain available when
 you need to supply an already-running subject yourself.

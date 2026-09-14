@@ -153,6 +153,25 @@ func TestValidationRequiresSetupForStatefulRule(t *testing.T) {
 	}
 }
 
+func TestMaterializeExpandsNestedRepeatValuesWithoutMutatingInput(t *testing.T) {
+	input := map[string]any{
+		"name": "large.txt",
+		"nested": []any{map[string]any{
+			"generated": map[string]any{"kind": "repeat", "value": "ab", "count": int64(3)},
+		}},
+	}
+	materialized, err := Materialize(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := materialized.(map[string]any)["nested"].([]any)[0]; got != "ababab" {
+		t.Fatalf("materialized generated value = %v, want ababab", got)
+	}
+	if _, ok := input["nested"].([]any)[0].(map[string]any)["generated"].(map[string]any); !ok {
+		t.Fatal("Materialize mutated the input generator")
+	}
+}
+
 func minimalDocument() Document {
 	return Document{Contract: map[string]any{
 		"schema":      "ingen.contract/v1",

@@ -235,6 +235,13 @@ func Seal(document Document) (Sealed, error) {
 	return seal(document, "")
 }
 
+// SealAt seals a contract while resolving relative fixture paths from baseDir.
+// It is useful to an isolated child process that receives a contract path but
+// must not write the ordinary local sealing artifacts.
+func SealAt(document Document, baseDir string) (Sealed, error) {
+	return seal(document, baseDir)
+}
+
 // SealFile loads a draft contract, attaches hashes for local fixtures, and
 // writes canonical.json and hash.txt to outputDir.
 func SealFile(path, outputDir string) (Sealed, error) {
@@ -409,6 +416,55 @@ func validateGeneratedValues(value any, path string, problems *[]string) {
 		for index, child := range value {
 			validateGeneratedValues(child, fmt.Sprintf("%s[%d]", path, index), problems)
 		}
+	}
+}
+
+// Materialize expands the deterministic value generators allowed by the
+// contract. The result is a new tree for maps and slices, so callers can
+// safely use it as an execution input without mutating the sealed contract.
+func Materialize(value any) (any, error) {
+	switch value := value.(type) {
+	case map[string]any:
+		if generated, present := value["generated"]; present {
+			generator, ok := generated.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("generated value must be an object")
+			}
+			kind, _ := generator["kind"].(string)
+			if kind != "repeat" {
+				return nil, fmt.Errorf("unsupported generator kind %q", kind)
+			}
+			text, ok := generator["value"].(string)
+			if !ok {
+				return nil, fmt.Errorf("repeat generator value must be a string")
+			}
+			count, ok := integer(generator["count"])
+			if !ok || count < 1 || count > 1_000_000 {
+				return nil, fmt.Errorf("repeat generator count must be between 1 and 1000000")
+			}
+			return strings.Repeat(text, int(count)), nil
+		}
+		object := make(map[string]any, len(value))
+		for key, child := range value {
+			materialized, err := Materialize(child)
+			if err != nil {
+				return nil, err
+			}
+			object[key] = materialized
+		}
+		return object, nil
+	case []any:
+		sequence := make([]any, len(value))
+		for index, child := range value {
+			materialized, err := Materialize(child)
+			if err != nil {
+				return nil, err
+			}
+			sequence[index] = materialized
+		}
+		return sequence, nil
+	default:
+		return value, nil
 	}
 }
 

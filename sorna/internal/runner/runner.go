@@ -21,6 +21,7 @@ import (
 	"ingen/sorna/internal/contract"
 	"ingen/sorna/internal/lifecycle"
 	"ingen/sorna/internal/mutation"
+	"ingen/sorna/internal/oracle"
 )
 
 // Config controls the public HTTP subject that a run observes.
@@ -42,6 +43,7 @@ type RunRecord struct {
 	CreatedAt time.Time         `json:"created_at"`
 	Assurance Assurance         `json:"assurance"`
 	Contract  ContractReference `json:"contract"`
+	Oracle    *OracleReference  `json:"oracle,omitempty"`
 	Verdict   ContractVerdict   `json:"contract_verdict"`
 	Subject   SubjectReference  `json:"subject"`
 	Lifecycle *lifecycle.Record `json:"lifecycle,omitempty"`
@@ -65,6 +67,14 @@ type ContractReference struct {
 	ID      string `json:"id"`
 	Version int64  `json:"version"`
 	SHA256  string `json:"sha256"`
+}
+
+// OracleReference binds a run to the exact canonical frozen oracle it
+// consumed. The artifact itself is kept in the separate oracle evidence
+// bundle, while this reference preserves the lineage in the subject run.
+type OracleReference struct {
+	Schema string `json:"schema"`
+	SHA256 string `json:"sha256"`
 }
 
 type SubjectReference struct {
@@ -128,6 +138,90 @@ type Assertion struct {
 // declare public setup requests and captures in their given.setup sequence;
 // the setup is recorded alongside the target observation.
 func Execute(ctx context.Context, sealed contract.Sealed, config Config) (RunRecord, error) {
+	cases, err := casesFromContract(sealed)
+	if err != nil {
+		return RunRecord{}, err
+	}
+	contractID, _ := sealed.Document.Contract["id"].(string)
+	version, _ := integer(sealed.Document.Contract["version"])
+	return executeCases(ctx, ContractReference{
+		ID:      contractID,
+		Version: version,
+		SHA256:  sealed.SHA256,
+	}, cases, config, nil)
+}
+
+// ExecuteOracle evaluates a previously frozen oracle against a subject URL.
+// It deliberately accepts the oracle artifact rather than a contract.Sealed so
+// the verified execution path cannot silently reopen contract source.
+func ExecuteOracle(ctx context.Context, artifact oracle.Artifact, config Config) (RunRecord, error) {
+	if problems := oracle.Validate(artifact); len(problems) > 0 {
+		return RunRecord{}, fmt.Errorf("invalid oracle: %s", strings.Join(problems, "; "))
+	}
+	oracleHash, err := oracle.Hash(artifact)
+	if err != nil {
+		return RunRecord{}, err
+	}
+	cases := make([]executionCase, 0, len(artifact.Cases))
+	for _, item := range artifact.Cases {
+		cases = append(cases, executionCase{
+			CaseID:   item.CaseID,
+			RuleID:   item.RuleID,
+			Strength: item.Strength,
+			Subject:  item.Subject,
+			Given:    item.Given,
+			Expect:   item.Expect,
+		})
+	}
+	return executeCases(ctx, ContractReference{
+		ID:      artifact.Contract.ID,
+		Version: artifact.Contract.Version,
+		SHA256:  artifact.Contract.SHA256,
+	}, cases, config, &OracleReference{Schema: artifact.Schema, SHA256: oracleHash})
+}
+
+type executionCase struct {
+	CaseID   string
+	RuleID   string
+	Strength string
+	Subject  string
+	Given    map[string]any
+	Expect   map[string]any
+}
+
+func casesFromContract(sealed contract.Sealed) ([]executionCase, error) {
+	rules, ok := sealed.Document.Contract["rules"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("sealed contract rules must be a list")
+	}
+	cases := make([]executionCase, 0, len(rules))
+	for index, value := range rules {
+		rule, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("contract rule %d is not an object", index)
+		}
+		cases = append(cases, executionCaseFromRule(index, rule))
+	}
+	return cases, nil
+}
+
+func executionCaseFromRule(index int, rule map[string]any) executionCase {
+	ruleID, _ := rule["id"].(string)
+	strength, _ := rule["strength"].(string)
+	subject, _ := rule["subject"].(string)
+	given, _ := rule["given"].(map[string]any)
+	expect, _ := rule["expect"].(map[string]any)
+	return executionCase{
+		CaseID:   fmt.Sprintf("case-%04d", index+1),
+		RuleID:   ruleID,
+		Strength: strength,
+		Subject:  subject,
+		Given:    given,
+		Expect:   expect,
+	}
+}
+
+func executeCases(ctx context.Context, contractReference ContractReference, cases []executionCase, config Config, oracleReference *OracleReference) (RunRecord, error) {
 	base, err := parseBaseURL(config.BaseURL)
 	if err != nil {
 		return RunRecord{}, err
@@ -138,8 +232,6 @@ func Execute(ctx context.Context, sealed contract.Sealed, config Config) (RunRec
 		now = config.Now
 	}
 	createdAt := now().UTC()
-	contractID, _ := sealed.Document.Contract["id"].(string)
-	version, _ := integer(sealed.Document.Contract["version"])
 	limitations := []string{
 		"the runner does not yet enforce a capability boundary",
 	}
@@ -157,11 +249,8 @@ func Execute(ctx context.Context, sealed contract.Sealed, config Config) (RunRec
 			Status:      "self-reported",
 			Limitations: limitations,
 		},
-		Contract: ContractReference{
-			ID:      contractID,
-			Version: version,
-			SHA256:  sealed.SHA256,
-		},
+		Contract: contractReference,
+		Oracle:   oracleReference,
 		Subject: SubjectReference{
 			BaseURL: strings.TrimRight(base.String(), "/"),
 			Adapter: "http-json-v1",
@@ -171,16 +260,12 @@ func Execute(ctx context.Context, sealed contract.Sealed, config Config) (RunRec
 		Rules:     make([]RuleResult, 0),
 	}
 
-	rules, ok := sealed.Document.Contract["rules"].([]any)
-	if !ok {
-		return RunRecord{}, fmt.Errorf("sealed contract rules must be a list")
-	}
 	client := config.Client
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	for index, value := range rules {
-		result := executeRule(ctx, base, client, index, value)
+	for index, testCase := range cases {
+		result := executeCase(ctx, base, client, index, testCase)
 		record.Rules = append(record.Rules, result)
 		switch result.Status {
 		case "pass":
@@ -245,16 +330,18 @@ func executeRule(ctx context.Context, base *url.URL, client *http.Client, index 
 	if !ok {
 		return errorResult(index, "", "", "contract rule is not an object")
 	}
-	ruleID, _ := rule["id"].(string)
-	subject, _ := rule["subject"].(string)
+	return executeCase(ctx, base, client, index, executionCaseFromRule(index, rule))
+}
+
+func executeCase(ctx context.Context, base *url.URL, client *http.Client, index int, testCase executionCase) RuleResult {
 	result := RuleResult{
-		RuleID:  ruleID,
-		CaseID:  fmt.Sprintf("case-%04d", index+1),
-		Subject: subject,
+		RuleID:  testCase.RuleID,
+		CaseID:  testCase.CaseID,
+		Subject: testCase.Subject,
 		Status:  "error",
 	}
 
-	given, _ := rule["given"].(map[string]any)
+	given := testCase.Given
 	captures := make(map[string]any)
 	if rawSetup, hasSetup := given["setup"]; hasSetup {
 		setup, ok := rawSetup.([]any)
@@ -276,7 +363,7 @@ func executeRule(ctx context.Context, base *url.URL, client *http.Client, index 
 			}
 		}
 	}
-	method, path, err := parseSubject(subject)
+	method, path, err := parseSubject(testCase.Subject)
 	if err != nil {
 		result.Reason = err.Error()
 		return result
@@ -294,8 +381,7 @@ func executeRule(ctx context.Context, base *url.URL, client *http.Client, index 
 	result.Observation = observation
 	result.ObservationSHA256 = observationHash(observation)
 
-	expect, _ := rule["expect"].(map[string]any)
-	assertions, err := evaluate(expect, observation)
+	assertions, err := evaluate(testCase.Expect, observation)
 	if err != nil {
 		result.Reason = err.Error()
 		return result
@@ -710,49 +796,7 @@ func evaluateValue(path string, value any, exists bool, spec map[string]any) []A
 }
 
 func materialize(value any) (any, error) {
-	switch value := value.(type) {
-	case map[string]any:
-		if generated, present := value["generated"]; present {
-			generator, ok := generated.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("generated value must be an object")
-			}
-			kind, _ := generator["kind"].(string)
-			if kind != "repeat" {
-				return nil, fmt.Errorf("unsupported generator kind %q", kind)
-			}
-			text, ok := generator["value"].(string)
-			if !ok {
-				return nil, fmt.Errorf("repeat generator value must be a string")
-			}
-			count, ok := integer(generator["count"])
-			if !ok || count < 1 || count > 1_000_000 {
-				return nil, fmt.Errorf("repeat generator count must be between 1 and 1000000")
-			}
-			return strings.Repeat(text, int(count)), nil
-		}
-		object := make(map[string]any, len(value))
-		for key, child := range value {
-			materialized, err := materialize(child)
-			if err != nil {
-				return nil, err
-			}
-			object[key] = materialized
-		}
-		return object, nil
-	case []any:
-		sequence := make([]any, len(value))
-		for index, child := range value {
-			materialized, err := materialize(child)
-			if err != nil {
-				return nil, err
-			}
-			sequence[index] = materialized
-		}
-		return sequence, nil
-	default:
-		return value, nil
-	}
+	return contract.Materialize(value)
 }
 
 func integer(value any) (int64, bool) {

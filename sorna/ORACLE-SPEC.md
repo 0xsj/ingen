@@ -483,3 +483,36 @@ support, adaptive test generation, or a claim of cryptographic proof.
   HTTP/JSON adapter?
 - What level of human review is required before an oracle can be sealed?
 
+## 14. Current first implementation slice
+
+The first executable slice uses a canonical `ingen.oracle/v1` JSON artifact:
+
+- `status: frozen`;
+- the sealed contract ID, version, and SHA-256 hash;
+- the sealed policy SHA-256 hash;
+- one materialized case for each contract rule.
+
+The `sorna oracle freeze` command seals the identities, prepares a host
+enforcement profile, starts a separate child process, and verifies the
+child-written oracle before producing evidence:
+
+```text
+draft contract + draft policy
+          |
+          v
+parent seals identities and prepares the host policy
+          |
+          v
+sandboxed child reads contract -> materializes cases -> writes oracle.json
+          |
+          v
+parent verifies hashes -> writes manifest/events/checksums
+```
+
+The child process exists to make the access boundary operational. An
+in-process generator call would produce a useful artifact but would not prove
+that the oracle writer was subject to the host policy. The current bundle
+records process preparation, start, completion, resolved capability roots, and
+policy bytes. The HTTP runner now consumes the canonical frozen artifact and
+records its oracle hash in the subject-run evidence; kernel access events and
+assurance promotion remain subsequent slices.

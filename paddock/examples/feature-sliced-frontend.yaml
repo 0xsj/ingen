@@ -1,0 +1,73 @@
+schema: paddock.architecture/v1
+project: feature-sliced-frontend
+
+source:
+  language: typescript
+  roots: [src]
+
+components:
+  shared:
+    match: src/shared/**
+    labels:
+      role: shared
+      layer: 0
+
+  entities:
+    match: src/entities/**
+    labels:
+      role: entities
+      layer: 1
+
+  features:
+    match: src/features/{feature}/**
+    labels:
+      role: feature
+      feature: "{feature}"
+      layer: 2
+
+  widgets:
+    match: src/widgets/**
+    labels:
+      role: widget
+      layer: 3
+
+  pages:
+    match: src/pages/**
+    labels:
+      role: page
+      layer: 4
+
+  app:
+    match: src/app/**
+    labels:
+      role: app
+      layer: 5
+
+rules:
+  - id: layers-point-downward
+    kind: layer-direction
+    direction: toward-lower-layer
+    message: higher frontend layers may depend on lower layers only
+
+  - id: features-do-not-cross
+    kind: no-cross-context
+    from: {role: feature}
+    to: {role: feature}
+    context-label: feature
+    message: features communicate through shared APIs, not internal imports
+
+  - id: shared-is-feature-free
+    kind: deny-dependencies
+    from: {role: shared}
+    deny:
+      - {role: entities}
+      - {role: feature}
+      - {role: widget}
+      - {role: page}
+      - {role: app}
+    message: shared code must not depend on product-specific code
+
+  - id: no-cycles
+    kind: no-cycles
+    message: frontend layers and features must remain acyclic
+

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"ingen/sorna/internal/policy"
 	"ingen/sorna/internal/runner"
 )
 
@@ -33,7 +34,9 @@ type Manifest struct {
 	CreatedAt       time.Time                `json:"created_at"`
 	Assurance       runner.Assurance         `json:"assurance"`
 	Contract        runner.ContractReference `json:"contract"`
+	Oracle          *runner.OracleReference  `json:"oracle,omitempty"`
 	Subject         runner.SubjectReference  `json:"subject"`
+	Policy          *policy.Reference        `json:"policy,omitempty"`
 	ArtifactsSHA256 map[string]string        `json:"artifacts_sha256"`
 }
 
@@ -52,7 +55,7 @@ type LifecycleEvent struct {
 
 // WriteBundle writes run.json, an append-only lifecycle JSONL stream, a
 // manifest, and checksums for every material file in the bundle.
-func WriteBundle(outputDir string, record runner.RunRecord) (Bundle, error) {
+func WriteBundle(outputDir string, record runner.RunRecord, sealedPolicy *policy.Sealed) (Bundle, error) {
 	if strings.TrimSpace(outputDir) == "" {
 		return Bundle{}, fmt.Errorf("evidence output directory must not be empty")
 	}
@@ -84,13 +87,42 @@ func WriteBundle(outputDir string, record runner.RunRecord) (Bundle, error) {
 		"run.json":               runHash,
 		"events/lifecycle.jsonl": lifecycleHash,
 	}
+	var policyReference *policy.Reference
+	if sealedPolicy != nil {
+		policyDir := filepath.Join(outputDir, "policy")
+		if err := os.MkdirAll(policyDir, 0o755); err != nil {
+			return Bundle{}, err
+		}
+		policyCanonicalPath := filepath.Join(policyDir, "canonical.json")
+		if err := os.WriteFile(policyCanonicalPath, sealedPolicy.CanonicalJSON, 0o644); err != nil {
+			return Bundle{}, err
+		}
+		policyHashPath := filepath.Join(policyDir, "hash.txt")
+		if err := os.WriteFile(policyHashPath, []byte(sealedPolicy.SHA256+"\n"), 0o644); err != nil {
+			return Bundle{}, err
+		}
+		policyCanonicalHash, err := hashFile(policyCanonicalPath)
+		if err != nil {
+			return Bundle{}, fmt.Errorf("hash policy/canonical.json: %w", err)
+		}
+		policyHashHash, err := hashFile(policyHashPath)
+		if err != nil {
+			return Bundle{}, fmt.Errorf("hash policy/hash.txt: %w", err)
+		}
+		artifacts["policy/canonical.json"] = policyCanonicalHash
+		artifacts["policy/hash.txt"] = policyHashHash
+		reference := sealedPolicy.Reference()
+		policyReference = &reference
+	}
 	manifest := Manifest{
 		Schema:          "sorna.evidence/v1",
 		RunID:           record.RunID,
 		CreatedAt:       record.CreatedAt,
 		Assurance:       record.Assurance,
 		Contract:        record.Contract,
+		Oracle:          record.Oracle,
 		Subject:         record.Subject,
+		Policy:          policyReference,
 		ArtifactsSHA256: artifacts,
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
