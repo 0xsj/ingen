@@ -72,6 +72,8 @@ storage adapter and a Go file-backed store are implemented under
 Runnable end-to-end composition examples are available through `make examples`.
 Incoming trust validators are available as opt-in hooks; v1 transport values
 remain unsigned by default.
+The v1 core is now at a foundation checkpoint: its core semantics are stable,
+while production-specific integrations remain intentionally separate.
 
 Implementation reasoning and verification notes are indexed in
 [`docs/notes/README.md`](docs/notes/README.md).
@@ -94,6 +96,9 @@ publishable TypeScript package artifact:
 make check
 ```
 
+That gate also checks that an external Go module can import the local Amber
+module through its public module path.
+
 Run the full check gate, including Go vet and TypeScript typechecking, with:
 
 ```sh
@@ -106,4 +111,17 @@ Run the composition examples from the project root with:
 make examples
 ```
 
-GitHub Actions runs both commands on pushes to `main` and on pull requests.
+Run the short local fuzz pass for core and transport decoders with:
+
+```sh
+make fuzz
+```
+
+Run Go’s race detector across the SDK and adapters with:
+
+```sh
+make race
+```
+
+GitHub Actions runs the check gate, race detector, and composition examples on
+pushes to `main` and on pull requests.

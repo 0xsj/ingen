@@ -21,8 +21,10 @@ import (
 	paddockpolicylock "ingen/paddock/internal/policylock"
 	paddockpolicyreview "ingen/paddock/internal/policyreview"
 	paddockpolicytest "ingen/paddock/internal/policytest"
+	paddockrelease "ingen/paddock/internal/release"
 	"ingen/paddock/internal/report"
 	paddockscaffold "ingen/paddock/internal/scaffold"
+	paddockversion "ingen/paddock/internal/version"
 )
 
 func main() {
@@ -55,6 +57,15 @@ func main() {
 		if exitCode != 0 {
 			os.Exit(exitCode)
 		}
+	case "release":
+		exitCode, err := releaseCommand(os.Args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "paddock:", err)
+			os.Exit(2)
+		}
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
 	case "baseline":
 		if err := createBaseline(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "paddock:", err)
@@ -71,6 +82,11 @@ func main() {
 		}
 	case "explain":
 		if err := explainReport(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "paddock:", err)
+			os.Exit(2)
+		}
+	case "version":
+		if err := versionCommand(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "paddock:", err)
 			os.Exit(2)
 		}
@@ -1601,6 +1617,104 @@ func explainReport(args []string) error {
 	return err
 }
 
+func versionCommand(args []string) error {
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			return fmt.Errorf("unknown option %q", args[index])
+		}
+	}
+
+	info := struct {
+		Name      string `json:"name"`
+		Version   string `json:"version"`
+		Commit    string `json:"commit"`
+		BuildDate string `json:"build_date"`
+	}{
+		Name:      "paddock",
+		Version:   paddockversion.Version,
+		Commit:    paddockversion.Commit,
+		BuildDate: paddockversion.BuildDate,
+	}
+
+	switch format {
+	case "text":
+		_, err := fmt.Fprintf(os.Stdout, "%s %s\ncommit %s\nbuilt %s\n", info.Name, info.Version, info.Commit, info.BuildDate)
+		return err
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(info)
+	default:
+		return fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+}
+
+func releaseCommand(args []string) (int, error) {
+	if len(args) == 0 || args[0] != "verify" {
+		return 0, fmt.Errorf("release requires verify")
+	}
+	manifestPath := ""
+	directory := ""
+	format := "text"
+	for index := 1; index < len(args); index++ {
+		switch args[index] {
+		case "--manifest", "-m":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a path", args[index])
+			}
+			index++
+			manifestPath = args[index]
+		case "--directory", "-d":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a path", args[index])
+			}
+			index++
+			directory = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			return 0, fmt.Errorf("unknown option %q", args[index])
+		}
+	}
+	if manifestPath == "" {
+		return 0, fmt.Errorf("release verify requires --manifest <release-manifest.json>")
+	}
+	result, err := paddockrelease.Verify(manifestPath, directory)
+	if err != nil {
+		return 0, err
+	}
+	switch format {
+	case "text":
+		if _, err := fmt.Fprint(os.Stdout, paddockrelease.Text(result)); err != nil {
+			return 0, err
+		}
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(result); err != nil {
+			return 0, err
+		}
+	default:
+		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+	if result.Status != "PASS" {
+		return 1, nil
+	}
+	return 0, nil
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: paddock check <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--baseline <file>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock graph <source-root> [--policy <policy.yaml> | --language <language> | --input <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
@@ -1611,7 +1725,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       paddock policy seal --input <policy.yaml> --output <policy.lock.json> [--force]")
 	fmt.Fprintln(os.Stderr, "       paddock policy verify --policy <policy.yaml> --lock <policy.lock.json>")
 	fmt.Fprintln(os.Stderr, "       paddock policy test --policy <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock release verify --manifest <release-manifest.json> [--directory <dir>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock baseline <source-root> --policy <policy.yaml> [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] --output <baseline.json>")
 	fmt.Fprintln(os.Stderr, "       paddock ci <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] --graph-output <graph.json>] [--baseline <file>] --output <ci-result.json>")
 	fmt.Fprintln(os.Stderr, "       paddock explain <paddock-report.json|paddock-ci-result.json> [--format text|json] [--rule <id>] [--status all|active|blocking|advisory|waived|baselined|expired-waiver]")
+	fmt.Fprintln(os.Stderr, "       paddock version [--format text|json]")
 }

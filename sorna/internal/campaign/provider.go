@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"ingen/sorna/internal/mutation"
 )
 
 // ProviderSchema is the versioned file shape for a provider's prepared
@@ -25,22 +26,45 @@ const (
 // prebuilt fixture; the campaign runner only consumes this boundary. A
 // generated provider may also bind itself to the exact plan hash it consumed.
 type ProviderManifest struct {
-	Schema     string          `json:"schema" yaml:"schema"`
-	ID         string          `json:"id" yaml:"id"`
-	Version    int64           `json:"version" yaml:"version"`
-	PlanSchema string          `json:"plan_schema" yaml:"plan_schema"`
-	PlanSHA256 string          `json:"plan_sha256,omitempty" yaml:"plan_sha256,omitempty"`
-	Entries    []ProviderEntry `json:"entries" yaml:"entries"`
+	Schema       string               `json:"schema" yaml:"schema"`
+	ID           string               `json:"id" yaml:"id"`
+	Version      int64                `json:"version" yaml:"version"`
+	PlanSchema   string               `json:"plan_schema" yaml:"plan_schema"`
+	PlanSHA256   string               `json:"plan_sha256,omitempty" yaml:"plan_sha256,omitempty"`
+	Capabilities []ProviderCapability `json:"capabilities" yaml:"capabilities"`
+	Entries      []ProviderEntry      `json:"entries" yaml:"entries"`
+}
+
+// ProviderCapability declares a mutation shape that the provider knows how
+// to prepare. Target is included because the same operator may have different
+// source-resolution rules for different public operations.
+type ProviderCapability struct {
+	Plane    string `json:"plane" yaml:"plane"`
+	Operator string `json:"operator" yaml:"operator"`
+	Target   string `json:"target" yaml:"target"`
 }
 
 // ProviderEntry describes one executable subject variant.
 type ProviderEntry struct {
-	MutationID  string   `json:"mutation_id" yaml:"mutation_id"`
-	Command     string   `json:"command" yaml:"command"`
-	Args        []string `json:"args,omitempty" yaml:"args,omitempty"`
-	SubjectRoot string   `json:"subject_root,omitempty" yaml:"subject_root,omitempty"`
-	SubjectDir  string   `json:"subject_dir,omitempty" yaml:"subject_dir,omitempty"`
-	Variant     string   `json:"variant,omitempty" yaml:"variant,omitempty"`
+	MutationID  string              `json:"mutation_id" yaml:"mutation_id"`
+	Command     string              `json:"command" yaml:"command"`
+	Args        []string            `json:"args,omitempty" yaml:"args,omitempty"`
+	SubjectRoot string              `json:"subject_root,omitempty" yaml:"subject_root,omitempty"`
+	SubjectDir  string              `json:"subject_dir,omitempty" yaml:"subject_dir,omitempty"`
+	Variant     string              `json:"variant,omitempty" yaml:"variant,omitempty"`
+	Provenance  *ProviderProvenance `json:"provenance,omitempty" yaml:"provenance,omitempty"`
+}
+
+// ProviderProvenance records where a provider applied a mutation and which
+// source and executable bytes it prepared. It is optional for legacy fixture
+// providers, but source-level providers should populate every field.
+type ProviderProvenance struct {
+	SourceDir    string `json:"source_dir" yaml:"source_dir"`
+	SourceSHA256 string `json:"source_sha256" yaml:"source_sha256"`
+	BinarySHA256 string `json:"binary_sha256" yaml:"binary_sha256"`
+	Location     string `json:"location" yaml:"location"`
+	Before       string `json:"before" yaml:"before"`
+	After        string `json:"after" yaml:"after"`
 }
 
 // PreparedSubject is the resolved command handed to `sorna run`.
@@ -49,6 +73,7 @@ type PreparedSubject struct {
 	SubjectRoot string
 	SubjectDir  string
 	Variant     string
+	Provenance  *ProviderProvenance
 }
 
 type providerDocument struct {
@@ -112,6 +137,28 @@ func ValidateProvider(provider ProviderManifest) []string {
 	if strings.TrimSpace(provider.PlanSHA256) != "" && !digestPattern.MatchString(provider.PlanSHA256) {
 		problems = append(problems, "mutation_provider.plan_sha256 must be a lowercase SHA-256 digest when present")
 	}
+	if len(provider.Capabilities) == 0 {
+		problems = append(problems, "mutation_provider.capabilities must contain at least one capability")
+	}
+	seenCapabilities := make(map[string]bool, len(provider.Capabilities))
+	for index, capability := range provider.Capabilities {
+		path := fmt.Sprintf("mutation_provider.capabilities[%d]", index)
+		if strings.TrimSpace(capability.Plane) == "" {
+			problems = append(problems, path+".plane must be non-empty")
+		}
+		if strings.TrimSpace(capability.Operator) == "" {
+			problems = append(problems, path+".operator must be non-empty")
+		}
+		if strings.TrimSpace(capability.Target) == "" {
+			problems = append(problems, path+".target must be non-empty")
+		}
+		key := capabilityKey(capability.Plane, capability.Operator, capability.Target)
+		if seenCapabilities[key] {
+			problems = append(problems, fmt.Sprintf("%s duplicates a declared capability", path))
+		} else {
+			seenCapabilities[key] = true
+		}
+	}
 	if len(provider.Entries) == 0 {
 		problems = append(problems, "mutation_provider.entries must contain at least one entry")
 	}
@@ -127,6 +174,29 @@ func ValidateProvider(provider ProviderManifest) []string {
 		}
 		if strings.TrimSpace(entry.Command) == "" {
 			problems = append(problems, path+".command must be non-empty")
+		}
+		if entry.Provenance != nil {
+			provenance := entry.Provenance
+			if strings.TrimSpace(provenance.SourceDir) == "" {
+				problems = append(problems, path+".provenance.source_dir must be non-empty")
+			} else if !providerRelativePath(provenance.SourceDir) {
+				problems = append(problems, path+".provenance.source_dir must be relative and stay inside the subject root")
+			}
+			if !digestPattern.MatchString(provenance.SourceSHA256) {
+				problems = append(problems, path+".provenance.source_sha256 must be a lowercase SHA-256 digest")
+			}
+			if !digestPattern.MatchString(provenance.BinarySHA256) {
+				problems = append(problems, path+".provenance.binary_sha256 must be a lowercase SHA-256 digest")
+			}
+			if strings.TrimSpace(provenance.Location) == "" {
+				problems = append(problems, path+".provenance.location must be non-empty")
+			}
+			if strings.TrimSpace(provenance.Before) == "" {
+				problems = append(problems, path+".provenance.before must be non-empty")
+			}
+			if strings.TrimSpace(provenance.After) == "" {
+				problems = append(problems, path+".provenance.after must be non-empty")
+			}
 		}
 		for argumentIndex, argument := range entry.Args {
 			remaining := strings.ReplaceAll(strings.ReplaceAll(argument, addressToken, ""), urlToken, "")
@@ -151,8 +221,31 @@ func (provider ProviderManifest) ValidateForPlan(plan Plan) []string {
 		if _, ok := entries[mutation.Spec.ID]; !ok {
 			problems = append(problems, fmt.Sprintf("plan.mutations[%d] %q has no provider entry", index, mutation.Spec.ID))
 		}
+		if !provider.supports(mutation.Spec) {
+			problems = append(problems, fmt.Sprintf("plan.mutations[%d] %q uses undeclared provider capability %s", index, mutation.Spec.ID, capabilityKey(mutation.Spec.Plane, mutation.Spec.Operator, mutation.Spec.Target)))
+		}
 	}
 	return problems
+}
+
+// Supports reports whether the provider declares the exact plane, operator,
+// and target shape of a mutation specification.
+func (provider ProviderManifest) Supports(spec mutation.Spec) bool {
+	return provider.supports(spec)
+}
+
+func (provider ProviderManifest) supports(spec mutation.Spec) bool {
+	wanted := capabilityKey(spec.Plane, spec.Operator, spec.Target)
+	for _, capability := range provider.Capabilities {
+		if capabilityKey(capability.Plane, capability.Operator, capability.Target) == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func capabilityKey(plane, operator, target string) string {
+	return plane + "|" + operator + "|" + target
 }
 
 // Resolve prepares the command for one mutation and expands only the two
@@ -178,12 +271,66 @@ func (provider ProviderManifest) Resolve(mutationID, address, baseURL string) (P
 		if strings.TrimSpace(subjectRoot) == "" {
 			subjectRoot = "."
 		}
+		var provenance *ProviderProvenance
+		if entry.Provenance != nil {
+			copy := *entry.Provenance
+			provenance = &copy
+		}
 		return PreparedSubject{
 			Command:     append([]string{entry.Command}, args...),
 			SubjectRoot: subjectRoot,
 			SubjectDir:  entry.SubjectDir,
 			Variant:     variant,
+			Provenance:  provenance,
 		}, nil
 	}
 	return PreparedSubject{}, fmt.Errorf("provider has no entry for mutation %q", mutationID)
+}
+
+// VerifyPreparedSubject checks the immutable source and executable identities
+// recorded by a source-level provider before the subject is launched.
+// Legacy fixture entries without provenance remain valid and are not hashed.
+func VerifyPreparedSubject(prepared PreparedSubject) error {
+	if prepared.Provenance == nil {
+		return nil
+	}
+	if len(prepared.Command) == 0 {
+		return fmt.Errorf("prepared subject has provenance but no command")
+	}
+	if !providerRelativePath(prepared.Provenance.SourceDir) {
+		return fmt.Errorf("prepared source provenance path must stay inside the subject root")
+	}
+	root, err := filepath.Abs(prepared.SubjectRoot)
+	if err != nil {
+		return fmt.Errorf("resolve prepared subject root: %w", err)
+	}
+	sourcePath := filepath.Join(root, filepath.FromSlash(prepared.Provenance.SourceDir))
+	sourceHash, err := HashTree(sourcePath)
+	if err != nil {
+		return fmt.Errorf("hash prepared source tree: %w", err)
+	}
+	if sourceHash != prepared.Provenance.SourceSHA256 {
+		return fmt.Errorf("prepared source hash %q does not match provenance %q", sourceHash, prepared.Provenance.SourceSHA256)
+	}
+
+	binaryPath := prepared.Command[0]
+	if !filepath.IsAbs(binaryPath) {
+		if !providerRelativePath(binaryPath) {
+			return fmt.Errorf("prepared command path must stay inside the subject root")
+		}
+		binaryPath = filepath.Join(root, filepath.FromSlash(binaryPath))
+	}
+	binaryHash, err := HashFile(binaryPath)
+	if err != nil {
+		return fmt.Errorf("hash prepared subject binary: %w", err)
+	}
+	if binaryHash != prepared.Provenance.BinarySHA256 {
+		return fmt.Errorf("prepared binary hash %q does not match provenance %q", binaryHash, prepared.Provenance.BinarySHA256)
+	}
+	return nil
+}
+
+func providerRelativePath(path string) bool {
+	clean := filepath.Clean(path)
+	return clean != "." && !filepath.IsAbs(path) && clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }

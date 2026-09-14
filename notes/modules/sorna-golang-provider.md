@@ -5,8 +5,9 @@ preparation layer. It consumes the already-reviewed canonical
 `ingen.mutation-plan/v1` in memory, copies the source root once per mutation,
 applies a lab-specific AST transformation to that copy, builds a fresh binary,
 and emits the existing `ingen.mutation-provider/v1` manifest. The generated
-manifest also carries `plan_sha256`, and Sorna rejects it when the manifest was
-prepared from a different plan.
+manifest also carries `plan_sha256` and exact capabilities for the mutation
+shapes it prepared; Sorna rejects it when the manifest was prepared from a
+different plan or when a plan asks for an undeclared capability.
 
 The boundary matters:
 
@@ -17,12 +18,18 @@ The boundary matters:
 - Sorna still owns the managed process, public-boundary execution, evidence,
   and mutation outcome.
 
-For the document lab, the first operator is deliberately narrow:
-`response.status.replace` at `POST /documents`, from status 202 to 200. The
-operator callback finds the `createDocument` function and changes the
-`http.StatusAccepted` selector to `http.StatusOK` using `go/ast`. Requiring
-exactly one matching node makes an ambiguous source shape a preparation error
-instead of silently producing an unknown mutation.
+For the document lab, the operators are deliberately narrow:
+
+- `response.status.replace` at `POST /documents`, from status 202 to 200. The
+  callback finds the `createDocument` function and changes the
+  `http.StatusAccepted` selector to `http.StatusOK` using `go/ast`.
+- `response.field.remove` at `POST /documents`, removing the `name` key from
+  the successful response map. The callback resolves the exact `writeJSON`
+  response literal and removes one matching key.
+
+Both operators require exactly one matching AST target. An ambiguous or
+missing source shape is a preparation error instead of silently producing an
+unknown mutation.
 
 The provider keeps copied source variants under its output directory for
 review, while placing only built binaries under the managed subject's allowed
@@ -34,6 +41,13 @@ provider.
 Generated dependency/cache trees such as `node_modules`, `.artifacts`, and
 `.cache` are excluded; symlinks in the remaining source tree are rejected so
 the copied build input cannot silently escape the source root.
+
+Each generated entry records semantic edit provenance (`location`, `before`,
+and `after`) plus the relative copied source directory, a deterministic hash
+of that source tree, and the built binary hash. The campaign executor verifies
+the two byte identities immediately before launch. This closes the practical
+time-of-check/time-of-use gap between provider preparation and subject start;
+it does not claim that the provider itself is independently trusted.
 
 ## Command
 
@@ -50,9 +64,10 @@ evidence records the executable identity that actually ran.
 ## Limits
 
 This is not a general Go mutation engine. It proves the source-copy, AST
-transformation, isolated build, and Sorna handoff mechanics for one controlled
-example. Future operators need their own target-resolution and ambiguity
-rules, plus a provider-level record of build diagnostics and source identity.
+transformation, isolated build, provenance, and Sorna handoff mechanics for
+two controlled response operators. Future operators need their own
+target-resolution and ambiguity rules, plus provider-level build diagnostics
+and source identity.
 
 ## Used in
 

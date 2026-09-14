@@ -30,6 +30,18 @@ const json = JSON.stringify(root);
 const roundTrip = Provenance.fromJSON(json);
 assert(JSON.stringify(roundTrip) === json, "JSON round trip changed the value");
 
+const withUnknown = {
+  ...root.toJSON(),
+  future_field: "accepted-and-ignored",
+  mode: { ...root.mode, future_mode_field: true },
+};
+const unknownRoundTrip = Provenance.fromJSON(withUnknown);
+assert(
+  !JSON.stringify(unknownRoundTrip).includes("future_field") &&
+    !JSON.stringify(unknownRoundTrip).includes("future_mode_field"),
+  "unknown fields should be omitted by the non-lossless SDK",
+);
+
 let rejected = false;
 try {
   Provenance.fromJSON({ version: 1, work_id: "bad" });

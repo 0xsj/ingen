@@ -492,15 +492,33 @@ function validateString(value: unknown, field: string): asserts value is string 
 }
 
 function cloneMode(value: Mode): Mode {
-  return { ...value } as Mode;
+  switch (value.kind) {
+    case "normal":
+      return { kind: "normal" };
+    case "retry":
+      return { kind: "retry", of_execution_id: value.of_execution_id };
+    case "replay":
+      return {
+        kind: "replay",
+        of_execution_id: value.of_execution_id,
+        replay_id: value.replay_id,
+      };
+  }
 }
 
 function cloneCausation(value: Causation | undefined): Causation | undefined {
-  return value === undefined ? undefined : { ...value };
+  if (value === undefined) {
+    return undefined;
+  }
+  return {
+    kind: value.kind,
+    id: value.id,
+    type: value.type,
+  };
 }
 
 function cloneActor(value: Actor | undefined): Actor | undefined {
-  return value === undefined ? undefined : { ...value };
+  return value === undefined ? undefined : { id: value.id, type: value.type };
 }
 
 function cloneAttribution(value: Attribution | undefined): Attribution | undefined {
@@ -516,7 +534,7 @@ function cloneAttribution(value: Attribution | undefined): Attribution | undefin
 }
 
 function cloneReference(value: Reference): Reference {
-  return { ...value };
+  return { type: value.type, id: value.id, relation: value.relation };
 }
 
 function cloneReferences(values: readonly Reference[]): readonly Reference[] {

@@ -113,6 +113,22 @@ provider manifest uses `ingen.mutation-provider/v1` and supports only literal
 argv plus the explicit `${SORA_ADDR}` and `${SORA_URL}` runtime tokens. It does
 not use shell interpolation.
 
+The manifest also declares provider capabilities as exact plane/operator/target
+tuples. `sorna mutation run` requires every plan mutation to have both a
+prepared entry and a declared capability; a provider cannot silently claim
+support for an operator merely because it has an executable entry.
+
+The no-execution review command is:
+
+```sh
+sorna mutation provider inspect <plan> --provider <path> [--format text|json] [--output <path>]
+```
+
+JSON output uses `ingen.mutation-provider-review/v1`. A `ready` report means
+every plan mutation has a prepared entry and declared capability; `blocked`
+reports identify the missing entry, undeclared capability, or mismatched bound
+plan hash.
+
 `sorna mutation run` launches one fresh managed Sorna run per plan entry. Each
 entry receives its own address and evidence directory, and the campaign result
 records the entry's evidence path, verified manifest/checksum hashes, run ID,
@@ -144,6 +160,10 @@ never an output target. This keeps Go build mechanics separate from the
 language-neutral campaign semantics without making the provider a second
 campaign executor. Generated providers may include `plan_sha256`; Sorna
 compares it with the exact plan bytes captured by the campaign before launch.
+Source-level entries may also include `provenance` with a relative copied
+source directory, source-tree and binary SHA-256 digests, and human-readable
+`location`, `before`, and `after` edit descriptions. Sorna verifies those
+source and binary digests immediately before launching the prepared subject.
 
 ## 5. Operator families
 

@@ -6,9 +6,10 @@ here.
 
 ## Status
 
-The first draft is version 1 of the core model. It is intentionally small:
-framework integrations, persistence formats, and transport-specific adapters
-will build on top of it.
+The first draft is version 1 of the core model and is at a foundation
+checkpoint. It is intentionally small: framework integrations, persistence
+formats, and transport-specific adapters will build on top of it without
+changing the core semantics.
 
 ## Documents
 

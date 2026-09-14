@@ -11,10 +11,11 @@ The first manifest uses `ingen.mutation-provider/v1` and keeps arguments as an
 argv array. Only `${SORA_ADDR}` and `${SORA_URL}` are expanded. There is no
 shell parsing, command-string interpolation, or implicit source edit permission.
 
-This is deliberately a prebuilt fixture provider for the document lab. A
-future Go, TypeScript, or other language provider can build or mutate a subject
-as long as it returns the same prepared-command boundary and preserves the
-plan's mutation identity.
+This is deliberately a prebuilt fixture provider for the document lab. A Go,
+TypeScript, or other language provider can build or mutate a subject as long as
+it returns the same prepared-command boundary and preserves the plan's
+mutation identity. Its manifest must also declare the exact plane, operator,
+and target capabilities it supports.
 
 ## Execution behavior
 
@@ -26,6 +27,10 @@ For each plan entry Sorna:
 4. verifies the resulting evidence bundle and reads its mutation result;
 5. hashes the verified bundle manifest and checksum file; and
 6. records the outcome and those evidence hashes in `ingen.mutation-campaign-result/v1`.
+
+Provider coverage includes capability coverage: an entry is not enough by
+itself. Every plan mutation must match a declared provider plane/operator/target
+tuple before any subject process starts.
 
 Before verification, the executor attaches the exact plan and provider bytes
 to the per-mutation bundle under `campaign/`. The bundle manifest records
@@ -41,16 +46,30 @@ Campaign output is rejected when it overlaps the baseline evidence directory,
 and an existing per-mutation directory is not reused. These controls protect
 the comparison artifact and avoid mixing observations across attempts.
 
+Source-level provider entries can add provenance for the copied source tree,
+the built binary, and the semantic edit location. Before launch, Sorna hashes
+the declared source tree and executable and rejects drift. This does not make
+the provider a trusted compiler or signed attestation; it makes the exact
+prepared bytes reviewable and prevents a later replacement from silently
+running under the original declaration.
+
 ## Commands
 
 ```sh
 make mutation-provider-validate
+make mutation-provider-inspect
 make mutation-campaign-run
 ```
 
-The document lab's provider maps `status-200-create` to the prebuilt defect
-binary. This demonstrates the workflow without claiming that Sorna can yet
-apply arbitrary source-level mutations.
+The inspect command is the review-only checkpoint. It writes an optional
+`ingen.mutation-provider-review/v1` JSON artifact containing the exact plan and
+provider hashes, declared capabilities, plan-binding state, and per-mutation
+coverage. A blocked report exits nonzero without launching any subject.
+
+The document lab's fixture provider maps `status-200-create` and
+`remove-name-create` to prebuilt defect binaries. This demonstrates the
+workflow without claiming that Sorna can yet apply arbitrary source-level
+mutations.
 
 ## Limits
 
@@ -58,9 +77,9 @@ The per-mutation Sorna evidence bundles remain authoritative. The aggregate
 result is still not a signed attestation, but each completed entry now binds
 its evidence path to the SHA-256 of `manifest.json` and `checksums.sha256`.
 The default provider is still a prebuilt fixture manifest, while the first
-optional Go source provider covers one document-lab operator. Provenance
-protects the exact inputs consumed by this executor, but it does not by itself
-attest that a provider produced the declared variant honestly.
+optional Go source provider covers two document-lab operators. Provenance
+protects the exact prepared inputs consumed by this executor, but it does not
+by itself attest that a provider's transformation was semantically honest.
 
 `sorna mutation verify` is the review-side check. It loads the canonical
 campaign result, re-verifies each referenced evidence bundle, re-hashes its

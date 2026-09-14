@@ -38,19 +38,23 @@ func TestBuildCopiesMutatesAndBuildsFreshGoVariant(t *testing.T) {
 		BuildPackage: "./cmd/subject",
 		BinaryName:   "subject",
 		ProviderID:   "test-go-provider",
+		Capabilities: testCapabilities(),
 		SubjectArgs:  []string{"-addr", "${SORA_ADDR}"},
-		Mutate: func(variantRoot string, spec mutation.Spec) error {
+		Mutate: func(variantRoot string, spec mutation.Spec) (campaign.ProviderProvenance, error) {
 			if variantRoot == root || spec.ID != "m1" {
-				return os.ErrInvalid
+				return campaign.ProviderProvenance{}, os.ErrInvalid
 			}
-			return os.WriteFile(filepath.Join(variantRoot, "cmd", "subject", "mutation.marker"), []byte(spec.ID), 0o644)
+			return campaign.ProviderProvenance{Location: "cmd/subject/main.go:main", Before: "clean", After: "mutated"}, os.WriteFile(filepath.Join(variantRoot, "cmd", "subject", "mutation.marker"), []byte(spec.ID), 0o644)
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Provider.PlanSHA256 != strings.Repeat("e", 64) || len(result.Provider.Entries) != 1 || len(result.Variants) != 1 {
-		t.Fatalf("result = %+v, want one provider entry and variant", result)
+	if result.Provider.PlanSHA256 != strings.Repeat("e", 64) || len(result.Provider.Capabilities) != 1 || len(result.Provider.Entries) != 1 || len(result.Variants) != 1 {
+		t.Fatalf("result = %+v, want one provider capability, entry, and variant", result)
+	}
+	if !result.Provider.Supports(plan.Mutations[0].Spec) {
+		t.Fatalf("provider capabilities = %+v, want test plan capability", result.Provider.Capabilities)
 	}
 	entry := result.Provider.Entries[0]
 	if entry.Command != ".binaries/001-m1/subject" || len(entry.Args) != 2 || entry.Args[1] != "${SORA_ADDR}" {
@@ -68,6 +72,15 @@ func TestBuildCopiesMutatesAndBuildsFreshGoVariant(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "cmd", "subject", "mutation.marker")); !os.IsNotExist(err) {
 		t.Fatalf("source root mutation marker error = %v, want source untouched", err)
+	}
+	if entry.Provenance == nil || entry.Provenance.Location != "cmd/subject/main.go:main" || entry.Provenance.Before != "clean" || entry.Provenance.After != "mutated" {
+		t.Fatalf("provider provenance = %+v, want edit provenance", entry.Provenance)
+	}
+	if entry.Provenance.SourceDir != ".generated/variants/001-m1/source" || entry.Provenance.SourceSHA256 == "" || entry.Provenance.BinarySHA256 != variant.BinarySHA256 {
+		t.Fatalf("provider provenance identities = %+v, want generated paths and hashes", entry.Provenance)
+	}
+	if sourceHash, hashErr := campaign.HashTree(variant.SourceDir); hashErr != nil || sourceHash != entry.Provenance.SourceSHA256 {
+		t.Fatalf("source provenance hash = %s (%v), want %s", sourceHash, hashErr, entry.Provenance.SourceSHA256)
 	}
 
 	providerPath := filepath.Join(root, ".generated", "provider.yaml")
@@ -107,10 +120,31 @@ func TestBuildRefusesToReuseProviderOutput(t *testing.T) {
 		OutputDir:    output,
 		BinaryDir:    filepath.Join(root, "binaries"),
 		BuildPackage: "./cmd/subject",
-		Mutate:       func(string, mutation.Spec) error { return nil },
+		Capabilities: testCapabilities(),
+		Mutate: func(string, mutation.Spec) (campaign.ProviderProvenance, error) {
+			return campaign.ProviderProvenance{}, nil
+		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "output directory already exists") {
 		t.Fatalf("Build() = %v, want no-reuse error", err)
+	}
+}
+
+func TestBuildRejectsUndeclaredPlanCapability(t *testing.T) {
+	_, err := Build(Request{
+		Plan:         testPlan(),
+		PlanSHA256:   strings.Repeat("e", 64),
+		SourceRoot:   t.TempDir(),
+		OutputDir:    ".generated",
+		BinaryDir:    ".binaries",
+		BuildPackage: "./cmd/subject",
+		Capabilities: []campaign.ProviderCapability{{Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents"}},
+		Mutate: func(string, mutation.Spec) (campaign.ProviderProvenance, error) {
+			return campaign.ProviderProvenance{}, nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not declare capability") {
+		t.Fatalf("Build() = %v, want undeclared capability error", err)
 	}
 }
 
@@ -128,7 +162,10 @@ func TestBuildFailureDoesNotPublishPartialOutputs(t *testing.T) {
 		OutputDir:    output,
 		BinaryDir:    binaries,
 		BuildPackage: "./cmd/subject",
-		Mutate:       func(string, mutation.Spec) error { return os.ErrInvalid },
+		Capabilities: testCapabilities(),
+		Mutate: func(string, mutation.Spec) (campaign.ProviderProvenance, error) {
+			return campaign.ProviderProvenance{}, os.ErrInvalid
+		},
 	})
 	if err == nil {
 		t.Fatal("Build() = nil, want mutator failure")
@@ -173,4 +210,8 @@ func testPlan() campaign.Plan {
 			},
 		}},
 	}
+}
+
+func testCapabilities() []campaign.ProviderCapability {
+	return []campaign.ProviderCapability{{Plane: "implementation", Operator: "test.operator", Target: "GET /"}}
 }

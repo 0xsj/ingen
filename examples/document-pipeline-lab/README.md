@@ -62,15 +62,16 @@ The complete first campaign can be exercised with:
 make mutation-campaign-run
 ```
 
-This creates one verified evidence bundle under
+This creates one verified evidence bundle per mutation under
 `.artifacts/document-pipeline-campaign/` and an aggregate
 `campaign-result.json`. The prebuilt fixture remains available as a minimal
-workflow proof. The first narrow source-level Go provider can be run
+workflow proof. The narrow source-level Go provider can be run
 with:
 
 ```sh
 make mutation-go-campaign-run
 ```
 
-It copies the subject source, applies the reviewed status mutation with the Go
-AST, and builds the variant without modifying the clean subject tree.
+It copies the subject source, applies the reviewed status or response-field
+mutation with the Go AST, and builds each variant without modifying the clean
+subject tree.

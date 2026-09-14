@@ -27,6 +27,7 @@ Architecture templates are conveniences. The policy remains the authority.
 ## CLI
 
 ```sh
+paddock version
 paddock init
 paddock check .
 paddock graph .
@@ -36,6 +37,33 @@ paddock explain paddock-report.json
 paddock baseline
 paddock ci . --policy paddock.yaml --output paddock-ci-result.json
 ```
+
+### Build and install
+
+Paddock can be used as a compiled CI binary instead of `go run`:
+
+```sh
+make -C paddock build \
+  VERSION=0.1.0 \
+  COMMIT="$(git rev-parse --short HEAD)" \
+  BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+.artifacts/paddock/paddock version
+.artifacts/paddock/paddock version --format json
+```
+
+Install it into the Go toolchain's bin directory with `make -C paddock install`.
+For a release-shaped local check, use `make -C paddock release-check`; it builds
+the binary, runs Paddock tests and vet, and validates both version output
+formats. Release metadata is injected through `VERSION`, `COMMIT`, and
+`BUILD_DATE` variables; development builds default to `dev` and `unknown`.
+Cross-platform archives and `SHA256SUMS` are produced with
+`make -C paddock release-artifacts`. See [`RELEASE.md`](RELEASE.md) for the
+release checklist. That command also writes a versioned
+`release-manifest.json` describing each archive and its SHA-256 digest.
+Verify a generated bundle with `paddock release verify --manifest
+release-manifest.json`; a digest mismatch exits `1` and malformed manifest
+input exits `2`.
 
 The implemented Go commands are the checker, graph inspector, baseline
 generator, report explainer, and CI artifact producer:

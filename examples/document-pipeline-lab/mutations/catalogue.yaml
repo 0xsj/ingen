@@ -17,3 +17,14 @@ mutation_catalogue:
       expected_rule_ids:
         - document.create.valid.accepted
       status: candidate
+
+    - id: remove-name-create
+      plane: implementation
+      operator: response.field.remove
+      target: POST /documents
+      description: Remove the required name field from a valid document creation response.
+      change:
+        field: name
+      expected_rule_ids:
+        - document.create.valid.accepted
+      status: candidate

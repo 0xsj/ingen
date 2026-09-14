@@ -19,7 +19,9 @@ import (
 
 // MutateFunc applies one already-reviewed mutation to a copied Go source
 // tree. The callback is deliberately given the copy, never the source root.
-type MutateFunc func(variantRoot string, spec mutation.Spec) error
+// It returns semantic provenance for the edit; the provider fills in the
+// resulting source-tree and binary identities.
+type MutateFunc func(variantRoot string, spec mutation.Spec) (campaign.ProviderProvenance, error)
 
 // Request describes a Go source preparation campaign. OutputDir retains the
 // copied variant sources; BinaryDir retains only the runnable artifacts that
@@ -33,6 +35,7 @@ type Request struct {
 	BuildPackage string
 	BinaryName   string
 	ProviderID   string
+	Capabilities []campaign.ProviderCapability
 	SubjectArgs  []string
 	Mutate       MutateFunc
 }
@@ -79,6 +82,15 @@ func Build(request Request) (Result, error) {
 	}
 	if request.Mutate == nil {
 		return Result{}, fmt.Errorf("Go provider mutator must not be nil")
+	}
+	if len(request.Capabilities) == 0 {
+		return Result{}, fmt.Errorf("Go provider capabilities must not be empty")
+	}
+	declared := campaign.ProviderManifest{Capabilities: request.Capabilities}
+	for _, planned := range request.Plan.Mutations {
+		if !declared.Supports(planned.Spec) {
+			return Result{}, fmt.Errorf("Go provider does not declare capability for %s", planned.Spec.ID)
+		}
 	}
 	if request.BinaryName == "" {
 		request.BinaryName = "subject"
@@ -148,12 +160,13 @@ func Build(request Request) (Result, error) {
 	}()
 
 	provider := campaign.ProviderManifest{
-		Schema:     campaign.ProviderSchema,
-		ID:         request.ProviderID,
-		Version:    1,
-		PlanSchema: campaign.Schema,
-		PlanSHA256: request.PlanSHA256,
-		Entries:    make([]campaign.ProviderEntry, 0, len(request.Plan.Mutations)),
+		Schema:       campaign.ProviderSchema,
+		ID:           request.ProviderID,
+		Version:      1,
+		PlanSchema:   campaign.Schema,
+		PlanSHA256:   request.PlanSHA256,
+		Capabilities: append([]campaign.ProviderCapability(nil), request.Capabilities...),
+		Entries:      make([]campaign.ProviderEntry, 0, len(request.Plan.Mutations)),
 	}
 	variants := make([]Variant, 0, len(request.Plan.Mutations))
 	for _, planned := range request.Plan.Mutations {
@@ -163,8 +176,13 @@ func Build(request Request) (Result, error) {
 		if err := copySourceTree(sourceRoot, sourceDir, []string{outputDir, binaryDir, stagedOutput, stagedBinary}); err != nil {
 			return Result{}, fmt.Errorf("copy source for mutation %s: %w", planned.Spec.ID, err)
 		}
-		if err := request.Mutate(sourceDir, planned.Spec); err != nil {
+		provenance, err := request.Mutate(sourceDir, planned.Spec)
+		if err != nil {
 			return Result{}, fmt.Errorf("apply mutation %s: %w", planned.Spec.ID, err)
+		}
+		sourceHash, err := campaign.HashTree(sourceDir)
+		if err != nil {
+			return Result{}, fmt.Errorf("hash mutated source for %s: %w", planned.Spec.ID, err)
 		}
 		stagedBinaryPath := filepath.Join(stagedBinary, name, request.BinaryName)
 		if err := os.MkdirAll(filepath.Dir(stagedBinaryPath), 0o755); err != nil {
@@ -178,6 +196,11 @@ func Build(request Request) (Result, error) {
 		if err != nil {
 			return Result{}, fmt.Errorf("bind binary for mutation %s: %w", planned.Spec.ID, err)
 		}
+		finalSourceDir := filepath.Join(outputDir, "variants", name, "source")
+		sourceRelative, err := filepath.Rel(sourceRoot, finalSourceDir)
+		if err != nil {
+			return Result{}, fmt.Errorf("bind source for mutation %s: %w", planned.Spec.ID, err)
+		}
 		binaryHash, err := hashFile(stagedBinaryPath)
 		if err != nil {
 			return Result{}, fmt.Errorf("hash binary for mutation %s: %w", planned.Spec.ID, err)
@@ -188,11 +211,19 @@ func Build(request Request) (Result, error) {
 			Args:        append([]string(nil), request.SubjectArgs...),
 			SubjectRoot: ".",
 			Variant:     planned.Spec.ID,
+			Provenance: &campaign.ProviderProvenance{
+				SourceDir:    filepath.ToSlash(sourceRelative),
+				SourceSHA256: sourceHash,
+				BinarySHA256: binaryHash,
+				Location:     provenance.Location,
+				Before:       provenance.Before,
+				After:        provenance.After,
+			},
 		})
 		variants = append(variants, Variant{
 			Sequence:     planned.Sequence,
 			MutationID:   planned.Spec.ID,
-			SourceDir:    filepath.Join(outputDir, "variants", name, "source"),
+			SourceDir:    finalSourceDir,
 			BinaryPath:   binaryPath,
 			BinarySHA256: binaryHash,
 		})

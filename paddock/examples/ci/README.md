@@ -90,3 +90,16 @@ paddock ci . --policy-lock paddock.lock.json --graph paddock-graph.json \
 
 See [`../../ADAPTER-PROTOCOL.md`](../../ADAPTER-PROTOCOL.md) for the request,
 response, capability negotiation, and process failure contract.
+
+## GitHub Actions example
+
+[`github-paddock-release.yml`](github-paddock-release.yml) is a non-active
+provider example. Copy it into a repository's `.github/workflows/` directory
+when GitHub Actions is the chosen publisher. A `paddock-v*` tag builds the
+four supported archives, verifies `release-manifest.json`, uploads the bundle,
+and publishes a GitHub release containing the archives, checksum file, and
+manifest.
+
+Ingen now has the same workflow active at
+`.github/workflows/paddock-release.yml`; it remains dormant until a
+`paddock-v*` tag is pushed.

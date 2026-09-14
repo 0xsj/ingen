@@ -36,5 +36,8 @@ jobs:
       - name: Run static and test checks
         run: make check
 
+      - name: Run Go race-detector checks
+        run: make race
+
       - name: Run composition examples
         run: make examples

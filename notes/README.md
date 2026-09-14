@@ -41,6 +41,7 @@ These are starting points, not a second architecture document.
 - [A campaign plan freezes mutation inputs before execution](modules/sorna-campaign-plan.md)
 - [A campaign executor must preserve one clean comparison per mutation](modules/sorna-campaign-execution.md)
 - [A Go provider mutates a copy and hands off a prepared binary](modules/sorna-golang-provider.md)
+- [A provider capability review should happen before execution](modules/sorna-provider-review.md)
 - [Mutation results separate target sensitivity from setup fallout](modules/sorna-mutation-result-model.md)
 - [A live process check adds lifecycle evidence without upgrading isolation assurance](modules/sorna-live-process-check.md)
 - [A managed subject lifecycle improves reproducibility without proving isolation](modules/sorna-managed-subject-lifecycle.md)

@@ -63,8 +63,12 @@ func run(args []string) int {
 		BuildPackage: *buildPackage,
 		BinaryName:   "document-pipeline",
 		ProviderID:   *providerID,
-		SubjectArgs:  []string{"-addr", "${SORA_ADDR}"},
-		Mutate:       mutateDocumentPipeline,
+		Capabilities: []campaign.ProviderCapability{
+			{Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents"},
+			{Plane: "implementation", Operator: "response.field.remove", Target: "POST /documents"},
+		},
+		SubjectArgs: []string{"-addr", "${SORA_ADDR}"},
+		Mutate:      mutateDocumentPipeline,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -87,36 +91,64 @@ func run(args []string) int {
 }
 
 // mutateDocumentPipeline is intentionally narrow. It proves that the Go
-// provider can apply one reviewed AST change to an isolated copy; the generic
+// provider can apply reviewed AST changes to an isolated copy; the generic
 // provider package owns copying/building, while this lab owns target meaning.
-func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) error {
+func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.ProviderProvenance, error) {
 	if spec.Plane != "implementation" {
-		return fmt.Errorf("Go document provider only supports implementation mutations")
+		return campaign.ProviderProvenance{}, fmt.Errorf("Go document provider only supports implementation mutations")
 	}
-	if spec.Operator != "response.status.replace" || spec.Target != "POST /documents" {
-		return fmt.Errorf("unsupported document mutation %q at %q", spec.Operator, spec.Target)
+	if spec.Target != "POST /documents" {
+		return campaign.ProviderProvenance{}, fmt.Errorf("unsupported document mutation %q at %q", spec.Operator, spec.Target)
 	}
-	from, err := changeInteger(spec, "from")
-	if err != nil {
-		return err
-	}
-	to, err := changeInteger(spec, "to")
-	if err != nil {
-		return err
-	}
-	if from != 202 || to != 200 {
-		return fmt.Errorf("document provider supports only status 202 -> 200, got %d -> %d", from, to)
+
+	operator := spec.Operator
+	var provenance campaign.ProviderProvenance
+	var fieldToRemove string
+	switch operator {
+	case "response.status.replace":
+		from, err := changeInteger(spec, "from")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		to, err := changeInteger(spec, "to")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		if from != 202 || to != 200 {
+			return campaign.ProviderProvenance{}, fmt.Errorf("document provider supports only status 202 -> 200, got %d -> %d", from, to)
+		}
+		provenance = campaign.ProviderProvenance{
+			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:writeJSON.status",
+			Before:   "http.StatusAccepted",
+			After:    "http.StatusOK",
+		}
+	case "response.field.remove":
+		field, err := changeString(spec, "field")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		if field != "name" {
+			return campaign.ProviderProvenance{}, fmt.Errorf("document provider supports removing only response field %q, got %q", "name", field)
+		}
+		fieldToRemove = field
+		provenance = campaign.ProviderProvenance{
+			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:writeJSON.body.name",
+			Before:   "name: name",
+			After:    "name field removed",
+		}
+	default:
+		return campaign.ProviderProvenance{}, fmt.Errorf("unsupported document mutation %q at %q", spec.Operator, spec.Target)
 	}
 
 	path := filepath.Join(variantRoot, "examples", "document-pipeline-lab", "subject", "server.go")
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read document subject source: %w", err)
+		return campaign.ProviderProvenance{}, fmt.Errorf("read document subject source: %w", err)
 	}
 	fileSet := token.NewFileSet()
 	file, err := parser.ParseFile(fileSet, path, contents, parser.ParseComments)
 	if err != nil {
-		return fmt.Errorf("parse document subject source: %w", err)
+		return campaign.ProviderProvenance{}, fmt.Errorf("parse document subject source: %w", err)
 	}
 	changed := 0
 	for _, declaration := range file.Decls {
@@ -133,6 +165,22 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) error {
 			if !ok || callee.Name != "writeJSON" {
 				return true
 			}
+			if operator == "response.status.replace" {
+				status, ok := call.Args[1].(*ast.SelectorExpr)
+				if !ok || status.Sel.Name != "StatusAccepted" {
+					return true
+				}
+				packageName, ok := status.X.(*ast.Ident)
+				if !ok || packageName.Name != "http" {
+					return true
+				}
+				status.Sel.Name = "StatusOK"
+				changed++
+				return true
+			}
+			if len(call.Args) < 3 {
+				return true
+			}
 			status, ok := call.Args[1].(*ast.SelectorExpr)
 			if !ok || status.Sel.Name != "StatusAccepted" {
 				return true
@@ -141,22 +189,56 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) error {
 			if !ok || packageName.Name != "http" {
 				return true
 			}
-			status.Sel.Name = "StatusOK"
-			changed++
+			body, ok := call.Args[2].(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			if _, ok := body.Type.(*ast.MapType); !ok {
+				return true
+			}
+			for index, element := range body.Elts {
+				keyValue, ok := element.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				key, ok := keyValue.Key.(*ast.BasicLit)
+				if !ok || key.Kind != token.STRING {
+					continue
+				}
+				name, err := strconv.Unquote(key.Value)
+				if err != nil || name != fieldToRemove {
+					continue
+				}
+				body.Elts = append(body.Elts[:index], body.Elts[index+1:]...)
+				changed++
+				return true
+			}
 			return true
 		})
 	}
 	if changed != 1 {
-		return fmt.Errorf("expected exactly one create response status to change, found %d", changed)
+		return campaign.ProviderProvenance{}, fmt.Errorf("expected exactly one %s mutation target, found %d", operator, changed)
 	}
 	var formatted bytes.Buffer
 	if err := format.Node(&formatted, fileSet, file); err != nil {
-		return fmt.Errorf("format mutated document subject source: %w", err)
+		return campaign.ProviderProvenance{}, fmt.Errorf("format mutated document subject source: %w", err)
 	}
 	if err := os.WriteFile(path, formatted.Bytes(), 0o644); err != nil {
-		return fmt.Errorf("write mutated document subject source: %w", err)
+		return campaign.ProviderProvenance{}, fmt.Errorf("write mutated document subject source: %w", err)
 	}
-	return nil
+	return provenance, nil
+}
+
+func changeString(spec mutation.Spec, key string) (string, error) {
+	value, ok := spec.Change[key]
+	if !ok {
+		return "", fmt.Errorf("mutation %s is missing change.%s", spec.ID, key)
+	}
+	converted, ok := value.(string)
+	if !ok || converted == "" {
+		return "", fmt.Errorf("mutation %s change.%s must be a non-empty string", spec.ID, key)
+	}
+	return converted, nil
 }
 
 func changeInteger(spec mutation.Spec, key string) (int, error) {

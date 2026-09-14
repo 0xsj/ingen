@@ -44,8 +44,10 @@ go run ./sorna/cmd/sorna mutation list examples/document-pipeline-lab/mutations/
 The first format supports structured `from`/`to` changes and structural
 validation. It remains a declaration rather than an execution instruction;
 the Go provider and campaign runner consume it only after plan construction.
-The current Go provider supports one document-lab operator, not a general
-language SDK or operator pack.
+The current Go provider supports two document-lab response operators, not a
+general language SDK or operator pack. The catalogue remains the language-
+neutral description; provider support is still an explicit implementation
+boundary.
 
 ## Used in
 

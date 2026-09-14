@@ -1,6 +1,7 @@
 package amber
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -120,5 +121,38 @@ func TestInvalidJSONIsRejected(t *testing.T) {
 	_, err := FromJSON([]byte(`{"version":1,"work_id":"bad"}`))
 	if err == nil {
 		t.Fatal("expected malformed provenance to be rejected")
+	}
+}
+
+func TestUnknownJSONFieldsAreAcceptedAndOmittedOnReencode(t *testing.T) {
+	root, err := Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	wire["future_field"] = "accepted-and-ignored"
+	mode := wire["mode"].(map[string]any)
+	mode["future_mode_field"] = true
+	withUnknown, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := FromJSON(withUnknown)
+	if err != nil {
+		t.Fatalf("unknown fields should be accepted: %v", err)
+	}
+	reencoded, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(reencoded, []byte("future_field")) || bytes.Contains(reencoded, []byte("future_mode_field")) {
+		t.Fatalf("unknown fields should be omitted by the non-lossless SDK: %s", reencoded)
 	}
 }

@@ -2,7 +2,7 @@
 
 Sorna now turns the validated mutation catalogue into a canonical
 `ingen.mutation-plan/v1` artifact. The plan is the handoff between review and a
-future mutation provider.
+mutation provider.
 
 ## What the plan binds
 
@@ -21,8 +21,8 @@ from a failed or mutated clean run.
 
 ## Why planning is separate from applying
 
-The catalogue describes what a mutation means; a provider will eventually
-decide how to apply it for a language or build system. Separating those steps
+The catalogue describes what a mutation means; a provider decides how to apply
+it for a language or build system. Separating those steps
 keeps source-editing permissions explicit and makes the campaign inputs
 reviewable before a working tree or subject process is touched.
 

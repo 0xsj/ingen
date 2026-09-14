@@ -15,8 +15,10 @@ that the package artifact contained the intended compiled entry point.
 runtime and type targets, marks the package as side-effect free, and publishes
 only an explicit whitelist of library files from `dist`, excluding compiled
 tests and examples. `typescript/README.md` provides the package quickstart. The root
-`package-check` target builds the SDK and runs `npm pack --dry-run`; `make check`
-includes that target. `CHANGELOG.md` records the current unreleased surface.
+`package-check` target builds the SDK, checks `npm pack --dry-run`, then installs
+the actual tarball in a clean temporary project and exercises its public ESM
+entry point. `make check` includes that target. `CHANGELOG.md` records the
+current unreleased surface.
 
 ## Why
 
@@ -33,7 +35,9 @@ make package-check
 ```
 
 The package should expose the compiled `dist/index.js` runtime and
-`dist/index.d.ts` type entry, with source tests excluded from the artifact.
+`dist/index.d.ts` type entry, with source tests excluded from the artifact. A
+fresh consumer should be able to install the tarball and import the package by
+name.
 
 ## Gotchas
 
@@ -43,6 +47,8 @@ The package should expose the compiled `dist/index.js` runtime and
   package version; changing one does not automatically change the other.
 - The package is not published by this workflow; publishing ownership and the
   final npm name remain open project decisions.
+- The smoke test uses a temporary local project and does not contact the npm
+  registry for Amber itself.
 
 ## Used in
 
@@ -56,4 +62,5 @@ The package should expose the compiled `dist/index.js` runtime and
 
 - [The root check gate should combine static analysis with cross-language tests](017-static-check-gate.md)
 - [CI should run the same cross-language checks and examples as local development](016-continuous-verification-workflow.md)
+- [The package artifact should pass a clean consumer smoke test](026-package-install-smoke-test.md)
 - [The shared contract must precede both SDKs](001-spec-first-foundation.md)

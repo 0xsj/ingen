@@ -111,6 +111,20 @@ isolation, correctness, or complete observation.
 If the bundle cannot be verified, Sorna emits the envelope's `error` form when
 `--format ci-result` is requested, preserving exit code `2` for the collector.
 
+Sorna also exposes its no-execution mutation-provider review through the same
+envelope:
+
+```sh
+sorna mutation provider inspect plan.json \
+  --provider provider.yaml \
+  --format ci-result --output provider-review-ci-result.json
+```
+
+This uses `kind: "mutation-provider-review"`. Its `report` remains the
+producer-owned `ingen.mutation-provider-review/v1` artifact, while `inputs`
+binds the exact plan and provider files. A blocked review maps to envelope
+`status: "failed"` and exit code `1`; no subject process is launched.
+
 ## Nublar consumer
 
 Nublar composes multiple envelopes without importing their producer packages:

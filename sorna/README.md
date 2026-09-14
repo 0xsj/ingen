@@ -113,6 +113,7 @@ go run ./sorna/cmd/sorna mutation validate examples/document-pipeline-lab/mutati
 go run ./sorna/cmd/sorna mutation list examples/document-pipeline-lab/mutations/catalogue.yaml
 make mutation-plan
 make mutation-provider-validate
+make mutation-provider-inspect
 make mutation-campaign-run
 make mutation-campaign-verify
 make mutation-go-provider-build
@@ -136,10 +137,21 @@ evidence bundle and compares its current hashes with the aggregate result. A
 `killed` mutation is a successful campaign entry; the nested contract run may
 still be red by design.
 
+Provider manifests now declare the exact mutation plane, operator, and target
+shapes they support. Sorna checks those capabilities against the plan before
+launching any subject.
+
+`mutation provider inspect` produces a versioned review report without
+launching a subject. It shows the exact plan/provider hashes, plan binding
+state, declared capabilities, and per-mutation entry/capability matches.
+With `--format ci-result`, the same report becomes a shared CI envelope for
+Nublar.
+
 The first source-level Go provider is deliberately narrow. It copies the clean
 Go module once per plan entry, applies the document lab's reviewed
-`response.status.replace` change with the Go AST, builds a fresh binary, and
-then hands the normal `ingen.mutation-provider/v1` manifest to Sorna:
+`response.status.replace` or `response.field.remove` change with the Go AST,
+builds a fresh binary, records source/edit/binary provenance, and then hands
+the normal `ingen.mutation-provider/v1` manifest to Sorna:
 
 ```sh
 make mutation-go-campaign-run
@@ -148,4 +160,5 @@ make mutation-go-campaign-verify
 
 The provider retains copied variant sources for review and places runnable
 binaries under the existing managed-subject read root. It does not modify the
-working tree and does not claim to support arbitrary Go operators yet.
+working tree; Sorna verifies the recorded source and binary hashes before each
+variant starts. It does not claim to support arbitrary Go operators yet.

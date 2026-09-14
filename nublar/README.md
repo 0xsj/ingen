@@ -23,6 +23,10 @@ The workflow file declares which producer results a CI run expects:
 schema: ingen.nublar-workflow/v1
 id: document-pipeline-ci
 checks:
+  - id: mutation-provider-review
+    tool: sorna
+    result: .artifacts/document-pipeline-provider-review-ci-result.json
+    required: true
   - id: behavioral-verification
     tool: sorna
     result: .artifacts/document-pipeline-ci-result.json
@@ -46,6 +50,11 @@ claims a different producer than the workflow declares is also an error. The
 aggregate records the workflow path and SHA-256 so the collection policy is
 part of the result provenance. Each consumed CI-result file is also recorded
 with its own SHA-256.
+
+The document-pipeline workflow collects Sorna's provider-preflight envelope as
+well as its behavioral-verification envelope. Nublar preserves both complete
+producer results and only composes their statuses; the provider review remains
+the authority for capability and plan-binding findings.
 
 ## Aggregate shared results
 

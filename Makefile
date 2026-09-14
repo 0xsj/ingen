@@ -23,12 +23,15 @@ DEFECT_URL ?= http://127.0.0.1:8081
 DEFECT_READY_PATH ?= /healthz
 DEFECT_RUN_OUTPUT_DIR ?= .artifacts/document-pipeline-defect-status-200
 DEFECT_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect
+DEFECT_REMOVE_NAME_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-remove-name
 SANDBOX_ROOT ?= .
 SANDBOX_PROBE_PATH ?= examples/document-pipeline-lab/contract/contract.yaml
 ORACLE_OUTPUT_DIR ?= .artifacts/document-pipeline-oracle
 MUTATION_CATALOGUE ?= examples/document-pipeline-lab/mutations/catalogue.yaml
 MUTATION_PLAN_OUTPUT ?= .artifacts/document-pipeline-mutation-plan.json
 MUTATION_PROVIDER ?= examples/document-pipeline-lab/mutations/provider.yaml
+MUTATION_PROVIDER_REVIEW_OUTPUT ?= .artifacts/document-pipeline-provider-review.json
+MUTATION_PROVIDER_CI_RESULT_OUTPUT ?= .artifacts/document-pipeline-provider-review-ci-result.json
 MUTATION_CAMPAIGN_OUTPUT_DIR ?= .artifacts/document-pipeline-campaign
 MUTATION_CAMPAIGN_RESULT_OUTPUT ?= $(MUTATION_CAMPAIGN_OUTPUT_DIR)/campaign-result.json
 MUTATION_GO_PROVIDER_OUTPUT_DIR ?= .artifacts/document-pipeline-go-provider
@@ -42,7 +45,7 @@ MUTATION_GO_CAMPAIGN_RESULT_OUTPUT ?= $(MUTATION_GO_CAMPAIGN_OUTPUT_DIR)/campaig
 .PHONY: help build test test-race vet check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
 	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate sorna-oracle-freeze \
-	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-campaign-run mutation-campaign-verify mutation-go-provider-build mutation-go-campaign-run mutation-go-campaign-verify sandbox-contract-read
+	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-go-provider-build mutation-go-campaign-run mutation-go-campaign-verify sandbox-contract-read defect-remove-name-build
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -88,6 +91,10 @@ defect-build: ## Build the controlled status-200-create defect binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
 	$(GO_CMD) build -o "$(DEFECT_BINARY)" ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect
 
+defect-remove-name-build: ## Build the controlled remove-name-create defect binary
+	mkdir -p "$(SUBJECT_BINARY_DIR)"
+	$(GO_CMD) build -o "$(DEFECT_REMOVE_NAME_BINARY)" ./examples/document-pipeline-lab/defects/remove-name-create/cmd/document-pipeline-defect
+
 sorna-run: sorna-oracle-freeze subject-build ## Freeze the oracle, launch the isolated clean subject, run Sorna, and tear it down
 	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --subject-root "$(SUBJECT_ROOT)" --base-url "$(SUBJECT_URL)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant clean-baseline --output-dir "$(RUN_OUTPUT_DIR)"
 
@@ -104,7 +111,7 @@ sorna-ci-result: ## Write the language-neutral CI result envelope for RUN_OUTPUT
 	mkdir -p "$(dir $(CI_RESULT_OUTPUT))"
 	$(GO_CMD) run ./sorna/cmd/sorna gate --format ci-result $(if $(GATE_MIN_OBSERVATION_COVERAGE),--minimum-observation-coverage "$(GATE_MIN_OBSERVATION_COVERAGE)",) "$(RUN_OUTPUT_DIR)" > "$(CI_RESULT_OUTPUT)"
 
-nublar-aggregate: sorna-ci-result ## Aggregate the current Sorna result through Nublar
+nublar-aggregate: sorna-ci-result mutation-provider-ci-result ## Aggregate Sorna behavioral and provider-preflight CI results through Nublar
 	mkdir -p "$(dir $(NUBLAR_RESULT_OUTPUT))"
 	$(GO_CMD) run ./nublar/cmd/nublar aggregate --workflow "$(NUBLAR_WORKFLOW)" --root . --output "$(NUBLAR_RESULT_OUTPUT)"
 
@@ -127,7 +134,13 @@ mutation-plan: sorna-run mutation-catalogue-validate ## Build a ready mutation c
 mutation-provider-validate: ## Validate the document-pipeline mutation provider manifest
 	$(GO_CMD) run ./sorna/cmd/sorna mutation provider validate "$(MUTATION_PROVIDER)"
 
-mutation-campaign-run: mutation-plan defect-build mutation-provider-validate ## Execute every planned document-pipeline mutation in an isolated fresh subject
+mutation-provider-inspect: mutation-plan mutation-provider-validate ## Review provider capabilities against the ready mutation plan without launching subjects
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_PROVIDER)" --format json --output "$(MUTATION_PROVIDER_REVIEW_OUTPUT)"
+
+mutation-provider-ci-result: mutation-plan mutation-provider-validate ## Write the provider preflight as a shared CI result envelope
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_PROVIDER)" --format ci-result --output "$(MUTATION_PROVIDER_CI_RESULT_OUTPUT)"
+
+mutation-campaign-run: mutation-plan defect-build defect-remove-name-build mutation-provider-validate ## Execute every planned document-pipeline mutation in an isolated fresh subject
 	$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_PROVIDER)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --base-address "$(DEFECT_ADDR)" --output-dir "$(MUTATION_CAMPAIGN_OUTPUT_DIR)" --output "$(MUTATION_CAMPAIGN_RESULT_OUTPUT)"
 
 mutation-campaign-verify: ## Verify campaign entries against their recorded evidence hashes

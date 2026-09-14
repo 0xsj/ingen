@@ -1,6 +1,10 @@
 schema: ingen.nublar-workflow/v1
 id: document-pipeline-ci
 checks:
+  - id: mutation-provider-review
+    tool: sorna
+    result: .artifacts/document-pipeline-provider-review-ci-result.json
+    required: true
   - id: behavioral-verification
     tool: sorna
     result: .artifacts/document-pipeline-ci-result.json

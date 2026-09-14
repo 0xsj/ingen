@@ -28,6 +28,7 @@ policy:
         ports:
           - 8080
           - 8081
+          - 8082
         direction: inbound
         purpose: local Sorna readiness and public HTTP requests
 

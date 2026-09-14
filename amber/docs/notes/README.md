@@ -28,13 +28,19 @@ evolves, not as a replacement for the code or specification.
 | Messaging middleware | Generic message wrappers clone metadata, install context, and propagate outgoing provenance | Messaging middleware tests pass in both languages |
 | Durable storage seam | Go file-backed snapshots and a TypeScript atomic key-value backend contract preserve storage invariants | Durable storage tests pass in both languages |
 | End-to-end examples | Runnable Go and TypeScript flows compose HTTP, child derivation, storage, logging, and tracing | `make examples` passes |
-| Continuous verification | GitHub Actions runs the root test suite and composition examples for main pushes and pull requests | Workflow mirrors `make test` and `make examples` |
+| Continuous verification | GitHub Actions runs the root check gate, Go race detector, and composition examples for main pushes and pull requests | Workflow mirrors `make check`, `make race`, and `make examples` |
 | Static check gate | Root lint and check targets run Go vet and TypeScript typechecking alongside tests | `make check` passes |
 | Work-history queries | Stores list executions by logical work ID in deterministic history order | Shared storage history fixture passes in both SDKs |
 | Causation queries | Stores find immediate children and retries by causation kind and execution ID | Shared storage causation fixture passes in both SDKs |
 | Correlation queries | Stores find related executions across logical works by correlation ID | Shared storage correlation fixture passes in both SDKs |
-| Package artifact contract | TypeScript exports are explicit and the publishable artifact is checked before release | `make package-check` passes |
+| Package artifact contract | TypeScript exports are explicit and a clean temporary consumer installs and exercises the publishable artifact before release | `make package-check` passes |
 | Trust boundary | v1 remains unsigned by default and optional validators run before context installation | Trust-hook tests pass in both SDKs |
+| Decoder fuzz coverage | Core JSON and transport metadata decoders have short local fuzz targets that preserve validation and round-trip invariants | `make fuzz` passes |
+| Concurrent storage hardening | Memory and file-backed stores are exercised with concurrent writers/readers and a repeatable race-detector command | `make race` passes |
+| CI race gate | Pull requests and main pushes run the Go race detector after the cross-language check gate | GitHub Actions workflow includes `make race` |
+| Package install smoke test | The TypeScript tarball is installed in an isolated temporary project and its public ESM entry point performs a provenance round trip | `make package-check` passes |
+| Go module consumer smoke test | A temporary external Go module imports the public Amber module path and propagates a provenance header | `make module-check` passes |
+| v1 foundation checkpoint | Core semantics and release checks are stable; production-specific integrations and authenticated extensions remain separately scoped | Spec stability boundary and all local gates pass |
 
 When a later change alters one of these results, update the relevant note and
 this milestone table in the same change.
@@ -63,6 +69,12 @@ this milestone table in the same change.
 20. [Correlation queries should link related work without changing work membership](020-correlation-query.md)
 21. [The TypeScript package should publish one explicit, testable entry artifact](021-package-artifact-contract.md)
 22. [Amber v1 should stay unsigned by default while exposing an explicit trust seam](022-unsigned-v1-trust-seam.md)
+23. [Decoder fuzzing should protect the untrusted input boundary](023-decoder-fuzz-coverage.md)
+24. [Storage concurrency should be verified with the race detector](024-storage-race-coverage.md)
+25. [CI should enforce race safety continuously](025-ci-race-gate.md)
+26. [The package artifact should pass a clean consumer smoke test](026-package-install-smoke-test.md)
+27. [The Go module should pass a clean consumer smoke test](027-go-module-consumer-smoke-test.md)
+28. [The v1 foundation should have an explicit freeze boundary](028-v1-foundation-checkpoint.md)
 
 ## Current open questions
 
