@@ -82,7 +82,24 @@ func TestSandboxEnforcesFilesystemProbe(t *testing.T) {
 	}
 }
 
-func TestPrepareRejectsUnsupportedNetworkMode(t *testing.T) {
+func TestPrepareRejectsUnrestrictedNetworkMode(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("host enforcement probe is macOS-specific")
+	}
+	document := testPolicy()
+	document.Policy["network"] = map[string]any{
+		"mode": "unrestricted",
+	}
+	sealed, err := policy.Seal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Prepare([]string{"/bin/cat"}, t.TempDir(), sealed); err == nil || !strings.Contains(err.Error(), "network.mode=unrestricted") {
+		t.Fatalf("Prepare error = %v, want unsupported network mode", err)
+	}
+}
+
+func TestPrepareAppliesDirectionalNetworkAllowlist(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("host enforcement probe is macOS-specific")
 	}
@@ -90,17 +107,31 @@ func TestPrepareRejectsUnsupportedNetworkMode(t *testing.T) {
 	document.Policy["network"] = map[string]any{
 		"mode": "allowlist",
 		"allow": []any{map[string]any{
-			"host":    "example.com",
-			"ports":   []any{int64(443)},
-			"purpose": "test network policy",
+			"host":      "localhost",
+			"ports":     []any{int64(8080)},
+			"direction": "inbound",
+			"purpose":   "test listener",
 		}},
 	}
 	sealed, err := policy.Seal(document)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Prepare([]string{"/bin/cat"}, t.TempDir(), sealed); err == nil || !strings.Contains(err.Error(), "network.mode=disabled") {
-		t.Fatalf("Prepare error = %v, want unsupported network mode", err)
+	prepared, err := Prepare([]string{"/bin/cat"}, t.TempDir(), sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := prepared.Command[2]
+	for _, expected := range []string{
+		`(allow network-bind (local tcp "localhost:8080"))`,
+		`(allow network-inbound (local tcp "localhost:8080"))`,
+	} {
+		if !strings.Contains(profile, expected) {
+			t.Fatalf("Seatbelt profile = %s, want %q", profile, expected)
+		}
+	}
+	if strings.Contains(profile, "network-outbound") || prepared.NetworkMode != "allowlist" {
+		t.Fatalf("prepared = %+v; want inbound-only allowlist", prepared)
 	}
 }
 

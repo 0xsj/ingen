@@ -34,9 +34,9 @@ type Config struct {
 	Lifecycle *lifecycle.Record
 }
 
-// RunRecord is the first machine-readable Sorna run artifact. It is
-// deliberately marked as self-reported until a host-enforced isolation layer
-// exists around the subject and oracle.
+// RunRecord is the first machine-readable Sorna run artifact. Its assurance
+// status describes the subject boundary that was actually requested; level 0
+// remains conservative until that boundary has independent attestation.
 type RunRecord struct {
 	Schema    string            `json:"schema"`
 	RunID     string            `json:"run_id"`
@@ -232,13 +232,20 @@ func executeCases(ctx context.Context, contractReference ContractReference, case
 		now = config.Now
 	}
 	createdAt := now().UTC()
-	limitations := []string{
-		"the runner does not yet enforce a capability boundary",
-	}
+	limitations := make([]string, 0, 2)
+	assuranceStatus := "self-reported"
 	if config.Lifecycle == nil || config.Lifecycle.Mode != "managed-process" {
-		limitations = append([]string{"the subject was supplied as an already-running URL"}, limitations...)
+		limitations = append(limitations, "the subject was supplied as an already-running URL")
+		limitations = append(limitations, "the runner does not attest to a capability boundary")
+	} else if config.Lifecycle.Sandbox == nil {
+		limitations = append(limitations, "Sorna managed process startup and teardown, but the process was not capability-isolated")
+		limitations = append(limitations, "the runner does not attest to a capability boundary")
+	} else if config.Lifecycle.Sandbox.Enforcement != "host-enforced" {
+		limitations = append(limitations, "the managed subject policy was recorded but not host-enforced")
+		limitations = append(limitations, "the runner does not attest to a capability boundary")
 	} else {
-		limitations = append([]string{"Sorna managed process startup and teardown, but the process was not capability-isolated"}, limitations...)
+		assuranceStatus = "host-enforced-subject"
+		limitations = append(limitations, "subject policy was host-enforced, but access completeness and process/tool isolation are not independently attested")
 	}
 	record := RunRecord{
 		Schema:    "ingen.run/v1",
@@ -246,7 +253,7 @@ func executeCases(ctx context.Context, contractReference ContractReference, case
 		CreatedAt: createdAt,
 		Assurance: Assurance{
 			Level:       0,
-			Status:      "self-reported",
+			Status:      assuranceStatus,
 			Limitations: limitations,
 		},
 		Contract: contractReference,

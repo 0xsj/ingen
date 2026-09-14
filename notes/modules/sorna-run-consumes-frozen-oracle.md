@@ -37,9 +37,9 @@ oracle hash identifies the exact artifact consumed.
 - The run record can bind to an oracle without embedding the oracle itself. The
   separate oracle evidence bundle remains the artifact that stores and checks
   its bytes.
-- Policy loading during a run is still evidence plumbing. It checks the
-  supplied policy hash against the oracle when both are present, but it does
-  not yet isolate the subject process.
+- Policy loading during a run is still evidence plumbing for the oracle
+  policy. A separate `--subject-policy` can now isolate a managed subject, but
+  its policy and access evidence remain separate from oracle lineage.
 - The old contract API is intentionally retained while integrations migrate;
   the new CLI workflow does not use it when `--oracle` is supplied.
 

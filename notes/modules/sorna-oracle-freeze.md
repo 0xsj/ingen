@@ -39,15 +39,20 @@ root and that the oracle output path is covered by a declared write root. This
 binds command arguments to the policy instead of assuming the policy and
 command agree.
 
+The oracle bundle now also includes `events/access.jsonl`, populated from the
+macOS unified log for the exact sandboxed child PID and execution window. The
+manifest records whether that telemetry was captured and whether normalization
+had gaps.
+
 ## Gotchas
 
 - A frozen oracle is reproducible and traceable; it does not prove that the
   contract is correct.
-- The current runner still evaluates the sealed contract directly. It must be
-  changed to consume the frozen artifact before the workflow can claim full
-  oracle separation.
-- The event JSONL records process preparation, start, and completion, but not
-  kernel access events yet.
+- The run record now consumes the frozen artifact, but host access events still
+  describe the oracle process only; they do not attest to the subject process.
+- The unified log is observational. An empty access JSONL is not equivalent to
+  no attempted access, and dropped or unavailable telemetry must remain
+  visible in assurance status.
 - The first generator supports only the `repeat` generator and should reject
   or version future generator kinds explicitly.
 

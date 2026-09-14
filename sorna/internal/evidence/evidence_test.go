@@ -79,6 +79,7 @@ func TestWriteBundleAndVerify(t *testing.T) {
 
 func TestWriteBundleEmbedsSealedPolicyAndHashesIt(t *testing.T) {
 	directory := t.TempDir()
+	now := time.Date(2026, 9, 13, 20, 0, 0, 0, time.UTC)
 	sealed, err := policy.Seal(testPolicy())
 	if err != nil {
 		t.Fatal(err)
@@ -89,8 +90,21 @@ func TestWriteBundleEmbedsSealedPolicyAndHashesIt(t *testing.T) {
 		CreatedAt: time.Date(2026, 9, 13, 20, 0, 0, 0, time.UTC),
 		Contract:  runner.ContractReference{ID: "contract-test", Version: 1, SHA256: strings.Repeat("b", 64)},
 		Subject:   runner.SubjectReference{BaseURL: "http://subject.invalid", Adapter: "http-json-v1"},
+		Lifecycle: &lifecycle.Record{
+			Mode:    "managed-process",
+			Outcome: "stopped",
+			Access:  &lifecycle.AccessTelemetry{Status: "captured", Source: "test", ProcessID: 42, EventCount: 1},
+			AccessEvents: []lifecycle.AccessEvent{{
+				Timestamp: now,
+				Process:   "subject",
+				PID:       42,
+				Decision:  "deny",
+				Operation: "file-read-data",
+				Resource:  "/private/secret",
+			}},
+		},
 	}
-	bundle, err := WriteBundle(directory, record, &sealed)
+	bundle, err := WriteBundleWithPolicies(directory, record, &sealed, &sealed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,10 +119,16 @@ func TestWriteBundleEmbedsSealedPolicyAndHashesIt(t *testing.T) {
 	if manifest.Policy == nil || manifest.Policy.SHA256 != sealed.SHA256 {
 		t.Fatalf("manifest policy = %+v, want sealed policy reference", manifest.Policy)
 	}
-	for _, relative := range []string{"policy/canonical.json", "policy/hash.txt"} {
+	if manifest.SubjectPolicy == nil || manifest.SubjectPolicy.SHA256 != sealed.SHA256 {
+		t.Fatalf("manifest subject policy = %+v, want separate subject policy reference", manifest.SubjectPolicy)
+	}
+	for _, relative := range []string{"policy/canonical.json", "policy/hash.txt", "policy/subject/canonical.json", "policy/subject/hash.txt", "events/subject-access.jsonl"} {
 		if _, ok := manifest.ArtifactsSHA256[relative]; !ok {
 			t.Fatalf("manifest artifacts = %+v, want %q", manifest.ArtifactsSHA256, relative)
 		}
+	}
+	if bundle.SubjectAccessPath == "" {
+		t.Fatal("bundle subject access path is empty")
 	}
 	if err := Verify(directory); err != nil {
 		t.Fatalf("Verify() = %v, want valid policy bundle", err)
@@ -158,7 +178,7 @@ func TestWriteOracleBundleAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{bundle.OraclePath, bundle.ManifestPath, bundle.LifecyclePath, bundle.ChecksumsPath} {
+	for _, path := range []string{bundle.OraclePath, bundle.ManifestPath, bundle.LifecyclePath, bundle.AccessPath, bundle.ChecksumsPath} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("stat %s: %v", path, err)
 		}
@@ -171,8 +191,11 @@ func TestWriteOracleBundleAndVerify(t *testing.T) {
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Schema != "sorna.oracle-evidence/v1" || manifest.Oracle.SHA256 == "" || manifest.Contract != artifact.Contract {
+	if manifest.Schema != "sorna.oracle-evidence/v1" || manifest.Oracle.SHA256 == "" || manifest.Contract != artifact.Contract || manifest.Assurance.Status != "telemetry-unavailable" {
 		t.Fatalf("manifest = %+v, want oracle evidence identity", manifest)
+	}
+	if _, ok := manifest.ArtifactsSHA256["events/access.jsonl"]; !ok {
+		t.Fatalf("manifest artifacts = %+v, want access event hash", manifest.ArtifactsSHA256)
 	}
 	if err := Verify(directory); err != nil {
 		t.Fatalf("Verify() = %v, want valid oracle bundle", err)

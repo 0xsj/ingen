@@ -30,8 +30,9 @@ have the same strength.
 
 ### Level 0: self-reported
 
-The runner reports inputs and results, but there is no reliable access-boundary
-evidence. Useful for development; not an independence claim.
+The runner reports inputs and results. Host access observations may be present,
+but their completeness is not independently attested, so they are not an
+independence claim.
 
 ### Level 1: reproducible
 
@@ -84,7 +85,8 @@ run/
     results.jsonl
   events/
     lifecycle.jsonl
-    access.jsonl
+    access.jsonl              # oracle-generation observations
+    subject-access.jsonl      # managed-subject observations
   review/
     approvals.json
     waivers.json
@@ -148,6 +150,7 @@ Every material artifact is content-addressed or included in
 - contract fixtures;
 - oracle source and generated cases;
 - isolation and tool policies;
+- managed-subject policy, when a subject was launched under one;
 - implementation revision or image digest;
 - normalized observations;
 - rule results;
@@ -218,6 +221,11 @@ The evidence record must distinguish:
 - an action for which the platform has no observation.
 
 “No event recorded” is not equivalent to “the action did not happen.”
+
+Oracle-generation and managed-subject access streams must remain separate. A
+subject's access report cannot be used to claim that oracle generation was
+independent, and oracle-generation telemetry cannot be transferred to the
+subject run.
 
 ## 8. Rule result schema
 
@@ -315,4 +323,3 @@ The first implementation is evidence-complete when it can:
 - distinguish denied access from missing access telemetry;
 - preserve failed results and waivers without overwriting them;
 - replay a deterministic HTTP/JSON experiment.
-

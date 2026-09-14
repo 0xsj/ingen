@@ -1,0 +1,35 @@
+policy:
+  schema: ingen.policy/v1
+  id: document-pipeline-subject
+  version: 1
+  status: draft
+  purpose: managed-subject-public-boundary
+  enforcement: host-enforced
+
+  filesystem:
+    read:
+      - path: .artifacts/document-pipeline-subject
+        reason: compiled subject binaries for the selected lab variant
+    write: []
+    deny:
+      - path: examples/document-pipeline-lab/contract
+        reason: subject must not read the contract as private verifier input
+      - path: examples/document-pipeline-lab/defects
+        reason: a clean subject must not inspect mutation source
+      - path: .artifacts/document-pipeline-oracle
+        reason: subject must not read frozen oracle evidence
+      - path: .git
+        reason: repository history and metadata are outside the subject boundary
+
+  network:
+    mode: allowlist
+    allow:
+      - host: localhost
+        ports:
+          - 8080
+          - 8081
+        direction: inbound
+        purpose: local Sorna readiness and public HTTP requests
+
+  process:
+    can_invoke_subject: false

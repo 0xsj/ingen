@@ -513,6 +513,8 @@ The child process exists to make the access boundary operational. An
 in-process generator call would produce a useful artifact but would not prove
 that the oracle writer was subject to the host policy. The current bundle
 records process preparation, start, completion, resolved capability roots, and
-policy bytes. The HTTP runner now consumes the canonical frozen artifact and
-records its oracle hash in the subject-run evidence; kernel access events and
-assurance promotion remain subsequent slices.
+policy bytes. On macOS it also records scoped Seatbelt access decisions in
+`events/access.jsonl` and reports whether that telemetry was captured with
+gaps. The HTTP runner consumes the canonical frozen artifact and records its
+oracle hash in subject-run evidence; subject-process isolation and assurance
+promotion remain subsequent slices.

@@ -3,13 +3,14 @@
 package sandbox
 
 import (
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-func preparePlatform(command []string, commandPath, _ string, readPaths, writePaths, denyPaths []string) (Prepared, error) {
-	profile := seatbeltProfile(commandPath, readPaths, writePaths, denyPaths)
+func preparePlatform(command []string, commandPath, _ string, readPaths, writePaths, denyPaths []string, networkRules []NetworkRule) (Prepared, error) {
+	profile := seatbeltProfile(commandPath, readPaths, writePaths, denyPaths, networkRules)
 	wrapped := make([]string, 0, len(command)+3)
 	wrapped = append(wrapped, "/usr/bin/sandbox-exec", "-p", profile)
 	wrapped = append(wrapped, command...)
@@ -20,7 +21,7 @@ func preparePlatform(command []string, commandPath, _ string, readPaths, writePa
 	}, nil
 }
 
-func seatbeltProfile(commandPath string, readPaths, writePaths, denyPaths []string) string {
+func seatbeltProfile(commandPath string, readPaths, writePaths, denyPaths []string, networkRules []NetworkRule) string {
 	var builder strings.Builder
 	builder.WriteString("(version 1)\n")
 	builder.WriteString("(deny default)\n")
@@ -64,11 +65,39 @@ func seatbeltProfile(commandPath string, readPaths, writePaths, denyPaths []stri
 		writeAncestorTraversalRules(&builder, path)
 		writeRule(&builder, "file-write*", "subpath", path)
 	}
+	for _, rule := range networkRules {
+		for _, port := range rule.Ports {
+			endpoint := fmt.Sprintf("%s:%d", rule.Host, port)
+			switch rule.Direction {
+			case "inbound":
+				writeNetworkRule(&builder, "network-bind", "local", "tcp", endpoint)
+				writeNetworkRule(&builder, "network-inbound", "local", "tcp", endpoint)
+			case "outbound":
+				writeNetworkRule(&builder, "network-outbound", "remote", "tcp", endpoint)
+			case "both":
+				writeNetworkRule(&builder, "network-bind", "local", "tcp", endpoint)
+				writeNetworkRule(&builder, "network-inbound", "local", "tcp", endpoint)
+				writeNetworkRule(&builder, "network-outbound", "remote", "tcp", endpoint)
+			}
+		}
+	}
 	for _, path := range denyPaths {
 		writeDenyRule(&builder, "file-read*", "subpath", path)
 		writeDenyRule(&builder, "file-write*", "subpath", path)
 	}
 	return builder.String()
+}
+
+func writeNetworkRule(builder *strings.Builder, operation, relation, protocol, endpoint string) {
+	builder.WriteString("(allow ")
+	builder.WriteString(operation)
+	builder.WriteString(" (")
+	builder.WriteString(relation)
+	builder.WriteByte(' ')
+	builder.WriteString(protocol)
+	builder.WriteByte(' ')
+	builder.WriteString(seatbeltString(endpoint))
+	builder.WriteString("))\n")
 }
 
 func writeAncestorTraversalRules(builder *strings.Builder, path string) {

@@ -42,6 +42,8 @@ These are starting points, not a second architecture document.
 - [A checksum-verified bundle proves artifact integrity, not isolation or correctness](modules/sorna-evidence-bundle.md)
 - [A policy declaration is not an enforcement result](modules/sorna-policy-definition.md)
 - [A host policy backend needs bootstrap permissions and canonical paths](modules/sorna-sandbox-enforcement.md)
+- [Host access telemetry is evidence, not an absence proof](modules/sorna-access-event-evidence.md)
+- [A managed subject policy is separate from an oracle policy](modules/sorna-subject-isolation.md)
 - [A frozen oracle is a separate artifact from a subject run](modules/sorna-oracle-freeze.md)
 - [A subject run consumes the frozen oracle, not the contract source](modules/sorna-run-consumes-frozen-oracle.md)
 - [A fair mutation comparison requires the same sealed contract](concepts/fair-mutation-comparison-requires-the-same-contract.md)

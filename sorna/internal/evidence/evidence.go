@@ -19,11 +19,12 @@ import (
 
 // Bundle describes the files written for one run.
 type Bundle struct {
-	RootDir       string
-	RunPath       string
-	ManifestPath  string
-	LifecyclePath string
-	ChecksumsPath string
+	RootDir           string
+	RunPath           string
+	ManifestPath      string
+	LifecyclePath     string
+	SubjectAccessPath string
+	ChecksumsPath     string
 }
 
 // Manifest is the bundle entrypoint. It records identity and hashes, but does
@@ -37,6 +38,7 @@ type Manifest struct {
 	Oracle          *runner.OracleReference  `json:"oracle,omitempty"`
 	Subject         runner.SubjectReference  `json:"subject"`
 	Policy          *policy.Reference        `json:"policy,omitempty"`
+	SubjectPolicy   *policy.Reference        `json:"subject_policy,omitempty"`
 	ArtifactsSHA256 map[string]string        `json:"artifacts_sha256"`
 }
 
@@ -56,6 +58,13 @@ type LifecycleEvent struct {
 // WriteBundle writes run.json, an append-only lifecycle JSONL stream, a
 // manifest, and checksums for every material file in the bundle.
 func WriteBundle(outputDir string, record runner.RunRecord, sealedPolicy *policy.Sealed) (Bundle, error) {
+	return WriteBundleWithPolicies(outputDir, record, sealedPolicy, nil)
+}
+
+// WriteBundleWithPolicies keeps the oracle-generation policy and the managed
+// subject policy as separate evidence inputs. The old WriteBundle API remains
+// a compatibility path for runs that only have one policy.
+func WriteBundleWithPolicies(outputDir string, record runner.RunRecord, sealedPolicy, sealedSubjectPolicy *policy.Sealed) (Bundle, error) {
 	if strings.TrimSpace(outputDir) == "" {
 		return Bundle{}, fmt.Errorf("evidence output directory must not be empty")
 	}
@@ -87,6 +96,18 @@ func WriteBundle(outputDir string, record runner.RunRecord, sealedPolicy *policy
 		"run.json":               runHash,
 		"events/lifecycle.jsonl": lifecycleHash,
 	}
+	var subjectAccessPath string
+	if record.Lifecycle != nil && record.Lifecycle.Access != nil {
+		subjectAccessPath = filepath.Join(eventsDir, "subject-access.jsonl")
+		if err := writeSubjectAccessEvents(subjectAccessPath, record); err != nil {
+			return Bundle{}, err
+		}
+		subjectAccessHash, err := hashFile(subjectAccessPath)
+		if err != nil {
+			return Bundle{}, fmt.Errorf("hash events/subject-access.jsonl: %w", err)
+		}
+		artifacts["events/subject-access.jsonl"] = subjectAccessHash
+	}
 	var policyReference *policy.Reference
 	if sealedPolicy != nil {
 		policyDir := filepath.Join(outputDir, "policy")
@@ -114,6 +135,33 @@ func WriteBundle(outputDir string, record runner.RunRecord, sealedPolicy *policy
 		reference := sealedPolicy.Reference()
 		policyReference = &reference
 	}
+	var subjectPolicyReference *policy.Reference
+	if sealedSubjectPolicy != nil {
+		policyDir := filepath.Join(outputDir, "policy", "subject")
+		if err := os.MkdirAll(policyDir, 0o755); err != nil {
+			return Bundle{}, err
+		}
+		policyCanonicalPath := filepath.Join(policyDir, "canonical.json")
+		if err := os.WriteFile(policyCanonicalPath, sealedSubjectPolicy.CanonicalJSON, 0o644); err != nil {
+			return Bundle{}, err
+		}
+		policyHashPath := filepath.Join(policyDir, "hash.txt")
+		if err := os.WriteFile(policyHashPath, []byte(sealedSubjectPolicy.SHA256+"\n"), 0o644); err != nil {
+			return Bundle{}, err
+		}
+		policyCanonicalHash, err := hashFile(policyCanonicalPath)
+		if err != nil {
+			return Bundle{}, fmt.Errorf("hash policy/subject/canonical.json: %w", err)
+		}
+		policyHashHash, err := hashFile(policyHashPath)
+		if err != nil {
+			return Bundle{}, fmt.Errorf("hash policy/subject/hash.txt: %w", err)
+		}
+		artifacts["policy/subject/canonical.json"] = policyCanonicalHash
+		artifacts["policy/subject/hash.txt"] = policyHashHash
+		reference := sealedSubjectPolicy.Reference()
+		subjectPolicyReference = &reference
+	}
 	manifest := Manifest{
 		Schema:          "sorna.evidence/v1",
 		RunID:           record.RunID,
@@ -123,6 +171,7 @@ func WriteBundle(outputDir string, record runner.RunRecord, sealedPolicy *policy
 		Oracle:          record.Oracle,
 		Subject:         record.Subject,
 		Policy:          policyReference,
+		SubjectPolicy:   subjectPolicyReference,
 		ArtifactsSHA256: artifacts,
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
@@ -141,11 +190,12 @@ func WriteBundle(outputDir string, record runner.RunRecord, sealedPolicy *policy
 		return Bundle{}, err
 	}
 	return Bundle{
-		RootDir:       outputDir,
-		RunPath:       runPath,
-		ManifestPath:  manifestPath,
-		LifecyclePath: lifecyclePath,
-		ChecksumsPath: checksumsPath,
+		RootDir:           outputDir,
+		RunPath:           runPath,
+		ManifestPath:      manifestPath,
+		LifecyclePath:     lifecyclePath,
+		SubjectAccessPath: subjectAccessPath,
+		ChecksumsPath:     checksumsPath,
 	}, nil
 }
 
@@ -213,6 +263,44 @@ func writeLifecycleEvents(path string, record runner.RunRecord) error {
 			encoded, err := json.Marshal(line)
 			if err != nil {
 				return fmt.Errorf("encode lifecycle event %d: %w", event.Sequence, err)
+			}
+			buffer.Write(encoded)
+			buffer.WriteByte('\n')
+		}
+	}
+	return os.WriteFile(path, buffer.Bytes(), 0o644)
+}
+
+type SubjectAccessEvent struct {
+	EventID   string    `json:"event_id"`
+	RunID     string    `json:"run_id"`
+	Sequence  int       `json:"sequence"`
+	Timestamp time.Time `json:"timestamp"`
+	Process   string    `json:"process"`
+	PID       int       `json:"pid"`
+	Decision  string    `json:"decision"`
+	Operation string    `json:"operation"`
+	Resource  string    `json:"resource"`
+}
+
+func writeSubjectAccessEvents(path string, record runner.RunRecord) error {
+	var buffer bytes.Buffer
+	if record.Lifecycle != nil {
+		for index, event := range record.Lifecycle.AccessEvents {
+			line := SubjectAccessEvent{
+				EventID:   fmt.Sprintf("access-%04d", index+1),
+				RunID:     record.RunID,
+				Sequence:  index + 1,
+				Timestamp: event.Timestamp,
+				Process:   event.Process,
+				PID:       event.PID,
+				Decision:  event.Decision,
+				Operation: event.Operation,
+				Resource:  event.Resource,
+			}
+			encoded, err := json.Marshal(line)
+			if err != nil {
+				return fmt.Errorf("encode subject access event %d: %w", index+1, err)
 			}
 			buffer.Write(encoded)
 			buffer.WriteByte('\n')

@@ -100,7 +100,11 @@ worktrees, mutation source, repository metadata, and private transcripts.
 
 Allowlist entries require `host`, a non-empty `ports` list between 1 and
 65535, and a `purpose`. A DNS name, IP address, or symbolic host is interpreted
-by the enforcement backend; policy validation does not resolve it.
+by the enforcement backend; policy validation does not resolve it. An entry may
+also declare `direction` as `inbound`, `outbound`, or `both`. If omitted, v1
+treats it as `outbound` for compatibility with the original policy shape.
+Direction is part of the capability: a managed subject that listens on a local
+port must declare inbound access explicitly.
 
 ## 6. Process and tool policy
 
@@ -136,9 +140,10 @@ sorna sandbox exec --policy <path> [--root <dir>] -- <command> [args...]
 It canonicalizes the sandbox root, generates a deny-by-default profile, and
 applies the policy's filesystem `read` and `write` roots. The backend also
 allows the small set of Darwin runtime paths and bootstrap operations required
-by ordinary binaries. Network access is denied by default, so the backend
-rejects policies whose network mode is `allowlist` or `unrestricted` until
-those modes have a precise implementation.
+by ordinary binaries. Network access is denied by default. The current
+allowlist implementation applies TCP host/port entries with explicit
+inbound, outbound, or both direction; unrestricted network access remains
+unsupported.
 
 Explicit filesystem `deny` roots are emitted after the allow rules so a deny
 inside a broader allowed root remains denied. Paths are canonicalized before
@@ -146,7 +151,9 @@ the profile is generated, including macOS symlinked system roots such as
 `/var` and `/private/var`.
 
 This is a capability backend, not yet the complete Sorna oracle lifecycle. It
-does not enforce `can_invoke_subject` or `allowed_tools`, does not capture
-kernel access events, and does not change the assurance level of `sorna run`.
-The host-specific implementation returns an explicit unsupported-backend
-error on non-macOS systems.
+does not enforce `can_invoke_subject` or `allowed_tools`. Oracle freezes query
+macOS unified-log Seatbelt events into `events/access.jsonl`, while managed
+subject runs keep their observations in `events/subject-access.jsonl`. Both
+streams are host observations rather than a proof of absence. The
+host-specific implementation returns an explicit unsupported-backend error on
+non-macOS systems.

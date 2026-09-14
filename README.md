@@ -48,8 +48,9 @@ The design specifications and initial repository skeleton are in place. Sorna
 now has a first Go contract foundation, a public-boundary runner, managed
 subject lifecycle, a controlled defect detected by the sealed contract, and a
 macOS Seatbelt-backed workflow that freezes an oracle before running a subject.
-The next step is to capture host access events and connect them to the evidence
-assurance level.
+Managed subjects can now use a separate host-enforced policy, compiled runtime
+binary, and subject access stream. Assurance remains deliberately conservative:
+oracle and subject telemetry are evidence, not independent attestation.
 
 See [MODULES.md](MODULES.md) for the repository map and the intended status of
 each area.
@@ -76,9 +77,9 @@ the subject down. The
 `make subject-run` plus `make sorna-external-run` targets remain available when
 you need to supply an already-running subject yourself.
 
-The managed subject listens on `:8080` by default. Use
-`make sorna-run SUBJECT_ADDR=:8081 SUBJECT_URL=http://localhost:8081` to choose
-another address.
+The managed subject listens on `127.0.0.1:8080` by default. Use a matching
+custom `SUBJECT_POLICY` when choosing another port, for example
+`make sorna-run SUBJECT_ADDR=127.0.0.1:8081 SUBJECT_URL=http://127.0.0.1:8081`.
 
 To exercise the first controlled defect, run `make sorna-defect-run`. The
 output should show a failing contract verdict and a `killed` mutation outcome.

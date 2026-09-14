@@ -16,9 +16,19 @@ type Prepared struct {
 	Backend       string
 	Enforcement   string
 	PolicySHA256  string
+	NetworkMode   string
 	AllowedReads  []string
 	AllowedWrites []string
 	DeniedPaths   []string
+}
+
+// NetworkRule is the normalized subset of a policy that a host backend can
+// apply. A missing policy direction defaults to outbound for compatibility
+// with the original v1 allowlist shape.
+type NetworkRule struct {
+	Direction string
+	Host      string
+	Ports     []int64
 }
 
 // Prepare resolves policy roots and delegates to the platform enforcement
@@ -41,7 +51,8 @@ func Prepare(command []string, rootDir string, sealed policy.Sealed) (Prepared, 
 	if problems := policy.Validate(sealed.Document); len(problems) > 0 {
 		return Prepared{}, fmt.Errorf("sandbox policy is invalid: %s", strings.Join(problems, "; "))
 	}
-	if err := validateBackendPolicy(sealed.Document); err != nil {
+	networkMode, networkRules, err := networkCapabilities(sealed.Document)
+	if err != nil {
 		return Prepared{}, err
 	}
 	readPaths, writePaths, denyPaths, err := filesystemPaths(sealed, root)
@@ -52,11 +63,19 @@ func Prepare(command []string, rootDir string, sealed policy.Sealed) (Prepared, 
 	if err != nil {
 		return Prepared{}, fmt.Errorf("resolve sandbox executable %q: %w", command[0], err)
 	}
-	prepared, err := preparePlatform(command, commandPath, root, readPaths, writePaths, denyPaths)
+	if !filepath.IsAbs(commandPath) {
+		commandPath, err = filepath.Abs(commandPath)
+		if err != nil {
+			return Prepared{}, fmt.Errorf("resolve sandbox executable %q: %w", command[0], err)
+		}
+	}
+	commandPath = canonicalizeExistingParent(commandPath)
+	prepared, err := preparePlatform(command, commandPath, root, readPaths, writePaths, denyPaths, networkRules)
 	if err != nil {
 		return Prepared{}, err
 	}
 	prepared.PolicySHA256 = sealed.SHA256
+	prepared.NetworkMode = networkMode
 	prepared.AllowedReads = readPaths
 	prepared.AllowedWrites = writePaths
 	prepared.DeniedPaths = denyPaths
@@ -89,19 +108,92 @@ func PathCovered(roots []string, target string) bool {
 	return false
 }
 
-func validateBackendPolicy(document policy.Document) error {
+func networkCapabilities(document policy.Document) (string, []NetworkRule, error) {
 	network, ok := document.Policy["network"].(map[string]any)
 	if !ok {
-		return fmt.Errorf("sandbox policy network must be an object")
+		return "", nil, fmt.Errorf("sandbox policy network must be an object")
 	}
 	mode, ok := network["mode"].(string)
 	if !ok || mode == "" {
-		return fmt.Errorf("sandbox policy network.mode must be a string")
+		return "", nil, fmt.Errorf("sandbox policy network.mode must be a string")
 	}
-	if mode != "disabled" {
-		return fmt.Errorf("macOS Seatbelt backend currently requires network.mode=disabled, got %q", mode)
+	switch mode {
+	case "disabled":
+		return mode, nil, nil
+	case "allowlist":
+		rawEntries, ok := network["allow"].([]any)
+		if !ok {
+			return "", nil, fmt.Errorf("sandbox policy network.allow must be a list")
+		}
+		rules := make([]NetworkRule, 0, len(rawEntries))
+		for index, rawEntry := range rawEntries {
+			entry, ok := rawEntry.(map[string]any)
+			if !ok {
+				return "", nil, fmt.Errorf("sandbox policy network.allow[%d] must be an object", index)
+			}
+			host, ok := entry["host"].(string)
+			if !ok || strings.TrimSpace(host) == "" {
+				return "", nil, fmt.Errorf("sandbox policy network.allow[%d].host must be a string", index)
+			}
+			direction := "outbound"
+			if value, present := entry["direction"]; present {
+				direction, ok = value.(string)
+				if !ok || (direction != "inbound" && direction != "outbound" && direction != "both") {
+					return "", nil, fmt.Errorf("sandbox policy network.allow[%d].direction is invalid", index)
+				}
+			}
+			rawPorts, ok := entry["ports"].([]any)
+			if !ok {
+				return "", nil, fmt.Errorf("sandbox policy network.allow[%d].ports must be a list", index)
+			}
+			ports := make([]int64, 0, len(rawPorts))
+			for portIndex, rawPort := range rawPorts {
+				port, valid := policyInteger(rawPort)
+				if !valid || port < 1 || port > 65535 {
+					return "", nil, fmt.Errorf("sandbox policy network.allow[%d].ports[%d] is invalid", index, portIndex)
+				}
+				ports = append(ports, port)
+			}
+			rules = append(rules, NetworkRule{Direction: direction, Host: host, Ports: ports})
+		}
+		return mode, rules, nil
+	case "unrestricted":
+		return "", nil, fmt.Errorf("macOS Seatbelt backend does not support network.mode=unrestricted")
+	default:
+		return "", nil, fmt.Errorf("sandbox policy network.mode is unsupported: %q", mode)
 	}
-	return nil
+}
+
+func policyInteger(value any) (int64, bool) {
+	switch value := value.(type) {
+	case int:
+		return int64(value), true
+	case int8:
+		return int64(value), true
+	case int16:
+		return int64(value), true
+	case int32:
+		return int64(value), true
+	case int64:
+		return value, true
+	case uint:
+		return int64(value), uint64(value) <= uint64(^uint64(0)>>1)
+	case uint8:
+		return int64(value), true
+	case uint16:
+		return int64(value), true
+	case uint32:
+		return int64(value), true
+	case uint64:
+		if value > uint64(^uint64(0)>>1) {
+			return 0, false
+		}
+		return int64(value), true
+	case float64:
+		return int64(value), float64(int64(value)) == value
+	default:
+		return 0, false
+	}
 }
 
 func filesystemPaths(sealed policy.Sealed, root string) ([]string, []string, []string, error) {

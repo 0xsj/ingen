@@ -11,11 +11,13 @@ deliberate structural defect:
 | `layered-go` | the domain imports a transport package |
 | `hexagonal-go` | the domain imports `net/http` |
 | `modular-monolith-go` | orders imports billing internals directly |
+| `cyclic-go` | alpha and beta import each other |
 
 The fixtures should remain small enough that a reviewer can hold the whole
-graph in their head. Once the analyzer exists, each policy example should be
-run against its baseline and violating subject, and the expected rule ID should
-be asserted.
+graph in their head. The cyclic subject intentionally does not compile as a Go
+program; Paddock uses `go list -e` and source parsing to report its dependency
+cycle anyway. Each policy example is exercised by the acceptance suite with an
+expected rule ID.
 
 Suggested future checks:
 
@@ -26,4 +28,3 @@ paddock check paddock/examples/services/layered-go/good \
 paddock check paddock/examples/services/layered-go/violating \
   --policy paddock/examples/layered.yaml
 ```
-

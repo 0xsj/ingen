@@ -15,7 +15,8 @@ A process-level check exercises compilation, startup, port binding, readiness,
 request routing, state setup, response capture, artifact writing, and shutdown.
 Sorna now owns that lifecycle when `--subject-command` is supplied; an explicit
 external-URL mode remains available for comparison. Both modes record
-assurance level 0 until capability isolation exists.
+assurance level 0; a managed subject can now have host enforcement, but that
+does not replace independent attestation.
 
 ## Why
 
@@ -39,7 +40,7 @@ defect process -> contract fail, status-200-create killed
 - Port availability and process startup are part of the run evidence, not just
   developer convenience.
 - The process boundary should not be reported as capability isolation until the
-  host enforces and records the relevant permissions.
+  host enforces and independently attests the relevant permissions.
 
 ## Used in
 

@@ -44,8 +44,10 @@ silently become product behavior.
   create a compiled child process.
 - Startup and shutdown failures must remain visible in lifecycle evidence;
   they should not be turned into ordinary contract passes.
-- Managed process control is not capability isolation. The run remains
-  assurance level 0 until the host enforces and attests to access policy.
+- Managed process control alone is not capability isolation. With
+  `--subject-policy`, the host can now enforce a distinct subject boundary,
+  but the run remains assurance level 0 until access policy and telemetry have
+  stronger independent attestation.
 
 ## Used in
 

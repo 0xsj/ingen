@@ -11,6 +11,7 @@ import (
 
 	"ingen/sorna/internal/oracle"
 	"ingen/sorna/internal/policy"
+	"ingen/sorna/internal/runner"
 )
 
 // OracleBundle describes the files written for one frozen oracle execution.
@@ -19,11 +20,13 @@ type OracleBundle struct {
 	OraclePath    string
 	ManifestPath  string
 	LifecyclePath string
+	AccessPath    string
 	ChecksumsPath string
 }
 
 // OracleExecution records the enforcement context around the child process.
-// The path lists are resolved capability declarations, not kernel audit logs.
+// The path lists are resolved capability declarations; AccessEvents are the
+// separate host observations written to events/access.jsonl.
 type OracleExecution struct {
 	ExecutionID   string                 `json:"execution_id"`
 	Mode          string                 `json:"mode"`
@@ -38,7 +41,35 @@ type OracleExecution struct {
 	StartedAt     time.Time              `json:"started_at"`
 	CompletedAt   time.Time              `json:"completed_at"`
 	Outcome       string                 `json:"outcome"`
+	Access        AccessTelemetry        `json:"access_telemetry"`
 	Events        []OracleExecutionEvent `json:"-"`
+	AccessEvents  []OracleAccessEvent    `json:"-"`
+}
+
+// AccessTelemetry describes the quality of the host access observation. A
+// captured stream may still contain zero events; that means only that no
+// matching event was observed during the collection window.
+type AccessTelemetry struct {
+	Status      string `json:"status"`
+	Source      string `json:"source"`
+	ProcessID   int    `json:"process_id,omitempty"`
+	EventCount  int    `json:"event_count"`
+	ParseErrors int    `json:"parse_errors"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+// OracleAccessEvent is the append-only JSONL representation of a normalized
+// host sandbox decision.
+type OracleAccessEvent struct {
+	EventID     string    `json:"event_id"`
+	ExecutionID string    `json:"execution_id"`
+	Sequence    int       `json:"sequence"`
+	Timestamp   time.Time `json:"timestamp"`
+	Process     string    `json:"process"`
+	PID         int       `json:"pid"`
+	Decision    string    `json:"decision"`
+	Operation   string    `json:"operation"`
+	Resource    string    `json:"resource"`
 }
 
 // OracleExecutionEvent is the append-only JSONL representation of an oracle
@@ -63,6 +94,7 @@ type OracleReference struct {
 // separate from a subject run because it has no subject observations.
 type OracleManifest struct {
 	Schema          string                   `json:"schema"`
+	Assurance       runner.Assurance         `json:"assurance"`
 	Oracle          OracleReference          `json:"oracle"`
 	Contract        oracle.ContractReference `json:"contract"`
 	Policy          policy.Reference         `json:"policy"`
@@ -84,6 +116,16 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 	}
 	if problems := oracle.Validate(artifact); len(problems) > 0 {
 		return OracleBundle{}, fmt.Errorf("invalid oracle: %s", strings.Join(problems, "; "))
+	}
+	if execution.Access.Status == "" {
+		execution.Access = AccessTelemetry{
+			Status: "unavailable",
+			Source: "unknown",
+			Reason: "access telemetry was not supplied",
+		}
+	}
+	if execution.Access.EventCount != len(execution.AccessEvents) {
+		return OracleBundle{}, fmt.Errorf("oracle access event count is %d, but %d events were supplied", execution.Access.EventCount, len(execution.AccessEvents))
 	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return OracleBundle{}, err
@@ -118,6 +160,10 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 	if err := writeOracleEvents(lifecyclePath, execution); err != nil {
 		return OracleBundle{}, err
 	}
+	accessPath := filepath.Join(eventsDir, "access.jsonl")
+	if err := writeOracleAccessEvents(accessPath, execution); err != nil {
+		return OracleBundle{}, err
+	}
 
 	policyDir := filepath.Join(outputDir, "policy")
 	if err := os.MkdirAll(policyDir, 0o755); err != nil {
@@ -134,7 +180,7 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 
 	oracleReference := OracleReference{Schema: artifact.Schema, SHA256: oracleHash}
 	artifacts := map[string]string{}
-	for _, relative := range []string{"oracle.json", "events/oracle.jsonl", "policy/canonical.json", "policy/hash.txt"} {
+	for _, relative := range []string{"oracle.json", "events/oracle.jsonl", "events/access.jsonl", "policy/canonical.json", "policy/hash.txt"} {
 		path := filepath.Join(outputDir, relative)
 		artifactHash, err := hashFile(path)
 		if err != nil {
@@ -144,6 +190,7 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 	}
 	manifest := OracleManifest{
 		Schema:          "sorna.oracle-evidence/v1",
+		Assurance:       oracleAssurance(execution),
 		Oracle:          oracleReference,
 		Contract:        artifact.Contract,
 		Policy:          sealedPolicy.Reference(),
@@ -170,8 +217,47 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 		OraclePath:    oraclePath,
 		ManifestPath:  manifestPath,
 		LifecyclePath: lifecyclePath,
+		AccessPath:    accessPath,
 		ChecksumsPath: checksumsPath,
 	}, nil
+}
+
+func writeOracleAccessEvents(path string, execution OracleExecution) error {
+	var buffer bytes.Buffer
+	for index, event := range execution.AccessEvents {
+		if event.EventID == "" {
+			event.EventID = fmt.Sprintf("access-%04d", index+1)
+		}
+		if event.ExecutionID == "" {
+			event.ExecutionID = execution.ExecutionID
+		}
+		if event.Sequence == 0 {
+			event.Sequence = index + 1
+		}
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("encode oracle access event %d: %w", event.Sequence, err)
+		}
+		buffer.Write(encoded)
+		buffer.WriteByte('\n')
+	}
+	return os.WriteFile(path, buffer.Bytes(), 0o644)
+}
+
+func oracleAssurance(execution OracleExecution) runner.Assurance {
+	limitations := []string{
+		"access events are host log observations and do not prove the absence of unobserved actions",
+		"this assurance describes oracle generation only; subject-run isolation remains separate",
+	}
+	if execution.Access.Status != "captured" {
+		limitations = append([]string{"host access telemetry was unavailable"}, limitations...)
+		return runner.Assurance{Level: 0, Status: "telemetry-unavailable", Limitations: limitations}
+	}
+	if execution.Access.ParseErrors > 0 {
+		limitations = append([]string{fmt.Sprintf("%d host access records could not be normalized", execution.Access.ParseErrors)}, limitations...)
+		return runner.Assurance{Level: 0, Status: "host-enforced-observed-with-gaps", Limitations: limitations}
+	}
+	return runner.Assurance{Level: 0, Status: "host-enforced-observed", Limitations: limitations}
 }
 
 func writeOracleEvents(path string, execution OracleExecution) error {

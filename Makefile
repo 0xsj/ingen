@@ -8,14 +8,19 @@ GO_CMD = GOCACHE="$(GO_CACHE)" GOMODCACHE="$(GO_MOD_CACHE)" $(GO)
 CONTRACT ?= examples/document-pipeline-lab/contract/contract.yaml
 POLICY ?= examples/document-pipeline-lab/policy/isolation.yaml
 SEALED_DIR ?= .artifacts/document-pipeline-contract
-SUBJECT_ADDR ?= :8080
-SUBJECT_URL ?= http://localhost:8080
+SUBJECT_ADDR ?= 127.0.0.1:8080
+SUBJECT_URL ?= http://127.0.0.1:8080
 SUBJECT_READY_PATH ?= /healthz
+SUBJECT_POLICY ?= examples/document-pipeline-lab/policy/subject.yaml
+SUBJECT_ROOT ?= .
+SUBJECT_BINARY_DIR ?= .artifacts/document-pipeline-subject
+SUBJECT_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline
 RUN_OUTPUT_DIR ?= .artifacts/document-pipeline-run
-DEFECT_ADDR ?= :8081
-DEFECT_URL ?= http://localhost:8081
+DEFECT_ADDR ?= 127.0.0.1:8081
+DEFECT_URL ?= http://127.0.0.1:8081
 DEFECT_READY_PATH ?= /healthz
 DEFECT_RUN_OUTPUT_DIR ?= .artifacts/document-pipeline-defect-status-200
+DEFECT_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect
 SANDBOX_ROOT ?= .
 SANDBOX_PROBE_PATH ?= examples/document-pipeline-lab/contract/contract.yaml
 ORACLE_OUTPUT_DIR ?= .artifacts/document-pipeline-oracle
@@ -23,7 +28,7 @@ ORACLE_OUTPUT_DIR ?= .artifacts/document-pipeline-oracle
 .DEFAULT_GOAL := help
 
 .PHONY: help build test test-race vet check \
-	contract-validate contract-seal policy-validate subject-test subject-run sorna-run \
+	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
 	sorna-external-run evidence-verify oracle-evidence-verify sorna-oracle-freeze \
 	subject-defect-run sorna-defect-run sandbox-contract-read
 
@@ -54,14 +59,25 @@ contract-seal: ## Seal the document-pipeline contract into local artifacts
 policy-validate: ## Validate the document-pipeline isolation policy
 	$(GO_CMD) run ./sorna/cmd/sorna policy validate "$(POLICY)"
 
+subject-policy-validate: ## Validate the managed-subject isolation policy
+	$(GO_CMD) run ./sorna/cmd/sorna policy validate "$(SUBJECT_POLICY)"
+
 subject-test: ## Test the document-pipeline subject only
 	$(GO_CMD) test ./examples/document-pipeline-lab/subject/...
 
 subject-run: ## Run the document-pipeline subject on SUBJECT_ADDR
 	$(GO_CMD) run ./examples/document-pipeline-lab/subject/cmd/document-pipeline -addr "$(SUBJECT_ADDR)"
 
-sorna-run: sorna-oracle-freeze ## Freeze the oracle, launch the clean subject, run Sorna, and tear it down
-	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --base-url "$(SUBJECT_URL)" --subject-command "$(GO)" --subject-arg run --subject-arg ./examples/document-pipeline-lab/subject/cmd/document-pipeline --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant clean-baseline --output-dir "$(RUN_OUTPUT_DIR)"
+subject-build: ## Build the clean document-pipeline subject binary
+	mkdir -p "$(SUBJECT_BINARY_DIR)"
+	$(GO_CMD) build -o "$(SUBJECT_BINARY)" ./examples/document-pipeline-lab/subject/cmd/document-pipeline
+
+defect-build: ## Build the controlled status-200-create defect binary
+	mkdir -p "$(SUBJECT_BINARY_DIR)"
+	$(GO_CMD) build -o "$(DEFECT_BINARY)" ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect
+
+sorna-run: sorna-oracle-freeze subject-build ## Freeze the oracle, launch the isolated clean subject, run Sorna, and tear it down
+	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --subject-root "$(SUBJECT_ROOT)" --base-url "$(SUBJECT_URL)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant clean-baseline --output-dir "$(RUN_OUTPUT_DIR)"
 
 sorna-external-run: sorna-oracle-freeze ## Freeze the oracle, then run against an already-running subject at SUBJECT_URL
 	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --base-url "$(SUBJECT_URL)" --subject-variant clean-baseline --output-dir "$(RUN_OUTPUT_DIR)"
@@ -81,5 +97,5 @@ oracle-evidence-verify: ## Verify the frozen oracle evidence bundle
 subject-defect-run: ## Run the status-200-create defect subject on DEFECT_ADDR
 	$(GO_CMD) run ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect -addr "$(DEFECT_ADDR)"
 
-sorna-defect-run: sorna-oracle-freeze ## Freeze the oracle, launch the defect subject, run Sorna, and tear it down
-	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --base-url "$(DEFECT_URL)" --subject-command "$(GO)" --subject-arg run --subject-arg ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --ready-path "$(DEFECT_READY_PATH)" --subject-variant status-200-create --mutation-id status-200-create --mutation-plane behavior --mutation-description "valid document creation returns 200 instead of 202" --expected-rule document.create.valid.accepted --output-dir "$(DEFECT_RUN_OUTPUT_DIR)"
+sorna-defect-run: sorna-oracle-freeze defect-build ## Freeze the oracle, launch the isolated defect subject, run Sorna, and tear it down
+	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --subject-root "$(SUBJECT_ROOT)" --base-url "$(DEFECT_URL)" --subject-command "$(DEFECT_BINARY)" --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --ready-path "$(DEFECT_READY_PATH)" --subject-variant status-200-create --mutation-id status-200-create --mutation-plane behavior --mutation-description "valid document creation returns 200 instead of 202" --expected-rule document.create.valid.accepted --output-dir "$(DEFECT_RUN_OUTPUT_DIR)"

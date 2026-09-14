@@ -4,7 +4,7 @@ policy:
   version: 1
   status: draft
   purpose: independent-oracle-generation
-  enforcement: declared-only
+  enforcement: host-enforced
 
   filesystem:
     read:

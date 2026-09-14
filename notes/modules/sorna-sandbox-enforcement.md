@@ -50,9 +50,9 @@ An enforcement backend has two distinct responsibilities:
 2. make the helper executable enough to start and report its result.
 
 Confusing these responsibilities either produces a false “isolated” claim or
-an unusable sandbox. The backend currently supports the safe subset of
-`network.mode: disabled`; it rejects network allowlists and unrestricted
-network policies rather than silently applying the wrong behavior.
+an unusable sandbox. The backend supports `network.mode: disabled` and a
+directional TCP allowlist for the managed-subject slice. It still rejects
+unrestricted network policies rather than silently applying the wrong behavior.
 
 ## Limits
 
@@ -60,10 +60,13 @@ network policies rather than silently applying the wrong behavior.
   unsupported-backend error.
 - `can_invoke_subject` and `allowed_tools` are not yet enforced by this
   command because command identity and tool expansion need their own contract.
-- Kernel access events are useful evidence, but are not yet captured in the
-  bundle.
-- `sorna run` still has assurance level 0 because this backend is not yet
-  wired into oracle generation and its lifecycle evidence.
+- Oracle freezes now capture scoped kernel-reported access events in the
+  oracle evidence bundle. They remain host observations rather than proof of
+  absence.
+- `sorna run` remains level 0 because host enforcement and access logs are not
+  independently attested. With `--subject-policy`, the managed subject has a
+  distinct host-enforced boundary; oracle-generation evidence still does not
+  transfer to the subject process.
 
 ## Used in
 

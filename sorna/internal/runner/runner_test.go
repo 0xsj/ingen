@@ -15,6 +15,7 @@ import (
 	status200create "ingen/examples/document-pipeline-lab/defects/status-200-create"
 	documentpipeline "ingen/examples/document-pipeline-lab/subject"
 	"ingen/sorna/internal/contract"
+	"ingen/sorna/internal/lifecycle"
 	"ingen/sorna/internal/mutation"
 	"ingen/sorna/internal/oracle"
 )
@@ -44,6 +45,37 @@ func TestExecuteDocumentPipelineContractAgainstCleanSubject(t *testing.T) {
 	}
 	if record.Verdict.Status != "pass" {
 		t.Fatalf("contract verdict = %+v, want pass", record.Verdict)
+	}
+}
+
+func TestExecuteMarksHostEnforcedManagedSubjectWithoutOverclaiming(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "examples", "document-pipeline-lab", "contract", "contract.yaml")
+	document, err := contract.LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := contract.Seal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := Execute(context.Background(), sealed, Config{
+		BaseURL: "http://subject.invalid",
+		Lifecycle: &lifecycle.Record{
+			Mode:    "managed-process",
+			Sandbox: &lifecycle.SandboxRecord{Backend: "test", Enforcement: "host-enforced", PolicySHA256: "policy"},
+		},
+		Client: &http.Client{Transport: handlerTransport{
+			handler: documentpipeline.NewHandler(documentpipeline.NewStore()),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Assurance.Level != 0 || record.Assurance.Status != "host-enforced-subject" {
+		t.Fatalf("assurance = %+v, want level 0 host-enforced-subject", record.Assurance)
+	}
+	if len(record.Assurance.Limitations) != 1 || !strings.Contains(record.Assurance.Limitations[0], "not independently attested") {
+		t.Fatalf("assurance limitations = %+v, want conservative host-boundary limitation", record.Assurance.Limitations)
 	}
 }
 

@@ -47,9 +47,10 @@ event        producer/consumer to event contract
 schema       code to protobuf/OpenAPI/schema artifact
 ```
 
-Go analysis should use Go's package and type information rather than regular
-expressions. Other languages should enter through adapters that produce the
-same graph shape.
+Go analysis should use the Go toolchain's package information and parser rather
+than regular expressions. The first adapter invokes `go list` for build-aware
+package resolution and parses import declarations for source locations. Other
+languages should enter through adapters that produce the same graph shape.
 
 ### Rules
 
@@ -84,8 +85,49 @@ waivers:
     expires: 2027-01-01
 ```
 
-A waiver changes the gate decision; it does not remove the underlying finding.
-Expired waivers must fail or become a clearly visible release blocker.
+`from` may identify either the source package path or the source file path;
+`to` identifies the target path and may be omitted for a rule-wide source
+waiver. Both support the same `*`, `**`, and `{capture}` path matching used by
+component selectors.
+
+An active waiver changes the gate decision but does not remove the underlying
+finding. The report retains the rule, location, owner, reason, and expiry date.
+An expired waiver remains blocking and is marked as expired in text and JSON
+reports. Waiver dates are evaluated in UTC and remain active through the stated
+date.
+
+### Baselines
+
+Baselines are for intentional existing debt when a team wants to enforce “no
+new violations” before it can remove all old ones. They are generated from a
+current check:
+
+```sh
+paddock baseline . --policy paddock.yaml --output paddock-baseline.json
+paddock check . --policy paddock.yaml --baseline paddock-baseline.json
+```
+
+The `paddock.baseline/v1` artifact stores stable finding identities based on
+rule, kind, source package, target, and source file. Line-number changes do not
+invalidate an entry. Baseline findings remain in the report and are marked as
+non-blocking; findings not present in the snapshot still fail the check. The
+source module must match, and stale snapshot entries are reported for cleanup.
+Waived findings are not added to a generated baseline.
+
+### Explanations
+
+Reports carry the rule summaries and component context needed by a separate
+explanation step:
+
+```sh
+paddock check . --policy paddock.yaml --format json > paddock-report.json
+paddock explain paddock-report.json
+```
+
+The explanation artifact uses `paddock.explanation/v1`. It describes the
+observed edge, the matched constraint, the policy's reason, the finding's
+waiver or baseline status, and deterministic remediation suggestions. It is an
+agent-facing interpretation of evidence, not a second decision engine.
 
 ## Tentative common shape
 
@@ -127,4 +169,3 @@ verdict. Proposed changes should appear as a policy diff for human review.
 - Which cross-language relationships can be represented without weakening
   language-specific analysis?
 - Is the first policy format YAML, JSON, or both?
-

@@ -1,0 +1,18 @@
+schema: paddock.architecture/v1
+project: cyclic-go
+
+source:
+  language: go
+  roots: [internal]
+
+components:
+  internal:
+    match: internal/**
+    labels:
+      role: internal
+
+rules:
+  - id: no-cycles
+    kind: no-cycles
+    message: package dependencies must remain acyclic
+

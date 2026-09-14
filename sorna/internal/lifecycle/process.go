@@ -18,6 +18,7 @@ import (
 // Config describes a subject process that Sorna may start and stop.
 type Config struct {
 	Command         []string
+	RecordCommand   []string
 	Dir             string
 	Env             []string
 	BaseURL         string
@@ -27,6 +28,8 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	ProbeTimeout    time.Duration
 	PollInterval    time.Duration
+	Sandbox         *SandboxRecord
+	Access          *AccessTelemetry
 	Now             func() time.Time
 }
 
@@ -39,20 +42,54 @@ type Event struct {
 	Detail    string    `json:"detail,omitempty"`
 }
 
+// SandboxRecord describes the host boundary used to launch a managed
+// subject. It is dependency-free so lifecycle evidence does not need to know
+// which platform backend produced it.
+type SandboxRecord struct {
+	Backend      string `json:"backend"`
+	Enforcement  string `json:"enforcement"`
+	PolicySHA256 string `json:"policy_sha256"`
+}
+
+// AccessTelemetry describes the quality of a host access observation. A
+// captured report with zero events is still only an observation window.
+type AccessTelemetry struct {
+	Status      string `json:"status"`
+	Source      string `json:"source"`
+	ProcessID   int    `json:"process_id,omitempty"`
+	EventCount  int    `json:"event_count"`
+	ParseErrors int    `json:"parse_errors"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+// AccessEvent is kept out of run.json and written by the evidence package as
+// a separate subject-access JSONL stream.
+type AccessEvent struct {
+	Timestamp time.Time `json:"timestamp"`
+	Process   string    `json:"process"`
+	PID       int       `json:"pid"`
+	Decision  string    `json:"decision"`
+	Operation string    `json:"operation"`
+	Resource  string    `json:"resource"`
+}
+
 // Record is embedded in a run artifact to show how the subject came to be
 // available. A managed process is still not an isolation boundary.
 type Record struct {
-	Mode       string     `json:"mode"`
-	Command    []string   `json:"command,omitempty"`
-	WorkingDir string     `json:"working_dir,omitempty"`
-	BaseURL    string     `json:"base_url,omitempty"`
-	ReadyPath  string     `json:"ready_path,omitempty"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	ReadyAt    *time.Time `json:"ready_at,omitempty"`
-	StoppedAt  *time.Time `json:"stopped_at,omitempty"`
-	Outcome    string     `json:"outcome"`
-	ExitCode   *int       `json:"exit_code,omitempty"`
-	Events     []Event    `json:"events"`
+	Mode         string           `json:"mode"`
+	Command      []string         `json:"command,omitempty"`
+	WorkingDir   string           `json:"working_dir,omitempty"`
+	BaseURL      string           `json:"base_url,omitempty"`
+	ReadyPath    string           `json:"ready_path,omitempty"`
+	StartedAt    *time.Time       `json:"started_at,omitempty"`
+	ReadyAt      *time.Time       `json:"ready_at,omitempty"`
+	StoppedAt    *time.Time       `json:"stopped_at,omitempty"`
+	Outcome      string           `json:"outcome"`
+	ExitCode     *int             `json:"exit_code,omitempty"`
+	Sandbox      *SandboxRecord   `json:"sandbox,omitempty"`
+	Access       *AccessTelemetry `json:"access_telemetry,omitempty"`
+	Events       []Event          `json:"events"`
+	AccessEvents []AccessEvent    `json:"-"`
 }
 
 // External returns a record for a subject that was supplied by another
@@ -147,13 +184,18 @@ func Start(ctx context.Context, config Config) (*Process, error) {
 		now:      config.Now,
 		record: Record{
 			Mode:       "managed-process",
-			Command:    append([]string(nil), config.Command...),
+			Command:    append([]string(nil), config.RecordCommand...),
 			WorkingDir: config.Dir,
 			BaseURL:    strings.TrimRight(base.String(), "/"),
 			ReadyPath:  config.ReadyPath,
 			Outcome:    "starting",
+			Sandbox:    cloneSandboxRecord(config.Sandbox),
+			Access:     cloneAccessTelemetry(config.Access),
 			Events:     make([]Event, 0, 5),
 		},
+	}
+	if len(process.record.Command) == 0 {
+		process.record.Command = append([]string(nil), config.Command...)
 	}
 	command.Stderr = &process.stderr
 	prepareCommand(command)
@@ -305,6 +347,18 @@ func (process *Process) Record() Record {
 	return process.recordSnapshotLocked()
 }
 
+// PID returns the managed process ID after Start succeeds. A Seatbelt-wrapped
+// command keeps the same PID while it execs the subject, which lets host
+// telemetry remain scoped to the process Sorna launched.
+func (process *Process) PID() int {
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	if process.cmd.Process == nil {
+		return 0
+	}
+	return process.cmd.Process.Pid
+}
+
 func (process *Process) finishStop(forced bool) {
 	stoppedAt := process.now().UTC()
 	process.mu.Lock()
@@ -334,7 +388,26 @@ func (process *Process) recordSnapshotLocked() Record {
 	record := process.record
 	record.Command = append([]string(nil), process.record.Command...)
 	record.Events = append([]Event(nil), process.record.Events...)
+	record.Sandbox = cloneSandboxRecord(process.record.Sandbox)
+	record.Access = cloneAccessTelemetry(process.record.Access)
+	record.AccessEvents = append([]AccessEvent(nil), process.record.AccessEvents...)
 	return record
+}
+
+func cloneSandboxRecord(record *SandboxRecord) *SandboxRecord {
+	if record == nil {
+		return nil
+	}
+	copy := *record
+	return &copy
+}
+
+func cloneAccessTelemetry(telemetry *AccessTelemetry) *AccessTelemetry {
+	if telemetry == nil {
+		return nil
+	}
+	copy := *telemetry
+	return &copy
 }
 
 func (process *Process) stderrText() string {

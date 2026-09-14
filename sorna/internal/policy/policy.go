@@ -308,6 +308,12 @@ func validateNetwork(value any, problems *[]string) {
 				*problems = append(*problems, fmt.Sprintf("%s.ports[%d] must be between 1 and 65535", path, portIndex))
 			}
 		}
+		if direction, present := entry["direction"]; present {
+			value, valid := direction.(string)
+			if !valid || (value != "inbound" && value != "outbound" && value != "both") {
+				*problems = append(*problems, path+".direction must be inbound, outbound, or both")
+			}
+		}
 	}
 }
 

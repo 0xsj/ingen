@@ -34,9 +34,10 @@ go run ./sorna/cmd/sorna policy seal \
   --output-dir .artifacts/document-pipeline-policy
 ```
 
-The lab policy intentionally uses `enforcement: declared-only`, disables
-network access for oracle generation, and denies the subject, defect, and Git
-roots.
+The lab oracle policy uses `enforcement: host-enforced`, disables network
+access for oracle generation, and denies the subject, defect, and Git roots.
+The separate managed-subject policy uses the same claim while allowing only
+its compiled binary root and declared local listener.
 
 ## Gotchas
 
@@ -46,8 +47,9 @@ roots.
   still need an enforcement-specific design.
 - A policy hash proves which policy bytes were recorded, not that the policy
   was truthful or applied.
-- The current lab policy describes oracle generation; the current runner still
-  executes the subject as a verifier and remains assurance level 0.
+- The oracle and managed-subject policies are separate. The runner remains
+  assurance level 0 even when the subject policy is host-enforced because the
+  policy and access records are not independently attested.
 
 ## Used in
 

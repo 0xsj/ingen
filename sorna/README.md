@@ -28,9 +28,11 @@ services.
 `sorna run` can either observe an already-running `--base-url` or manage a
 subject process with `--subject-command` and repeated `--subject-arg` flags.
 Managed runs wait for a declared successful HTTP readiness path, record the
-process lifecycle, and tear down the process group after verification. This is
-stronger lifecycle evidence than a manually started process, but it is still
-assurance level 0 until capability isolation is enforced.
+process lifecycle, and tear down the process group after verification. Passing
+`--subject-policy` additionally launches the managed process under the host
+enforcement backend and records its policy and access stream separately from
+the oracle bundle. The run remains assurance level 0 until the access boundary
+has a stronger attestation.
 
 The verified run path uses `sorna run --oracle <path>` and consumes the
 canonical frozen artifact directly. The older `--contract <path>` form remains
@@ -47,8 +49,11 @@ make sandbox-contract-read
 
 This runs `/bin/cat` under a Seatbelt profile generated from the policy. It
 allows the declared contract root and denies undeclared project paths. The
-backend currently supports `network.mode: disabled`; process/tool declarations
-and kernel access-event capture are not yet wired into the evidence bundle.
+backend supports `network.mode: disabled` and directional TCP allowlists;
+process/tool declarations are not yet enforced. Oracle freezes record macOS
+unified-log access events in `events/access.jsonl`, while managed subject runs
+use `events/subject-access.jsonl`. Both streams remain observational and do
+not automatically raise run assurance.
 
 To generate the first evidence-bearing oracle:
 
@@ -60,3 +65,7 @@ make oracle-evidence-verify
 The parent Sorna process seals and verifies the contract and policy, while a
 separate child process reads the contract and writes the frozen `oracle.json`
 under the host-enforced profile.
+
+The managed example run uses the separate subject policy automatically through
+`make sorna-run`; use `make subject-policy-validate` to inspect that policy on
+its own.

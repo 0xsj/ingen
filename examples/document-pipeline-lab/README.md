@@ -33,9 +33,9 @@ The clean Go subject now lives in [`subject/`](subject/). The oracle is frozen
 through the Sorna sandbox, while defect variants and run artifacts are added
 one small step at a time.
 
-The managed Sorna runner first freezes the oracle, launches the subject, waits
-for its readiness endpoint, runs from the frozen oracle, and tears the subject
-down:
+The managed Sorna runner first freezes the oracle, builds the subject binary,
+launches it under the separate subject policy, waits for its readiness
+endpoint, runs from the frozen oracle, and tears the subject down:
 
 ```sh
 make sorna-run

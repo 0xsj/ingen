@@ -17,12 +17,14 @@ func TestManagedProcessWaitsForReadinessAndStops(t *testing.T) {
 	address := freeAddress(t)
 	process, err := Start(context.Background(), Config{
 		Command:         []string{os.Args[0], "-test.run=TestLifecycleHelperProcess", "--"},
+		RecordCommand:   []string{"subject-helper", "--port", "8080"},
 		Env:             []string{"INGEN_LIFECYCLE_HELPER=1", "INGEN_LIFECYCLE_ADDR=" + address},
 		BaseURL:         "http://" + address,
 		ReadyPath:       "/healthz",
 		StartupTimeout:  2 * time.Second,
 		ShutdownTimeout: 2 * time.Second,
 		PollInterval:    10 * time.Millisecond,
+		Sandbox:         &SandboxRecord{Backend: "test", Enforcement: "host-enforced", PolicySHA256: "policy-hash"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -34,6 +36,9 @@ func TestManagedProcessWaitsForReadinessAndStops(t *testing.T) {
 	}
 	if started.ReadyAt == nil || len(started.Events) < 2 {
 		t.Fatalf("initial lifecycle record = %+v, want start and ready evidence", started)
+	}
+	if strings.Join(started.Command, " ") != "subject-helper --port 8080" || started.Sandbox == nil || started.Sandbox.PolicySHA256 != "policy-hash" {
+		t.Fatalf("initial lifecycle record = %+v, want original command and sandbox reference", started)
 	}
 
 	if err := process.Close(context.Background()); err != nil {
