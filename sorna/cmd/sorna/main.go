@@ -46,6 +46,8 @@ func run(args []string) int {
 		return sandboxCommand(args[1:])
 	case "oracle":
 		return oracleCommand(args[1:])
+	case "mutation":
+		return mutationCommand(args[1:])
 	case "run":
 		return runSubject(args[1:])
 	default:
@@ -689,6 +691,79 @@ func seal(args []string) int {
 	return 0
 }
 
+func mutationCommand(args []string) int {
+	if len(args) < 1 {
+		usage()
+		return 2
+	}
+	switch args[0] {
+	case "validate":
+		return validateMutationCatalogue(args[1:])
+	case "list":
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: sorna mutation list <catalogue>")
+			return 2
+		}
+		catalogue, err := mutation.LoadFile(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		for _, spec := range catalogue.Mutations {
+			fmt.Printf("%s\t%s\t%s\n", spec.ID, spec.Plane, spec.Description)
+		}
+		return 0
+	default:
+		fmt.Fprintln(os.Stderr, "unknown mutation command:", args[0])
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation validate <catalogue> [--contract <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation list <catalogue>")
+		return 2
+	}
+}
+
+func validateMutationCatalogue(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation validate <catalogue> [--contract <path>]")
+		return 2
+	}
+	flags := flag.NewFlagSet("mutation validate", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	contractPath := flags.String("contract", "", "optional contract used to validate the catalogue binding")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation validate <catalogue> [--contract <path>]")
+		return 2
+	}
+	catalogue, err := mutation.LoadFile(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *contractPath != "" {
+		document, err := contract.LoadFile(*contractPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		problems := mutation.ValidateAgainstContract(catalogue, document)
+		if len(problems) > 0 {
+			fmt.Fprintln(os.Stderr, "invalid mutation catalogue binding:")
+			for _, problem := range problems {
+				fmt.Fprintln(os.Stderr, "-", problem)
+			}
+			return 1
+		}
+	}
+	if *contractPath == "" {
+		fmt.Printf("valid: %s (%d mutations; structural only)\n", args[0], len(catalogue.Mutations))
+	} else {
+		fmt.Printf("valid: %s (%d mutations; contract %s)\n", args[0], len(catalogue.Mutations), catalogue.ContractID)
+	}
+	return 0
+}
+
 func runSubject(args []string) int {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -708,14 +783,15 @@ func runSubject(args []string) int {
 	var subjectArgs stringList
 	flags.Var(&subjectArgs, "subject-arg", "argument for the managed subject; may be repeated")
 	mutationID := flags.String("mutation-id", "", "identity of the mutation being evaluated")
-	mutationPlane := flags.String("mutation-plane", "behavior", "mutation plane")
+	mutationPlane := flags.String("mutation-plane", "implementation", "mutation plane")
 	mutationDescription := flags.String("mutation-description", "", "description of the mutation")
 	expectedRule := flags.String("expected-rule", "", "rule ID expected to observe the mutation")
+	baselineEvidencePath := flags.String("baseline-evidence", "", "passing unmutated evidence bundle required for mutation comparison")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if (*contractPath == "" && *oraclePath == "") || *baseURL == "" {
-		fmt.Fprintln(os.Stderr, "usage: sorna run [--oracle <path> | --contract <path>] [--policy <path>] --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--subject-policy <path>] [--output-dir <dir>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna run [--oracle <path> | --contract <path>] [--policy <path>] --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--subject-policy <path>] [--baseline-evidence <dir>] [--output-dir <dir>]")
 		return 2
 	}
 	if *contractPath != "" && *oraclePath != "" {
@@ -806,10 +882,24 @@ func runSubject(args []string) int {
 		fmt.Fprintln(os.Stderr, "oracle policy hash does not match the supplied policy")
 		return 1
 	}
+	expectedContract, expectedOracle, err := runReferences(usingOracle, sealed, oracleArtifact)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	var mutationSpec *mutation.Spec
+	var baselineReference *runner.BaselineReference
 	if *mutationID != "" {
 		if *expectedRule == "" {
 			fmt.Fprintln(os.Stderr, "--expected-rule is required when --mutation-id is provided")
+			return 2
+		}
+		if *baselineEvidencePath == "" {
+			fmt.Fprintln(os.Stderr, "--baseline-evidence is required when --mutation-id is provided")
+			return 2
+		}
+		if sameDirectory(*baselineEvidencePath, *outputDir) {
+			fmt.Fprintln(os.Stderr, "--baseline-evidence must be different from --output-dir")
 			return 2
 		}
 		mutationSpec = &mutation.Spec{
@@ -818,6 +908,17 @@ func runSubject(args []string) int {
 			Description:     *mutationDescription,
 			ExpectedRuleIDs: []string{*expectedRule},
 		}
+		baseline, baselineErr := evidence.ValidateBaseline(*baselineEvidencePath, evidence.BaselineRequirements{
+			Contract:            expectedContract,
+			Oracle:              expectedOracle,
+			PolicySHA256:        sealedPolicyHash(sealedPolicy),
+			SubjectPolicySHA256: sealedPolicyHash(sealedSubjectPolicy),
+		})
+		if baselineErr != nil {
+			fmt.Fprintln(os.Stderr, baselineErr)
+			return 1
+		}
+		baselineReference = &baseline
 	}
 
 	var managedSubject *lifecycle.Process
@@ -964,6 +1065,7 @@ func runSubject(args []string) int {
 		fmt.Fprintln(os.Stderr, stopErr)
 		return 1
 	}
+	record.Baseline = baselineReference
 	record.Lifecycle = &lifecycleRecord
 	if lifecycleRecord.Access != nil {
 		record.Assurance.ObservationCoverage = lifecycleObservationCoverage(lifecycleRecord.Access)
@@ -1002,6 +1104,56 @@ func exitCodeFor(record runner.RunRecord) int {
 	return 0
 }
 
+func runReferences(usingOracle bool, sealed contract.Sealed, artifact oracle.Artifact) (runner.ContractReference, *runner.OracleReference, error) {
+	if usingOracle {
+		oracleHash, err := oracle.Hash(artifact)
+		if err != nil {
+			return runner.ContractReference{}, nil, fmt.Errorf("hash oracle for mutation comparison: %w", err)
+		}
+		return runner.ContractReference{
+			ID:      artifact.Contract.ID,
+			Version: artifact.Contract.Version,
+			SHA256:  artifact.Contract.SHA256,
+		}, &runner.OracleReference{Schema: artifact.Schema, SHA256: oracleHash}, nil
+	}
+	id, ok := sealed.Document.Contract["id"].(string)
+	if !ok || id == "" {
+		return runner.ContractReference{}, nil, fmt.Errorf("sealed contract ID is missing")
+	}
+	version, ok := integerValue(sealed.Document.Contract["version"])
+	if !ok {
+		return runner.ContractReference{}, nil, fmt.Errorf("sealed contract version is invalid")
+	}
+	return runner.ContractReference{ID: id, Version: version, SHA256: sealed.SHA256}, nil, nil
+}
+
+func sealedPolicyHash(sealed *policy.Sealed) string {
+	if sealed == nil {
+		return ""
+	}
+	return sealed.SHA256
+}
+
+func sameDirectory(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(left)
+	rightAbs, rightErr := filepath.Abs(right)
+	return leftErr == nil && rightErr == nil && filepath.Clean(leftAbs) == filepath.Clean(rightAbs)
+}
+
+func integerValue(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case int64:
+		return typed, true
+	case int:
+		return int64(typed), true
+	case float64:
+		converted := int64(typed)
+		return converted, float64(converted) == typed
+	default:
+		return 0, false
+	}
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  sorna contract validate <path>")
@@ -1010,9 +1162,11 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sorna policy seal <path> --output-dir <dir>")
 	fmt.Fprintln(os.Stderr, "  sorna sandbox exec --policy <path> [--root <dir>] -- <command> [args...]")
 	fmt.Fprintln(os.Stderr, "  sorna oracle freeze --contract <path> --policy <path> [--root <dir>] [--output-dir <dir>]")
+	fmt.Fprintln(os.Stderr, "  sorna mutation validate <catalogue> [--contract <path>]")
+	fmt.Fprintln(os.Stderr, "  sorna mutation list <catalogue>")
 	fmt.Fprintln(os.Stderr, "  sorna evidence verify <directory>")
 	fmt.Fprintln(os.Stderr, "  sorna gate [--minimum-observation-coverage <state>] [--format text|json|ci-result] <evidence-directory>")
-	fmt.Fprintln(os.Stderr, "  sorna run [--oracle <path> | --contract <path>] [--policy <path>] --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--subject-policy <path>] [--output-dir <dir>]")
+	fmt.Fprintln(os.Stderr, "  sorna run [--oracle <path> | --contract <path>] [--policy <path>] --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--subject-policy <path>] [--baseline-evidence <dir>] [--output-dir <dir>]")
 }
 
 type stringList []string

@@ -110,3 +110,46 @@ isolation, correctness, or complete observation.
 
 If the bundle cannot be verified, Sorna emits the envelope's `error` form when
 `--format ci-result` is requested, preserving exit code `2` for the collector.
+
+## Nublar consumer
+
+Nublar composes multiple envelopes without importing their producer packages:
+
+```sh
+nublar aggregate --output nublar-result.json \
+  sorna-ci-result.json paddock-ci-result.json
+```
+
+Its producer-owned aggregate schema is `ingen.nublar-result/v1`. The result
+preserves each complete input artifact under `results` and computes only the
+aggregate status and exit code:
+
+| Input status present | Aggregate status | Exit code |
+| --- | --- | ---: |
+| all `passed` | `passed` | `0` |
+| any `failed`, no `error` | `failed` | `1` |
+| any `error` | `error` | `2` |
+
+This is severity composition, not finding interpretation. Nublar does not
+decide whether a mutation was killed, whether an architecture rule is valid,
+or whether an observation gap is acceptable; those decisions remain in the
+producer envelope and report.
+
+Nublar can make the input set explicit with `ingen.nublar-workflow/v1`:
+
+```yaml
+schema: ingen.nublar-workflow/v1
+id: document-pipeline-ci
+checks:
+  - id: behavioral-verification
+    tool: sorna
+    result: .artifacts/document-pipeline-ci-result.json
+    required: true
+```
+
+Checks are required by default. A missing required result or a result whose
+`tool` does not match the declaration produces an aggregate `error` with exit
+code `2`; an explicitly optional missing result becomes a warning. The
+aggregate records the workflow file path and SHA-256, which identifies the
+exact collection policy used for the decision. Each consumed CI-result file is
+also recorded with its own SHA-256.

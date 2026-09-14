@@ -64,11 +64,27 @@ func Generate(options Options) ([]byte, error) {
 	for _, item := range components {
 		match := item.Match + "/**"
 		if item.Match == "." {
-			match = "**"
+			if item.Recursive {
+				match = "**"
+			} else if unit == "package" {
+				// The Go module root is represented by an empty relative
+				// package path. An empty pattern matches that package only.
+				match = ""
+			} else {
+				// Root-level files have one path segment. Keep them separate
+				// from nested components in a mixed source tree.
+				match = "*"
+			}
 		} else if !item.Recursive {
 			match = item.Match
 		}
-		fmt.Fprintf(&output, "  %s:\n    match: %s\n    labels:\n", item.Name, match)
+		// A bare glob is a YAML alias indicator, not a scalar. Quote root
+		// globs while leaving ordinary path patterns easy to read.
+		matchValue := match
+		if match == "**" || match == "*" {
+			matchValue = strconv.Quote(match)
+		}
+		fmt.Fprintf(&output, "  %s:\n    match: %s\n    labels:\n", item.Name, matchValue)
 		keys := make([]string, 0, len(item.Labels))
 		for key := range item.Labels {
 			keys = append(keys, key)
@@ -157,6 +173,23 @@ func discoverComponents(dependencyGraph *model.Graph, language, template, unit s
 		componentPath := strings.Join(parts[:groupSize], "/")
 		groups[componentPath] = true
 		recursive[componentPath] = isRecursive
+	}
+	// A broad context component and a nested layer component overlap for every
+	// package below that context. Keep the parent component for the context's
+	// own package, but make its match exact so generated drafts satisfy the
+	// coverage invariant. Descendants still carry the inherited context label
+	// on their more-specific component.
+	for path := range groups {
+		if path == "." && len(groups) > 1 {
+			recursive[path] = false
+			continue
+		}
+		for descendant := range groups {
+			if path != descendant && strings.HasPrefix(descendant, path+"/") {
+				recursive[path] = false
+				break
+			}
+		}
 	}
 
 	paths := make([]string, 0, len(groups))

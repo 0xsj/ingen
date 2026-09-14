@@ -1,0 +1,19 @@
+mutation_catalogue:
+  schema: ingen.mutation-catalogue/v1
+  id: document-pipeline-mutations
+  version: 1
+  contract_id: document-pipeline
+  contract_version: 1
+
+  mutations:
+    - id: status-200-create
+      plane: implementation
+      operator: response.status.replace
+      target: POST /documents
+      description: Return 200 instead of the contracted 202 for valid document creation.
+      change:
+        from: 202
+        to: 200
+      expected_rule_ids:
+        - document.create.valid.accepted
+      status: candidate

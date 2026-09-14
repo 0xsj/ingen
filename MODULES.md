@@ -63,10 +63,13 @@ provides a broader registry or service.
 
 ### `nublar/`
 
-Placeholder for CI and delivery workflows: pull-request gates, scheduled
-mutation campaigns, artifact retention, hosted reports, and integrations with
-delivery systems. Nublar should be a consumer of Sorna's CLI and evidence
-protocol, not a competing verifier.
+The first CI and delivery slice is an envelope coordinator plus a workflow
+declaration. It validates expected producer results, preserves
+`ingen.ci-result/v1` artifacts, and composes their shared status and exit-code
+semantics. Future work includes pull-request gates, scheduled mutation
+campaigns, artifact retention, hosted reports, and integrations with delivery
+systems. Nublar should remain a consumer of Sorna's CLI and evidence protocol,
+not a competing verifier.
 
 ## Integrations
 

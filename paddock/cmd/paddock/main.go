@@ -19,6 +19,7 @@ import (
 	paddockpolicy "ingen/paddock/internal/policy"
 	paddockpolicydiff "ingen/paddock/internal/policydiff"
 	paddockpolicylock "ingen/paddock/internal/policylock"
+	paddockpolicytest "ingen/paddock/internal/policytest"
 	"ingen/paddock/internal/report"
 	paddockscaffold "ingen/paddock/internal/scaffold"
 )
@@ -45,9 +46,13 @@ func main() {
 			os.Exit(2)
 		}
 	case "policy":
-		if err := policyCommand(os.Args[2:]); err != nil {
+		exitCode, err := policyCommand(os.Args[2:])
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "paddock:", err)
 			os.Exit(2)
+		}
+		if exitCode != 0 {
+			os.Exit(exitCode)
 		}
 	case "baseline":
 		if err := createBaseline(os.Args[2:]); err != nil {
@@ -614,20 +619,79 @@ func detectLanguage(root string) string {
 	return language
 }
 
-func policyCommand(args []string) error {
+func policyCommand(args []string) (int, error) {
 	if len(args) == 0 {
-		return fmt.Errorf("policy requires diff, seal, or verify subcommand")
+		return 0, fmt.Errorf("policy requires diff, seal, verify, or test subcommand")
 	}
 	switch args[0] {
 	case "diff":
-		return diffPolicies(args[1:])
+		return 0, diffPolicies(args[1:])
 	case "seal":
-		return sealPolicy(args[1:])
+		return 0, sealPolicy(args[1:])
 	case "verify":
-		return verifyPolicy(args[1:])
+		return 0, verifyPolicy(args[1:])
+	case "test":
+		return testPolicy(args[1:])
 	default:
-		return fmt.Errorf("unsupported policy subcommand %q", args[0])
+		return 0, fmt.Errorf("unsupported policy subcommand %q", args[0])
 	}
+}
+
+func testPolicy(args []string) (int, error) {
+	policyPath := ""
+	casesPath := ""
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "--policy", "-p":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a policy path", arg)
+			}
+			index++
+			policyPath = args[index]
+		case "--cases", "-c":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a test manifest path", arg)
+			}
+			index++
+			casesPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires text or json", arg)
+			}
+			index++
+			format = args[index]
+		default:
+			return 0, fmt.Errorf("unknown option %q", arg)
+		}
+	}
+	if policyPath == "" || casesPath == "" {
+		return 0, fmt.Errorf("policy test requires --policy <path> and --cases <manifest.yaml>")
+	}
+	config, err := paddockpolicy.Load(policyPath)
+	if err != nil {
+		return 0, err
+	}
+	document, err := paddockpolicytest.Run(casesPath, policyPath, config)
+	if err != nil {
+		return 0, err
+	}
+	switch format {
+	case "text":
+		err = paddockpolicytest.Text(os.Stdout, document)
+	case "json":
+		err = paddockpolicytest.JSON(os.Stdout, document)
+	default:
+		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+	if err != nil {
+		return 0, err
+	}
+	if document.Status == "FAIL" {
+		return 1, nil
+	}
+	return 0, nil
 }
 
 func diffPolicies(args []string) error {
@@ -1217,6 +1281,8 @@ func saveCIErrorWithInputs(outputPath, root string, policy paddockartifact.FileR
 func explainReport(args []string) error {
 	reportPath := ""
 	format := "text"
+	ruleID := ""
+	status := ""
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		switch arg {
@@ -1226,6 +1292,18 @@ func explainReport(args []string) error {
 			}
 			index++
 			format = args[index]
+		case "--rule":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a rule ID", arg)
+			}
+			index++
+			ruleID = args[index]
+		case "--status":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a finding status", arg)
+			}
+			index++
+			status = args[index]
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return fmt.Errorf("unknown option %q", arg)
@@ -1243,14 +1321,40 @@ func explainReport(args []string) error {
 	if err != nil {
 		return fmt.Errorf("read report: %w", err)
 	}
-	var result model.Result
-	if err := json.Unmarshal(data, &result); err != nil {
-		return fmt.Errorf("parse report: %w", err)
+	var envelope struct {
+		Schema string `json:"schema"`
 	}
-	if result.Schema != "paddock.report/v1" {
-		return fmt.Errorf("report schema must be paddock.report/v1, got %q", result.Schema)
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return fmt.Errorf("parse explanation input: %w", err)
 	}
-	document := paddockexplain.Explain(&result)
+
+	var document paddockexplain.Document
+	switch envelope.Schema {
+	case paddockartifact.Schema:
+		ciArtifact, err := paddockartifact.Load(reportPath)
+		if err != nil {
+			return err
+		}
+		if ciArtifact.Explanation == nil {
+			if ciArtifact.Error != "" {
+				return fmt.Errorf("CI artifact has no explanation: %s", ciArtifact.Error)
+			}
+			return fmt.Errorf("CI artifact has no explanation")
+		}
+		document = *ciArtifact.Explanation
+	case "paddock.report/v1":
+		var result model.Result
+		if err := json.Unmarshal(data, &result); err != nil {
+			return fmt.Errorf("parse report: %w", err)
+		}
+		document = paddockexplain.Explain(&result)
+	default:
+		return fmt.Errorf("explanation input must be paddock.report/v1 or %s, got %q", paddockartifact.Schema, envelope.Schema)
+	}
+	document, err = paddockexplain.ApplyFilter(document, ruleID, status)
+	if err != nil {
+		return err
+	}
 	switch format {
 	case "text":
 		err = paddockexplain.Text(os.Stdout, document)
@@ -1269,7 +1373,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       paddock policy diff --before <policy.yaml> --after <policy.yaml> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy seal --input <policy.yaml> --output <policy.lock.json> [--force]")
 	fmt.Fprintln(os.Stderr, "       paddock policy verify --policy <policy.yaml> --lock <policy.lock.json>")
+	fmt.Fprintln(os.Stderr, "       paddock policy test --policy <policy.yaml> --cases <manifest.yaml> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock baseline <source-root> --policy <policy.yaml> [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] --output <baseline.json>")
 	fmt.Fprintln(os.Stderr, "       paddock ci <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] --graph-output <graph.json>] [--baseline <file>] --output <ci-result.json>")
-	fmt.Fprintln(os.Stderr, "       paddock explain <paddock-report.json> [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock explain <paddock-report.json|paddock-ci-result.json> [--format text|json] [--rule <id>] [--status all|active|blocking|advisory|waived|baselined|expired-waiver]")
 }

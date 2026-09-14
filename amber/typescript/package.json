@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node dist/provenance.test.js && node test/conformance.test.mjs"
+    "test": "npm run build && node dist/provenance.test.js && node dist/incoming.test.js && node dist/http.test.js && node dist/messaging.test.js && node dist/logging.test.js && node dist/tracing.test.js && node dist/storage.test.js && node test/conformance.test.mjs"
   },
   "keywords": [
     "provenance",

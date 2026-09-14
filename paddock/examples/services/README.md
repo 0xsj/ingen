@@ -36,3 +36,14 @@ paddock check paddock/examples/services/feature-sliced-ts/violating \
 paddock check paddock/examples/services/python-hexagonal/violating \
   --policy paddock/examples/python-hexagonal.yaml
 ```
+
+Policy proposals can be regression-tested as a group:
+
+```sh
+paddock policy test \
+  --policy paddock/examples/hexagonal.yaml \
+  --cases paddock/examples/hexagonal.policy-tests.yaml
+```
+
+The manifest uses `paddock.policy-tests/v1`. Each case names a source root and
+expects `pass`, `fail`, or `error`; roots are relative to the manifest file.

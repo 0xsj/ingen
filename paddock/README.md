@@ -114,6 +114,15 @@ go run ./paddock/cmd/paddock ci \
   paddock/examples/services/hexagonal-go/violating \
   --policy paddock/examples/hexagonal.yaml \
   --output paddock-ci-result.json
+
+go run ./paddock/cmd/paddock explain paddock-ci-result.json
+
+go run ./paddock/cmd/paddock explain paddock-ci-result.json \
+  --status blocking --format json
+
+go run ./paddock/cmd/paddock policy test \
+  --policy paddock/examples/hexagonal.yaml \
+  --cases paddock/examples/hexagonal.policy-tests.yaml
 ```
 
 Use `--format json` for machine-readable findings. A violating subject exits
@@ -121,10 +130,18 @@ with status 1; an invalid policy, unreadable source, or incompatible baseline
 exits with status 2. Baselines retain accepted findings in the report, mark
 them as non-blocking, and report entries that have become stale.
 
-`explain` consumes a JSON report and produces deterministic text or JSON with
+`explain` consumes either a `paddock.report/v1` report or an
+`ingen.ci-result/v1` CI artifact and produces deterministic text or JSON with
 the observed dependency, matched rule constraints, policy reason, finding
-status, and suggested remediation. It is safe for an LLM agent to consume, but
-it never changes the underlying verdict.
+status, and suggested remediation. It also includes per-rule counts for total,
+active, blocking, waived, and baselined findings, plus an explicit triage
+outcome of `remediate`, `review`, `accepted`, or `clear`. This allows an LLM
+agent or CI reviewer to triage a large report before inspecting each edge. It
+never changes the underlying verdict. Use `--rule <id>` to select one rule, or
+`--status all|active|blocking|advisory|waived|baselined|expired-waiver` to
+select a finding state. `blocking` selects active error findings, including
+expired waivers. Filtered output records its selection and retains the original
+overall verdict.
 
 `graph` exposes the adapter output before classification and rule evaluation.
 It accepts either `--policy` or an explicit `--language`, and emits the stable
@@ -152,6 +169,12 @@ semantics. Its `paddock.policy-diff/v1` JSON output includes raw and canonical
 input hashes plus stable changes to source settings, components, rules, and waivers. It is the
 review boundary for agent-proposed policy edits; it does not apply or approve
 the proposal.
+
+`policy test` runs a policy against a versioned case manifest using the same
+checker as `check` and `ci`. The `paddock.policy-tests/v1` manifest accepts
+expected `pass`, `fail`, or `error` outcomes. A case mismatch exits `1`; an
+invalid policy or manifest exits `2`. Use `--format json` for an agent-facing
+`paddock.policy-test-result/v1` document.
 
 `policy seal` writes a `paddock.policy-lock/v1` artifact containing the exact
 policy-file SHA-256, canonical semantic SHA-256, and canonical policy payload.

@@ -16,6 +16,7 @@ import (
 	"ingen/paddock/internal/policy"
 	"ingen/paddock/internal/policydiff"
 	"ingen/paddock/internal/policylock"
+	"ingen/paddock/internal/policytest"
 )
 
 func TestCLIEndToEnd(t *testing.T) {
@@ -122,6 +123,42 @@ func TestCLIEndToEnd(t *testing.T) {
 				t.Fatalf("output does not contain %q:\n%s", fixture.wantOutput, output)
 			}
 		})
+	}
+}
+
+func TestOverwatchReviewPolicyLoads(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	path := filepath.Join(repoRoot, "paddock", "examples", "overwatch", "overwatch-backend-review.yaml")
+	loaded, err := policy.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Source.Language != "go" || loaded.Source.Unit != "package" || len(loaded.Components) != 8 || len(loaded.Rules) != 8 {
+		t.Fatalf("unexpected Overwatch review policy: %#v", loaded)
+	}
+}
+
+func TestCLIPolicyTestManifest(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal.yaml")
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal.policy-tests.yaml")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "policy", "test", "--policy", policyPath, "--cases", manifestPath)
+	if exitCode != 0 || !strings.Contains(output, "POLICY-TEST PASS") || !strings.Contains(output, "good-service") || !strings.Contains(output, "violating-service") {
+		t.Fatalf("policy test manifest failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "test", "--policy", policyPath, "--cases", manifestPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("JSON policy test manifest exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var document policytest.Document
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode policy test document: %v\n%s", err, output)
+	}
+	if document.Schema != policytest.DocumentSchema || document.Status != "PASS" || document.Passed != 2 || document.Failed != 0 {
+		t.Fatalf("unexpected policy test document: %#v", document)
 	}
 }
 
@@ -923,8 +960,18 @@ func TestCLIExplainReport(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &document); err != nil {
 		t.Fatalf("decode explanation JSON: %v\n%s", err, output)
 	}
-	if document.Schema != "paddock.explanation/v1" || document.Status != "FAIL" || len(document.Findings) != 2 {
+	if document.Schema != "paddock.explanation/v1" || document.Status != "FAIL" || document.Triage.Outcome != "remediate" || len(document.Findings) != 2 || len(document.Summary) != 2 {
 		t.Fatalf("unexpected explanation document: %#v", document)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "explain", reportPath, "--rule", "cross-context-access-is-mediated", "--status", "blocking", "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("filtered explanation exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode filtered explanation JSON: %v\n%s", err, output)
+	}
+	if document.Filter == nil || document.Filter.RuleID != "cross-context-access-is-mediated" || document.Filter.Status != "blocking" || document.Triage.Outcome != "remediate" || len(document.Findings) != 1 {
+		t.Fatalf("filtered explanation is incomplete: %#v", document)
 	}
 }
 
@@ -951,6 +998,18 @@ func TestCLICIArtifact(t *testing.T) {
 	}
 	if failedArtifact.Policy.SHA256 == "" || !strings.Contains(output, "CI-RESULT") {
 		t.Fatalf("CI artifact output is incomplete: %s", output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "explain", failedPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("CI artifact explanation exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var ciExplanation explain.Document
+	if err := json.Unmarshal([]byte(output), &ciExplanation); err != nil {
+		t.Fatalf("decode CI artifact explanation: %v\n%s", err, output)
+	}
+	if ciExplanation.Schema != "paddock.explanation/v1" || len(ciExplanation.Findings) == 0 || len(ciExplanation.Summary) == 0 {
+		t.Fatalf("CI artifact explanation is incomplete: %#v", ciExplanation)
 	}
 
 	passedPath := filepath.Join(t.TempDir(), "passed.json")

@@ -62,6 +62,34 @@ Required fields are:
 - expected observable rule IDs where known;
 - mutation status and outcome.
 
+The first catalogue file uses the versioned `ingen.mutation-catalogue/v1`
+shape. It binds a set of stable mutation records to a contract ID while
+keeping execution out of the declaration:
+
+```yaml
+mutation_catalogue:
+  schema: ingen.mutation-catalogue/v1
+  id: document-pipeline-mutations
+  version: 1
+  contract_id: document-pipeline
+  contract_version: 1
+  mutations:
+    - id: status-200-create
+      plane: implementation
+      operator: response.status.replace
+      target: POST /documents
+      description: Return 200 instead of the contracted 202.
+      change: {from: 202, to: 200}
+      expected_rule_ids: [document.create.valid.accepted]
+      status: candidate
+```
+
+`sorna mutation validate` checks the declaration before a campaign can use it;
+with `--contract`, it also checks the contract ID, version, and expected rule
+IDs. `sorna mutation list` provides a compact review view. The catalogue is
+not yet an instruction to mutate source code, and validation does not claim
+that an operator is safe or supported by a provider.
+
 ## 3. Operator families
 
 The first HTTP/JSON implementation should support a small, deterministic set.
@@ -167,6 +195,10 @@ Mutation results are valid only when:
 - environment differences are recorded;
 - flaky or nondeterministic cases are identified.
 
+The current CLI enforces this precondition with `--baseline-evidence`: it
+requires a checksum-valid passing run with no mutation and records the
+baseline run ID and comparison identities in the mutation run.
+
 If the baseline fails, mutation scoring should stop or be reported as
 `baseline-invalid` rather than producing a misleading score.
 
@@ -259,4 +291,3 @@ The first Sorna slice should implement at least:
 
 It should produce a stable mutation catalogue and JSONL result file before
 adding broad language-specific operator packs.
-

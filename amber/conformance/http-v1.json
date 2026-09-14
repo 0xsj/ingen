@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "header_name": "Amber-Provenance",
+  "valid": [
+    {
+      "name": "normal-local",
+      "value": "eyJ2ZXJzaW9uIjoxLCJ3b3JrX2lkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiZXhlY3V0aW9uX2lkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiY29ycmVsYXRpb25faWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJvcmlnaW4iOiJsb2NhbCIsImRlcHRoIjowLCJhdHRlbXB0IjoxLCJtb2RlIjp7ImtpbmQiOiJub3JtYWwifX0"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "malformed-ignored",
+      "value": "not!base64",
+      "policy": "ignore",
+      "expected_present": false
+    },
+    {
+      "name": "malformed-rejected",
+      "value": "not!base64",
+      "policy": "reject",
+      "expected_present": false,
+      "expect_error": true
+    }
+  ]
+}

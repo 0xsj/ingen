@@ -194,12 +194,18 @@ explanation step:
 ```sh
 paddock check . --policy paddock.yaml --format json > paddock-report.json
 paddock explain paddock-report.json
+# Or pass the durable CI envelope directly.
+paddock explain paddock-ci-result.json
 ```
 
 The explanation artifact uses `paddock.explanation/v1`. It describes the
 observed edge, the matched constraint, the policy's reason, the finding's
 waiver or baseline status, and deterministic remediation suggestions. It is an
-agent-facing interpretation of evidence, not a second decision engine.
+agent-facing interpretation of evidence, not a second decision engine. Its
+summary groups findings by rule and reports total, active, blocking, waived,
+and baselined counts. It also provides a deterministic triage outcome:
+`remediate`, `review`, `accepted`, or `clear`. This is an interpretation of
+the selected evidence, not a replacement for the complete report verdict.
 
 ## Tentative common shape
 

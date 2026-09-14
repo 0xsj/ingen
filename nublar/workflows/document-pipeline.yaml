@@ -1,0 +1,7 @@
+schema: ingen.nublar-workflow/v1
+id: document-pipeline-ci
+checks:
+  - id: behavioral-verification
+    tool: sorna
+    result: .artifacts/document-pipeline-ci-result.json
+    required: true

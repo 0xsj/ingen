@@ -70,6 +70,87 @@ export const main = value;
 	}
 }
 
+func TestTypeScriptAdapterSkipsFrameworkBuildOutput(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{
+		filepath.Join(root, ".next", "server"),
+		filepath.Join(root, ".nuxt"),
+		filepath.Join(root, ".svelte-kit"),
+		filepath.Join(root, ".turbo"),
+		filepath.Join(root, "storybook-static"),
+		filepath.Join(root, "coverage"),
+		filepath.Join(root, "node_modules", "generated-package"),
+	} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "generated.ts"), []byte("export const generated = true;\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.ts"), []byte("export const main = true;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "lib", "coverage"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "lib", "coverage", "source.ts"), []byte("export const source = true;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := graph.LoadTypeScript(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Packages) != 2 || !hasPackage(loaded, "main.ts") || !hasPackage(loaded, "lib/coverage/source.ts") {
+		t.Fatalf("framework build output leaked into graph: %#v", loaded.Packages)
+	}
+}
+
+func TestTypeScriptAdapterResolvesDottedBasenamesAndClassifiesAssets(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "main.ts"), []byte(`import { variants } from "./button.variants";
+import styles from "./button.module.css";
+import "./missing";
+import "./.next/dev/types/routes.d.ts";
+export { variants, styles };
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "button.variants.ts"), []byte("export const variants = {};\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "button.module.css"), []byte(".button {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := graph.LoadTypeScript(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEdge(loaded, "main.ts", "button.variants.ts", "internal") {
+		t.Fatalf("dotted basename import did not resolve: %#v", loaded.Edges)
+	}
+	if !hasEdge(loaded, "main.ts", "./button.module.css", "asset") {
+		t.Fatalf("asset import was not classified as asset: %#v", loaded.Edges)
+	}
+	if !hasEdge(loaded, "main.ts", "./missing", "unresolved") {
+		t.Fatalf("missing source import was not left unresolved: %#v", loaded.Edges)
+	}
+	if !hasEdge(loaded, "main.ts", "./.next/dev/types/routes.d.ts", "generated") {
+		t.Fatalf("framework-generated import was not classified as generated: %#v", loaded.Edges)
+	}
+}
+
+func hasPackage(graph *model.Graph, path string) bool {
+	for _, pkg := range graph.Packages {
+		if pkg.RelPath == path {
+			return true
+		}
+	}
+	return false
+}
+
 func hasEdge(edgesGraph *model.Graph, from, to, kind string) bool {
 	for _, edge := range edgesGraph.Edges {
 		if edge.FromPath == from && edge.TargetKind == kind && (edge.ToPath == to || edge.ToImportPath == to) {

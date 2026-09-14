@@ -96,3 +96,22 @@ under the host-enforced profile.
 The managed example run uses the separate subject policy automatically through
 `make sorna-run`; use `make subject-policy-validate` to inspect that policy on
 its own.
+
+Mutation runs must identify a passing, unmutated evidence bundle with
+`--baseline-evidence`. Sorna verifies that the baseline uses the same contract,
+oracle, and policy identities before it launches the mutated subject. The
+baseline path and run ID are retained in the resulting evidence bundle.
+
+The mutation catalogue is a separate, reviewable declaration of the campaign
+inputs. Validate or inspect the first example with:
+
+```sh
+make mutation-catalogue-validate
+go run ./sorna/cmd/sorna mutation validate examples/document-pipeline-lab/mutations/catalogue.yaml --contract examples/document-pipeline-lab/contract/contract.yaml
+go run ./sorna/cmd/sorna mutation list examples/document-pipeline-lab/mutations/catalogue.yaml
+```
+
+Catalogue validation checks stable IDs, canonical mutation planes, operators,
+targets, reproducible changes, expected contract rules, and lifecycle status.
+It does not apply mutations or launch a subject; campaign orchestration remains
+the next Sorna slice.

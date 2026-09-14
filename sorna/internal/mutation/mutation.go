@@ -4,10 +4,14 @@ package mutation
 
 // Spec describes a mutation before its subject is exercised.
 type Spec struct {
-	ID              string   `json:"id"`
-	Plane           string   `json:"plane"`
-	Description     string   `json:"description"`
-	ExpectedRuleIDs []string `json:"expected_rule_ids"`
+	ID              string         `json:"id" yaml:"id"`
+	Plane           string         `json:"plane" yaml:"plane"`
+	Operator        string         `json:"operator,omitempty" yaml:"operator,omitempty"`
+	Target          string         `json:"target,omitempty" yaml:"target,omitempty"`
+	Description     string         `json:"description" yaml:"description"`
+	Change          map[string]any `json:"change,omitempty" yaml:"change,omitempty"`
+	ExpectedRuleIDs []string       `json:"expected_rule_ids" yaml:"expected_rule_ids"`
+	Status          string         `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
 // RuleObservation is the small part of a rule result needed for mutation

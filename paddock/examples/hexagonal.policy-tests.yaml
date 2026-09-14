@@ -1,0 +1,8 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: good-service
+    root: services/hexagonal-go/good
+    expect: pass
+  - name: violating-service
+    root: services/hexagonal-go/violating
+    expect: fail

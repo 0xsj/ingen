@@ -14,10 +14,21 @@ type conformanceCase struct {
 }
 
 type conformanceFixture struct {
-	Version     int                     `json:"version"`
-	Valid       []conformanceCase       `json:"valid"`
-	Invalid     []conformanceCase       `json:"invalid"`
-	Transitions []conformanceTransition `json:"transitions"`
+	Version     int                       `json:"version"`
+	Valid       []conformanceCase         `json:"valid"`
+	Invalid     []conformanceCase         `json:"invalid"`
+	Incoming    []incomingConformanceCase `json:"incoming"`
+	Transitions []conformanceTransition   `json:"transitions"`
+}
+
+type incomingConformanceCase struct {
+	Name            string          `json:"name"`
+	InputRef        string          `json:"input_ref"`
+	InputValue      json.RawMessage `json:"input_value"`
+	Policy          IncomingPolicy  `json:"policy"`
+	ExpectedPresent bool            `json:"expected_present"`
+	ExpectedRef     string          `json:"expected_ref"`
+	ExpectError     bool            `json:"expect_error"`
 }
 
 type conformanceTransition struct {
@@ -59,6 +70,46 @@ func TestV1ConformanceFixtures(t *testing.T) {
 	validValues := make(map[string]json.RawMessage, len(fixture.Valid))
 	for _, testCase := range fixture.Valid {
 		validValues[testCase.Name] = testCase.Value
+	}
+	for _, testCase := range fixture.Incoming {
+		t.Run("incoming/"+testCase.Name, func(t *testing.T) {
+			var input json.RawMessage
+			if testCase.InputRef != "" {
+				var ok bool
+				input, ok = validValues[testCase.InputRef]
+				if !ok {
+					t.Fatalf("input fixture %q not found", testCase.InputRef)
+				}
+			} else if testCase.InputValue != nil {
+				input = testCase.InputValue
+			}
+			provenance, present, err := InspectIncomingJSON(input, testCase.Policy)
+			if testCase.ExpectError {
+				if err == nil || present {
+					t.Fatalf("expected incoming error: present=%v err=%v", present, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected incoming error: %v", err)
+			}
+			if present != testCase.ExpectedPresent {
+				t.Fatalf("present=%v, want %v", present, testCase.ExpectedPresent)
+			}
+			if testCase.ExpectedRef != "" {
+				expected, ok := validValues[testCase.ExpectedRef]
+				if !ok {
+					t.Fatalf("expected fixture %q not found", testCase.ExpectedRef)
+				}
+				expectedProvenance, err := FromJSON(expected)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if provenance.ExecutionID() != expectedProvenance.ExecutionID() {
+					t.Fatalf("execution_id=%s, want %s", provenance.ExecutionID(), expectedProvenance.ExecutionID())
+				}
+			}
+		})
 	}
 	for _, testCase := range fixture.Transitions {
 		t.Run("transition/"+testCase.Name, func(t *testing.T) {

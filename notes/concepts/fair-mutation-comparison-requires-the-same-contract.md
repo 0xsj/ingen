@@ -13,7 +13,9 @@ variant.
 The contract hash anchors the behavioral claims being compared. A mutation run
 can then attribute a changed result to the subject variant rather than to a
 quiet contract edit. The mutation identity, adapter, and relevant runner
-configuration must be retained alongside that hash.
+configuration must be retained alongside that hash. Sorna now also requires a
+passing baseline evidence bundle before it launches a mutation run and records
+the baseline run ID in the candidate evidence.
 
 ## Why
 

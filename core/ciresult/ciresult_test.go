@@ -2,6 +2,8 @@ package ciresult
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -45,5 +47,30 @@ func TestArtifactRejectsStatusExitCodeMismatch(t *testing.T) {
 	}
 	if err := artifact.Validate(); err == nil || !strings.Contains(err.Error(), "exit_code 1") {
 		t.Fatalf("Validate() = %v, want failed-status exit-code error", err)
+	}
+}
+
+func TestLoadFileValidatesTheSharedEnvelope(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "result.json")
+	contents := `{
+  "schema": "ingen.ci-result/v1",
+  "tool": "test-tool",
+  "kind": "test",
+  "status": "error",
+  "exit_code": 2,
+  "created_at": "2026-09-14T12:00:00Z",
+  "source": {"root": "."},
+  "error": "input unavailable"
+}
+`
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Status != "error" || artifact.ExitCode != 2 {
+		t.Fatalf("loaded artifact = %+v, want shared error result", artifact)
 	}
 }

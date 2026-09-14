@@ -41,7 +41,7 @@ func TestSaveLoadPreservesFailedResultAndExplanation(t *testing.T) {
 	if loaded.Schema != "ingen.ci-result/v1" || loaded.Report == nil || loaded.Explanation == nil {
 		t.Fatalf("artifact lost required fields: %#v", loaded)
 	}
-	if loaded.Explanation.Status != "FAIL" || len(loaded.Explanation.Findings) != 1 {
+	if loaded.Explanation.Status != "FAIL" || loaded.Explanation.Triage.Outcome != "remediate" || len(loaded.Explanation.Findings) != 1 || len(loaded.Explanation.Summary) != 1 {
 		t.Fatalf("artifact explanation is incomplete: %#v", loaded.Explanation)
 	}
 }

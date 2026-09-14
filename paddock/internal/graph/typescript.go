@@ -111,8 +111,15 @@ func findTypeScriptFiles(root string) ([]typeScriptFile, error) {
 		}
 		if entry.IsDir() {
 			switch entry.Name() {
-			case ".git", "node_modules", "dist", "build", "coverage":
+			case ".git", "node_modules", ".next", ".nuxt", ".svelte-kit", ".turbo":
 				return filepath.SkipDir
+			case "dist", "build", "coverage", "storybook-static":
+				// These names are commonly generated at the project root, but
+				// can also be legitimate nested source namespaces (for example
+				// lib/services/coverage).
+				if filepath.Dir(path) == root {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}
@@ -413,7 +420,7 @@ func resolveTypeScriptImport(fromPath, importPath string, packages map[string]*m
 func typeScriptCandidates(base string) []string {
 	candidates := []string{base}
 	extension := strings.ToLower(filepath.Ext(base))
-	if extension == "" {
+	if extension == "" || (!isTypeScriptSourceExtension(extension) && !isTypeScriptAssetExtension(extension)) {
 		for _, candidateExtension := range []string{".ts", ".tsx", ".js", ".jsx"} {
 			candidates = append(candidates, base+candidateExtension)
 		}
@@ -429,6 +436,26 @@ func typeScriptCandidates(base string) []string {
 		}
 	}
 	return candidates
+}
+
+func isTypeScriptSourceExtension(extension string) bool {
+	switch extension {
+	case ".ts", ".tsx", ".js", ".jsx":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTypeScriptAssetExtension(extension string) bool {
+	switch extension {
+	case ".css", ".scss", ".sass", ".less", ".styl", ".stylus", ".pcss", ".postcss",
+		".json", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico",
+		".woff", ".woff2", ".ttf", ".eot", ".mp3", ".mp4", ".webm", ".wav":
+		return true
+	default:
+		return false
+	}
 }
 
 func pathAliasCapture(pattern, importPath string) (string, bool) {
@@ -458,8 +485,23 @@ func typeScriptTargetKind(importPath string, internal *model.Package, config typ
 	if strings.HasPrefix(importPath, "node:") {
 		return "standard-library"
 	}
+	if isTypeScriptGeneratedImport(importPath) {
+		return "generated"
+	}
+	if isTypeScriptAssetExtension(strings.ToLower(filepath.Ext(importPath))) {
+		return "asset"
+	}
 	if strings.HasPrefix(importPath, ".") || configuredPathAlias(importPath, config) {
 		return "unresolved"
 	}
 	return "external"
+}
+
+func isTypeScriptGeneratedImport(importPath string) bool {
+	for _, prefix := range []string{"./.next/", "../.next/", "./.nuxt/", "../.nuxt/", "./.svelte-kit/", "../.svelte-kit/"} {
+		if strings.HasPrefix(importPath, prefix) {
+			return true
+		}
+	}
+	return false
 }

@@ -31,16 +31,17 @@ type Bundle struct {
 // Manifest is the bundle entrypoint. It records identity and hashes, but does
 // not turn content integrity into a correctness or isolation claim.
 type Manifest struct {
-	Schema          string                   `json:"schema"`
-	RunID           string                   `json:"run_id"`
-	CreatedAt       time.Time                `json:"created_at"`
-	Assurance       runner.Assurance         `json:"assurance"`
-	Contract        runner.ContractReference `json:"contract"`
-	Oracle          *runner.OracleReference  `json:"oracle,omitempty"`
-	Subject         runner.SubjectReference  `json:"subject"`
-	Policy          *policy.Reference        `json:"policy,omitempty"`
-	SubjectPolicy   *policy.Reference        `json:"subject_policy,omitempty"`
-	ArtifactsSHA256 map[string]string        `json:"artifacts_sha256"`
+	Schema          string                    `json:"schema"`
+	RunID           string                    `json:"run_id"`
+	CreatedAt       time.Time                 `json:"created_at"`
+	Assurance       runner.Assurance          `json:"assurance"`
+	Contract        runner.ContractReference  `json:"contract"`
+	Oracle          *runner.OracleReference   `json:"oracle,omitempty"`
+	Baseline        *runner.BaselineReference `json:"baseline,omitempty"`
+	Subject         runner.SubjectReference   `json:"subject"`
+	Policy          *policy.Reference         `json:"policy,omitempty"`
+	SubjectPolicy   *policy.Reference         `json:"subject_policy,omitempty"`
+	ArtifactsSHA256 map[string]string         `json:"artifacts_sha256"`
 }
 
 // LifecycleEvent is the append-only JSONL form of a lifecycle record event.
@@ -193,6 +194,7 @@ func WriteBundleWithPolicies(outputDir string, record runner.RunRecord, sealedPo
 		Assurance:       record.Assurance,
 		Contract:        record.Contract,
 		Oracle:          record.Oracle,
+		Baseline:        record.Baseline,
 		Subject:         record.Subject,
 		Policy:          policyReference,
 		SubjectPolicy:   subjectPolicyReference,
@@ -359,6 +361,9 @@ func verifyBundleSemantics(outputDir string, checksums map[string]bool) error {
 		var record runner.RunRecord
 		if err := json.Unmarshal(runBytes, &record); err != nil {
 			return fmt.Errorf("decode run: %w", err)
+		}
+		if record.Schema != "ingen.run/v1" || manifest.RunID != record.RunID || manifest.Contract != record.Contract || !sameOracle(manifest.Oracle, record.Oracle) || manifest.Subject != record.Subject || !sameBaseline(manifest.Baseline, record.Baseline) {
+			return fmt.Errorf("evidence manifest identity does not match run identity")
 		}
 		if record.Lifecycle == nil || record.Lifecycle.Access == nil {
 			return nil

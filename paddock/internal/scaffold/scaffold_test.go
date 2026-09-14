@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"ingen/paddock/internal/checker"
 	"ingen/paddock/internal/model"
 	"ingen/paddock/internal/policy"
 	"ingen/paddock/internal/scaffold"
@@ -116,6 +117,74 @@ func TestGenerateSupportsGenericExternalFileLanguage(t *testing.T) {
 	}
 	if _, err := policy.Load(writePolicy(t, contents)); err != nil {
 		t.Fatalf("generated external policy is invalid: %v\n%s", err, contents)
+	}
+}
+
+func TestGenerateMakesNestedParentComponentsExact(t *testing.T) {
+	graph := &model.Graph{
+		ModulePath: "example.com/service",
+		Packages: []*model.Package{
+			{ImportPath: "example.com/service/internal/orders", RelPath: "internal/orders"},
+			{ImportPath: "example.com/service/internal/orders/app", RelPath: "internal/orders/app"},
+			{ImportPath: "example.com/service/internal/orders/domain", RelPath: "internal/orders/domain"},
+		},
+	}
+	contents, err := scaffold.Generate(scaffold.Options{
+		Language: "go",
+		Template: "layered",
+		Root:     t.TempDir(),
+		Graph:    graph,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "match: internal/orders\n") {
+		t.Fatalf("parent context should be exact when it has nested components:\n%s", contents)
+	}
+	if !strings.Contains(string(contents), "match: internal/orders/app/**") ||
+		!strings.Contains(string(contents), "match: internal/orders/domain/**") {
+		t.Fatalf("nested components should remain recursive:\n%s", contents)
+	}
+
+	path := writePolicy(t, contents)
+	loaded, err := policy.Load(path)
+	if err != nil {
+		t.Fatalf("generated policy is invalid: %v\n%s", err, contents)
+	}
+	result, err := checker.CheckGraph(t.TempDir(), path, loaded, graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, finding := range result.Findings {
+		if strings.Contains(finding.Message, "matches multiple components") ||
+			strings.Contains(finding.Message, "must match exactly one component") {
+			t.Fatalf("generated policy has a coverage defect: %#v\n%s", finding, contents)
+		}
+	}
+}
+
+func TestGenerateQuotesRootGlobForYAML(t *testing.T) {
+	contents, err := scaffold.Generate(scaffold.Options{
+		Language: "typescript",
+		Unit:     "file",
+		Template: "feature-sliced",
+		Root:     t.TempDir(),
+		Graph: &model.Graph{
+			ModulePath: "example-ui",
+			Packages: []*model.Package{
+				{ImportPath: "example-ui/main.ts", RelPath: "main.ts"},
+				{ImportPath: "example-ui/src/app.ts", RelPath: "src/app.ts"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "match: \"*\"\n") {
+		t.Fatalf("root file glob should be quoted and bounded in YAML:\n%s", contents)
+	}
+	if _, err := policy.Load(writePolicy(t, contents)); err != nil {
+		t.Fatalf("generated root-file policy is invalid: %v\n%s", err, contents)
 	}
 }
 

@@ -462,6 +462,95 @@ func TestBuildCIErrorResultPreservesVerificationFailure(t *testing.T) {
 	}
 }
 
+func TestValidateBaselineRequiresMatchingPassingRun(t *testing.T) {
+	sealedPolicy, err := policy.Seal(testPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := runner.ContractReference{ID: "contract-test", Version: 1, SHA256: strings.Repeat("a", 64)}
+	oracleReference := &runner.OracleReference{Schema: "ingen.oracle/v1", SHA256: strings.Repeat("b", 64)}
+	record := runner.RunRecord{
+		Schema:    "ingen.run/v1",
+		RunID:     "run-baseline-valid",
+		CreatedAt: time.Now().UTC(),
+		Contract:  contract,
+		Oracle:    oracleReference,
+		Subject:   runner.SubjectReference{BaseURL: "http://subject.invalid", Adapter: "http-json-v1", Variant: "clean-baseline"},
+		Verdict:   runner.ContractVerdict{Status: "pass", Reason: "all rules passed"},
+	}
+	directory := t.TempDir()
+	if _, err := WriteBundleWithPolicies(directory, record, &sealedPolicy, &sealedPolicy); err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := ValidateBaseline(directory, BaselineRequirements{
+		Contract:            contract,
+		Oracle:              oracleReference,
+		PolicySHA256:        sealedPolicy.SHA256,
+		SubjectPolicySHA256: sealedPolicy.SHA256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.EvidencePath != directory || baseline.RunID != record.RunID || baseline.Contract != contract || !sameOracle(baseline.Oracle, oracleReference) {
+		t.Fatalf("baseline = %+v, want matching baseline reference", baseline)
+	}
+}
+
+func TestValidateBaselineRejectsInvalidComparisonInputs(t *testing.T) {
+	sealedPolicy, err := policy.Seal(testPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := runner.ContractReference{ID: "contract-test", Version: 1, SHA256: strings.Repeat("a", 64)}
+	oracleReference := &runner.OracleReference{Schema: "ingen.oracle/v1", SHA256: strings.Repeat("b", 64)}
+	tests := []struct {
+		name        string
+		verdict     string
+		mutation    *mutation.Result
+		requirement BaselineRequirements
+		want        string
+	}{
+		{name: "contract failure", verdict: "fail", want: "contract verdict"},
+		{name: "mutation baseline", verdict: "pass", mutation: &mutation.Result{Spec: mutation.Spec{ID: "already-mutated"}}, want: "contains mutation"},
+		{name: "contract mismatch", verdict: "pass", requirement: BaselineRequirements{Contract: runner.ContractReference{ID: "other", Version: 1, SHA256: strings.Repeat("a", 64)}}, want: "does not match candidate"},
+		{name: "policy mismatch", verdict: "pass", requirement: BaselineRequirements{Contract: contract, Oracle: oracleReference, PolicySHA256: strings.Repeat("f", 64), SubjectPolicySHA256: sealedPolicy.SHA256}, want: "oracle policy hash"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			record := runner.RunRecord{
+				Schema:    "ingen.run/v1",
+				RunID:     "run-baseline-" + strings.ReplaceAll(test.name, " ", "-"),
+				CreatedAt: time.Now().UTC(),
+				Contract:  contract,
+				Oracle:    oracleReference,
+				Subject:   runner.SubjectReference{BaseURL: "http://subject.invalid", Adapter: "http-json-v1"},
+				Verdict:   runner.ContractVerdict{Status: test.verdict},
+				Mutation:  test.mutation,
+			}
+			directory := t.TempDir()
+			if _, err := WriteBundleWithPolicies(directory, record, &sealedPolicy, &sealedPolicy); err != nil {
+				t.Fatal(err)
+			}
+			requirement := test.requirement
+			if requirement.Contract == (runner.ContractReference{}) {
+				requirement.Contract = contract
+			}
+			if requirement.Oracle == nil {
+				requirement.Oracle = oracleReference
+			}
+			if requirement.PolicySHA256 == "" {
+				requirement.PolicySHA256 = sealedPolicy.SHA256
+			}
+			if requirement.SubjectPolicySHA256 == "" {
+				requirement.SubjectPolicySHA256 = sealedPolicy.SHA256
+			}
+			if _, err := ValidateBaseline(directory, requirement); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateBaseline() = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func testPolicy() policy.Document {
 	return policy.Document{Policy: map[string]any{
 		"schema":      "ingen.policy/v1",

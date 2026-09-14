@@ -301,6 +301,12 @@ Mutation records must include:
 Mutation score must be calculated from the declared denominator and must not
 silently exclude survivors. Exclusions require a reason and reviewer identity.
 
+The current Sorna CLI enforces the baseline requirement before a mutation run:
+`--baseline-evidence` must point to a checksum-valid, unmutated run whose
+contract verdict is `pass`. The baseline contract, oracle, oracle-policy, and
+managed-subject-policy identities must match the candidate. The candidate's
+`run.json` and manifest retain the baseline path and run ID.
+
 ## 10. Review and waivers
 
 Review records should identify:

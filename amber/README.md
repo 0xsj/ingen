@@ -60,7 +60,24 @@ amber/
 
 Core specification draft v1 is in place under `spec/`. The Go and TypeScript
 implementations, conformance fixtures, and adapters will follow the shared
-contract defined there.
+contract defined there. The first HTTP adapter is now implemented under
+`adapters/http/`, and the transport-neutral messaging adapter is implemented
+under `adapters/messaging/`. A framework-neutral structured logging projection
+is implemented under `adapters/logging/`, and a framework-neutral tracing
+projection is implemented under `adapters/tracing/`. A process-local reference
+storage adapter is implemented under `adapters/storage/`; durable database
+adapters are still future work.
 
 Implementation reasoning and verification notes are indexed in
 [`docs/notes/README.md`](docs/notes/README.md).
+
+## Verification
+
+Run the complete Amber suite from the project root:
+
+```sh
+make test
+```
+
+This runs the Go packages, TypeScript build/tests, and shared conformance
+fixtures.

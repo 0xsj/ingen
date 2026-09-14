@@ -17,8 +17,11 @@ not yet separate services or repositories.
   workspaces, agent roles, permissions, lifecycle, and visibility.
 - **Hammond** — a future contract governance and registry surface, currently a
   placeholder until cross-project governance is a real need.
-- **Nublar** — a future CI and delivery surface, currently a placeholder that
-  should consume Sorna rather than duplicate its semantics.
+- **Nublar** — the CI and delivery surface: currently a local coordinator for
+  shared result envelopes, with hosted workflow capabilities still ahead.
+- **Amber** — the portable provenance layer: Go and TypeScript SDKs for work
+  identity, execution tracking, causality, attribution, retries, replay, and
+  safe context propagation.
 
 ## Core thesis
 
@@ -34,8 +37,9 @@ The family is designed to break that circle with three separations:
 
 The shared core defines contract, run, mutation, and evidence artifacts. Sorna
 owns verification semantics and evidence production. Sentinel owns the agent
-workflow and interactive workspace. Future CI or registry surfaces should
-invoke or consume Sorna rather than duplicate its testing logic.
+workflow and interactive workspace. Amber provides reusable provenance
+semantics across the ecosystem. Nublar consumes Sorna and shared result
+protocols rather than duplicating their testing logic.
 
 The separation that must be enforced is the oracle's runtime access boundary.
 The separation between named verticals is otherwise allowed to remain a
@@ -55,6 +59,9 @@ oracle and subject telemetry are evidence, not independent attestation.
 See [MODULES.md](MODULES.md) for the repository map and the intended status of
 each area.
 
+Amber now has a language-neutral v1 specification, Go and TypeScript
+implementations, shared conformance fixtures, and focused transition tests.
+
 ## Quick start
 
 ```sh
@@ -68,6 +75,8 @@ make sorna-oracle-freeze
 make oracle-evidence-verify
 make sorna-run
 make evidence-verify
+make sorna-ci-result
+make nublar-aggregate
 ```
 
 `make sorna-run` freezes the oracle, launches the clean subject, waits for

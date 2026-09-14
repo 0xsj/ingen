@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"ingen/paddock/internal/model"
@@ -21,7 +22,39 @@ type Document struct {
 	EdgeCount    int                    `json:"edge_count"`
 	Baseline     *model.BaselineSummary `json:"baseline,omitempty"`
 	Waivers      []model.WaiverSummary  `json:"waivers,omitempty"`
+	Filter       *FindingFilter         `json:"filter,omitempty"`
+	Triage       TriageSummary          `json:"triage"`
+	Summary      []FindingSummary       `json:"summary"`
 	Findings     []FindingExplanation   `json:"findings"`
+}
+
+type FindingFilter struct {
+	RuleID string `json:"rule_id,omitempty"`
+	Status string `json:"status,omitempty"`
+}
+
+// TriageSummary gives an agent an explicit disposition for the selected
+// findings. It is not the CI verdict; Document.Status remains the verdict for
+// the complete, unfiltered report.
+type TriageSummary struct {
+	Outcome  string `json:"outcome"`
+	Findings int    `json:"findings"`
+	Active   int    `json:"active"`
+	Blocking int    `json:"blocking"`
+	Accepted int    `json:"accepted"`
+}
+
+// FindingSummary groups the explanation's findings by rule so callers can
+// triage a report before inspecting each individual dependency edge.
+type FindingSummary struct {
+	RuleID    string `json:"rule_id"`
+	Kind      string `json:"kind"`
+	Severity  string `json:"severity"`
+	Findings  int    `json:"findings"`
+	Active    int    `json:"active"`
+	Blocking  int    `json:"blocking"`
+	Waived    int    `json:"waived"`
+	Baselined int    `json:"baselined"`
 }
 
 type FindingExplanation struct {
@@ -49,6 +82,7 @@ func Explain(result *model.Result) Document {
 		EdgeCount:    result.EdgeCount,
 		Baseline:     result.Baseline,
 		Waivers:      result.Waivers,
+		Summary:      summarizeFindings(result.Findings, rules),
 		Findings:     make([]FindingExplanation, 0, len(result.Findings)),
 	}
 	for _, finding := range result.Findings {
@@ -62,12 +96,29 @@ func Explain(result *model.Result) Document {
 			SuggestedActions: suggestedActions(finding, rule),
 		})
 	}
+	document.Triage = triage(document.Summary)
 	return document
 }
 
 func Text(w io.Writer, document Document) error {
 	if _, err := fmt.Fprintf(w, "EXPLAIN %s %s (%d findings)\n", document.Status, document.Root, len(document.Findings)); err != nil {
 		return err
+	}
+	if document.Filter != nil {
+		if _, err := fmt.Fprintf(w, "FILTER rule=%s status=%s\n", document.Filter.RuleID, document.Filter.Status); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(w, "TRIAGE %s (%d findings, %d active, %d blocking, %d accepted)\n", document.Triage.Outcome, document.Triage.Findings, document.Triage.Active, document.Triage.Blocking, document.Triage.Accepted); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "SUMMARY %d rules, %d findings, %d blocking\n", len(document.Summary), len(document.Findings), blockingFindings(document.Summary)); err != nil {
+		return err
+	}
+	for _, summary := range document.Summary {
+		if _, err := fmt.Fprintf(w, "  %s (%s/%s): %d findings, %d active, %d blocking\n", summary.RuleID, summary.Kind, summary.Severity, summary.Findings, summary.Active, summary.Blocking); err != nil {
+			return err
+		}
 	}
 	for _, waiver := range document.Waivers {
 		if waiver.Status == "unused" || waiver.Status == "unused-expired" {
@@ -100,6 +151,151 @@ func Text(w io.Writer, document Document) error {
 	return nil
 }
 
+func summarizeFindings(findings []*model.Finding, rules map[string]*model.RuleSummary) []FindingSummary {
+	byRule := make(map[string]FindingSummary)
+	for _, finding := range findings {
+		if finding == nil {
+			continue
+		}
+		addFindingSummary(byRule, finding, rules[finding.RuleID])
+	}
+	return sortedFindingSummaries(byRule)
+}
+
+func summarizeExplanations(findings []FindingExplanation) []FindingSummary {
+	byRule := make(map[string]FindingSummary)
+	for _, explanation := range findings {
+		if explanation.Finding == nil {
+			continue
+		}
+		addFindingSummary(byRule, explanation.Finding, explanation.Rule)
+	}
+	return sortedFindingSummaries(byRule)
+}
+
+func addFindingSummary(byRule map[string]FindingSummary, finding *model.Finding, rule *model.RuleSummary) {
+	summary := byRule[finding.RuleID]
+	if summary.RuleID == "" {
+		summary = FindingSummary{
+			RuleID:   finding.RuleID,
+			Kind:     finding.Kind,
+			Severity: finding.Severity,
+		}
+		if rule != nil {
+			summary.Kind = rule.Kind
+			summary.Severity = rule.Severity
+		}
+	}
+	summary.Findings++
+	switch {
+	case finding.Waived:
+		summary.Waived++
+	case finding.Baselined:
+		summary.Baselined++
+	default:
+		summary.Active++
+		if effectiveSeverity(finding, rule) == "error" {
+			summary.Blocking++
+		}
+	}
+	byRule[finding.RuleID] = summary
+}
+
+func sortedFindingSummaries(byRule map[string]FindingSummary) []FindingSummary {
+
+	result := make([]FindingSummary, 0, len(byRule))
+	for _, summary := range byRule {
+		result = append(result, summary)
+	}
+	sort.Slice(result, func(left, right int) bool {
+		return result[left].RuleID < result[right].RuleID
+	})
+	return result
+}
+
+// ApplyFilter selects findings for an agent while preserving the original
+// explanation status and evidence context. The top-level verdict therefore
+// continues to describe the complete report, not just the selected subset.
+func ApplyFilter(document Document, ruleID, status string) (Document, error) {
+	if status == "all" {
+		status = ""
+	}
+	if status != "" && !validFilterStatus(status) {
+		return Document{}, fmt.Errorf("unsupported finding status %q; use all, active, blocking, advisory, waived, baselined, or expired-waiver", status)
+	}
+	if ruleID == "" && status == "" {
+		return document, nil
+	}
+
+	filtered := document
+	filtered.Filter = &FindingFilter{RuleID: ruleID, Status: status}
+	filtered.Findings = make([]FindingExplanation, 0, len(document.Findings))
+	for _, finding := range document.Findings {
+		if finding.Finding == nil {
+			continue
+		}
+		if ruleID != "" && finding.Finding.RuleID != ruleID {
+			continue
+		}
+		if status != "" && !matchesFilterStatus(finding, status) {
+			continue
+		}
+		filtered.Findings = append(filtered.Findings, finding)
+	}
+	filtered.Summary = summarizeExplanations(filtered.Findings)
+	filtered.Triage = triage(filtered.Summary)
+	return filtered, nil
+}
+
+func triage(summaries []FindingSummary) TriageSummary {
+	result := TriageSummary{}
+	for _, summary := range summaries {
+		result.Findings += summary.Findings
+		result.Active += summary.Active
+		result.Blocking += summary.Blocking
+		result.Accepted += summary.Waived + summary.Baselined
+	}
+	switch {
+	case result.Blocking > 0:
+		result.Outcome = "remediate"
+	case result.Active > 0:
+		result.Outcome = "review"
+	case result.Accepted > 0:
+		result.Outcome = "accepted"
+	default:
+		result.Outcome = "clear"
+	}
+	return result
+}
+
+func validFilterStatus(status string) bool {
+	switch status {
+	case "active", "blocking", "advisory", "waived", "baselined", "expired-waiver":
+		return true
+	default:
+		return false
+	}
+}
+
+func matchesFilterStatus(finding FindingExplanation, status string) bool {
+	switch status {
+	case "active":
+		return finding.Status != "waived" && finding.Status != "baselined"
+	case "blocking":
+		return effectiveSeverity(finding.Finding, finding.Rule) == "error" && (finding.Status == "blocking" || finding.Status == "expired-waiver")
+	default:
+		return finding.Status == status
+	}
+}
+
+func blockingFindings(summaries []FindingSummary) int {
+	blocking := 0
+	for _, summary := range summaries {
+		blocking += summary.Blocking
+	}
+	return blocking
+}
+
 func JSON(w io.Writer, document Document) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
@@ -121,9 +317,21 @@ func findingStatus(finding *model.Finding) string {
 		return "waived"
 	case finding.Baselined:
 		return "baselined"
+	case finding.Severity != "error":
+		return "advisory"
 	default:
 		return "blocking"
 	}
+}
+
+func effectiveSeverity(finding *model.Finding, rule *model.RuleSummary) string {
+	if finding.Severity != "" {
+		return finding.Severity
+	}
+	if rule != nil {
+		return rule.Severity
+	}
+	return ""
 }
 
 func observation(finding *model.Finding) string {

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 )
@@ -124,6 +125,12 @@ func validateFileRef(name string, ref *FileRef) error {
 	return nil
 }
 
+// ValidateFileRef validates a reusable envelope file reference for consumers
+// that carry the same path/hash shape in a producer-owned artifact.
+func ValidateFileRef(name string, ref *FileRef) error {
+	return validateFileRef(name, ref)
+}
+
 func validJSONValue(value json.RawMessage) bool {
 	return len(value) > 0 && !strings.EqualFold(string(value), "null") && json.Valid(value)
 }
@@ -135,4 +142,19 @@ func WriteJSON(w io.Writer, artifact Artifact) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(artifact)
+}
+
+func LoadFile(path string) (Artifact, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("read CI result %s: %w", path, err)
+	}
+	var artifact Artifact
+	if err := json.Unmarshal(contents, &artifact); err != nil {
+		return Artifact{}, fmt.Errorf("parse CI result %s: %w", path, err)
+	}
+	if err := artifact.Validate(); err != nil {
+		return Artifact{}, fmt.Errorf("validate CI result %s: %w", path, err)
+	}
+	return artifact, nil
 }

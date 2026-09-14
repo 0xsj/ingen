@@ -83,6 +83,34 @@
       }
     }
   ],
+  "incoming": [
+    {
+      "name": "absent-empty",
+      "input": "",
+      "policy": "ignore",
+      "expected_present": false
+    },
+    {
+      "name": "valid-reference",
+      "input_ref": "normal-incoming-with-attribution",
+      "policy": "reject",
+      "expected_present": true,
+      "expected_ref": "normal-incoming-with-attribution"
+    },
+    {
+      "name": "invalid-ignored",
+      "input_value": { "version": 1 },
+      "policy": "ignore",
+      "expected_present": false
+    },
+    {
+      "name": "invalid-rejected",
+      "input_value": { "version": 1 },
+      "policy": "reject",
+      "expected_present": false,
+      "expect_error": true
+    }
+  ],
   "transitions": [
     {
       "name": "child-local",

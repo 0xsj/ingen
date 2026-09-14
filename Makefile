@@ -16,6 +16,8 @@ SUBJECT_BINARY_DIR ?= .artifacts/document-pipeline-subject
 SUBJECT_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline
 RUN_OUTPUT_DIR ?= .artifacts/document-pipeline-run
 CI_RESULT_OUTPUT ?= .artifacts/document-pipeline-ci-result.json
+NUBLAR_RESULT_OUTPUT ?= .artifacts/nublar-result.json
+NUBLAR_WORKFLOW ?= nublar/workflows/document-pipeline.yaml
 DEFECT_ADDR ?= 127.0.0.1:8081
 DEFECT_URL ?= http://127.0.0.1:8081
 DEFECT_READY_PATH ?= /healthz
@@ -24,13 +26,14 @@ DEFECT_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect
 SANDBOX_ROOT ?= .
 SANDBOX_PROBE_PATH ?= examples/document-pipeline-lab/contract/contract.yaml
 ORACLE_OUTPUT_DIR ?= .artifacts/document-pipeline-oracle
+MUTATION_CATALOGUE ?= examples/document-pipeline-lab/mutations/catalogue.yaml
 
 .DEFAULT_GOAL := help
 
 .PHONY: help build test test-race vet check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
-	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result sorna-oracle-freeze \
-	subject-defect-run sorna-defect-run sandbox-contract-read
+	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate sorna-oracle-freeze \
+	subject-defect-run sorna-defect-run mutation-catalogue-validate sandbox-contract-read
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -92,6 +95,10 @@ sorna-ci-result: ## Write the language-neutral CI result envelope for RUN_OUTPUT
 	mkdir -p "$(dir $(CI_RESULT_OUTPUT))"
 	$(GO_CMD) run ./sorna/cmd/sorna gate --format ci-result $(if $(GATE_MIN_OBSERVATION_COVERAGE),--minimum-observation-coverage "$(GATE_MIN_OBSERVATION_COVERAGE)",) "$(RUN_OUTPUT_DIR)" > "$(CI_RESULT_OUTPUT)"
 
+nublar-aggregate: sorna-ci-result ## Aggregate the current Sorna result through Nublar
+	mkdir -p "$(dir $(NUBLAR_RESULT_OUTPUT))"
+	$(GO_CMD) run ./nublar/cmd/nublar aggregate --workflow "$(NUBLAR_WORKFLOW)" --root . --output "$(NUBLAR_RESULT_OUTPUT)"
+
 sandbox-contract-read: ## Run /bin/cat under the macOS Seatbelt policy backend
 	$(GO_CMD) run ./sorna/cmd/sorna sandbox exec --policy "$(POLICY)" --root "$(SANDBOX_ROOT)" -- /bin/cat "$(SANDBOX_PROBE_PATH)"
 
@@ -101,8 +108,11 @@ sorna-oracle-freeze: ## Generate the document-pipeline oracle in a sandbox
 oracle-evidence-verify: ## Verify the frozen oracle evidence bundle
 	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(ORACLE_OUTPUT_DIR)"
 
+mutation-catalogue-validate: ## Validate the document-pipeline mutation catalogue
+	$(GO_CMD) run ./sorna/cmd/sorna mutation validate "$(MUTATION_CATALOGUE)" --contract "$(CONTRACT)"
+
 subject-defect-run: ## Run the status-200-create defect subject on DEFECT_ADDR
 	$(GO_CMD) run ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect -addr "$(DEFECT_ADDR)"
 
-sorna-defect-run: sorna-oracle-freeze defect-build ## Freeze the oracle, launch the isolated defect subject, run Sorna, and tear it down
-	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --subject-root "$(SUBJECT_ROOT)" --base-url "$(DEFECT_URL)" --subject-command "$(DEFECT_BINARY)" --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --ready-path "$(DEFECT_READY_PATH)" --subject-variant status-200-create --mutation-id status-200-create --mutation-plane behavior --mutation-description "valid document creation returns 200 instead of 202" --expected-rule document.create.valid.accepted --output-dir "$(DEFECT_RUN_OUTPUT_DIR)"
+sorna-defect-run: sorna-run defect-build ## Reuse the passing clean baseline, then run the isolated defect subject through Sorna
+	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --subject-root "$(SUBJECT_ROOT)" --baseline-evidence "$(RUN_OUTPUT_DIR)" --base-url "$(DEFECT_URL)" --subject-command "$(DEFECT_BINARY)" --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --ready-path "$(DEFECT_READY_PATH)" --subject-variant status-200-create --mutation-id status-200-create --mutation-plane implementation --mutation-description "valid document creation returns 200 instead of 202" --expected-rule document.create.valid.accepted --output-dir "$(DEFECT_RUN_OUTPUT_DIR)"

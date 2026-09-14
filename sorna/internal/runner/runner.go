@@ -38,18 +38,19 @@ type Config struct {
 // status describes the subject boundary that was actually requested; level 0
 // remains conservative until that boundary has independent attestation.
 type RunRecord struct {
-	Schema    string            `json:"schema"`
-	RunID     string            `json:"run_id"`
-	CreatedAt time.Time         `json:"created_at"`
-	Assurance Assurance         `json:"assurance"`
-	Contract  ContractReference `json:"contract"`
-	Oracle    *OracleReference  `json:"oracle,omitempty"`
-	Verdict   ContractVerdict   `json:"contract_verdict"`
-	Subject   SubjectReference  `json:"subject"`
-	Lifecycle *lifecycle.Record `json:"lifecycle,omitempty"`
-	Summary   Summary           `json:"summary"`
-	Rules     []RuleResult      `json:"rules"`
-	Mutation  *mutation.Result  `json:"mutation,omitempty"`
+	Schema    string             `json:"schema"`
+	RunID     string             `json:"run_id"`
+	CreatedAt time.Time          `json:"created_at"`
+	Assurance Assurance          `json:"assurance"`
+	Contract  ContractReference  `json:"contract"`
+	Oracle    *OracleReference   `json:"oracle,omitempty"`
+	Baseline  *BaselineReference `json:"baseline,omitempty"`
+	Verdict   ContractVerdict    `json:"contract_verdict"`
+	Subject   SubjectReference   `json:"subject"`
+	Lifecycle *lifecycle.Record  `json:"lifecycle,omitempty"`
+	Summary   Summary            `json:"summary"`
+	Rules     []RuleResult       `json:"rules"`
+	Mutation  *mutation.Result   `json:"mutation,omitempty"`
 }
 
 type ContractVerdict struct {
@@ -76,6 +77,16 @@ type ContractReference struct {
 type OracleReference struct {
 	Schema string `json:"schema"`
 	SHA256 string `json:"sha256"`
+}
+
+// BaselineReference identifies the passing, unmutated run that makes a
+// mutation result comparable. The evidence path is retained for audit and
+// replay; the contract and oracle fields bind the comparison inputs.
+type BaselineReference struct {
+	EvidencePath string            `json:"evidence_path"`
+	RunID        string            `json:"run_id"`
+	Contract     ContractReference `json:"contract"`
+	Oracle       *OracleReference  `json:"oracle,omitempty"`
 }
 
 type SubjectReference struct {
