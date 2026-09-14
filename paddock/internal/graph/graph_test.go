@@ -15,6 +15,7 @@ func TestDefaultRegistryExposesLanguageCapabilities(t *testing.T) {
 	}{
 		{language: "go", unit: "package"},
 		{language: "typescript", unit: "file"},
+		{language: "python", unit: "file"},
 	} {
 		adapter, err := registry.Lookup(test.language)
 		if err != nil {

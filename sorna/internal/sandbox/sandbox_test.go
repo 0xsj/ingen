@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"ingen/sorna/internal/policy"
 )
@@ -30,6 +33,9 @@ func TestPrepareResolvesPolicyRootsAndWrapsCommand(t *testing.T) {
 	}
 	if len(prepared.Command) < 4 || prepared.Command[0] != "/usr/bin/sandbox-exec" {
 		t.Fatalf("wrapped command = %q, want sandbox-exec prefix", prepared.Command)
+	}
+	if !filepath.IsAbs(prepared.Command[3]) {
+		t.Fatalf("prepared executable argument = %q, want an absolute path", prepared.Command[3])
 	}
 }
 
@@ -94,6 +100,53 @@ func TestSandboxUnlistedExecHelperProcess(t *testing.T) {
 	fmt.Println("unlisted exec denied")
 }
 
+func TestSandboxDeniesLateUnlistedExec(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("host enforcement probe is macOS-specific")
+	}
+	root := t.TempDir()
+	sealed, err := policy.Seal(testPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := Prepare([]string{os.Args[0], "-test.run=TestSandboxLateUnlistedExecHelper", "--"}, root, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	command := exec.Command(prepared.Command[0], prepared.Command[1:]...)
+	command.Dir = root
+	command.Env = append(os.Environ(), "INGEN_SANDBOX_LATE_EXEC=1")
+	command.Stdout = &output
+	command.Stderr = &output
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyProcessExecutableEventually(context.Background(), command.Process.Pid, prepared.ExecutablePath, prepared.ExecutableSHA256, time.Second); err != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		t.Fatalf("initial process identity verification = %v", err)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatalf("late unlisted exec helper = %v; output=%s", err, output.String())
+	}
+	if !strings.Contains(output.String(), "late unlisted exec denied") {
+		t.Fatalf("late unlisted exec output = %q, want denial", output.String())
+	}
+}
+
+func TestSandboxLateUnlistedExecHelper(t *testing.T) {
+	if os.Getenv("INGEN_SANDBOX_LATE_EXEC") != "1" {
+		return
+	}
+	time.Sleep(100 * time.Millisecond)
+	if output, err := exec.Command("/bin/echo", "unexpected").CombinedOutput(); err == nil {
+		fmt.Fprintf(os.Stderr, "late unlisted exec unexpectedly succeeded: %s", output)
+		os.Exit(1)
+	}
+	fmt.Println("late unlisted exec denied")
+}
+
 func TestSandboxEnforcesFilesystemProbe(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("host enforcement probe is macOS-specific")
@@ -142,6 +195,53 @@ func TestSandboxEnforcesFilesystemProbe(t *testing.T) {
 	if err == nil || (!strings.Contains(string(deniedOutput), "Operation not permitted") && !strings.Contains(string(deniedOutput), "Permission denied")) {
 		t.Fatalf("denied sandbox read = %v; output=%s, want OS denial", err, deniedOutput)
 	}
+}
+
+func TestSandboxRejectsExecutableReplacementAfterPrepare(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("host enforcement probe is macOS-specific")
+	}
+	root := t.TempDir()
+	target := filepath.Join(root, "candidate-sleep")
+	original, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, original, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := policy.Seal(testPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := Prepare([]string{target, "-test.run=TestSandboxReplacementHelper"}, root, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := append(append([]byte(nil), original...), []byte("\nreplacement")...)
+	if err := os.WriteFile(target, mutated, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command(prepared.Command[0], prepared.Command[1:]...)
+	command.Dir = root
+	command.Env = append(os.Environ(), "INGEN_SANDBOX_REPLACEMENT=1")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer command.Wait()
+	_, verifyErr := VerifyProcessExecutableEventually(context.Background(), command.Process.Pid, prepared.ExecutablePath, prepared.ExecutableSHA256, 500*time.Millisecond)
+	if verifyErr == nil || !strings.Contains(verifyErr.Error(), "identity mismatch") {
+		t.Fatalf("VerifyProcessExecutableEventually() = %v, want replacement identity mismatch", verifyErr)
+	}
+	_ = command.Process.Kill()
+}
+
+func TestSandboxReplacementHelper(t *testing.T) {
+	if os.Getenv("INGEN_SANDBOX_REPLACEMENT") != "1" {
+		return
+	}
+	time.Sleep(2 * time.Second)
 }
 
 func TestPrepareRejectsUnrestrictedNetworkMode(t *testing.T) {

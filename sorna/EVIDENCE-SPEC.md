@@ -87,6 +87,8 @@ run/
     lifecycle.jsonl
     access.jsonl              # oracle-generation observations
     subject-access.jsonl      # managed-subject observations
+    executables.jsonl         # oracle process identity observations
+    subject-executables.jsonl # managed-subject identity observations
   review/
     approvals.json
     waivers.json
@@ -206,6 +208,9 @@ Where the platform supports it, record:
 
 - process identity and sandbox identity;
 - resolved launch executable path and SHA-256 digest;
+- host-observed live executable path, digest, and observation timestamp;
+- coalesced executable identity observations for the root and observed
+  descendants, including path/digest transitions and observation gaps;
 - root and observed descendant process IDs, with completeness treated as
   best-effort unless the platform independently attests the process tree;
 - allowed and denied roots;
@@ -229,6 +234,15 @@ Oracle-generation and managed-subject access streams must remain separate. A
 subject's access report cannot be used to claim that oracle generation was
 independent, and oracle-generation telemetry cannot be transferred to the
 subject run.
+
+Executable identity streams follow the same separation. `executables.jsonl`
+belongs to oracle generation and `subject-executables.jsonl` belongs to the
+managed subject. The Darwin collector samples the observed process tree while
+it runs and writes a record when a PID's executable path or digest changes;
+repeated identical samples are coalesced. The stream is therefore a timeline
+of parent-side observations, not an attestation that every process transition
+was seen. Observation errors remain in the manifest rather than being treated
+as successful coverage.
 
 ## 8. Rule result schema
 

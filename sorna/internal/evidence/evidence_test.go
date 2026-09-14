@@ -93,7 +93,13 @@ func TestWriteBundleEmbedsSealedPolicyAndHashesIt(t *testing.T) {
 		Lifecycle: &lifecycle.Record{
 			Mode:    "managed-process",
 			Outcome: "stopped",
-			Access:  &lifecycle.AccessTelemetry{Status: "captured", Source: "test", ProcessID: 42, EventCount: 1},
+			Access: &lifecycle.AccessTelemetry{
+				Status:                     "captured",
+				Source:                     "test",
+				ProcessID:                  42,
+				EventCount:                 1,
+				ExecutableObservationCount: 1,
+			},
 			AccessEvents: []lifecycle.AccessEvent{{
 				Timestamp: now,
 				Process:   "subject",
@@ -101,6 +107,12 @@ func TestWriteBundleEmbedsSealedPolicyAndHashesIt(t *testing.T) {
 				Decision:  "deny",
 				Operation: "file-read-data",
 				Resource:  "/private/secret",
+			}},
+			ExecutableObservations: []lifecycle.ExecutableObservation{{
+				Timestamp: now,
+				PID:       42,
+				Path:      "/bin/subject",
+				SHA256:    strings.Repeat("d", 64),
 			}},
 		},
 	}
@@ -122,13 +134,16 @@ func TestWriteBundleEmbedsSealedPolicyAndHashesIt(t *testing.T) {
 	if manifest.SubjectPolicy == nil || manifest.SubjectPolicy.SHA256 != sealed.SHA256 {
 		t.Fatalf("manifest subject policy = %+v, want separate subject policy reference", manifest.SubjectPolicy)
 	}
-	for _, relative := range []string{"policy/canonical.json", "policy/hash.txt", "policy/subject/canonical.json", "policy/subject/hash.txt", "events/subject-access.jsonl"} {
+	for _, relative := range []string{"policy/canonical.json", "policy/hash.txt", "policy/subject/canonical.json", "policy/subject/hash.txt", "events/subject-access.jsonl", "events/subject-executables.jsonl"} {
 		if _, ok := manifest.ArtifactsSHA256[relative]; !ok {
 			t.Fatalf("manifest artifacts = %+v, want %q", manifest.ArtifactsSHA256, relative)
 		}
 	}
 	if bundle.SubjectAccessPath == "" {
 		t.Fatal("bundle subject access path is empty")
+	}
+	if bundle.SubjectExecutablePath == "" {
+		t.Fatal("bundle subject executable path is empty")
 	}
 	if err := Verify(directory); err != nil {
 		t.Fatalf("Verify() = %v, want valid policy bundle", err)
@@ -160,19 +175,37 @@ func TestWriteOracleBundleAndVerify(t *testing.T) {
 	}
 	now := time.Date(2026, 9, 14, 5, 0, 0, 0, time.UTC)
 	execution := OracleExecution{
-		ExecutionID:      "oracle-evidence-test",
-		Mode:             "sandboxed-process",
-		Command:          []string{"sorna", "oracle", "generate"},
-		WorkingDir:       directory,
-		Backend:          "test-backend",
-		Enforcement:      "host-enforced",
-		PolicySHA256:     sealedPolicy.SHA256,
-		SubjectID:        "contract-test",
-		ExecutablePath:   "/bin/sh",
-		ExecutableSHA256: strings.Repeat("b", 64),
-		StartedAt:        now,
-		CompletedAt:      now.Add(time.Second),
-		Outcome:          "completed",
+		ExecutionID:              "oracle-evidence-test",
+		Mode:                     "sandboxed-process",
+		Command:                  []string{"sorna", "oracle", "generate"},
+		WorkingDir:               directory,
+		Backend:                  "test-backend",
+		Enforcement:              "host-enforced",
+		PolicySHA256:             sealedPolicy.SHA256,
+		SubjectID:                "contract-test",
+		ExecutablePath:           "/bin/sh",
+		ExecutableSHA256:         strings.Repeat("b", 64),
+		ObservedExecutablePath:   "/bin/sh",
+		ObservedExecutableSHA256: strings.Repeat("b", 64),
+		ExecutableObservedAt:     now,
+		StartedAt:                now,
+		CompletedAt:              now.Add(time.Second),
+		Outcome:                  "completed",
+		Access: AccessTelemetry{
+			Status:                     "captured",
+			Source:                     "test",
+			ProcessID:                  42,
+			ExecutableObservationCount: 1,
+		},
+		ExecutableObservations: []OracleExecutableObservation{{
+			EventID:     "executable-0001",
+			ExecutionID: "oracle-evidence-test",
+			Sequence:    1,
+			Timestamp:   now,
+			PID:         42,
+			Path:        "/bin/sh",
+			SHA256:      strings.Repeat("b", 64),
+		}},
 		Events: []OracleExecutionEvent{{
 			EventID: "evt-0001", Sequence: 1, Timestamp: now, Kind: "oracle.process.completed",
 		}},
@@ -181,7 +214,7 @@ func TestWriteOracleBundleAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{bundle.OraclePath, bundle.ManifestPath, bundle.LifecyclePath, bundle.AccessPath, bundle.ChecksumsPath} {
+	for _, path := range []string{bundle.OraclePath, bundle.ManifestPath, bundle.LifecyclePath, bundle.AccessPath, bundle.ExecutablePath, bundle.ChecksumsPath} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("stat %s: %v", path, err)
 		}
@@ -194,14 +227,21 @@ func TestWriteOracleBundleAndVerify(t *testing.T) {
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Schema != "sorna.oracle-evidence/v1" || manifest.Oracle.SHA256 == "" || manifest.Contract != artifact.Contract || manifest.Assurance.Status != "telemetry-unavailable" {
+	if manifest.Schema != "sorna.oracle-evidence/v1" || manifest.Oracle.SHA256 == "" || manifest.Contract != artifact.Contract || manifest.Assurance.Status != "host-enforced-observed" {
 		t.Fatalf("manifest = %+v, want oracle evidence identity", manifest)
 	}
 	if _, ok := manifest.ArtifactsSHA256["events/access.jsonl"]; !ok {
 		t.Fatalf("manifest artifacts = %+v, want access event hash", manifest.ArtifactsSHA256)
 	}
+	if _, ok := manifest.ArtifactsSHA256["events/executables.jsonl"]; !ok {
+		t.Fatalf("manifest artifacts = %+v, want executable observation hash", manifest.ArtifactsSHA256)
+	}
 	if err := Verify(directory); err != nil {
 		t.Fatalf("Verify() = %v, want valid oracle bundle", err)
+	}
+	execution.ObservedExecutableSHA256 = strings.Repeat("c", 64)
+	if _, err := WriteOracleBundle(directory, artifact, execution, sealedPolicy); err == nil || !strings.Contains(err.Error(), "does not match prepared identity") {
+		t.Fatalf("WriteOracleBundle() = %v, want observed identity mismatch", err)
 	}
 }
 

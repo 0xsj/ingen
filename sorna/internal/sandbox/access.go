@@ -15,15 +15,27 @@ type AccessEvent struct {
 	Resource  string
 }
 
+// ExecutableObservation is one host observation of a process identity during
+// an enforced run. Repeated samples with the same identity are coalesced by
+// the platform collector; a new path or digest creates a new observation.
+type ExecutableObservation struct {
+	Timestamp time.Time
+	PID       int
+	Path      string
+	SHA256    string
+}
+
 // AccessReport contains events observed while an enforced process was alive.
 // An empty Events slice is not evidence that no access was attempted. A
 // process-tree error means the descendant PID observation had a gap.
 type AccessReport struct {
-	Source            string
-	Events            []AccessEvent
-	ProcessIDs        []int
-	ParseErrors       int
-	ProcessTreeErrors int
+	Source                      string
+	Events                      []AccessEvent
+	ProcessIDs                  []int
+	ParseErrors                 int
+	ProcessTreeErrors           int
+	ExecutableObservations      []ExecutableObservation
+	ExecutableObservationErrors int
 }
 
 // AccessCapture is the platform-specific host telemetry handle.

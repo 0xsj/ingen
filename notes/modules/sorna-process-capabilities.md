@@ -25,7 +25,9 @@ and the resolved tool paths. Sorna checks that `subject_id` matches the sealed
 contract ID before an oracle or subject run proceeds. The policy hash still
 binds the original reviewable names and purposes; the prepared record shows
 what the host backend actually resolved and the evidence checksum binds that
-record to the run.
+record to the run. On macOS, Sorna then observes the live process tree and
+requires the observed binary path and digest to match. Oracle generation pauses
+behind a startup gate until this check completes.
 
 ## Why
 
@@ -63,8 +65,8 @@ status. The evidence therefore remains assurance level 0.
 - The current process-exec implementation is macOS Seatbelt-specific.
 - Declaring a tool does not grant its libraries, configuration, or data; those
   still need filesystem capabilities.
-- The launch path and digest are recorded evidence, not an independent OS
-  attestation of the running process.
+- The live path and digest are parent-side host observations, not an
+  independent OS attestation or a guarantee against later exec transitions.
 - `can_invoke_subject` still needs a host-level process namespace or equivalent
   attestation before it can be enforced as a distinct capability.
 - Process-tree sampling improves attribution but is not complete observation.

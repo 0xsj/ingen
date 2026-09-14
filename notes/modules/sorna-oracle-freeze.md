@@ -34,6 +34,13 @@ under macOS Seatbelt. The oversized-document generator was expanded to its
 concrete 4097-character input, and the resulting artifact carried both the
 sealed contract hash and sealed policy hash.
 
+The parent now resolves and hashes the oracle executable before launch, then
+compares it with a host-observed live process identity. Because the Seatbelt
+launcher can keep a wrapper PID while the child is starting, the parent passes
+a pipe-backed startup gate; the child waits before reading the contract and is
+released only after the identity check succeeds. A mismatch therefore fails
+the freeze before an oracle artifact can become accepted evidence.
+
 The parent also checks that the contract path is covered by a declared read
 root and that the oracle output path is covered by a declared write root. This
 binds command arguments to the policy instead of assuming the policy and

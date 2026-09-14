@@ -50,9 +50,11 @@ schema       code to protobuf/OpenAPI/schema artifact
 The Go adapter invokes `go list` for build-aware package resolution and parses
 import declarations for source locations. The TypeScript adapter walks
 TypeScript/JavaScript source files and resolves relative imports without
-requiring npm or a project build. Other languages should enter through the
-adapter interface and registry, declare their supported source units and edge
-kinds, and produce the same graph shape.
+requiring npm or a project build. The Python adapter walks `.py` files and
+resolves absolute and relative module imports without importing or executing
+project code. Other languages should enter through the adapter interface and
+registry, declare their supported source units and edge kinds, and produce the
+same graph shape.
 
 The graph inspection command exposes this adapter boundary:
 
@@ -65,12 +67,22 @@ The `paddock.graph/v1` result is normalized before output so package and edge
 ordering is stable across runs. Classification and rule evaluation happen
 after graph loading and remain independent of the adapter implementation.
 
-The source unit is explicit: Go currently uses `package` and
-TypeScript/JavaScript currently uses `file`. Policies may omit it for backward
+`paddock init` builds a draft policy from that graph. Its component matches are
+directory-based guesses and its template rules are emitted with `warning`
+severity. The generated file must be reviewed, renamed, and promoted to
+blocking severities before it becomes a CI policy; initialization never treats
+the existing dependency graph as proof that the proposed architecture is
+correct.
+
+The source unit is explicit: Go currently uses `package`, while
+TypeScript/JavaScript and Python use `file`. Policies may omit it for backward
 compatibility, in which case the adapter default is selected from the language.
 The TypeScript adapter also honors `compilerOptions.baseUrl` and `paths` from
 `tsconfig.json`, including local `extends` chains. It accepts the comments and
 trailing commas commonly used in JSONC TypeScript configuration files.
+The Python adapter treats `.py` files as source units, resolves absolute and
+relative project modules without executing code, and reports project imports
+that cannot be resolved as `unresolved` edges.
 
 ### Rules
 
@@ -141,9 +153,10 @@ The `paddock.baseline/v1` artifact stores stable finding identities based on
 rule, kind, source package, target, and source file. Line-number changes do not
 invalidate an entry. Baseline findings remain in the report and are marked as
 non-blocking; findings not present in the snapshot still fail the check. The
-source module and exact policy-file SHA-256 must match, and stale snapshot
-entries are reported for cleanup. If the policy changes, regenerate the
-baseline. Waived findings are not added to a generated baseline.
+source module and canonical policy SHA-256 must match, and stale snapshot
+entries are reported for cleanup. Formatting-only changes do not require
+regeneration; semantic policy changes do. Waived findings are not added to a
+generated baseline.
 
 ### Explanations
 
@@ -175,9 +188,36 @@ rules: []
 waivers: []
 ```
 
-The schema should later gain canonicalization and sealing so a policy can be
-referenced from CI, Sentinel, and evidence without relying on a mutable file
-path.
+The schema supports sealing so a policy can be referenced from CI, Sentinel,
+and evidence without relying on an unchecked mutable file path. Canonicalization
+is used for semantic identity; CI artifacts continue to retain the raw file hash
+as an exact input reference.
+
+### Sealing
+
+Paddock now supports an explicit policy lock artifact:
+
+```sh
+paddock policy seal \
+  --input paddock.yaml \
+  --output paddock.lock.json
+
+paddock policy verify \
+  --policy paddock.yaml \
+  --lock paddock.lock.json
+```
+
+The `paddock.policy-lock/v1` artifact records the exact source-file SHA-256,
+the canonical semantic SHA-256, and the canonical policy payload. `check` and
+`ci` can receive `--policy-lock`; with `--policy` present they will refuse to
+evaluate a policy whose source or canonical content differs from the lock. This
+deliberately makes a comment or formatting change a seal change; policy edits
+therefore follow the review sequence of diff, human approval, and re-seal.
+
+When `--policy-lock` is supplied without `--policy`, the canonical policy
+embedded in the lock is the evaluation authority. This allows CI to run from
+the lock artifact alone while retaining the original policy path and source
+hash as provenance.
 
 ## LLM boundary
 
@@ -188,6 +228,20 @@ The LLM may:
 - explain a violation and possible refactorings;
 - propose a time-bounded waiver;
 - summarize graph changes in a pull request.
+
+An agent proposing a policy should write a candidate file and run:
+
+```sh
+paddock policy diff \
+  --before paddock.yaml \
+  --after proposed-paddock.yaml \
+  --format json
+```
+
+The diff is deterministic, validates both inputs, and records both raw and
+canonical hashes for review. A human must approve the proposed policy before it
+replaces the sealed CI policy. After approval, the new policy should be sealed
+and passed to CI with `--policy-lock`.
 
 The LLM must not silently alter a sealed policy or produce the authoritative CI
 verdict. Proposed changes should appear as a policy diff for human review.

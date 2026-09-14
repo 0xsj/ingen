@@ -39,7 +39,7 @@ func NewRegistry(adapters ...Adapter) (*Registry, error) {
 }
 
 func DefaultRegistry() *Registry {
-	registry, err := NewRegistry(GoAdapter{}, TypeScriptAdapter{})
+	registry, err := NewRegistry(GoAdapter{}, TypeScriptAdapter{}, PythonAdapter{})
 	if err != nil {
 		panic(err)
 	}
@@ -113,6 +113,20 @@ func (TypeScriptAdapter) Capabilities() Capabilities {
 
 func (TypeScriptAdapter) Load(request LoadRequest) (*model.Graph, error) {
 	return LoadTypeScript(request.Root)
+}
+
+type PythonAdapter struct{}
+
+func (PythonAdapter) Language() string {
+	return "python"
+}
+
+func (PythonAdapter) Capabilities() Capabilities {
+	return Capabilities{SourceUnits: []string{"file"}, EdgeKinds: []string{"import"}}
+}
+
+func (PythonAdapter) Load(request LoadRequest) (*model.Graph, error) {
+	return LoadPython(request.Root)
 }
 
 func StableCopy(input *model.Graph) *model.Graph {

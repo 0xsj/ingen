@@ -25,6 +25,10 @@ run identity, status, exit-code semantics, source identity, and input hashes.
     "path": "paddock.yaml",
     "sha256": "..."
   },
+  "policy_lock": {
+    "path": "paddock.lock.json",
+    "sha256": "..."
+  },
   "report": {},
   "explanation": {}
 }
@@ -45,8 +49,10 @@ An artifact with `status: error` contains `error` and may omit `report` and
 Nublar should report the status and retain the nested evidence; it must not
 reinterpret findings or turn an explanation into an authoritative verdict.
 
-`sha256` values identify the exact policy and optional baseline inputs used for
-the run. They are integrity references, not an attestation by themselves.
+`sha256` values identify the exact policy, optional policy lock, and optional
+baseline inputs used for the run. They are integrity references, not an
+attestation by themselves. When a policy lock is supplied, Paddock verifies it
+before evaluation and includes the lock file reference in the artifact.
 
 ## Paddock producer
 
@@ -55,6 +61,7 @@ Paddock writes this envelope with:
 ```sh
 paddock ci . \
   --policy paddock.yaml \
+  --policy-lock paddock.lock.json \
   --baseline paddock-baseline.json \
   --output paddock-ci-result.json
 ```
@@ -62,3 +69,7 @@ paddock ci . \
 The command exits with the envelope's `exit_code`, including after writing a
 failed result. This makes the file available to a CI collector even when the
 gate fails.
+
+For locked-policy execution, `--policy-lock` may be supplied without
+`--policy`; Paddock evaluates the canonical policy embedded in the lock and
+retains the original policy path and source hash as provenance.

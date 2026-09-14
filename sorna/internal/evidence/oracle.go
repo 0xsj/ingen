@@ -17,53 +17,60 @@ import (
 
 // OracleBundle describes the files written for one frozen oracle execution.
 type OracleBundle struct {
-	RootDir       string
-	OraclePath    string
-	ManifestPath  string
-	LifecyclePath string
-	AccessPath    string
-	ChecksumsPath string
+	RootDir        string
+	OraclePath     string
+	ManifestPath   string
+	LifecyclePath  string
+	AccessPath     string
+	ExecutablePath string
+	ChecksumsPath  string
 }
 
 // OracleExecution records the enforcement context around the child process.
 // The path lists are resolved capability declarations; AccessEvents are the
 // separate host observations written to events/access.jsonl.
 type OracleExecution struct {
-	ExecutionID      string                 `json:"execution_id"`
-	Mode             string                 `json:"mode"`
-	Command          []string               `json:"command"`
-	WorkingDir       string                 `json:"working_dir"`
-	Backend          string                 `json:"backend"`
-	Enforcement      string                 `json:"enforcement"`
-	PolicySHA256     string                 `json:"policy_sha256"`
-	SubjectID        string                 `json:"subject_id"`
-	ExecutablePath   string                 `json:"executable_path"`
-	ExecutableSHA256 string                 `json:"executable_sha256"`
-	CanInvokeSubject bool                   `json:"can_invoke_subject"`
-	AllowedTools     []string               `json:"allowed_tools,omitempty"`
-	AllowedReads     []string               `json:"allowed_reads"`
-	AllowedWrites    []string               `json:"allowed_writes"`
-	DeniedPaths      []string               `json:"denied_paths"`
-	StartedAt        time.Time              `json:"started_at"`
-	CompletedAt      time.Time              `json:"completed_at"`
-	Outcome          string                 `json:"outcome"`
-	Access           AccessTelemetry        `json:"access_telemetry"`
-	Events           []OracleExecutionEvent `json:"-"`
-	AccessEvents     []OracleAccessEvent    `json:"-"`
+	ExecutionID              string                        `json:"execution_id"`
+	Mode                     string                        `json:"mode"`
+	Command                  []string                      `json:"command"`
+	WorkingDir               string                        `json:"working_dir"`
+	Backend                  string                        `json:"backend"`
+	Enforcement              string                        `json:"enforcement"`
+	PolicySHA256             string                        `json:"policy_sha256"`
+	SubjectID                string                        `json:"subject_id"`
+	ExecutablePath           string                        `json:"executable_path"`
+	ExecutableSHA256         string                        `json:"executable_sha256"`
+	ObservedExecutablePath   string                        `json:"observed_executable_path"`
+	ObservedExecutableSHA256 string                        `json:"observed_executable_sha256"`
+	ExecutableObservedAt     time.Time                     `json:"executable_observed_at"`
+	CanInvokeSubject         bool                          `json:"can_invoke_subject"`
+	AllowedTools             []string                      `json:"allowed_tools,omitempty"`
+	AllowedReads             []string                      `json:"allowed_reads"`
+	AllowedWrites            []string                      `json:"allowed_writes"`
+	DeniedPaths              []string                      `json:"denied_paths"`
+	StartedAt                time.Time                     `json:"started_at"`
+	CompletedAt              time.Time                     `json:"completed_at"`
+	Outcome                  string                        `json:"outcome"`
+	Access                   AccessTelemetry               `json:"access_telemetry"`
+	Events                   []OracleExecutionEvent        `json:"-"`
+	AccessEvents             []OracleAccessEvent           `json:"-"`
+	ExecutableObservations   []OracleExecutableObservation `json:"-"`
 }
 
 // AccessTelemetry describes the quality of the host access observation. A
 // captured stream may still contain zero events; that means only that no
 // matching event was observed during the collection window.
 type AccessTelemetry struct {
-	Status            string `json:"status"`
-	Source            string `json:"source"`
-	ProcessID         int    `json:"process_id,omitempty"`
-	ProcessIDs        []int  `json:"process_ids,omitempty"`
-	EventCount        int    `json:"event_count"`
-	ParseErrors       int    `json:"parse_errors"`
-	ProcessTreeErrors int    `json:"process_tree_errors"`
-	Reason            string `json:"reason,omitempty"`
+	Status                      string `json:"status"`
+	Source                      string `json:"source"`
+	ProcessID                   int    `json:"process_id,omitempty"`
+	ProcessIDs                  []int  `json:"process_ids,omitempty"`
+	EventCount                  int    `json:"event_count"`
+	ParseErrors                 int    `json:"parse_errors"`
+	ProcessTreeErrors           int    `json:"process_tree_errors"`
+	ExecutableObservationCount  int    `json:"executable_observation_count"`
+	ExecutableObservationErrors int    `json:"executable_observation_errors"`
+	Reason                      string `json:"reason,omitempty"`
 }
 
 // OracleAccessEvent is the append-only JSONL representation of a normalized
@@ -78,6 +85,18 @@ type OracleAccessEvent struct {
 	Decision    string    `json:"decision"`
 	Operation   string    `json:"operation"`
 	Resource    string    `json:"resource"`
+}
+
+// OracleExecutableObservation is the append-only JSONL representation of a
+// host process identity observation.
+type OracleExecutableObservation struct {
+	EventID     string    `json:"event_id"`
+	ExecutionID string    `json:"execution_id"`
+	Sequence    int       `json:"sequence"`
+	Timestamp   time.Time `json:"timestamp"`
+	PID         int       `json:"pid"`
+	Path        string    `json:"path"`
+	SHA256      string    `json:"sha256"`
 }
 
 // OracleExecutionEvent is the append-only JSONL representation of an oracle
@@ -138,6 +157,12 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 	if _, err := hex.DecodeString(execution.ExecutableSHA256); err != nil {
 		return OracleBundle{}, fmt.Errorf("oracle execution executable SHA-256 is invalid: %w", err)
 	}
+	if execution.ObservedExecutablePath == "" || execution.ObservedExecutableSHA256 == "" || execution.ExecutableObservedAt.IsZero() {
+		return OracleBundle{}, fmt.Errorf("oracle execution observed executable identity is required")
+	}
+	if execution.ObservedExecutablePath != execution.ExecutablePath || execution.ObservedExecutableSHA256 != execution.ExecutableSHA256 {
+		return OracleBundle{}, fmt.Errorf("oracle execution observed executable identity does not match prepared identity")
+	}
 	if problems := oracle.Validate(artifact); len(problems) > 0 {
 		return OracleBundle{}, fmt.Errorf("invalid oracle: %s", strings.Join(problems, "; "))
 	}
@@ -150,6 +175,9 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 	}
 	if execution.Access.EventCount != len(execution.AccessEvents) {
 		return OracleBundle{}, fmt.Errorf("oracle access event count is %d, but %d events were supplied", execution.Access.EventCount, len(execution.AccessEvents))
+	}
+	if execution.Access.ExecutableObservationCount != len(execution.ExecutableObservations) {
+		return OracleBundle{}, fmt.Errorf("oracle executable observation count is %d, but %d observations were supplied", execution.Access.ExecutableObservationCount, len(execution.ExecutableObservations))
 	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return OracleBundle{}, err
@@ -188,6 +216,10 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 	if err := writeOracleAccessEvents(accessPath, execution); err != nil {
 		return OracleBundle{}, err
 	}
+	executablePath := filepath.Join(eventsDir, "executables.jsonl")
+	if err := writeOracleExecutableObservations(executablePath, execution); err != nil {
+		return OracleBundle{}, err
+	}
 
 	policyDir := filepath.Join(outputDir, "policy")
 	if err := os.MkdirAll(policyDir, 0o755); err != nil {
@@ -204,7 +236,7 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 
 	oracleReference := OracleReference{Schema: artifact.Schema, SHA256: oracleHash}
 	artifacts := map[string]string{}
-	for _, relative := range []string{"oracle.json", "events/oracle.jsonl", "events/access.jsonl", "policy/canonical.json", "policy/hash.txt"} {
+	for _, relative := range []string{"oracle.json", "events/oracle.jsonl", "events/access.jsonl", "events/executables.jsonl", "policy/canonical.json", "policy/hash.txt"} {
 		path := filepath.Join(outputDir, relative)
 		artifactHash, err := hashFile(path)
 		if err != nil {
@@ -237,12 +269,13 @@ func WriteOracleBundle(outputDir string, artifact oracle.Artifact, execution Ora
 		return OracleBundle{}, err
 	}
 	return OracleBundle{
-		RootDir:       outputDir,
-		OraclePath:    oraclePath,
-		ManifestPath:  manifestPath,
-		LifecyclePath: lifecyclePath,
-		AccessPath:    accessPath,
-		ChecksumsPath: checksumsPath,
+		RootDir:        outputDir,
+		OraclePath:     oraclePath,
+		ManifestPath:   manifestPath,
+		LifecyclePath:  lifecyclePath,
+		AccessPath:     accessPath,
+		ExecutablePath: executablePath,
+		ChecksumsPath:  checksumsPath,
 	}, nil
 }
 
@@ -268,6 +301,28 @@ func writeOracleAccessEvents(path string, execution OracleExecution) error {
 	return os.WriteFile(path, buffer.Bytes(), 0o644)
 }
 
+func writeOracleExecutableObservations(path string, execution OracleExecution) error {
+	var buffer bytes.Buffer
+	for index, observation := range execution.ExecutableObservations {
+		if observation.EventID == "" {
+			observation.EventID = fmt.Sprintf("executable-%04d", index+1)
+		}
+		if observation.ExecutionID == "" {
+			observation.ExecutionID = execution.ExecutionID
+		}
+		if observation.Sequence == 0 {
+			observation.Sequence = index + 1
+		}
+		encoded, err := json.Marshal(observation)
+		if err != nil {
+			return fmt.Errorf("encode oracle executable observation %d: %w", observation.Sequence, err)
+		}
+		buffer.Write(encoded)
+		buffer.WriteByte('\n')
+	}
+	return os.WriteFile(path, buffer.Bytes(), 0o644)
+}
+
 func oracleAssurance(execution OracleExecution) runner.Assurance {
 	limitations := []string{
 		"access events are host log observations and do not prove the absence of unobserved actions",
@@ -277,13 +332,19 @@ func oracleAssurance(execution OracleExecution) runner.Assurance {
 		limitations = append([]string{"host access telemetry was unavailable"}, limitations...)
 		return runner.Assurance{Level: 0, Status: "telemetry-unavailable", Limitations: limitations}
 	}
-	if execution.Access.ParseErrors > 0 || execution.Access.ProcessTreeErrors > 0 {
-		gaps := make([]string, 0, 2)
+	if execution.Access.ParseErrors > 0 || execution.Access.ProcessTreeErrors > 0 || execution.Access.ExecutableObservationErrors > 0 || execution.Access.ExecutableObservationCount == 0 {
+		gaps := make([]string, 0, 4)
 		if execution.Access.ParseErrors > 0 {
 			gaps = append(gaps, fmt.Sprintf("%d host access records could not be normalized", execution.Access.ParseErrors))
 		}
 		if execution.Access.ProcessTreeErrors > 0 {
 			gaps = append(gaps, fmt.Sprintf("%d process-tree samples failed", execution.Access.ProcessTreeErrors))
+		}
+		if execution.Access.ExecutableObservationErrors > 0 {
+			gaps = append(gaps, fmt.Sprintf("%d executable identity observations failed", execution.Access.ExecutableObservationErrors))
+		}
+		if execution.Access.ExecutableObservationCount == 0 {
+			gaps = append(gaps, "no executable identity samples were captured")
 		}
 		limitations = append(gaps, limitations...)
 		return runner.Assurance{Level: 0, Status: "host-enforced-observed-with-gaps", Limitations: limitations}

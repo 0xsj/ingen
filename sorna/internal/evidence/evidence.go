@@ -19,12 +19,13 @@ import (
 
 // Bundle describes the files written for one run.
 type Bundle struct {
-	RootDir           string
-	RunPath           string
-	ManifestPath      string
-	LifecyclePath     string
-	SubjectAccessPath string
-	ChecksumsPath     string
+	RootDir               string
+	RunPath               string
+	ManifestPath          string
+	LifecyclePath         string
+	SubjectAccessPath     string
+	SubjectExecutablePath string
+	ChecksumsPath         string
 }
 
 // Manifest is the bundle entrypoint. It records identity and hashes, but does
@@ -97,6 +98,7 @@ func WriteBundleWithPolicies(outputDir string, record runner.RunRecord, sealedPo
 		"events/lifecycle.jsonl": lifecycleHash,
 	}
 	var subjectAccessPath string
+	var subjectExecutablePath string
 	if record.Lifecycle != nil && record.Lifecycle.Access != nil {
 		subjectAccessPath = filepath.Join(eventsDir, "subject-access.jsonl")
 		if err := writeSubjectAccessEvents(subjectAccessPath, record); err != nil {
@@ -107,6 +109,15 @@ func WriteBundleWithPolicies(outputDir string, record runner.RunRecord, sealedPo
 			return Bundle{}, fmt.Errorf("hash events/subject-access.jsonl: %w", err)
 		}
 		artifacts["events/subject-access.jsonl"] = subjectAccessHash
+		subjectExecutablePath = filepath.Join(eventsDir, "subject-executables.jsonl")
+		if err := writeSubjectExecutableObservations(subjectExecutablePath, record); err != nil {
+			return Bundle{}, err
+		}
+		subjectExecutableHash, err := hashFile(subjectExecutablePath)
+		if err != nil {
+			return Bundle{}, fmt.Errorf("hash events/subject-executables.jsonl: %w", err)
+		}
+		artifacts["events/subject-executables.jsonl"] = subjectExecutableHash
 	}
 	var policyReference *policy.Reference
 	if sealedPolicy != nil {
@@ -190,12 +201,13 @@ func WriteBundleWithPolicies(outputDir string, record runner.RunRecord, sealedPo
 		return Bundle{}, err
 	}
 	return Bundle{
-		RootDir:           outputDir,
-		RunPath:           runPath,
-		ManifestPath:      manifestPath,
-		LifecyclePath:     lifecyclePath,
-		SubjectAccessPath: subjectAccessPath,
-		ChecksumsPath:     checksumsPath,
+		RootDir:               outputDir,
+		RunPath:               runPath,
+		ManifestPath:          manifestPath,
+		LifecyclePath:         lifecyclePath,
+		SubjectAccessPath:     subjectAccessPath,
+		SubjectExecutablePath: subjectExecutablePath,
+		ChecksumsPath:         checksumsPath,
 	}, nil
 }
 
@@ -301,6 +313,40 @@ func writeSubjectAccessEvents(path string, record runner.RunRecord) error {
 			encoded, err := json.Marshal(line)
 			if err != nil {
 				return fmt.Errorf("encode subject access event %d: %w", index+1, err)
+			}
+			buffer.Write(encoded)
+			buffer.WriteByte('\n')
+		}
+	}
+	return os.WriteFile(path, buffer.Bytes(), 0o644)
+}
+
+type SubjectExecutableObservation struct {
+	EventID   string    `json:"event_id"`
+	RunID     string    `json:"run_id"`
+	Sequence  int       `json:"sequence"`
+	Timestamp time.Time `json:"timestamp"`
+	PID       int       `json:"pid"`
+	Path      string    `json:"path"`
+	SHA256    string    `json:"sha256"`
+}
+
+func writeSubjectExecutableObservations(path string, record runner.RunRecord) error {
+	var buffer bytes.Buffer
+	if record.Lifecycle != nil {
+		for index, observation := range record.Lifecycle.ExecutableObservations {
+			line := SubjectExecutableObservation{
+				EventID:   fmt.Sprintf("executable-%04d", index+1),
+				RunID:     record.RunID,
+				Sequence:  index + 1,
+				Timestamp: observation.Timestamp,
+				PID:       observation.PID,
+				Path:      observation.Path,
+				SHA256:    observation.SHA256,
+			}
+			encoded, err := json.Marshal(line)
+			if err != nil {
+				return fmt.Errorf("encode subject executable observation %d: %w", index+1, err)
 			}
 			buffer.Write(encoded)
 			buffer.WriteByte('\n')

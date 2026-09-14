@@ -46,27 +46,42 @@ type Event struct {
 // subject. It is dependency-free so lifecycle evidence does not need to know
 // which platform backend produced it.
 type SandboxRecord struct {
-	Backend          string   `json:"backend"`
-	Enforcement      string   `json:"enforcement"`
-	PolicySHA256     string   `json:"policy_sha256"`
-	SubjectID        string   `json:"subject_id"`
-	ExecutablePath   string   `json:"executable_path"`
-	ExecutableSHA256 string   `json:"executable_sha256"`
-	CanInvokeSubject bool     `json:"can_invoke_subject"`
-	AllowedTools     []string `json:"allowed_tools,omitempty"`
+	Backend                  string    `json:"backend"`
+	Enforcement              string    `json:"enforcement"`
+	PolicySHA256             string    `json:"policy_sha256"`
+	SubjectID                string    `json:"subject_id"`
+	ExecutablePath           string    `json:"executable_path"`
+	ExecutableSHA256         string    `json:"executable_sha256"`
+	ObservedExecutablePath   string    `json:"observed_executable_path,omitempty"`
+	ObservedExecutableSHA256 string    `json:"observed_executable_sha256,omitempty"`
+	ExecutableObservedAt     time.Time `json:"executable_observed_at,omitempty"`
+	CanInvokeSubject         bool      `json:"can_invoke_subject"`
+	AllowedTools             []string  `json:"allowed_tools,omitempty"`
 }
 
 // AccessTelemetry describes the quality of a host access observation. A
 // captured report with zero events is still only an observation window.
 type AccessTelemetry struct {
-	Status            string `json:"status"`
-	Source            string `json:"source"`
-	ProcessID         int    `json:"process_id,omitempty"`
-	ProcessIDs        []int  `json:"process_ids,omitempty"`
-	EventCount        int    `json:"event_count"`
-	ParseErrors       int    `json:"parse_errors"`
-	ProcessTreeErrors int    `json:"process_tree_errors"`
-	Reason            string `json:"reason,omitempty"`
+	Status                      string `json:"status"`
+	Source                      string `json:"source"`
+	ProcessID                   int    `json:"process_id,omitempty"`
+	ProcessIDs                  []int  `json:"process_ids,omitempty"`
+	EventCount                  int    `json:"event_count"`
+	ParseErrors                 int    `json:"parse_errors"`
+	ProcessTreeErrors           int    `json:"process_tree_errors"`
+	ExecutableObservationCount  int    `json:"executable_observation_count"`
+	ExecutableObservationErrors int    `json:"executable_observation_errors"`
+	Reason                      string `json:"reason,omitempty"`
+}
+
+// ExecutableObservation is the dependency-free lifecycle form of a host
+// process identity observation. The evidence package writes it as a separate
+// append-only stream.
+type ExecutableObservation struct {
+	Timestamp time.Time `json:"timestamp"`
+	PID       int       `json:"pid"`
+	Path      string    `json:"path"`
+	SHA256    string    `json:"sha256"`
 }
 
 // AccessEvent is kept out of run.json and written by the evidence package as
@@ -83,20 +98,21 @@ type AccessEvent struct {
 // Record is embedded in a run artifact to show how the subject came to be
 // available. A managed process is still not an isolation boundary.
 type Record struct {
-	Mode         string           `json:"mode"`
-	Command      []string         `json:"command,omitempty"`
-	WorkingDir   string           `json:"working_dir,omitempty"`
-	BaseURL      string           `json:"base_url,omitempty"`
-	ReadyPath    string           `json:"ready_path,omitempty"`
-	StartedAt    *time.Time       `json:"started_at,omitempty"`
-	ReadyAt      *time.Time       `json:"ready_at,omitempty"`
-	StoppedAt    *time.Time       `json:"stopped_at,omitempty"`
-	Outcome      string           `json:"outcome"`
-	ExitCode     *int             `json:"exit_code,omitempty"`
-	Sandbox      *SandboxRecord   `json:"sandbox,omitempty"`
-	Access       *AccessTelemetry `json:"access_telemetry,omitempty"`
-	Events       []Event          `json:"events"`
-	AccessEvents []AccessEvent    `json:"-"`
+	Mode                   string                  `json:"mode"`
+	Command                []string                `json:"command,omitempty"`
+	WorkingDir             string                  `json:"working_dir,omitempty"`
+	BaseURL                string                  `json:"base_url,omitempty"`
+	ReadyPath              string                  `json:"ready_path,omitempty"`
+	StartedAt              *time.Time              `json:"started_at,omitempty"`
+	ReadyAt                *time.Time              `json:"ready_at,omitempty"`
+	StoppedAt              *time.Time              `json:"stopped_at,omitempty"`
+	Outcome                string                  `json:"outcome"`
+	ExitCode               *int                    `json:"exit_code,omitempty"`
+	Sandbox                *SandboxRecord          `json:"sandbox,omitempty"`
+	Access                 *AccessTelemetry        `json:"access_telemetry,omitempty"`
+	Events                 []Event                 `json:"events"`
+	AccessEvents           []AccessEvent           `json:"-"`
+	ExecutableObservations []ExecutableObservation `json:"-"`
 }
 
 // External returns a record for a subject that was supplied by another
@@ -419,6 +435,7 @@ func (process *Process) recordSnapshotLocked() Record {
 	record.Sandbox = cloneSandboxRecord(process.record.Sandbox)
 	record.Access = cloneAccessTelemetry(process.record.Access)
 	record.AccessEvents = append([]AccessEvent(nil), process.record.AccessEvents...)
+	record.ExecutableObservations = append([]ExecutableObservation(nil), process.record.ExecutableObservations...)
 	return record
 }
 

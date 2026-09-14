@@ -71,6 +71,47 @@ func TestAccessCaptureSamplesDescendantProcess(t *testing.T) {
 	if processIDs[0] != rootPID {
 		t.Fatalf("observed process IDs = %v, want root PID %d included first", processIDs, rootPID)
 	}
+	if observations := capture.snapshotExecutableHistory(); len(observations) == 0 {
+		t.Fatal("executable observations are empty; want a root process identity")
+	}
+}
+
+func TestAccessCaptureRecordsExecutableTransition(t *testing.T) {
+	capture := &darwinAccessCapture{
+		ctx:        context.Background(),
+		started:    time.Now(),
+		processIDs: make(map[int]struct{}),
+	}
+	command := exec.Command("/bin/sh", "-c", "sleep 0.15; exec /bin/sleep 0.25")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	rootPID := command.Process.Pid
+	if err := capture.Attach(rootPID); err != nil {
+		t.Fatal(err)
+	}
+	capture.extendProcessTree(rootPID)
+	if err := command.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	capture.stopSampler()
+
+	observations := capture.snapshotExecutableHistory()
+	identitiesByPID := make(map[int]map[string]bool)
+	for _, observation := range observations {
+		if identitiesByPID[observation.PID] == nil {
+			identitiesByPID[observation.PID] = make(map[string]bool)
+		}
+		if strings.HasSuffix(observation.Path, "/sh") {
+			identitiesByPID[observation.PID]["shell"] = true
+		}
+		if strings.HasSuffix(observation.Path, "/sleep") {
+			identitiesByPID[observation.PID]["sleep"] = true
+		}
+	}
+	if !identitiesByPID[rootPID]["shell"] || !identitiesByPID[rootPID]["sleep"] {
+		t.Fatalf("executable observations = %+v; want shell and later sleep identities", observations)
+	}
 }
 
 func TestParseAccessEventNormalizesSeatbeltMessage(t *testing.T) {

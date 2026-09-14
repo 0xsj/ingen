@@ -18,6 +18,13 @@ external-URL mode remains available for comparison. Both modes record
 assurance level 0; a managed subject can now have host enforcement, but that
 does not replace independent attestation.
 
+The launch command is resolved to an absolute executable path and hashed before
+start. On macOS, Sorna compares that identity with a host observation of the
+live root process or its descendants after startup. Oracle generation passes a
+startup-gate file descriptor to its child, so the child cannot read the
+contract until this check succeeds. A mismatch aborts the run before the
+behavioral result is accepted.
+
 ## Why
 
 An injected transport can prove evaluator logic without proving that the
@@ -41,6 +48,10 @@ defect process -> contract fail, status-200-create killed
   developer convenience.
 - The process boundary should not be reported as capability isolation until the
   host enforces and independently attests the relevant permissions.
+- The executable check and history are still parent-side observations. The
+  history can record an observed `exec` transition, but does not prove that a
+  process cannot later change identity or that every short-lived descendant
+  was observed.
 
 ## Used in
 

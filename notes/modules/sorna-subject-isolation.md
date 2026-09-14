@@ -23,9 +23,10 @@ separate from the oracle bundle's `events/access.jsonl`.
 Both policies now carry `process.subject_id`, and Sorna checks that value
 against the sealed contract ID before launching the relevant process. This is
 a logical identity binding; it is not yet an attested mapping from the ID to
-every OS process in the subject's tree. The sandbox also records the resolved
-launch executable and digest, which binds the evidence to a concrete artifact
-without independently attesting the running process.
+every OS process in the subject's tree. The sandbox also resolves the launch
+executable to an absolute path and compares that path and digest with a live
+host observation after readiness. This strengthens the launch claim, but does
+not independently attest later exec transitions or every descendant.
 
 ## Why
 

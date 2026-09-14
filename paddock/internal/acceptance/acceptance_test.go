@@ -13,6 +13,9 @@ import (
 	"ingen/paddock/internal/baseline"
 	"ingen/paddock/internal/explain"
 	"ingen/paddock/internal/model"
+	"ingen/paddock/internal/policy"
+	"ingen/paddock/internal/policydiff"
+	"ingen/paddock/internal/policylock"
 )
 
 func TestCLIEndToEnd(t *testing.T) {
@@ -88,6 +91,20 @@ func TestCLIEndToEnd(t *testing.T) {
 			source:     "feature-sliced-ts/violating",
 			exitCode:   1,
 			wantOutput: "features-do-not-cross",
+		},
+		{
+			name:       "Python hexagonal good",
+			policy:     "python-hexagonal.yaml",
+			source:     "python-hexagonal/good",
+			exitCode:   0,
+			wantOutput: "PASS",
+		},
+		{
+			name:       "Python hexagonal violation",
+			policy:     "python-hexagonal.yaml",
+			source:     "python-hexagonal/violating",
+			exitCode:   1,
+			wantOutput: "domain-is-pure",
 		},
 	}
 
@@ -166,6 +183,252 @@ func TestCLIGraphCommand(t *testing.T) {
 	)
 	if exitCode != 0 || !strings.Contains(output, "GRAPH typescript") || !strings.Contains(output, "EDGES") {
 		t.Fatalf("text graph output is incomplete: exit=%d output:\n%s", exitCode, output)
+	}
+
+	pythonSource := filepath.Join(repoRoot, "paddock", "examples", "services", "python-hexagonal", "good")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"graph", pythonSource, "--language", "python", "--format", "json",
+	)
+	if exitCode != 0 || !strings.Contains(output, `"language": "python"`) || !strings.Contains(output, `"edge_count"`) {
+		t.Fatalf("Python graph output is incomplete: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIInitCreatesReviewableDraft(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "layered-go", "good")
+	outputPath := filepath.Join(t.TempDir(), "paddock.yaml")
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"init", source, "--template", "layered", "--output", outputPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "draft; review before CI") {
+		t.Fatalf("init output is incomplete: exit=%d output:\n%s", exitCode, output)
+	}
+	loaded, err := policy.Load(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Source.Language != "go" || len(loaded.Components) == 0 || len(loaded.Rules) == 0 {
+		t.Fatalf("generated policy is incomplete: %#v", loaded)
+	}
+	for _, rule := range loaded.Rules {
+		if rule.Severity != "warning" {
+			t.Fatalf("generated rule severity = %q, want warning", rule.Severity)
+		}
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"init", source, "--template", "layered", "--output", outputPath,
+	)
+	if exitCode != 2 || !strings.Contains(output, "already exists") {
+		t.Fatalf("init overwrite protection failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIPolicyDiff(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	directory := t.TempDir()
+	beforePath := filepath.Join(directory, "before.yaml")
+	afterPath := filepath.Join(directory, "after.yaml")
+	base := `schema: paddock.architecture/v1
+project: policy-diff-test
+source:
+  language: go
+  roots: [internal]
+components:
+  source:
+    match: internal/**
+rules:
+  - id: no-cycles
+    kind: no-cycles
+`
+	after := `schema: paddock.architecture/v1
+project: policy-diff-test
+source:
+  language: go
+  roots: [internal]
+components:
+  source:
+    match: internal/**
+rules:
+  - id: no-cycles
+    kind: no-cycles
+    severity: warning
+  - id: complete-classification
+    kind: coverage
+`
+	if err := os.WriteFile(beforePath, []byte(base), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(afterPath, []byte(after), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "POLICY-DIFF changed") || !strings.Contains(output, "rules.complete-classification") {
+		t.Fatalf("text policy diff is incomplete: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("JSON policy diff exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var document policydiff.Document
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode policy diff JSON: %v\n%s", err, output)
+	}
+	if document.Schema != "paddock.policy-diff/v1" || document.Summary.Total != 2 {
+		t.Fatalf("unexpected policy diff document: %#v", document)
+	}
+}
+
+func TestCLIPolicySealAndVerify(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal.yaml")
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "good")
+	lockPath := filepath.Join(t.TempDir(), "paddock.lock.json")
+
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"policy", "seal", "--input", policyPath, "--output", lockPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "SEALED") {
+		t.Fatalf("policy seal failed: exit=%d output:\n%s", exitCode, output)
+	}
+	if _, err := policylock.Load(lockPath); err != nil {
+		t.Fatalf("load policy lock: %v", err)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "verify", "--policy", policyPath, "--lock", lockPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("policy verify failed: exit=%d output:\n%s", exitCode, output)
+	}
+	policyData, err := os.ReadFile(policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isolatedDirectory := t.TempDir()
+	isolatedPolicyPath := filepath.Join(isolatedDirectory, "sealed.yaml")
+	isolatedLockPath := filepath.Join(isolatedDirectory, "sealed.lock.json")
+	if err := os.WriteFile(isolatedPolicyPath, policyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "seal", "--input", isolatedPolicyPath, "--output", isolatedLockPath,
+	)
+	if exitCode != 0 {
+		t.Fatalf("isolated policy seal failed: exit=%d output:\n%s", exitCode, output)
+	}
+	if err := os.Remove(isolatedPolicyPath); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy-lock", isolatedLockPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("lock-only check without source policy failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy", policyPath, "--policy-lock", lockPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("sealed policy check failed: exit=%d output:\n%s", exitCode, output)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy-lock", lockPath,
+	)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("lock-only policy check failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	changedPolicyPath := filepath.Join(t.TempDir(), "changed.yaml")
+	if err := os.WriteFile(changedPolicyPath, append(policyData, []byte("\n# formatting change after sealing\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy", changedPolicyPath, "--policy-lock", lockPath,
+	)
+	if exitCode != 2 || !strings.Contains(output, "source hash") {
+		t.Fatalf("changed sealed policy was accepted: exit=%d output:\n%s", exitCode, output)
+	}
+
+	ciPath := filepath.Join(t.TempDir(), "paddock-ci-result.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"ci", source, "--policy-lock", isolatedLockPath, "--output", ciPath,
+	)
+	if exitCode != 0 {
+		t.Fatalf("sealed CI exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	ciArtifact, err := artifact.Load(ciPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ciArtifact.PolicyLock == nil || ciArtifact.PolicyLock.SHA256 == "" {
+		t.Fatalf("CI artifact omitted policy lock evidence: %#v", ciArtifact)
+	}
+}
+
+func TestPortableCIWorkflow(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	workflow := filepath.Join(repoRoot, "paddock", "examples", "ci", "paddock-gate.sh")
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal.yaml")
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "good")
+	directory := t.TempDir()
+	proposedPath := filepath.Join(directory, "proposed.yaml")
+	lockPath := filepath.Join(directory, "paddock.lock.json")
+	diffPath := filepath.Join(directory, "paddock-policy-diff.json")
+	resultPath := filepath.Join(directory, "paddock-ci-result.json")
+	policyData, err := os.ReadFile(policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(proposedPath, append(policyData, []byte("\n# candidate policy formatting\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{
+		"PADDOCK=" + cli,
+		"PADDOCK_POLICY=" + policyPath,
+		"PADDOCK_PROPOSED_POLICY=" + proposedPath,
+		"PADDOCK_LOCK=" + lockPath,
+		"PADDOCK_SOURCE_ROOT=" + source,
+		"PADDOCK_DIFF=" + diffPath,
+		"PADDOCK_RESULT=" + resultPath,
+	}
+
+	output, exitCode := runWorkflow(t, workflow, repoRoot, env, "review")
+	if exitCode != 0 {
+		t.Fatalf("workflow review exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	diffData, err := os.ReadFile(diffPath)
+	if err != nil || !strings.Contains(string(diffData), "paddock.policy-diff/v1") {
+		t.Fatalf("workflow did not write policy diff: err=%v data=%s", err, diffData)
+	}
+
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "seal")
+	if exitCode != 0 || !strings.Contains(output, "SEALED") {
+		t.Fatalf("workflow seal exit code = %d; output:\n%s", exitCode, output)
+	}
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "verify")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("workflow verify exit code = %d; output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "gate")
+	if exitCode != 0 {
+		t.Fatalf("workflow gate exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	if _, err := artifact.Load(resultPath); err != nil {
+		t.Fatalf("load workflow CI artifact: %v", err)
 	}
 }
 
@@ -319,6 +582,21 @@ rules: []
 	}
 	if !strings.Contains(output, "baseline 2/2 matched") {
 		t.Fatalf("baseline summary missing from output:\n%s", output)
+	}
+	formattedPolicyPath := filepath.Join(t.TempDir(), "formatted.yaml")
+	policyData, err := os.ReadFile(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyData = append([]byte("\n# formatting-only policy change\n"), policyData...)
+	if err := os.WriteFile(formattedPolicyPath, policyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", source, "--policy", formattedPolicyPath, "--baseline", baselinePath,
+	)
+	if exitCode != 0 {
+		t.Fatalf("formatting-only policy change exit code = %d, want 0; output:\n%s", exitCode, output)
 	}
 	output, exitCode = runCLI(t, cli, repoRoot,
 		"check", source, "--policy", policy, "--baseline", baselinePath, "--format", "json",
@@ -499,6 +777,24 @@ func runCLI(t *testing.T, cli, repoRoot string, args ...string) (string, int) {
 		return string(data), exitError.ExitCode()
 	}
 	t.Fatalf("run paddock: %v\n%s", err, data)
+	return "", -1
+}
+
+func runWorkflow(t *testing.T, workflow, repoRoot string, values []string, command string) (string, int) {
+	t.Helper()
+	env := toolchainEnv(t)
+	env = append(env, values...)
+	cmd := exec.Command("sh", workflow, command)
+	cmd.Dir = repoRoot
+	cmd.Env = env
+	data, err := cmd.CombinedOutput()
+	if err == nil {
+		return string(data), 0
+	}
+	if exitError, ok := err.(*exec.ExitError); ok {
+		return string(data), exitError.ExitCode()
+	}
+	t.Fatalf("run workflow: %v\n%s", err, data)
 	return "", -1
 }
 

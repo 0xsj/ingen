@@ -17,6 +17,10 @@ func Check(root, policyPath string) (*model.Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	return CheckPolicy(root, policyPath, config)
+}
+
+func CheckPolicy(root, policyPath string, config policy.Policy) (*model.Result, error) {
 	dependencyGraph, err := graph.LoadWithRequest(graph.LoadRequest{
 		Root:  root,
 		Unit:  config.Source.Unit,

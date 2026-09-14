@@ -1,8 +1,12 @@
 package policy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -106,10 +110,10 @@ func (s *Selectors) UnmarshalYAML(node *yaml.Node) error {
 }
 
 type Target struct {
-	Literal string
-	Labels  map[string]string
-	Kind    string
-	Value   string
+	Literal string            `json:"literal,omitempty"`
+	Labels  map[string]string `json:"labels,omitempty"`
+	Kind    string            `json:"kind,omitempty"`
+	Value   string            `json:"value,omitempty"`
 }
 
 type Targets []Target
@@ -179,11 +183,50 @@ func Load(path string) (Policy, error) {
 	return result, nil
 }
 
+func ParseJSON(data []byte) (Policy, error) {
+	var result Policy
+	if err := json.Unmarshal(data, &result); err != nil {
+		return Policy{}, fmt.Errorf("parse policy JSON: %w", err)
+	}
+	result.Normalize()
+	if err := result.Validate(); err != nil {
+		return Policy{}, err
+	}
+	return result, nil
+}
+
+func CanonicalJSON(input Policy) ([]byte, error) {
+	input.Source.Roots = append([]string(nil), input.Source.Roots...)
+	sort.Strings(input.Source.Roots)
+	input.Rules = append([]Rule(nil), input.Rules...)
+	sort.SliceStable(input.Rules, func(i, j int) bool {
+		return input.Rules[i].ID < input.Rules[j].ID
+	})
+	if input.Rules == nil {
+		input.Rules = []Rule{}
+	}
+	input.Waivers = append([]Waiver(nil), input.Waivers...)
+	if input.Waivers == nil {
+		input.Waivers = []Waiver{}
+	}
+	input.Normalize()
+	return json.Marshal(input)
+}
+
+func CanonicalSHA256(input Policy) (string, error) {
+	data, err := CanonicalJSON(input)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize policy: %w", err)
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
+
 func (p *Policy) Normalize() {
 	if p.Source.Unit == "" {
 		if p.Source.Language == "go" {
 			p.Source.Unit = "package"
-		} else if p.Source.Language == "typescript" {
+		} else if p.Source.Language == "typescript" || p.Source.Language == "python" {
 			p.Source.Unit = "file"
 		}
 	}
@@ -201,7 +244,7 @@ func (p Policy) Validate() error {
 	if p.Source.Language == "" {
 		return fmt.Errorf("source.language is required")
 	}
-	if p.Source.Language != "go" && p.Source.Language != "typescript" {
+	if p.Source.Language != "go" && p.Source.Language != "typescript" && p.Source.Language != "python" {
 		return fmt.Errorf("source.language %q is not supported yet", p.Source.Language)
 	}
 	if p.Source.Unit != "package" && p.Source.Unit != "file" {
@@ -210,8 +253,8 @@ func (p Policy) Validate() error {
 	if p.Source.Language == "go" && p.Source.Unit != "package" {
 		return fmt.Errorf("Go source.unit must be package")
 	}
-	if p.Source.Language == "typescript" && p.Source.Unit != "file" {
-		return fmt.Errorf("TypeScript source.unit must be file")
+	if (p.Source.Language == "typescript" || p.Source.Language == "python") && p.Source.Unit != "file" {
+		return fmt.Errorf("%s source.unit must be file", p.Source.Language)
 	}
 	if len(p.Source.Roots) == 0 {
 		return fmt.Errorf("source.roots must not be empty")

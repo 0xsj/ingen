@@ -61,10 +61,11 @@ unrestricted network policies rather than silently applying the wrong behavior.
 - The Seatbelt profile now restricts `process-exec` to the prepared command and
   the policy's resolved `allowed_tools`. A tool's runtime dependencies still
   need filesystem capabilities of their own.
-- `subject_id` is now bound to the sealed contract ID and the prepared
-  executable path/digest is recorded. `can_invoke_subject` is still not
-  independently enforceable because the host has no attested mapping from
-  that logical identity to every descendant process.
+- `subject_id` is now bound to the sealed contract ID. Sorna resolves the
+  launch command to an absolute path, records its digest, and compares that
+  identity with a live host observation after launch. `can_invoke_subject` is
+  still not independently enforceable because the host has no attested mapping
+  from that logical identity to every descendant process.
 - Oracle freezes now capture scoped kernel-reported access events in the
   oracle evidence bundle. They remain host observations rather than proof of
   absence.

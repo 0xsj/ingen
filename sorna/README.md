@@ -52,12 +52,16 @@ allows the declared contract root and denies undeclared project paths. The
 backend supports `network.mode: disabled` and directional TCP allowlists;
 the macOS backend restricts process execution to the requested command and
 declared tools. Policies also bind a logical `subject_id` to the sealed
-contract ID and record the resolved launch executable digest before execution.
+contract ID, resolve the launch command to an absolute path, and compare its
+live host-observed executable digest before execution. Oracle generation uses
+a startup gate so the workload is observed before it reads the contract.
 Oracle freezes record macOS unified-log access events in
 `events/access.jsonl`, while managed subject runs use
 `events/subject-access.jsonl`. The collector also records observed descendant
-PIDs. Both streams remain observational and do not automatically raise run
-assurance.
+PIDs. Each bundle separately records coalesced live executable identities in
+`events/executables.jsonl` or `events/subject-executables.jsonl`; a changed
+path or digest creates a new observation. These streams remain parent-side
+observations and do not automatically raise run assurance.
 
 To generate the first evidence-bearing oracle:
 

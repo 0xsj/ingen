@@ -34,6 +34,7 @@ type Artifact struct {
 	CreatedAt   string            `json:"created_at"`
 	Source      Source            `json:"source"`
 	Policy      FileRef           `json:"policy"`
+	PolicyLock  *FileRef          `json:"policy_lock,omitempty"`
 	Baseline    *FileRef          `json:"baseline,omitempty"`
 	Report      *model.Result     `json:"report,omitempty"`
 	Explanation *explain.Document `json:"explanation,omitempty"`
@@ -41,6 +42,10 @@ type Artifact struct {
 }
 
 func New(result *model.Result, policy FileRef, baseline *FileRef, createdAt time.Time) Artifact {
+	return NewWithPolicyLock(result, policy, nil, baseline, createdAt)
+}
+
+func NewWithPolicyLock(result *model.Result, policy FileRef, policyLock *FileRef, baseline *FileRef, createdAt time.Time) Artifact {
 	status := "passed"
 	exitCode := 0
 	if !result.OK() {
@@ -57,6 +62,7 @@ func New(result *model.Result, policy FileRef, baseline *FileRef, createdAt time
 		CreatedAt:   createdAt.UTC().Format(time.RFC3339Nano),
 		Source:      Source{Root: result.Root, ModulePath: result.ModulePath},
 		Policy:      policy,
+		PolicyLock:  policyLock,
 		Baseline:    baseline,
 		Report:      result,
 		Explanation: &explanation,
@@ -64,17 +70,22 @@ func New(result *model.Result, policy FileRef, baseline *FileRef, createdAt time
 }
 
 func NewError(root string, policy FileRef, baseline *FileRef, err error, createdAt time.Time) Artifact {
+	return NewErrorWithPolicyLock(root, policy, nil, baseline, err, createdAt)
+}
+
+func NewErrorWithPolicyLock(root string, policy FileRef, policyLock *FileRef, baseline *FileRef, err error, createdAt time.Time) Artifact {
 	return Artifact{
-		Schema:    Schema,
-		Tool:      "paddock",
-		Kind:      "architecture",
-		Status:    "error",
-		ExitCode:  2,
-		CreatedAt: createdAt.UTC().Format(time.RFC3339Nano),
-		Source:    Source{Root: root},
-		Policy:    policy,
-		Baseline:  baseline,
-		Error:     err.Error(),
+		Schema:     Schema,
+		Tool:       "paddock",
+		Kind:       "architecture",
+		Status:     "error",
+		ExitCode:   2,
+		CreatedAt:  createdAt.UTC().Format(time.RFC3339Nano),
+		Source:     Source{Root: root},
+		Policy:     policy,
+		PolicyLock: policyLock,
+		Baseline:   baseline,
+		Error:      err.Error(),
 	}
 }
 
@@ -132,6 +143,12 @@ func (a Artifact) Validate() error {
 	}
 	if a.Policy.Path == "" {
 		return fmt.Errorf("CI artifact policy path is required")
+	}
+	if a.PolicyLock != nil && a.PolicyLock.Path == "" {
+		return fmt.Errorf("CI artifact policy_lock path is required")
+	}
+	if a.PolicyLock != nil && a.PolicyLock.SHA256 == "" {
+		return fmt.Errorf("CI artifact policy_lock sha256 is required")
 	}
 	if a.Status == "error" {
 		if a.ExitCode != 2 || a.Error == "" {

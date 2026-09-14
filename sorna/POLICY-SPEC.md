@@ -121,8 +121,11 @@ under test. Oracle generation must set it to `false`; public observation occurs
 only after the oracle is frozen. The logical binding does not by itself attest
 that every OS process belongs to that subject; the host backend still needs a
 process identity or independent executable attestation for that stronger
-claim. A recorded path and digest establish bundle lineage, not what an OS
-process may have executed after launch.
+claim. On macOS, Sorna additionally observes the live process tree after
+launch and requires the prepared path and digest to match before accepting the
+execution. Oracle generation uses a startup gate so this observation occurs
+while the workload is alive. This remains parent-side host observation, not an
+independent OS attestation of all future exec transitions.
 
 `allowed_tools` is optional. Each entry names a tool and explains its purpose.
 The macOS Seatbelt backend resolves each name before launch and restricts

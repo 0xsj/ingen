@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -178,7 +179,7 @@ func freezeOracle(args []string) int {
 	}
 
 	oraclePath := filepath.Join(resolvedOutputDir, "oracle.json")
-	childCommand := []string{os.Args[0], "oracle", "generate", "--contract", resolvedContractPath, "--policy-sha256", sealedPolicy.SHA256, "--output", oraclePath}
+	childCommand := []string{os.Args[0], "oracle", "generate", "--contract", resolvedContractPath, "--policy-sha256", sealedPolicy.SHA256, "--output", oraclePath, "--start-gate-fd", "3"}
 	prepared, err := sandbox.Prepare(childCommand, *rootDir, sealedPolicy)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -232,6 +233,12 @@ func freezeOracle(args []string) int {
 	process.Stdin = os.Stdin
 	process.Stdout = os.Stdout
 	process.Stderr = os.Stderr
+	gateReader, gateWriter, err := os.Pipe()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "create oracle start gate:", err)
+		return 1
+	}
+	process.ExtraFiles = []*os.File{gateReader}
 	accessCapture, accessErr := sandbox.StartAccessCapture(context.Background())
 	if accessErr != nil {
 		execution.Access = evidence.AccessTelemetry{
@@ -255,6 +262,8 @@ func freezeOracle(args []string) int {
 		Payload:     map[string]any{},
 	})
 	if err := process.Start(); err != nil {
+		_ = gateReader.Close()
+		_ = gateWriter.Close()
 		if accessCapture != nil {
 			_, _ = accessCapture.Stop(0)
 		}
@@ -262,7 +271,23 @@ func freezeOracle(args []string) int {
 		fmt.Fprintln(os.Stderr, "start oracle generation:", err)
 		return 1
 	}
+	_ = gateReader.Close()
 	processID := process.Process.Pid
+	observedExecutable, executableErr := sandbox.VerifyProcessExecutableEventually(context.Background(), processID, prepared.ExecutablePath, prepared.ExecutableSHA256, 2*time.Second)
+	if executableErr != nil {
+		_ = gateWriter.Close()
+		_ = process.Process.Kill()
+		_ = process.Wait()
+		if accessCapture != nil {
+			_, _ = accessCapture.Stop(processID)
+		}
+		execution.Outcome = "failed"
+		fmt.Fprintln(os.Stderr, "verify oracle executable:", executableErr)
+		return 1
+	}
+	execution.ExecutableObservedAt = time.Now().UTC()
+	execution.ObservedExecutablePath = observedExecutable.Path
+	execution.ObservedExecutableSHA256 = observedExecutable.SHA256
 	execution.Access.ProcessID = processID
 	var accessAttachErr error
 	if accessCapture != nil {
@@ -276,6 +301,7 @@ func freezeOracle(args []string) int {
 			}
 		}
 	}
+	_ = gateWriter.Close()
 	processErr := process.Wait()
 	if accessCapture != nil {
 		report, reportErr := accessCapture.Stop(processID)
@@ -292,15 +318,18 @@ func freezeOracle(args []string) int {
 			}
 		} else {
 			execution.Access = evidence.AccessTelemetry{
-				Status:            "captured",
-				Source:            report.Source,
-				ProcessID:         processID,
-				ProcessIDs:        append([]int(nil), report.ProcessIDs...),
-				EventCount:        len(report.Events),
-				ParseErrors:       report.ParseErrors,
-				ProcessTreeErrors: report.ProcessTreeErrors,
+				Status:                      "captured",
+				Source:                      report.Source,
+				ProcessID:                   processID,
+				ProcessIDs:                  append([]int(nil), report.ProcessIDs...),
+				EventCount:                  len(report.Events),
+				ParseErrors:                 report.ParseErrors,
+				ProcessTreeErrors:           report.ProcessTreeErrors,
+				ExecutableObservationCount:  len(report.ExecutableObservations),
+				ExecutableObservationErrors: report.ExecutableObservationErrors,
 			}
 			execution.AccessEvents = makeOracleAccessEvents(executionID, report.Events)
+			execution.ExecutableObservations = makeOracleExecutableObservations(executionID, report.ExecutableObservations)
 		}
 	}
 	if processErr != nil {
@@ -345,12 +374,26 @@ func generateOracle(args []string) int {
 	contractPath := flags.String("contract", "", "path to the contract")
 	policyHash := flags.String("policy-sha256", "", "sealed policy SHA-256 hash")
 	outputPath := flags.String("output", "", "path for the frozen oracle")
+	startGateFD := flags.Int("start-gate-fd", -1, "internal startup gate file descriptor")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if *contractPath == "" || *policyHash == "" || *outputPath == "" {
 		fmt.Fprintln(os.Stderr, "usage: sorna oracle generate --contract <path> --policy-sha256 <hash> --output <path>")
 		return 2
+	}
+	if *startGateFD >= 0 {
+		gate := os.NewFile(uintptr(*startGateFD), "oracle-start-gate")
+		if gate == nil {
+			fmt.Fprintln(os.Stderr, "oracle start gate file descriptor is invalid")
+			return 1
+		}
+		_, gateErr := io.Copy(io.Discard, gate)
+		_ = gate.Close()
+		if gateErr != nil {
+			fmt.Fprintln(os.Stderr, "wait for oracle start gate:", gateErr)
+			return 1
+		}
 	}
 	document, err := contract.LoadFile(*contractPath)
 	if err != nil {
@@ -400,6 +443,22 @@ func makeOracleAccessEvents(executionID string, events []sandbox.AccessEvent) []
 	return converted
 }
 
+func makeOracleExecutableObservations(executionID string, observations []sandbox.ExecutableObservation) []evidence.OracleExecutableObservation {
+	converted := make([]evidence.OracleExecutableObservation, 0, len(observations))
+	for index, observation := range observations {
+		converted = append(converted, evidence.OracleExecutableObservation{
+			EventID:     fmt.Sprintf("executable-%04d", index+1),
+			ExecutionID: executionID,
+			Sequence:    index + 1,
+			Timestamp:   observation.Timestamp,
+			PID:         observation.PID,
+			Path:        observation.Path,
+			SHA256:      observation.SHA256,
+		})
+	}
+	return converted
+}
+
 func makeLifecycleAccessEvents(events []sandbox.AccessEvent) []lifecycle.AccessEvent {
 	converted := make([]lifecycle.AccessEvent, 0, len(events))
 	for _, event := range events {
@@ -410,6 +469,19 @@ func makeLifecycleAccessEvents(events []sandbox.AccessEvent) []lifecycle.AccessE
 			Decision:  event.Decision,
 			Operation: event.Operation,
 			Resource:  event.Resource,
+		})
+	}
+	return converted
+}
+
+func makeLifecycleExecutableObservations(observations []sandbox.ExecutableObservation) []lifecycle.ExecutableObservation {
+	converted := make([]lifecycle.ExecutableObservation, 0, len(observations))
+	for _, observation := range observations {
+		converted = append(converted, lifecycle.ExecutableObservation{
+			Timestamp: observation.Timestamp,
+			PID:       observation.PID,
+			Path:      observation.Path,
+			SHA256:    observation.SHA256,
 		})
 	}
 	return converted
@@ -661,13 +733,13 @@ func runSubject(args []string) int {
 	}
 
 	var managedSubject *lifecycle.Process
+	var subjectSandbox *lifecycle.SandboxRecord
 	var subjectAccessCapture sandbox.AccessCapture
 	var subjectAccessAttachErr error
 	lifecycleRecord := lifecycle.External(*baseURL, nil)
 	if *subjectCommand != "" {
 		command := append([]string{*subjectCommand}, subjectArgs...)
 		launchCommand := append([]string(nil), command...)
-		var subjectSandbox *lifecycle.SandboxRecord
 		var subjectAccess *lifecycle.AccessTelemetry
 		if sealedSubjectPolicy != nil {
 			prepared, prepareErr := sandbox.Prepare(command, *subjectRoot, *sealedSubjectPolicy)
@@ -724,7 +796,22 @@ func runSubject(args []string) int {
 				}
 			}
 		}
+		if subjectSandbox != nil {
+			observedExecutable, executableErr := sandbox.VerifyProcessExecutableEventually(context.Background(), managedSubject.PID(), subjectSandbox.ExecutablePath, subjectSandbox.ExecutableSHA256, 2*time.Second)
+			if executableErr != nil {
+				_ = managedSubject.Close(context.Background())
+				if subjectAccessCapture != nil {
+					_, _ = subjectAccessCapture.Stop(0)
+				}
+				fmt.Fprintln(os.Stderr, "verify subject executable:", executableErr)
+				return 1
+			}
+			subjectSandbox.ObservedExecutablePath = observedExecutable.Path
+			subjectSandbox.ObservedExecutableSHA256 = observedExecutable.SHA256
+			subjectSandbox.ExecutableObservedAt = time.Now().UTC()
+		}
 		lifecycleRecord = managedSubject.Record()
+		lifecycleRecord.Sandbox = subjectSandbox
 	}
 
 	var record runner.RunRecord
@@ -744,6 +831,9 @@ func runSubject(args []string) int {
 	if managedSubject != nil {
 		stopErr = managedSubject.Close(context.Background())
 		lifecycleRecord = managedSubject.Record()
+		if subjectSandbox != nil {
+			lifecycleRecord.Sandbox = subjectSandbox
+		}
 		if subjectAccessCapture != nil {
 			report, reportErr := subjectAccessCapture.Stop(managedSubject.PID())
 			if reportErr != nil || subjectAccessAttachErr != nil {
@@ -759,15 +849,18 @@ func runSubject(args []string) int {
 				}
 			} else {
 				lifecycleRecord.Access = &lifecycle.AccessTelemetry{
-					Status:            "captured",
-					Source:            report.Source,
-					ProcessID:         managedSubject.PID(),
-					ProcessIDs:        append([]int(nil), report.ProcessIDs...),
-					EventCount:        len(report.Events),
-					ParseErrors:       report.ParseErrors,
-					ProcessTreeErrors: report.ProcessTreeErrors,
+					Status:                      "captured",
+					Source:                      report.Source,
+					ProcessID:                   managedSubject.PID(),
+					ProcessIDs:                  append([]int(nil), report.ProcessIDs...),
+					EventCount:                  len(report.Events),
+					ParseErrors:                 report.ParseErrors,
+					ProcessTreeErrors:           report.ProcessTreeErrors,
+					ExecutableObservationCount:  len(report.ExecutableObservations),
+					ExecutableObservationErrors: report.ExecutableObservationErrors,
 				}
 				lifecycleRecord.AccessEvents = makeLifecycleAccessEvents(report.Events)
+				lifecycleRecord.ExecutableObservations = makeLifecycleExecutableObservations(report.ExecutableObservations)
 			}
 		}
 	}

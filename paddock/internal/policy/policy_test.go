@@ -171,6 +171,7 @@ func TestLoadDefaultsSourceUnitByLanguage(t *testing.T) {
 	}{
 		{name: "go", language: "go", wantUnit: "package"},
 		{name: "typescript", language: "typescript", wantUnit: "file"},
+		{name: "python", language: "python", wantUnit: "file"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -222,6 +223,38 @@ func TestLoadRejectsTransitiveNonRequiredRule(t *testing.T) {
 	_, err := policy.Load(path)
 	if err == nil || !strings.Contains(err.Error(), "may use transitive only with required-dependency") {
 		t.Fatalf("policy.Load error = %v, want transitive validation error", err)
+	}
+}
+
+func TestCanonicalPolicyHashIgnoresFormattingDefaultsAndOrdering(t *testing.T) {
+	first := policy.Policy{
+		Schema:  "paddock.architecture/v1",
+		Project: "demo",
+		Source:  policy.Source{Language: "go", Roots: []string{"internal", "cmd"}},
+		Components: map[string]policy.Component{
+			"domain": {Match: policy.Patterns{"internal/domain/**"}},
+		},
+		Rules: []policy.Rule{
+			{ID: "z-rule", Kind: "no-cycles", Severity: "error"},
+			{ID: "a-rule", Kind: "coverage"},
+		},
+	}
+	second := first
+	second.Source.Roots = []string{"cmd", "internal"}
+	second.Rules = []policy.Rule{
+		{ID: "a-rule", Kind: "coverage", Severity: "error"},
+		{ID: "z-rule", Kind: "no-cycles", Severity: "error"},
+	}
+	firstHash, err := policy.CanonicalSHA256(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondHash, err := policy.CanonicalSHA256(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstHash != secondHash {
+		t.Fatalf("canonical hashes differ for equivalent policies: %s != %s", firstHash, secondHash)
 	}
 }
 

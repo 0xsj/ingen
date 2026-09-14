@@ -4,8 +4,6 @@ GO ?= go
 GO_CACHE ?= $(CURDIR)/.cache/go-build
 GO_MOD_CACHE ?= $(CURDIR)/.cache/go-mod
 GO_CMD = GOCACHE="$(GO_CACHE)" GOMODCACHE="$(GO_MOD_CACHE)" $(GO)
-SITE_DIR ?= site
-
 CONTRACT ?= examples/document-pipeline-lab/contract/contract.yaml
 POLICY ?= examples/document-pipeline-lab/policy/isolation.yaml
 SEALED_DIR ?= .artifacts/document-pipeline-contract
@@ -31,7 +29,7 @@ ORACLE_OUTPUT_DIR ?= .artifacts/document-pipeline-oracle
 .PHONY: help build test test-race vet check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
 	sorna-external-run evidence-verify oracle-evidence-verify sorna-oracle-freeze \
-	subject-defect-run sorna-defect-run sandbox-contract-read site-dev
+	subject-defect-run sorna-defect-run sandbox-contract-read
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -49,9 +47,6 @@ vet: ## Run the Go static analysis checks
 	$(GO_CMD) vet ./...
 
 check: test vet ## Run the normal test and analysis checks
-
-site-dev: ## Start the Astro documentation site locally
-	cd "$(SITE_DIR)" && npm run dev -- --host 127.0.0.1
 
 contract-validate: ## Validate the document-pipeline contract
 	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(CONTRACT)"

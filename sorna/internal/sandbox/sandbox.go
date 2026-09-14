@@ -87,7 +87,9 @@ func Prepare(command []string, rootDir string, sealed policy.Sealed) (Prepared, 
 	if err != nil {
 		return Prepared{}, err
 	}
-	prepared, err := preparePlatform(command, commandPath, root, readPaths, writePaths, denyPaths, networkRules, allowedTools)
+	resolvedCommand := append([]string(nil), command...)
+	resolvedCommand[0] = commandPath
+	prepared, err := preparePlatform(resolvedCommand, commandPath, root, readPaths, writePaths, denyPaths, networkRules, allowedTools)
 	if err != nil {
 		return Prepared{}, err
 	}

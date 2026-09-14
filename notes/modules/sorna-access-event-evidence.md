@@ -21,6 +21,13 @@ and resource. Events are retained for the root and observed descendants;
 duplicate-report envelopes are ignored rather than counted as separate
 accesses.
 
+The same capture samples executable identity for those observed processes and
+writes coalesced path/digest transitions to `events/executables.jsonl` for an
+oracle or `events/subject-executables.jsonl` for a managed subject. A
+synchronous first sample reduces the chance that a short-lived process is
+missed; later samples can still miss a transition or race with process exit.
+Those failures are counted in the manifest.
+
 The oracle manifest records `access_telemetry` and a separate assurance status:
 `host-enforced-observed` means the host log query completed; it does not mean
 that every possible access was observed. Parse gaps produce a distinct

@@ -27,6 +27,9 @@ type darwinAccessCapture struct {
 	started           time.Time
 	mu                sync.Mutex
 	processIDs        map[int]struct{}
+	lastExecutables   map[int]ExecutableIdentity
+	executableHistory []ExecutableObservation
+	executableErrors  int
 	samplerStop       chan struct{}
 	samplerDone       chan struct{}
 	samplerStarted    bool
@@ -49,9 +52,10 @@ func startAccessCapture(ctx context.Context) (AccessCapture, error) {
 		ctx = context.Background()
 	}
 	return &darwinAccessCapture{
-		ctx:        ctx,
-		started:    time.Now(),
-		processIDs: make(map[int]struct{}),
+		ctx:             ctx,
+		started:         time.Now(),
+		processIDs:      make(map[int]struct{}),
+		lastExecutables: make(map[int]ExecutableIdentity),
 	}, nil
 }
 
@@ -68,6 +72,9 @@ func (capture *darwinAccessCapture) Attach(processID int) error {
 		go capture.sampleProcessTree(processID)
 	}
 	capture.mu.Unlock()
+	// Take one synchronous sample before returning so a short-lived process
+	// cannot finish before the asynchronous sampler gets its first turn.
+	capture.extendProcessTree(processID)
 	return nil
 }
 
@@ -81,8 +88,15 @@ func (capture *darwinAccessCapture) Stop(processID int) (AccessReport, error) {
 		capture.stopSampler()
 		processIDs := capture.snapshotProcessIDs()
 		processTreeErrors := capture.snapshotProcessTreeErrors()
+		executableHistory := capture.snapshotExecutableHistory()
+		executableErrors := capture.snapshotExecutableErrors()
 		if len(processIDs) == 0 {
-			capture.result = AccessReport{Source: "macos-unified-log", ProcessTreeErrors: processTreeErrors}
+			capture.result = AccessReport{
+				Source:                      "macos-unified-log",
+				ProcessTreeErrors:           processTreeErrors,
+				ExecutableObservations:      executableHistory,
+				ExecutableObservationErrors: executableErrors,
+			}
 			return
 		}
 		ended := time.Now()
@@ -109,11 +123,13 @@ func (capture *darwinAccessCapture) Stop(processID int) (AccessReport, error) {
 		}
 		events, parseErrors := parseAccessOutputForProcesses(output, processSet)
 		capture.result = AccessReport{
-			Source:            "macos-unified-log",
-			Events:            events,
-			ProcessIDs:        processIDs,
-			ParseErrors:       parseErrors,
-			ProcessTreeErrors: processTreeErrors,
+			Source:                      "macos-unified-log",
+			Events:                      events,
+			ProcessIDs:                  processIDs,
+			ParseErrors:                 parseErrors,
+			ProcessTreeErrors:           processTreeErrors,
+			ExecutableObservations:      executableHistory,
+			ExecutableObservationErrors: executableErrors,
 		}
 	})
 	return capture.result, capture.err
@@ -152,6 +168,18 @@ func (capture *darwinAccessCapture) snapshotProcessTreeErrors() int {
 	return capture.processTreeErrors
 }
 
+func (capture *darwinAccessCapture) snapshotExecutableHistory() []ExecutableObservation {
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return append([]ExecutableObservation(nil), capture.executableHistory...)
+}
+
+func (capture *darwinAccessCapture) snapshotExecutableErrors() int {
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	return capture.executableErrors
+}
+
 func (capture *darwinAccessCapture) sampleProcessTree(rootProcessID int) {
 	defer close(capture.samplerDone)
 	ticker := time.NewTicker(25 * time.Millisecond)
@@ -169,7 +197,7 @@ func (capture *darwinAccessCapture) sampleProcessTree(rootProcessID int) {
 }
 
 func (capture *darwinAccessCapture) extendProcessTree(rootProcessID int) {
-	output, err := exec.CommandContext(capture.ctx, "/bin/ps", "-axo", "pid=,ppid=").Output()
+	entries, err := processTable()
 	if err != nil {
 		capture.mu.Lock()
 		capture.processTreeErrors++
@@ -177,29 +205,18 @@ func (capture *darwinAccessCapture) extendProcessTree(rootProcessID int) {
 		return
 	}
 	children := make(map[int][]int)
-	for _, line := range strings.Split(string(output), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		if len(fields) != 2 {
-			capture.mu.Lock()
-			capture.processTreeErrors++
-			capture.mu.Unlock()
-			continue
-		}
-		processID, processErr := strconv.Atoi(fields[0])
-		parentID, parentErr := strconv.Atoi(fields[1])
-		if processErr != nil || parentErr != nil || processID <= 0 || parentID <= 0 {
-			continue
-		}
-		children[parentID] = append(children[parentID], processID)
+	for _, entry := range entries {
+		children[entry.PPID] = append(children[entry.PPID], entry.PID)
+	}
+	for _, childIDs := range children {
+		sort.Ints(childIDs)
 	}
 
 	capture.mu.Lock()
 	defer capture.mu.Unlock()
 	queue := []int{rootProcessID}
 	seen := make(map[int]struct{}, len(queue))
+	now := time.Now().UTC()
 	for len(queue) > 0 {
 		parentID := queue[0]
 		queue = queue[1:]
@@ -207,11 +224,39 @@ func (capture *darwinAccessCapture) extendProcessTree(rootProcessID int) {
 			continue
 		}
 		seen[parentID] = struct{}{}
+		if entry, ok := entries[parentID]; ok {
+			capture.observeExecutableLocked(now, entry.PID, entry.Path)
+		}
 		for _, childID := range children[parentID] {
 			capture.processIDs[childID] = struct{}{}
 			queue = append(queue, childID)
 		}
 	}
+}
+
+func (capture *darwinAccessCapture) observeExecutableLocked(timestamp time.Time, processID int, path string) {
+	if strings.HasPrefix(path, "<") {
+		return
+	}
+	if capture.lastExecutables == nil {
+		capture.lastExecutables = make(map[int]ExecutableIdentity)
+	}
+	path = canonicalizeExistingParent(path)
+	identity, err := identityForPath(processID, path)
+	if err != nil {
+		capture.executableErrors++
+		return
+	}
+	if previous, ok := capture.lastExecutables[processID]; ok && previous == identity {
+		return
+	}
+	capture.lastExecutables[processID] = identity
+	capture.executableHistory = append(capture.executableHistory, ExecutableObservation{
+		Timestamp: timestamp,
+		PID:       processID,
+		Path:      identity.Path,
+		SHA256:    identity.SHA256,
+	})
 }
 
 func formatLogTime(value time.Time) string {
