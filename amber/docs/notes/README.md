@@ -72,6 +72,8 @@ evolves, not as a replacement for the code or specification.
 | Local PostgreSQL verification | A disposable PostgreSQL 16 instance validates the live adapter contract and the read-only readiness path after the checked-in migration is applied | Live integration and post-migration schema checks pass locally |
 | Release handoff documentation | The root README distinguishes implemented capabilities, local release evidence, and deployment-owned or credentialed actions | `make release-check` passes and release actions are listed explicitly |
 | Migration-first PostgreSQL CI | CI applies the checked-in migration before readiness and live integration, so the migration asset is exercised rather than silently replaced by bootstrap DDL | PostgreSQL workflow orders migration, readiness, then integration |
+| Contributor and release runbooks | Project prerequisites, verification commands, PostgreSQL sequencing, artifact checks, and release stop conditions are documented for handoff | `CONTRIBUTING.md` and `RELEASE.md` |
+| Getting started guide | Go and TypeScript users have a short adoption path covering root/child values, context, trust, storage choices, and verification | `docs/getting-started.md`, `go/README.md`, and `typescript/README.md` |
 
 When a later change alters one of these results, update the relevant note and
 this milestone table in the same change.
@@ -137,6 +139,8 @@ this milestone table in the same change.
 57. [Local PostgreSQL verification should follow the migration-before-readiness sequence](057-local-postgres-verification.md)
 58. [Release handoff should separate local proof from deployment-owned actions](058-release-handoff.md)
 59. [PostgreSQL CI should exercise the checked-in migration before adapter writes](059-postgres-ci-migration-first.md)
+60. [Contributor and release runbooks should make the verified workflow repeatable](060-contributor-release-runbooks.md)
+61. [Getting started guidance should show the smallest useful cross-language path](061-getting-started-guide.md)
 
 ## Current open questions
 

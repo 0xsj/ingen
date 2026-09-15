@@ -1,6 +1,7 @@
 package policy_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -311,6 +312,41 @@ func TestValidateRejectsUnsupportedRuleOptions(t *testing.T) {
 				t.Fatalf("Policy.Validate error = %v, want substring %q", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateAggregatesIndependentIssues(t *testing.T) {
+	candidate := policy.Policy{
+		Schema: "other/v1",
+		Source: policy.Source{Language: "go", Unit: "file", Roots: nil},
+		Rules: []policy.Rule{
+			{Kind: "deny-dependencies", Severity: "notice"},
+			{ID: "missing-direction", Kind: "layer-direction"},
+		},
+		Waivers: []policy.Waiver{{}},
+	}
+
+	err := candidate.Validate()
+	var validationErr *policy.ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("Policy.Validate error type = %T, want *policy.ValidationError", err)
+	}
+	if len(validationErr.Issues) < 8 {
+		t.Fatalf("validation issues = %d, want at least 8: %#v", len(validationErr.Issues), validationErr.Issues)
+	}
+	paths := make(map[string]bool, len(validationErr.Issues))
+	for _, issue := range validationErr.Issues {
+		paths[issue.Path] = true
+	}
+	for _, path := range []string{"schema", "source.unit", "source.roots", "rules[0]", "rules[0].severity", "rules.missing-direction", "waivers[0].reason"} {
+		if !paths[path] {
+			t.Errorf("validation issues missing path %q: %#v", path, validationErr.Issues)
+		}
+	}
+
+	document := policy.ValidationDocumentForError("policy.yaml", err)
+	if len(document.Errors) != len(validationErr.Issues) {
+		t.Fatalf("diagnostic errors = %d, want %d", len(document.Errors), len(validationErr.Issues))
 	}
 }
 

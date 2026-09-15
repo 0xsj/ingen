@@ -386,6 +386,11 @@ func TestAdapterTestSchemasContract(t *testing.T) {
 		"adapter-test explanation",
 		[]string{"schema", "source_schema", "status", "summary", "passed", "failed"},
 	)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-validation-v1.schema.json"),
+		"adapter validation",
+		[]string{"schema", "operation", "root", "language", "adapter", "valid", "errors"},
+	)
 }
 
 func TestExplanationSchemaContract(t *testing.T) {
@@ -834,6 +839,19 @@ func TestCLIAdapterValidate(t *testing.T) {
 	if exitCode != 2 || !strings.Contains(output, "expects language rust") {
 		t.Fatalf("incompatible adapter validation returned exit=%d output:\n%s", exitCode, output)
 	}
+	badJSONArgs := append([]string{}, badArgs...)
+	badJSONArgs = append(badJSONArgs, "--format", "json")
+	output, exitCode = runCLI(t, cli, repoRoot, badJSONArgs...)
+	if exitCode != 2 {
+		t.Fatalf("incompatible adapter JSON validation returned exit=%d output:\n%s", exitCode, output)
+	}
+	var diagnostics graph.ValidationDocument
+	if err := json.Unmarshal([]byte(output), &diagnostics); err != nil {
+		t.Fatalf("decode adapter validation diagnostics: %v\n%s", err, output)
+	}
+	if diagnostics.Schema != graph.ValidationSchema || diagnostics.Operation != "adapter-validate" || diagnostics.Language != "go" || diagnostics.SourceUnit != "file" || diagnostics.Adapter != "python3" || diagnostics.Valid || len(diagnostics.Errors) != 1 || diagnostics.Errors[0].Code != "language-mismatch" || !strings.Contains(diagnostics.Errors[0].Message, "expects language rust") {
+		t.Fatalf("unexpected adapter validation diagnostics: %#v", diagnostics)
+	}
 }
 
 func TestCLIAdapterTestManifest(t *testing.T) {
@@ -1262,6 +1280,9 @@ components:
 	invalidContents := contents + `rules:
   - id: broken
     kind: deny-dependencies
+    severity: notice
+  - id: broken
+    kind: layer-direction
 `
 	if err := os.WriteFile(invalidPath, []byte(invalidContents), 0o600); err != nil {
 		t.Fatal(err)
@@ -1274,8 +1295,24 @@ components:
 	if err := json.Unmarshal([]byte(output), &diagnostics); err != nil {
 		t.Fatalf("decode policy validation diagnostics: %v\n%s", err, output)
 	}
-	if diagnostics.Schema != policy.ValidationSchema || diagnostics.Valid || len(diagnostics.Errors) != 1 || diagnostics.Errors[0].Code != "invalid-policy" || !strings.Contains(diagnostics.Errors[0].Message, "needs deny targets") {
+	if diagnostics.Schema != policy.ValidationSchema || diagnostics.Valid || len(diagnostics.Errors) < 4 {
 		t.Fatalf("unexpected policy validation diagnostics: %#v", diagnostics)
+	}
+	seenCodes := make(map[string]bool, len(diagnostics.Errors))
+	seenPaths := make(map[string]bool, len(diagnostics.Errors))
+	for _, issue := range diagnostics.Errors {
+		seenCodes[issue.Code] = true
+		seenPaths[issue.Path] = true
+	}
+	for _, code := range []string{"rule-severity", "rule-id", "rule-semantics"} {
+		if !seenCodes[code] {
+			t.Errorf("validation diagnostics missing code %q: %#v", code, diagnostics.Errors)
+		}
+	}
+	for _, path := range []string{"rules.broken.severity", "rules.broken"} {
+		if !seenPaths[path] {
+			t.Errorf("validation diagnostics missing path %q: %#v", path, diagnostics.Errors)
+		}
 	}
 }
 

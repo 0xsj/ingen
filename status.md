@@ -32,6 +32,7 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - The former extra-field survivor is now killed by contract v2's explicit closed response shapes (`additional_properties: false`), demonstrating a diagnosed contract gap being closed without changing mutation classification.
 - Source-provider provenance now records target-resolution counts, and ambiguous or missing Go AST targets return a typed `ingen.mutation-target-resolution-error/v1` preparation error without writing the source copy.
 - Go provider negative-path tests now cover ambiguous state targets, missing persistence targets, and malformed validation changes; ambiguity and missing-target cases verify that the source remains unchanged.
+- The versioned provider manifest schema is now published under `sorna/spec/`; it gives future language providers and CI consumers a language-neutral structural contract while Go retains semantic runtime validation.
 - Go provider preparation now emits an `ingen.mutation-preparation/v1` summary with changed source files, hashes, and provenance, and rejects no-op mutations before build/publication.
 - Provider preparation now has a `mutation-preparation` CI envelope that binds the summary to the provider manifest and plan, and the default Nublar workflow retains it as a required check.
 - The current Sorna/Nublar alpha boundary is now named in [ALPHA-INTERFACES.md](ALPHA-INTERFACES.md), including stable cross-tool invariants and deliberately unfrozen areas.

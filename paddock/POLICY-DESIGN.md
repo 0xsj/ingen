@@ -149,6 +149,10 @@ rule must provide the option it needs (`allow`, `deny`, `allow-to`, or
 This prevents a typo such as adding `to` to an `allow-dependencies` rule from
 silently changing the intended boundary.
 
+Validation is collected across the whole policy. JSON diagnostics identify each
+issue with a stable code and path, allowing an agent to repair several authoring
+errors in one edit cycle instead of repeatedly discovering the next error.
+
 ### Exceptions
 
 Temporary violations need an explicit, reviewable waiver:

@@ -102,9 +102,13 @@ func main() {
 		}
 		switch os.Args[2] {
 		case "validate":
-			if err := validateAdapter(os.Args[3:]); err != nil {
+			exitCode, err := validateAdapter(os.Args[3:])
+			if err != nil {
 				fmt.Fprintln(os.Stderr, "paddock:", err)
 				os.Exit(2)
+			}
+			if exitCode != 0 {
+				os.Exit(exitCode)
 			}
 		case "test":
 			exitCode, err := adapterTestCommand(os.Args[3:])
@@ -1835,7 +1839,7 @@ func validateCIArtifact(args []string) error {
 	}
 }
 
-func validateAdapter(args []string) error {
+func validateAdapter(args []string) (int, error) {
 	root := "."
 	language := ""
 	unit := ""
@@ -1847,54 +1851,64 @@ func validateAdapter(args []string) error {
 		switch args[index] {
 		case "--language", "-l":
 			if index+1 >= len(args) {
-				return fmt.Errorf("%s requires a language", args[index])
+				return 0, fmt.Errorf("%s requires a language", args[index])
 			}
 			index++
 			language = args[index]
 		case "--unit", "--source-unit":
 			if index+1 >= len(args) {
-				return fmt.Errorf("%s requires a source unit", args[index])
+				return 0, fmt.Errorf("%s requires a source unit", args[index])
 			}
 			index++
 			unit = args[index]
 		case "--adapter":
 			if index+1 >= len(args) {
-				return fmt.Errorf("%s requires an executable path", args[index])
+				return 0, fmt.Errorf("%s requires an executable path", args[index])
 			}
 			index++
 			adapterExecutable = args[index]
 		case "--adapter-arg":
 			if index+1 >= len(args) {
-				return fmt.Errorf("%s requires an argument", args[index])
+				return 0, fmt.Errorf("%s requires an argument", args[index])
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
 		case "--format", "-f":
 			if index+1 >= len(args) {
-				return fmt.Errorf("%s requires text or json", args[index])
+				return 0, fmt.Errorf("%s requires text or json", args[index])
 			}
 			index++
 			format = args[index]
 		default:
 			if strings.HasPrefix(args[index], "-") {
-				return fmt.Errorf("unknown option %q", args[index])
+				return 0, fmt.Errorf("unknown option %q", args[index])
 			}
 			if rootSet {
-				return fmt.Errorf("unexpected argument %q", args[index])
+				return 0, fmt.Errorf("unexpected argument %q", args[index])
 			}
 			root = args[index]
 			rootSet = true
 		}
 	}
 	if language == "" {
-		return fmt.Errorf("adapter validate requires --language <language>")
+		return 0, fmt.Errorf("adapter validate requires --language <language>")
 	}
 	if adapterExecutable == "" {
-		return fmt.Errorf("adapter validate requires --adapter <program>")
+		return 0, fmt.Errorf("adapter validate requires --adapter <program>")
+	}
+	if format != "text" && format != "json" {
+		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
 	}
 	_, document, err := loadExternalGraphRequest(root, language, unit, nil, adapterExecutable, adapterArgs)
 	if err != nil {
-		return err
+		if format != "json" {
+			return 0, err
+		}
+		diagnostics := paddockgraph.ValidationDocumentForError("adapter-validate", root, language, unit, adapterExecutable, err)
+		if encodeErr := json.NewEncoder(os.Stdout).Encode(diagnostics); encodeErr != nil {
+			return 0, encodeErr
+		}
+		return 2, nil
 	}
 
 	switch format {
@@ -1905,14 +1919,13 @@ func validateAdapter(args []string) error {
 		fmt.Fprintf(os.Stdout, "root: %s\n", document.Root)
 		fmt.Fprintf(os.Stdout, "packages: %d\n", document.PackageCount)
 		fmt.Fprintf(os.Stdout, "edges: %d\n", document.EdgeCount)
-		return nil
+		return 0, nil
 	case "json":
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(document)
-	default:
-		return fmt.Errorf("unsupported format %q; use text or json", format)
+		return 0, encoder.Encode(document)
 	}
+	return 0, nil
 }
 
 func adapterTestCommand(args []string) (int, error) {

@@ -15,6 +15,54 @@ import (
 
 const DocumentSchema = "paddock.graph/v1"
 const RequestSchema = "paddock.graph-request/v1"
+const ValidationSchema = "paddock.adapter-validation/v1"
+
+type ValidationDocument struct {
+	Schema     string            `json:"schema"`
+	Operation  string            `json:"operation"`
+	Root       string            `json:"root"`
+	Language   string            `json:"language"`
+	SourceUnit string            `json:"source_unit,omitempty"`
+	Adapter    string            `json:"adapter"`
+	Valid      bool              `json:"valid"`
+	Errors     []ValidationIssue `json:"errors"`
+}
+
+type ValidationIssue struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func ValidationDocumentForError(operation, root, language, unit, adapter string, err error) ValidationDocument {
+	message := err.Error()
+	code := "adapter-validation"
+	switch {
+	case strings.Contains(message, "expects language") || strings.Contains(message, "requested language"):
+		code = "language-mismatch"
+	case strings.Contains(message, "expects source_unit") || strings.Contains(message, "source unit"):
+		code = "source-unit-mismatch"
+	case strings.Contains(message, "requested root"):
+		code = "root-mismatch"
+	case strings.Contains(message, "capability"):
+		code = "capability-mismatch"
+	case strings.Contains(message, "returned invalid graph") || strings.HasPrefix(message, "graph document"):
+		code = "invalid-graph"
+	case strings.Contains(message, "exited with status") || strings.HasPrefix(message, "run external graph adapter"):
+		code = "process-failure"
+	case strings.Contains(message, "request"):
+		code = "invalid-request"
+	}
+	return ValidationDocument{
+		Schema:     ValidationSchema,
+		Operation:  operation,
+		Root:       root,
+		Language:   language,
+		SourceUnit: unit,
+		Adapter:    adapter,
+		Valid:      false,
+		Errors:     []ValidationIssue{{Code: code, Message: message}},
+	}
+}
 
 type Document struct {
 	Schema       string           `json:"schema"`

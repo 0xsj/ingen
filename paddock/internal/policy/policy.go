@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -41,18 +42,41 @@ type ValidationDocument struct {
 
 type ValidationIssue struct {
 	Code    string `json:"code"`
+	Path    string `json:"path,omitempty"`
 	Message string `json:"message"`
 }
 
+type ValidationError struct {
+	Issues []ValidationIssue
+}
+
+func (e *ValidationError) Error() string {
+	if len(e.Issues) == 0 {
+		return "policy validation failed"
+	}
+	messages := make([]string, 0, len(e.Issues))
+	for _, issue := range e.Issues {
+		messages = append(messages, issue.Message)
+	}
+	return strings.Join(messages, "; ")
+}
+
 func ValidationDocumentForError(policyPath string, err error) ValidationDocument {
+	var validationErr *ValidationError
+	if errors.As(err, &validationErr) {
+		issues := append([]ValidationIssue(nil), validationErr.Issues...)
+		return ValidationDocument{
+			Schema: ValidationSchema,
+			Policy: policyPath,
+			Valid:  false,
+			Errors: issues,
+		}
+	}
 	code := "invalid-policy"
 	message := err.Error()
-	switch {
-	case strings.HasPrefix(message, "read policy:"):
+	if strings.HasPrefix(message, "read policy:") {
 		code = "read-policy"
-	case strings.HasPrefix(message, "parse policy:"):
-		code = "parse-policy"
-	case strings.HasPrefix(message, "parse policy JSON:"):
+	} else if strings.HasPrefix(message, "parse policy:") || strings.HasPrefix(message, "parse policy JSON:") {
 		code = "parse-policy"
 	}
 	return ValidationDocument{
@@ -286,72 +310,92 @@ func (p *Policy) Normalize() {
 }
 
 func (p Policy) Validate() error {
+	issues := p.ValidationIssues()
+	if len(issues) > 0 {
+		return &ValidationError{Issues: issues}
+	}
+	return nil
+}
+
+func (p Policy) ValidationIssues() []ValidationIssue {
+	issues := []ValidationIssue{}
+	add := func(code, path, message string) {
+		issues = append(issues, ValidationIssue{Code: code, Path: path, Message: message})
+	}
 	if p.Schema != "paddock.architecture/v1" {
-		return fmt.Errorf("policy schema must be paddock.architecture/v1, got %q", p.Schema)
+		add("schema", "schema", fmt.Sprintf("policy schema must be paddock.architecture/v1, got %q", p.Schema))
 	}
 	if p.Source.Language == "" {
-		return fmt.Errorf("source.language is required")
+		add("source-language", "source.language", "source.language is required")
 	}
 	if p.Source.Unit != "package" && p.Source.Unit != "file" {
-		return fmt.Errorf("source.unit must be package or file, got %q", p.Source.Unit)
+		add("source-unit", "source.unit", fmt.Sprintf("source.unit must be package or file, got %q", p.Source.Unit))
 	}
 	if p.Source.Language == "go" && p.Source.Unit != "package" {
-		return fmt.Errorf("Go source.unit must be package")
+		add("source-unit", "source.unit", "Go source.unit must be package")
 	}
 	if (p.Source.Language == "typescript" || p.Source.Language == "python") && p.Source.Unit != "file" {
-		return fmt.Errorf("%s source.unit must be file", p.Source.Language)
+		add("source-unit", "source.unit", fmt.Sprintf("%s source.unit must be file", p.Source.Language))
 	}
 	if len(p.Source.Roots) == 0 {
-		return fmt.Errorf("source.roots must not be empty")
+		add("source-roots", "source.roots", "source.roots must not be empty")
 	}
 	if len(p.Components) == 0 {
-		return fmt.Errorf("components must not be empty")
+		add("components", "components", "components must not be empty")
 	}
 	seen := map[string]bool{}
-	for _, rule := range p.Rules {
+	for index, rule := range p.Rules {
+		rulePath := fmt.Sprintf("rules[%d]", index)
+		if rule.ID != "" {
+			rulePath = "rules." + rule.ID
+		}
 		if rule.ID == "" {
-			return fmt.Errorf("every rule needs an id")
+			add("rule-id", rulePath, "every rule needs an id")
 		}
-		if seen[rule.ID] {
-			return fmt.Errorf("duplicate rule id %q", rule.ID)
+		if rule.ID != "" && seen[rule.ID] {
+			add("rule-id", rulePath, fmt.Sprintf("duplicate rule id %q", rule.ID))
 		}
-		seen[rule.ID] = true
+		if rule.ID != "" {
+			seen[rule.ID] = true
+		}
 		switch rule.Severity {
 		case "error", "warning", "info":
 		default:
-			return fmt.Errorf("rule %q has unsupported severity %q", rule.ID, rule.Severity)
+			add("rule-severity", rulePath+".severity", fmt.Sprintf("rule %q has unsupported severity %q", rule.ID, rule.Severity))
 		}
 		switch rule.Kind {
 		case "allow-dependencies", "deny-dependencies", "layer-direction", "no-cross-context", "mediated-dependency", "public-api-only", "no-cycles", "coverage", "required-dependency", "component-owns", "unresolved":
 		default:
-			return fmt.Errorf("rule %q has unsupported kind %q", rule.ID, rule.Kind)
+			add("rule-kind", rulePath+".kind", fmt.Sprintf("rule %q has unsupported kind %q", rule.ID, rule.Kind))
+			continue
 		}
 		if err := validateRuleSemantics(rule); err != nil {
-			return err
+			add("rule-semantics", rulePath, err.Error())
 		}
 	}
-	for _, waiver := range p.Waivers {
+	for index, waiver := range p.Waivers {
+		waiverPath := fmt.Sprintf("waivers[%d]", index)
 		if waiver.Rule == "" {
-			return fmt.Errorf("every waiver needs a rule")
+			add("waiver-rule", waiverPath+".rule", "every waiver needs a rule")
 		}
-		if !seen[waiver.Rule] {
-			return fmt.Errorf("waiver references unknown rule %q", waiver.Rule)
+		if waiver.Rule != "" && !seen[waiver.Rule] {
+			add("waiver-rule", waiverPath+".rule", fmt.Sprintf("waiver references unknown rule %q", waiver.Rule))
 		}
 		if strings.TrimSpace(waiver.From) == "" {
-			return fmt.Errorf("waiver for rule %q needs from", waiver.Rule)
+			add("waiver-from", waiverPath+".from", fmt.Sprintf("waiver for rule %q needs from", waiver.Rule))
 		}
 		if strings.TrimSpace(waiver.Reason) == "" {
-			return fmt.Errorf("waiver for rule %q needs a reason", waiver.Rule)
+			add("waiver-reason", waiverPath+".reason", fmt.Sprintf("waiver for rule %q needs a reason", waiver.Rule))
 		}
 		if strings.TrimSpace(waiver.Owner) == "" {
-			return fmt.Errorf("waiver for rule %q needs an owner", waiver.Rule)
+			add("waiver-owner", waiverPath+".owner", fmt.Sprintf("waiver for rule %q needs an owner", waiver.Rule))
 		}
 		expires, err := time.Parse("2006-01-02", waiver.Expires)
 		if err != nil || expires.Format("2006-01-02") != waiver.Expires {
-			return fmt.Errorf("waiver for rule %q has invalid expires date %q; use YYYY-MM-DD", waiver.Rule, waiver.Expires)
+			add("waiver-expires", waiverPath+".expires", fmt.Sprintf("waiver for rule %q has invalid expires date %q; use YYYY-MM-DD", waiver.Rule, waiver.Expires))
 		}
 	}
-	return nil
+	return issues
 }
 
 type ruleField struct {

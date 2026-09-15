@@ -1,5 +1,8 @@
 # Nublar
 
+The proposed package and product layout is documented in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 Nublar is InGen's CI and delivery surface. Its first implementation slice is a
 small coordinator that aggregates shared CI result envelopes. It may eventually
 provide pull-request gates, scheduled mutation campaigns, hosted reports,

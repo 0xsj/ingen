@@ -113,7 +113,8 @@ normalizing only the generated baseline `run_id`.
 A provider maps a plan mutation ID to a prepared subject command. The first
 provider manifest uses `ingen.mutation-provider/v1` and supports only literal
 argv plus the explicit `${SORA_ADDR}` and `${SORA_URL}` runtime tokens. It does
-not use shell interpolation.
+not use shell interpolation. The external JSON Schema is
+[`spec/ingen.mutation-provider-v1.schema.json`](spec/ingen.mutation-provider-v1.schema.json).
 
 The manifest also declares provider capabilities as exact plane/operator/target
 tuples. `sorna mutation run` requires every plan mutation to have both a

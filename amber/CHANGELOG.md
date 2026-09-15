@@ -80,6 +80,11 @@ All notable changes to Amber are documented here.
   release evidence, and deployment-owned release actions.
 - Tightened PostgreSQL CI to apply the checked-in migration before readiness
   and live integration, with the live contract requiring an existing schema.
+- Added contributor and release runbooks covering repeatable checks,
+  migration-first PostgreSQL verification, artifact review, and release stop
+  conditions.
+- Added a cross-language getting-started guide and a Go SDK README for first-use
+  adoption and adapter-boundary orientation.
 
 Before publishing a release, move the completed entries into a versioned
 section and record any compatibility or wire-format changes explicitly.

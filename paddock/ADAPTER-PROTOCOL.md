@@ -121,7 +121,9 @@ paddock adapter validate /workspace/service \
 The command sends a request, validates the returned graph, and prints either a
 compact text summary or the normalized `paddock.graph/v1` document. A valid
 adapter exits `0`; a process failure, malformed graph, language mismatch, or
-capability mismatch exits `2`.
+capability mismatch exits `2`. With `--format json`, those failures are
+reported as `paddock.adapter-validation/v1` diagnostics with stable error
+codes; successful output remains `paddock.graph/v1`.
 
 For repeatable coverage, define an adapter-test manifest:
 

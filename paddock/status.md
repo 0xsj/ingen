@@ -54,6 +54,8 @@ project without changing Overwatch or publishing anything:
 - Python file graph adapter.
 - External adapter protocol with capability negotiation.
 - Adapter conformance validation without policy evaluation.
+- Structured adapter validation diagnostics for process, graph, language,
+  source-unit, and capability failures.
 - Versioned adapter-test manifests and deterministic conformance evidence.
 - Persisted adapter-test results with manifest hash verification.
 - Standalone schemas for adapter-test manifests, results, and explanations.
@@ -82,6 +84,8 @@ project without changing Overwatch or publishing anything:
   code, while preserving normalized policy JSON for valid input.
 - Policy diff and review emit the same diagnostics for invalid before/after
   policies, including the comparison operation and both input paths.
+- Validation diagnostics include all independent policy issues with stable
+  codes and policy paths.
 - CI result artifacts using `ingen.ci-result/v1`.
 - Read-only CI artifact validation for Paddock and external producers.
 - Agent-facing text and JSON explanations.

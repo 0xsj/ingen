@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.adapter-validation-v1.schema.json",
+  "title": "Paddock adapter validation diagnostics",
+  "description": "Machine-readable diagnostics emitted when an external graph adapter cannot produce a valid graph.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "operation", "root", "language", "adapter", "valid", "errors"],
+  "properties": {
+    "schema": {"const": "paddock.adapter-validation/v1"},
+    "operation": {"const": "adapter-validate"},
+    "root": {"type": "string", "minLength": 1},
+    "language": {"type": "string", "minLength": 1},
+    "source_unit": {"type": "string", "minLength": 1},
+    "adapter": {"type": "string", "minLength": 1},
+    "valid": {"const": false},
+    "errors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.dev/schema/ingen.mutation-provider-v1.schema.json",
+  "title": "InGen mutation provider manifest",
+  "description": "Prepared subject variants and declared mutation capabilities for a Sorna campaign.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mutation_provider"],
+  "properties": {
+    "mutation_provider": {"$ref": "#/$defs/provider"}
+  },
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "id", "version", "plan_schema", "capabilities", "entries"],
+      "properties": {
+        "schema": {"const": "ingen.mutation-provider/v1"},
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "plan_schema": {"const": "ingen.mutation-plan/v1"},
+        "plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "plan_semantic_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/capability"}
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/entry"}
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plane", "operator", "target"],
+      "properties": {
+        "plane": {"type": "string", "minLength": 1},
+        "operator": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1}
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mutation_id", "command"],
+      "properties": {
+        "mutation_id": {"type": "string", "minLength": 1},
+        "command": {"type": "string", "minLength": 1},
+        "args": {"type": "array", "items": {"type": "string"}},
+        "subject_root": {"type": "string", "minLength": 1},
+        "subject_dir": {"type": "string", "minLength": 1},
+        "variant": {"type": "string", "minLength": 1},
+        "provenance": {"$ref": "#/$defs/provenance"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_dir", "source_sha256", "binary_sha256", "location", "before", "after"],
+      "properties": {
+        "source_dir": {"type": "string", "minLength": 1},
+        "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "location": {"type": "string", "minLength": 1},
+        "before": {"type": "string", "minLength": 1},
+        "after": {"type": "string", "minLength": 1},
+        "target_resolution": {"$ref": "#/$defs/target_resolution"}
+      }
+    },
+    "target_resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector", "candidate_count", "applied_count"],
+      "properties": {
+        "selector": {"type": "string", "minLength": 1},
+        "candidate_count": {"type": "integer", "minimum": 0},
+        "applied_count": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

@@ -218,6 +218,9 @@ when an agent or another tool needs the structured map.
 response without evaluating a policy. It is useful as a language-adapter
 conformance check during development; valid responses exit `0`, while process,
 schema, language, or capability errors exit `2`.
+Successful JSON output is the normalized `paddock.graph/v1` document. For an
+invalid external adapter, JSON mode emits `paddock.adapter-validation/v1` with
+a stable failure code and exits `2`; text mode retains the concise diagnostic.
 
 `adapter test` runs a versioned `paddock.adapter-tests/v1` manifest with
 multiple roots or adapter modes and emits `paddock.adapter-test-result/v1`
@@ -258,7 +261,9 @@ the proposal. Add `--cases <manifest.yaml>` to evaluate the proposed `--after`
 policy against a `paddock.policy-tests/v1` manifest. The test results are
 embedded in the diff, and a mismatched case exits `1`.
 If either policy cannot be loaded, JSON mode emits the
-`paddock.policy-validation/v1` diagnostic document and exits `2`.
+`paddock.policy-validation/v1` diagnostic document and exits `2`. The
+diagnostic contains every independent validation issue, with a stable code and
+policy path, rather than stopping at the first issue.
 The diff contract is defined in
 [`spec/paddock.policy-diff-v1.schema.json`](spec/paddock.policy-diff-v1.schema.json).
 

@@ -89,6 +89,12 @@ A release-readiness matrix records the verified, environment-dependent, and
 out-of-scope portions of the project in
 [`docs/release-readiness.md`](docs/release-readiness.md).
 
+Contributor workflow and release handoff procedures are documented in
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and [`RELEASE.md`](RELEASE.md).
+
+New users can start with the cross-language
+[`docs/getting-started.md`](docs/getting-started.md) guide.
+
 ## Release readiness
 
 The local release-candidate gate currently passes:

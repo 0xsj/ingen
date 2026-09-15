@@ -19,3 +19,6 @@ and custody boundary rather than reimplementing verification semantics.
 
 Future vertical. It should grow when durable, cross-project evidence storage
 and artifact sharing become a real workflow need.
+
+The current planning proposal is recorded in
+[`PROPOSED-TREE.md`](PROPOSED-TREE.md).

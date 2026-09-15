@@ -150,6 +150,13 @@ Provider manifests now declare the exact mutation plane, operator, and target
 shapes they support. Sorna checks those capabilities against the plan before
 launching any subject.
 
+The external manifest contract is documented in
+[`spec/ingen.mutation-provider-v1.schema.json`](spec/ingen.mutation-provider-v1.schema.json).
+It describes the versioned provider envelope, capability tuples, prepared
+entries, and optional source provenance. Runtime Go validation remains the
+execution boundary; the schema gives other tools a language-neutral review
+surface.
+
 `mutation provider inspect` produces a versioned review report without
 launching a subject. It shows the exact plan/provider hashes, plan binding
 state, declared capabilities, and per-mutation entry/capability matches.

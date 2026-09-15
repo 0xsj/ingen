@@ -12,6 +12,9 @@ npm install @0xsj/amber
 
 ## Quick start
 
+The cross-language walkthrough, including Go, context, trust, storage, and
+verification guidance, is in the [getting started guide](../docs/getting-started.md).
+
 ```ts
 import {
   Provenance,

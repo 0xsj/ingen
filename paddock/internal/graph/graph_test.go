@@ -3,6 +3,7 @@ package graph_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,6 +169,27 @@ func TestLoadExternalAdapterReportsProcessDiagnostics(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "status 7") || !strings.Contains(err.Error(), "adapter-broke") {
 		t.Fatalf("adapter error = %v, want exit status and stderr", err)
+	}
+}
+
+func TestValidationDocumentClassifiesAdapterFailures(t *testing.T) {
+	tests := []struct {
+		name string
+		err  string
+		want string
+	}{
+		{name: "process", err: `external graph adapter "adapter" exited with status 7`, want: "process-failure"},
+		{name: "graph", err: "external graph adapter returned invalid graph: graph document edge kind", want: "invalid-graph"},
+		{name: "source unit", err: `adapter does not support required source unit "package"`, want: "source-unit-mismatch"},
+		{name: "capability", err: "external graph adapter capability negotiation failed", want: "capability-mismatch"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			document := graph.ValidationDocumentForError("adapter-validate", "/workspace", "rust", "file", "adapter", errors.New(test.err))
+			if document.Schema != graph.ValidationSchema || document.Valid || len(document.Errors) != 1 || document.Errors[0].Code != test.want {
+				t.Fatalf("validation document = %#v, want code %q", document, test.want)
+			}
+		})
 	}
 }
 
