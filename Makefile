@@ -112,7 +112,7 @@ subject-run: ## Run the document-pipeline subject on SUBJECT_ADDR
 
 subject-build: ## Build the clean document-pipeline subject binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
-	$(GO_CMD) build -o "$(SUBJECT_BINARY)" ./examples/document-pipeline-lab/subject/cmd/document-pipeline
+	$(GO_CMD) build -trimpath -o "$(SUBJECT_BINARY)" ./examples/document-pipeline-lab/subject/cmd/document-pipeline
 
 defect-build: ## Build the controlled status-200-create defect binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
