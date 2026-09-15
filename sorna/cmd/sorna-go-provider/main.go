@@ -73,6 +73,9 @@ func run(args []string) int {
 			{Plane: "implementation", Operator: "response.field.remove", Target: "POST /documents"},
 			{Plane: "implementation", Operator: "response.field.add", Target: "POST /documents"},
 			{Plane: "implementation", Operator: "response.error.status.replace", Target: "POST /documents"},
+			{Plane: "implementation", Operator: "state.transition.replace", Target: "POST /documents/{id}/process"},
+			{Plane: "implementation", Operator: "state.persistence.key.replace", Target: "POST /documents"},
+			{Plane: "implementation", Operator: "input.validation.suffix.add", Target: "POST /documents"},
 		},
 		SubjectArgs: []string{"-addr", "${SORA_ADDR}"},
 		Mutate:      mutateDocumentPipeline,
@@ -110,7 +113,10 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 	if spec.Plane != "implementation" {
 		return campaign.ProviderProvenance{}, fmt.Errorf("Go document provider only supports implementation mutations")
 	}
-	if spec.Target != "POST /documents" {
+	if spec.Operator == "state.transition.replace" && spec.Target != "POST /documents/{id}/process" {
+		return campaign.ProviderProvenance{}, fmt.Errorf("state transition mutation must target POST /documents/{id}/process, got %q", spec.Target)
+	}
+	if spec.Operator != "state.transition.replace" && spec.Target != "POST /documents" {
 		return campaign.ProviderProvenance{}, fmt.Errorf("unsupported document mutation %q at %q", spec.Operator, spec.Target)
 	}
 
@@ -119,6 +125,11 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 	var fieldToRemove string
 	var fieldToAdd string
 	var valueToAdd string
+	var transitionFrom string
+	var transitionTo string
+	var persistenceFrom string
+	var persistenceTo string
+	var validationSuffix string
 	switch operator {
 	case "response.status.replace":
 		from, err := changeInteger(spec, "from")
@@ -191,6 +202,58 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 			Before:   "http.StatusBadRequest",
 			After:    "http.StatusInternalServerError",
 		}
+	case "state.transition.replace":
+		from, err := changeString(spec, "from")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		to, err := changeString(spec, "to")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		if from != "completed" || to != "queued" {
+			return campaign.ProviderProvenance{}, fmt.Errorf("document provider supports only state completed -> queued, got %s -> %s", from, to)
+		}
+		transitionFrom = from
+		transitionTo = to
+		provenance = campaign.ProviderProvenance{
+			Location: "examples/document-pipeline-lab/subject/server.go:processDocument:doc.Status",
+			Before:   `doc.Status = "completed"`,
+			After:    `doc.Status = "queued"`,
+		}
+	case "state.persistence.key.replace":
+		from, err := changeString(spec, "from")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		to, err := changeString(spec, "to")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		if from != "id" || to != "mutation-discarded" {
+			return campaign.ProviderProvenance{}, fmt.Errorf("document provider supports only persistence key id -> mutation-discarded, got %s -> %s", from, to)
+		}
+		persistenceFrom = from
+		persistenceTo = to
+		provenance = campaign.ProviderProvenance{
+			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:h.store.docs[id]",
+			Before:   "h.store.docs[id] = accepted document",
+			After:    `h.store.docs["mutation-discarded"] = accepted document`,
+		}
+	case "input.validation.suffix.add":
+		suffix, err := changeString(spec, "suffix")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		if suffix != ".png" {
+			return campaign.ProviderProvenance{}, fmt.Errorf("document provider supports only adding validation suffix %s, got %s", ".png", suffix)
+		}
+		validationSuffix = suffix
+		provenance = campaign.ProviderProvenance{
+			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:supported_suffix_validation",
+			Before:   `extension != ".md" && extension != ".txt"`,
+			After:    `extension != ".md" && extension != ".txt" && extension != ".png"`,
+		}
 	default:
 		return campaign.ProviderProvenance{}, fmt.Errorf("unsupported document mutation %q at %q", spec.Operator, spec.Target)
 	}
@@ -207,6 +270,9 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 	}
 	var statusTargets []*ast.SelectorExpr
 	var errorStatusTargets []*ast.SelectorExpr
+	var transitionTargets []*ast.BasicLit
+	var persistenceTargets []*ast.IndexExpr
+	var validationTargets []*ast.BinaryExpr
 	type fieldTarget struct {
 		body  *ast.CompositeLit
 		index int
@@ -215,10 +281,99 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 	var bodyTargets []*ast.CompositeLit
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Name.Name != "createDocument" || function.Body == nil {
+		functionName := "createDocument"
+		if operator == "state.transition.replace" {
+			functionName = "processDocument"
+		}
+		if !ok || function.Name.Name != functionName || function.Body == nil {
 			continue
 		}
 		ast.Inspect(function.Body, func(node ast.Node) bool {
+			if operator == "state.transition.replace" {
+				assignment, ok := node.(*ast.AssignStmt)
+				if !ok || len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 {
+					return true
+				}
+				selector, ok := assignment.Lhs[0].(*ast.SelectorExpr)
+				if !ok || selector.Sel.Name != "Status" {
+					return true
+				}
+				receiver, ok := selector.X.(*ast.Ident)
+				if !ok || receiver.Name != "doc" {
+					return true
+				}
+				value, ok := assignment.Rhs[0].(*ast.BasicLit)
+				if !ok || value.Kind != token.STRING {
+					return true
+				}
+				literal, err := strconv.Unquote(value.Value)
+				if err != nil || literal != transitionFrom {
+					return true
+				}
+				transitionTargets = append(transitionTargets, value)
+				return true
+			}
+			if operator == "state.persistence.key.replace" {
+				assignment, ok := node.(*ast.AssignStmt)
+				if !ok || len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 {
+					return true
+				}
+				index, ok := assignment.Lhs[0].(*ast.IndexExpr)
+				if !ok {
+					return true
+				}
+				docs, ok := index.X.(*ast.SelectorExpr)
+				if !ok || docs.Sel.Name != "docs" {
+					return true
+				}
+				store, ok := docs.X.(*ast.SelectorExpr)
+				if !ok || store.Sel.Name != "store" {
+					return true
+				}
+				handler, ok := store.X.(*ast.Ident)
+				if !ok || handler.Name != "h" {
+					return true
+				}
+				key, ok := index.Index.(*ast.Ident)
+				if !ok || key.Name != persistenceFrom {
+					return true
+				}
+				stored, ok := assignment.Rhs[0].(*ast.UnaryExpr)
+				if !ok || stored.Op != token.AND {
+					return true
+				}
+				document, ok := stored.X.(*ast.CompositeLit)
+				if !ok {
+					return true
+				}
+				typeName, ok := document.Type.(*ast.Ident)
+				if !ok || typeName.Name != "document" {
+					return true
+				}
+				persistenceTargets = append(persistenceTargets, index)
+				return true
+			}
+			if operator == "input.validation.suffix.add" {
+				condition, ok := node.(*ast.IfStmt)
+				if !ok {
+					return true
+				}
+				var suffixTargets []*ast.BinaryExpr
+				ast.Inspect(condition.Cond, func(child ast.Node) bool {
+					expression, ok := child.(*ast.BinaryExpr)
+					if !ok || expression.Op != token.LAND {
+						return true
+					}
+					if hasSuffixComparison(expression.X, ".txt") || hasSuffixComparison(expression.Y, ".txt") {
+						suffixTargets = append(suffixTargets, expression)
+					}
+					return true
+				})
+				if len(suffixTargets) == 1 {
+					validationTargets = append(validationTargets, suffixTargets[0])
+				}
+				return true
+			}
 			call, ok := node.(*ast.CallExpr)
 			if !ok || len(call.Args) < 2 {
 				return true
@@ -326,6 +481,12 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 		candidateCount = len(bodyTargets)
 	} else if operator == "response.error.status.replace" {
 		candidateCount = len(errorStatusTargets)
+	} else if operator == "state.transition.replace" {
+		candidateCount = len(transitionTargets)
+	} else if operator == "state.persistence.key.replace" {
+		candidateCount = len(persistenceTargets)
+	} else if operator == "input.validation.suffix.add" {
+		candidateCount = len(validationTargets)
 	}
 	if candidateCount != 1 {
 		return campaign.ProviderProvenance{}, campaign.NewTargetResolutionError(spec, provenance.Location, candidateCount)
@@ -341,8 +502,25 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 			Key:   &ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(fieldToAdd)},
 			Value: &ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(valueToAdd)},
 		})
-	} else {
+	} else if operator == "response.error.status.replace" {
 		errorStatusTargets[0].Sel.Name = "StatusInternalServerError"
+	} else if operator == "state.transition.replace" {
+		transitionTargets[0].Value = strconv.Quote(transitionTo)
+	} else if operator == "state.persistence.key.replace" {
+		persistenceTargets[0].Index = &ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(persistenceTo)}
+	} else {
+		target := validationTargets[0]
+		comparison := &ast.BinaryExpr{
+			X:  &ast.Ident{Name: "extension"},
+			Op: token.NEQ,
+			Y:  &ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(validationSuffix)},
+		}
+		if hasSuffixComparison(target.X, ".txt") {
+			target.X = &ast.BinaryExpr{X: target.X, Op: token.LAND, Y: comparison}
+		} else {
+			target.X = &ast.BinaryExpr{X: target.X, Op: token.LAND, Y: target.Y}
+			target.Y = comparison
+		}
 	}
 	provenance.TargetResolution = &campaign.TargetResolution{
 		Selector:       provenance.Location,
@@ -395,4 +573,21 @@ func changeInteger(spec mutation.Spec, key string) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("mutation %s change.%s must be an integer", spec.ID, key)
+}
+
+func hasSuffixComparison(expression ast.Expr, suffix string) bool {
+	comparison, ok := expression.(*ast.BinaryExpr)
+	if !ok || comparison.Op != token.NEQ {
+		return false
+	}
+	name, ok := comparison.X.(*ast.Ident)
+	if !ok || name.Name != "extension" {
+		return false
+	}
+	literal, ok := comparison.Y.(*ast.BasicLit)
+	if !ok || literal.Kind != token.STRING {
+		return false
+	}
+	value, err := strconv.Unquote(literal.Value)
+	return err == nil && value == suffix
 }

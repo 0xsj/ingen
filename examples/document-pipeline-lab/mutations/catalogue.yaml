@@ -41,3 +41,38 @@ mutation_catalogue:
       expected_rule_ids:
         - document.create.rejects-unsupported-type
       status: candidate
+
+    - id: process-stays-queued
+      plane: implementation
+      operator: state.transition.replace
+      target: POST /documents/{id}/process
+      description: Leave a processed document queued instead of transitioning it to completed.
+      change:
+        from: completed
+        to: queued
+      expected_rule_ids:
+        - document.process.valid-completes
+      status: candidate
+
+    - id: persistence-under-wrong-key
+      plane: implementation
+      operator: state.persistence.key.replace
+      target: POST /documents
+      description: Persist an accepted document under a key different from the returned document ID.
+      change:
+        from: id
+        to: mutation-discarded
+      expected_rule_ids:
+        - document.status.exposes-queued-state
+      status: candidate
+
+    - id: accepts-png
+      plane: implementation
+      operator: input.validation.suffix.add
+      target: POST /documents
+      description: Accept an unsupported PNG document type instead of rejecting it.
+      change:
+        suffix: .png
+      expected_rule_ids:
+        - document.create.rejects-unsupported-type
+      status: candidate

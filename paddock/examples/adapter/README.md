@@ -67,3 +67,15 @@ paddock adapter validate /path/to/workspace \
   --adapter-arg --workspace \
   --adapter-arg /path/to/workspace
 ```
+
+For repeatable adapter coverage, use an adapter-test manifest and persist its
+evidence for CI:
+
+```sh
+paddock adapter test --cases adapter-tests.yaml \
+  --output adapter-test-result.json \
+  --ci-result adapter-conformance-ci-result.json \
+  --format json
+paddock adapter test verify --input adapter-test-result.json --files
+paddock ci validate --input adapter-conformance-ci-result.json
+```

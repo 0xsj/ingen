@@ -172,6 +172,9 @@ export function messageMiddlewareWithValidator<T>(
     if (incoming.context.provenance === undefined) {
       return outgoing;
     }
+    if (outgoing.metadata?.[PROVENANCE_METADATA_KEY] !== undefined) {
+      return outgoing;
+    }
     return withOutgoingMessage(outgoing, incoming.context.provenance);
   };
 }

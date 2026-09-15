@@ -118,3 +118,24 @@ identity did not.
 These are still fresh snapshots of the current worktree, not committed
 checkouts. The committed-checkout comparison remains the point at which this
 result can be treated as a release-level reproducibility claim.
+
+## Six-mutation rehearsal
+
+After the provider negative-path hardening, the complete workflow was rerun on
+2026-09-15 from another fresh source snapshot:
+
+| Identity | `/private/tmp/ingen-workspace.LDRffJ` |
+| --- | --- |
+| exact plan hash | `d013e49cdfaf186da61ff9b953125cccf4fb201b6b4c818cd0274c4e94b9f04f` |
+| semantic plan hash | `02c66722e8b2b7b29607b967759189142cf43cfa8d76521fc6be2eba272a343e` |
+| oracle hash | `9deb58ce9c89573b4ce81c2720aee1df5f9c6e40968f2912fdcf39a959ea7f59` |
+
+The clean baseline passed all 7 cases, all 6 mutations were killed, and the
+provider review, preparation, campaign verification, and Nublar aggregate all
+passed. The semantic identity matched the previous six-mutation source
+rehearsal, while the exact identity changed with the newly generated baseline
+run ID as designed.
+
+This remains a pre-commit rehearsal because the source was copied from the
+current worktree. A committed clean-checkout run is still required before
+calling the result release-level reproducibility evidence.

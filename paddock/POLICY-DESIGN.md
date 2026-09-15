@@ -119,6 +119,7 @@ The initial rule vocabulary should cover:
 - `mediated-dependency`: cross-context edges may only target a public API,
   shared kernel, or declared contract;
 - `required-dependency`: a component must depend on a declared boundary;
+- `component-owns`: selected source units must belong to an approved component;
 - `no-cycles`: selected nodes must be acyclic;
 - `public-api-only`: external consumers may not reach internal implementation;
 - `coverage`: every source unit must be classified;
@@ -135,6 +136,18 @@ requirement is that a source unit can reach an approved target through internal
 dependencies. Cycle rules use `source.roots` and their optional `from` selectors
 to define the nodes included in the cycle check. An empty `from` selector means
 all source units under the configured roots.
+
+`component-owns` is a package-level assertion rather than an edge rule. Its
+`allow` values are component names, or label selectors, and its optional `from`
+selector narrows which classified packages are checked. This is useful when a
+bounded context or source root may contain only a declared set of components;
+it also catches an unclassified package in that selected set.
+
+Policy validation also checks rule semantics before graph analysis starts. A
+rule must provide the option it needs (`allow`, `deny`, `allow-to`, or
+`direction`), and options that the rule kind does not interpret are rejected.
+This prevents a typo such as adding `to` to an `allow-dependencies` rule from
+silently changing the intended boundary.
 
 ### Exceptions
 

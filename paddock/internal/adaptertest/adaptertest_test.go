@@ -86,6 +86,17 @@ cases:
 	if err := document.Validate(); err != nil {
 		t.Fatalf("valid adapter test result rejected: %v", err)
 	}
+	resultPath := filepath.Join(directory, "adapter-test-result.json")
+	if err := adaptertest.Save(resultPath, document); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := adaptertest.LoadResult(resultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adaptertest.VerifyFiles(loaded); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestDocumentValidateRejectsInconsistentEvidence(t *testing.T) {

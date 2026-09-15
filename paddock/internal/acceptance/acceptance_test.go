@@ -381,6 +381,11 @@ func TestAdapterTestSchemasContract(t *testing.T) {
 		"adapter-test result",
 		[]string{"schema", "manifest", "adapter", "status", "passed", "failed", "cases"},
 	)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-test-explanation-v1.schema.json"),
+		"adapter-test explanation",
+		[]string{"schema", "source_schema", "status", "summary", "passed", "failed"},
+	)
 }
 
 func TestExplanationSchemaContract(t *testing.T) {
@@ -872,9 +877,27 @@ cases:
 		t.Fatalf("adapter test manifest validation failed: exit=%d output:\n%s", exitCode, output)
 	}
 
-	output, exitCode = runCLI(t, cli, repoRoot, "adapter", "test", "--cases", manifestPath)
-	if exitCode != 0 || !strings.Contains(output, "ADAPTER-TEST PASS") || !strings.Contains(output, "rust-file") || !strings.Contains(output, "unsupported-language") {
+	resultPath := filepath.Join(directory, "adapter-test-result.json")
+	ciResultPath := filepath.Join(directory, "adapter-conformance-ci-result.json")
+	output, exitCode = runCLI(t, cli, repoRoot, "adapter", "test", "--cases", manifestPath, "--output", resultPath, "--ci-result", ciResultPath)
+	if exitCode != 0 || !strings.Contains(output, "ADAPTER-TEST PASS") || !strings.Contains(output, "rust-file") || !strings.Contains(output, "unsupported-language") || !strings.Contains(output, "output: "+resultPath) || !strings.Contains(output, "ci_result: "+ciResultPath) {
 		t.Fatalf("adapter test manifest execution failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "adapter", "test", "verify", "--input", resultPath, "--files")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED "+resultPath+" (PASS)") {
+		t.Fatalf("adapter test result verification failed: exit=%d output:\n%s", exitCode, output)
+	}
+	sharedResult, err := ciresult.LoadFile(ciResultPath)
+	if err != nil {
+		t.Fatalf("adapter conformance CI result is invalid: %v", err)
+	}
+	if sharedResult.Tool != "paddock" || sharedResult.Kind != "adapter-conformance" || sharedResult.Status != "passed" || len(sharedResult.Report) == 0 || len(sharedResult.Explanation) == 0 {
+		t.Fatalf("adapter conformance CI result is incomplete: %+v", sharedResult)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "ci", "validate", "--input", ciResultPath)
+	if exitCode != 0 || !strings.Contains(output, "CI-RESULT VALID") || !strings.Contains(output, "kind: adapter-conformance") {
+		t.Fatalf("adapter conformance CI result validation failed: exit=%d output:\n%s", exitCode, output)
 	}
 
 	output, exitCode = runCLI(t, cli, repoRoot, "adapter", "test", "--cases", manifestPath, "--format", "json")
@@ -1090,6 +1113,25 @@ rules:
 		t.Fatalf("unexpected policy diff document: %#v", document)
 	}
 
+	invalidAfterPath := filepath.Join(directory, "invalid-after.yaml")
+	invalidAfter := strings.Replace(after, "kind: coverage", "kind: deny-dependencies", 1)
+	if err := os.WriteFile(invalidAfterPath, []byte(invalidAfter), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", invalidAfterPath, "--format", "json",
+	)
+	if exitCode != 2 {
+		t.Fatalf("invalid policy diff JSON exit code = %d, want 2; output:\n%s", exitCode, output)
+	}
+	var diagnostics policy.ValidationDocument
+	if err := json.Unmarshal([]byte(output), &diagnostics); err != nil {
+		t.Fatalf("decode policy diff validation diagnostics: %v\n%s", err, output)
+	}
+	if diagnostics.Schema != policy.ValidationSchema || diagnostics.Operation != "diff" || diagnostics.Policy != invalidAfterPath || diagnostics.Before != beforePath || diagnostics.After != invalidAfterPath || diagnostics.Valid || len(diagnostics.Errors) != 1 || !strings.Contains(diagnostics.Errors[0].Message, "needs deny targets") {
+		t.Fatalf("unexpected policy diff validation diagnostics: %#v", diagnostics)
+	}
+
 	output, exitCode = runCLI(t, cli, repoRoot,
 		"policy", "diff", "--before", beforePath, "--after", afterPath, "--cases", manifestPath,
 	)
@@ -1139,6 +1181,19 @@ rules:
 	}
 	if review.Schema != policyreview.Schema || review.Status != "PASS" || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" {
 		t.Fatalf("unexpected policy review: %#v", review)
+	}
+	invalidReviewOutput := filepath.Join(directory, "invalid-policy-review.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "review", "--before", beforePath, "--after", invalidAfterPath, "--cases", manifestPath, "--output", invalidReviewOutput, "--format", "json",
+	)
+	if exitCode != 2 {
+		t.Fatalf("invalid policy review JSON exit code = %d, want 2; output:\n%s", exitCode, output)
+	}
+	if err := json.Unmarshal([]byte(output), &diagnostics); err != nil {
+		t.Fatalf("decode policy review validation diagnostics: %v\n%s", err, output)
+	}
+	if diagnostics.Schema != policy.ValidationSchema || diagnostics.Operation != "review" || diagnostics.Policy != invalidAfterPath || diagnostics.Before != beforePath || diagnostics.After != invalidAfterPath || diagnostics.Valid || len(diagnostics.Errors) != 1 || !strings.Contains(diagnostics.Errors[0].Message, "needs deny targets") {
+		t.Fatalf("unexpected policy review validation diagnostics: %#v", diagnostics)
 	}
 	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath)
 	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
@@ -1202,6 +1257,35 @@ components:
 	if normalized.Schema != "paddock.architecture/v1" || normalized.Source.Unit != "package" || normalized.Rules == nil || normalized.Waivers == nil {
 		t.Fatalf("policy was not normalized: %#v", normalized)
 	}
+
+	invalidPath := filepath.Join(t.TempDir(), "invalid.yaml")
+	invalidContents := contents + `rules:
+  - id: broken
+    kind: deny-dependencies
+`
+	if err := os.WriteFile(invalidPath, []byte(invalidContents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "validate", "--policy", invalidPath, "--format", "json")
+	if exitCode != 2 {
+		t.Fatalf("invalid policy JSON exit code = %d, want 2; output:\n%s", exitCode, output)
+	}
+	var diagnostics policy.ValidationDocument
+	if err := json.Unmarshal([]byte(output), &diagnostics); err != nil {
+		t.Fatalf("decode policy validation diagnostics: %v\n%s", err, output)
+	}
+	if diagnostics.Schema != policy.ValidationSchema || diagnostics.Valid || len(diagnostics.Errors) != 1 || diagnostics.Errors[0].Code != "invalid-policy" || !strings.Contains(diagnostics.Errors[0].Message, "needs deny targets") {
+		t.Fatalf("unexpected policy validation diagnostics: %#v", diagnostics)
+	}
+}
+
+func TestPolicyValidationSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.policy-validation-v1.schema.json"),
+		"policy validation",
+		[]string{"schema", "policy", "valid", "errors"},
+	)
 }
 
 func TestCLIPolicySealAndVerify(t *testing.T) {
@@ -1377,6 +1461,9 @@ func TestPortableCIWorkflowWithExternalAdapter(t *testing.T) {
 	proposedPath := filepath.Join(directory, "proposed.yaml")
 	casesPath := filepath.Join(directory, "policy-tests.yaml")
 	argsPath := filepath.Join(directory, "adapter.args")
+	adapterTestsPath := filepath.Join(directory, "adapter-tests.yaml")
+	adapterTestResultPath := filepath.Join(directory, "adapter-test-result.json")
+	adapterCIResultPath := filepath.Join(directory, "adapter-conformance-ci-result.json")
 	lockPath := filepath.Join(directory, "paddock.lock.json")
 	reviewPath := filepath.Join(directory, "paddock-policy-review.json")
 	graphPath := filepath.Join(directory, "paddock-graph.json")
@@ -1412,12 +1499,30 @@ cases:
     root: ` + filepath.ToSlash(sourceRoot) + `
     expect: pass
 `
+	adapterTests := `schema: paddock.adapter-tests/v1
+adapter:
+  executable: python3
+  args:
+    - ` + filepath.ToSlash(adapter) + `
+    - --workspace
+    - "{{root}}"
+cases:
+  - name: external-adapter-conformance
+    root: ` + filepath.ToSlash(sourceRoot) + `
+    language: rust
+    source_unit: file
+    required_edge_kinds: [import]
+    expect: pass
+    package_count: 2
+    edge_count: 1
+`
 	args := adapter + "\n--workspace\n" + sourceRoot + "\n"
 	for path, contents := range map[string]string{
-		policyPath:   policy,
-		proposedPath: proposed,
-		casesPath:    cases,
-		argsPath:     args,
+		policyPath:       policy,
+		proposedPath:     proposed,
+		casesPath:        cases,
+		adapterTestsPath: adapterTests,
+		argsPath:         args,
 	} {
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
@@ -1436,9 +1541,25 @@ cases:
 		"PADDOCK_GRAPH_OUTPUT=" + graphPath,
 		"PADDOCK_REVIEW=" + reviewPath,
 		"PADDOCK_RESULT=" + resultPath,
+		"PADDOCK_ADAPTER_TESTS=" + adapterTestsPath,
+		"PADDOCK_ADAPTER_TEST_RESULT=" + adapterTestResultPath,
+		"PADDOCK_ADAPTER_CI_RESULT=" + adapterCIResultPath,
 	}
 
-	output, exitCode := runWorkflow(t, workflow, repoRoot, env, "review")
+	output, exitCode := runWorkflow(t, workflow, repoRoot, env, "adapter-test")
+	if exitCode != 0 || !strings.Contains(output, "ADAPTER-TEST PASS") || !strings.Contains(output, "VERIFIED "+adapterTestResultPath+" (PASS)") {
+		t.Fatalf("external adapter conformance workflow failed: exit=%d output:\n%s", exitCode, output)
+	}
+	adapterTestDocument, err := adaptertest.LoadResult(adapterTestResultPath)
+	if err != nil || adapterTestDocument.Passed != 1 {
+		t.Fatalf("external adapter conformance result is invalid: err=%v document=%#v", err, adapterTestDocument)
+	}
+	adapterCIResult, err := ciresult.LoadFile(adapterCIResultPath)
+	if err != nil || adapterCIResult.Kind != "adapter-conformance" || adapterCIResult.Status != "passed" {
+		t.Fatalf("external adapter conformance CI result is invalid: err=%v artifact=%#v", err, adapterCIResult)
+	}
+
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "review")
 	if exitCode != 0 || !strings.Contains(output, "POLICY-REVIEW PASS") {
 		t.Fatalf("external workflow review failed: exit=%d output:\n%s", exitCode, output)
 	}

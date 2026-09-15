@@ -64,6 +64,14 @@ evolves, not as a replacement for the code or specification.
 | Go HTTP reference vertical tests | The reference service boundary has focused accepted-input and malformed-input tests in addition to its runnable loopback example | `go test ./examples/service` passes |
 | TypeScript HTTP reference vertical | The Fetch-compatible service handler covers inbound, absent, and malformed provenance with application-owned storage and explicit child response propagation | `npm test` runs the reference service tests |
 | HTTP reference trust policy | Go and TypeScript reference handlers apply an application-owned validator before child derivation and storage | Reference service tests prove trusted acceptance and untrusted rejection |
+| Messaging reference vertical | Go and TypeScript broker-neutral consumers apply trust validation, derive/store children, and preserve explicit child metadata without requiring a broker | Messaging reference tests and examples pass |
+| Reference vertical conformance | A shared fixture verifies the observable HTTP and messaging child semantics across Go and TypeScript, including propagation, causation, correlation, and rejection | Go example tests and the TypeScript conformance runner pass |
+| PostgreSQL migration asset | The optional package ships a checked-in v1 SQL migration and verifies it matches the adapter schema constant | PostgreSQL public package contract test passes |
+| PostgreSQL migration preflight | An offline Make target checks the embedded migration/schema boundary while the adapter rejects missing readiness metadata | `make postgres-migration-check` passes |
+| Release metadata | The repository and TypeScript artifact carry explicit MIT licensing, repository metadata, and package smoke assertions | Package smoke test verifies README, LICENSE, and metadata |
+| Local PostgreSQL verification | A disposable PostgreSQL 16 instance validates the live adapter contract and the read-only readiness path after the checked-in migration is applied | Live integration and post-migration schema checks pass locally |
+| Release handoff documentation | The root README distinguishes implemented capabilities, local release evidence, and deployment-owned or credentialed actions | `make release-check` passes and release actions are listed explicitly |
+| Migration-first PostgreSQL CI | CI applies the checked-in migration before readiness and live integration, so the migration asset is exercised rather than silently replaced by bootstrap DDL | PostgreSQL workflow orders migration, readiness, then integration |
 
 When a later change alters one of these results, update the relevant note and
 this milestone table in the same change.
@@ -121,6 +129,14 @@ this milestone table in the same change.
 49. [The Go HTTP reference vertical should have focused boundary tests](049-go-http-reference-vertical-tests.md)
 50. [The TypeScript HTTP reference vertical should match the Go boundary](050-typescript-http-reference-vertical.md)
 51. [The HTTP reference vertical should demonstrate application-owned trust policy](051-http-reference-trust-policy.md)
+52. [The messaging reference vertical should preserve consumer-owned child metadata](052-messaging-reference-vertical.md)
+53. [The reference verticals should share one observable conformance fixture](053-reference-vertical-conformance.md)
+54. [PostgreSQL should ship a checked-in migration asset with readiness guidance](054-postgres-migration-asset.md)
+55. [PostgreSQL migration readiness should have an offline preflight](055-postgres-migration-preflight.md)
+56. [Published artifacts should carry explicit release metadata](056-release-metadata.md)
+57. [Local PostgreSQL verification should follow the migration-before-readiness sequence](057-local-postgres-verification.md)
+58. [Release handoff should separate local proof from deployment-owned actions](058-release-handoff.md)
+59. [PostgreSQL CI should exercise the checked-in migration before adapter writes](059-postgres-ci-migration-first.md)
 
 ## Current open questions
 

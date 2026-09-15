@@ -17,6 +17,8 @@ not yet separate services or repositories.
   workspaces, agent roles, permissions, lifecycle, and visibility.
 - **Hammond** — a future contract governance and registry surface, currently a
   placeholder until cross-project governance is a real need.
+- **Lockwood** — a future evidence-custody and artifact-registry surface for
+  immutable evidence bundles, artifact lineage, retention, and re-verification.
 - **Nublar** — the CI and delivery surface: currently a local coordinator for
   shared result envelopes, with hosted workflow capabilities still ahead.
 - **Amber** — the portable provenance layer: Go and TypeScript SDKs for work

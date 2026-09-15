@@ -1,8 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { Provenance } from "../dist/index.js";
+import { createReferenceConsumerHandler } from "../dist/reference-messaging.js";
+import { createReferenceServiceHandler } from "../dist/reference-service.js";
 import {
   AMBER_PROVENANCE_HEADER,
   PROVENANCE_METADATA_KEY,
+  ProvenanceContext,
   decodeHeader,
   decodeMetadata,
   inspectIncomingJSON,
@@ -11,6 +14,8 @@ import {
   StorageConflictError,
   toLogFields,
   toTraceAttributes,
+  withOutgoingMessage,
+  withOutgoingRequest,
 } from "../dist/index.js";
 
 const fixturePath = new URL("../../conformance/v1.json", import.meta.url);
@@ -188,6 +193,70 @@ for (const testCase of messagingFixture.invalid) {
   }
 }
 console.log("TypeScript messaging conformance fixtures passed");
+
+const referenceFixturePath = new URL("../../conformance/reference-v1.json", import.meta.url);
+const referenceFixture = JSON.parse(await readFile(referenceFixturePath, "utf8"));
+if (referenceFixture.version !== 1) {
+  throw new Error("reference vertical fixture version mismatch");
+}
+const referenceRoot = Provenance.start();
+const referenceStore = new MemoryStore();
+const referenceResponse = await createReferenceServiceHandler(referenceStore)(
+  withOutgoingRequest(new Request("https://example.test/orders/42"), referenceRoot),
+  ProvenanceContext.empty(),
+);
+if (referenceResponse.status !== referenceFixture.http.accepted_status) {
+  throw new Error(`reference HTTP status mismatch: ${referenceResponse.status}`);
+}
+const referenceBody = await referenceResponse.json();
+const referenceChild = decodeHeader(
+  referenceResponse.headers.get(AMBER_PROVENANCE_HEADER),
+  "reject",
+).provenance;
+const referenceStored = await referenceStore.get(referenceBody.execution_id);
+if (
+  referenceChild === undefined ||
+  referenceStored === undefined ||
+  referenceChild.execution_id !== referenceBody.execution_id ||
+  referenceStored.origin !== referenceFixture.http.child_origin ||
+  referenceStored.depth !== referenceRoot.depth + referenceFixture.http.depth_increment ||
+  referenceStored.causation?.kind !== referenceFixture.http.causation_kind ||
+  (referenceFixture.http.correlation_preserved && referenceStored.correlation_id !== referenceRoot.correlation_id)
+) {
+  throw new Error("reference HTTP fixture semantics mismatch");
+}
+const rejectedReferenceResponse = await createReferenceServiceHandler(new MemoryStore())(
+  new Request("https://example.test/orders/43", {
+    headers: [[AMBER_PROVENANCE_HEADER, "not-base64"]],
+  }),
+  ProvenanceContext.empty(),
+);
+if (rejectedReferenceResponse.status !== referenceFixture.http.rejected_status) {
+  throw new Error("reference HTTP rejection status mismatch");
+}
+
+const consumerRoot = Provenance.start();
+const consumerStore = new MemoryStore();
+const consumerResponse = await createReferenceConsumerHandler(consumerStore)(
+  withOutgoingMessage({ body: "order" }, consumerRoot),
+  ProvenanceContext.empty(),
+);
+const consumerChild = decodeMetadata(consumerResponse.metadata, "reject").provenance;
+const consumerStored = consumerChild === undefined
+  ? undefined
+  : await consumerStore.get(consumerChild.execution_id);
+if (
+  consumerResponse.body !== `order${referenceFixture.messaging.processed_body_suffix}` ||
+  consumerChild === undefined ||
+  consumerStored === undefined ||
+  consumerStored.origin !== referenceFixture.messaging.child_origin ||
+  consumerStored.depth !== consumerRoot.depth + referenceFixture.messaging.depth_increment ||
+  consumerStored.causation?.kind !== referenceFixture.messaging.causation_kind ||
+  (referenceFixture.messaging.correlation_preserved && consumerStored.correlation_id !== consumerRoot.correlation_id)
+) {
+  throw new Error("reference messaging fixture semantics mismatch");
+}
+console.log("TypeScript reference vertical conformance fixture passed");
 
 const loggingFixturePath = new URL("../../conformance/logging-v1.json", import.meta.url);
 const loggingFixture = JSON.parse(await readFile(loggingFixturePath, "utf8"));

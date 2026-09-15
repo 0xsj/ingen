@@ -12,11 +12,11 @@ deployment-specific verification.
 
 ## What
 
-The PostgreSQL GitHub Actions job now runs `make postgres-schema-check` after
-`make postgres-integration`. The integration test leaves the idempotently
-created schema in the disposable database while rolling back its provenance
-writes, so the readiness command can inspect the migrated metadata without
-adding application data.
+The PostgreSQL GitHub Actions job now applies the checked-in migration with
+`make postgres-apply-migration`, runs `make postgres-schema-check` before the
+live contract, and then runs `make postgres-integration`. The live test checks
+the existing schema and rolls back its provenance writes, so CI exercises the
+same migration-before-readiness-before-writes sequence used by deployment.
 
 The normal `make release-check` remains service-free and does not run either
 PostgreSQL command.

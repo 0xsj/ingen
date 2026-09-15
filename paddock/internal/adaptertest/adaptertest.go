@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	ManifestSchema = "paddock.adapter-tests/v1"
-	DocumentSchema = "paddock.adapter-test-result/v1"
+	ManifestSchema    = "paddock.adapter-tests/v1"
+	DocumentSchema    = "paddock.adapter-test-result/v1"
+	ExplanationSchema = "paddock.adapter-test-explanation/v1"
 )
 
 type Manifest struct {
@@ -72,6 +73,30 @@ type CaseResult struct {
 	PackageCount     int    `json:"package_count,omitempty"`
 	EdgeCount        int    `json:"edge_count,omitempty"`
 	Error            string `json:"error,omitempty"`
+}
+
+type Explanation struct {
+	Schema       string `json:"schema"`
+	SourceSchema string `json:"source_schema"`
+	Status       string `json:"status"`
+	Summary      string `json:"summary"`
+	Passed       int    `json:"passed"`
+	Failed       int    `json:"failed"`
+}
+
+func (d Document) Explain() Explanation {
+	status := "PASS"
+	if d.Status != "PASS" {
+		status = "FAIL"
+	}
+	return Explanation{
+		Schema:       ExplanationSchema,
+		SourceSchema: DocumentSchema,
+		Status:       status,
+		Summary:      fmt.Sprintf("%d of %d adapter conformance cases passed.", d.Passed, len(d.Cases)),
+		Passed:       d.Passed,
+		Failed:       d.Failed,
+	}
 }
 
 func Load(path string) (Manifest, error) {
@@ -273,6 +298,52 @@ func fileRef(path string) (FileRef, error) {
 	}
 	digest := sha256.Sum256(data)
 	return FileRef{Path: path, SHA256: hex.EncodeToString(digest[:])}, nil
+}
+
+func Save(path string, document Document) error {
+	if err := document.Validate(); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode adapter test result: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write adapter test result: %w", err)
+	}
+	return nil
+}
+
+func LoadResult(path string) (Document, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Document{}, fmt.Errorf("read adapter test result: %w", err)
+	}
+	var document Document
+	if err := json.Unmarshal(data, &document); err != nil {
+		return Document{}, fmt.Errorf("parse adapter test result: %w", err)
+	}
+	if err := document.Validate(); err != nil {
+		return Document{}, err
+	}
+	return document, nil
+}
+
+func VerifyFiles(document Document) error {
+	if err := document.Validate(); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(document.Manifest.Path)
+	if err != nil {
+		return fmt.Errorf("read adapter test manifest %q: %w", document.Manifest.Path, err)
+	}
+	digest := sha256.Sum256(data)
+	actual := hex.EncodeToString(digest[:])
+	if actual != document.Manifest.SHA256 {
+		return fmt.Errorf("adapter test manifest %q hash mismatch: expected %s, got %s", document.Manifest.Path, document.Manifest.SHA256, actual)
+	}
+	return nil
 }
 
 func (d Document) Validate() error {

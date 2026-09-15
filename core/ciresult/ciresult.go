@@ -144,6 +144,21 @@ func WriteJSON(w io.Writer, artifact Artifact) error {
 	return encoder.Encode(artifact)
 }
 
+func SaveFile(path string, artifact Artifact) error {
+	if err := artifact.Validate(); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(artifact, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode CI result: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write CI result: %w", err)
+	}
+	return nil
+}
+
 func LoadFile(path string) (Artifact, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {

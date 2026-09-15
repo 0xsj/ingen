@@ -21,7 +21,7 @@ Amber answers questions such as:
 Amber is application-level provenance. It complements distributed tracing and
 structured logging, but it does not replace them.
 
-## Planned capabilities
+## Implemented capabilities
 
 - immutable provenance values and validated transitions;
 - separate logical work and execution identities;
@@ -32,7 +32,11 @@ structured logging, but it does not replace them.
 - safe incoming-context inspection and restoration;
 - Go and TypeScript implementations with shared behavior;
 - transport, logging, tracing, and persistence adapters;
-- cross-language conformance fixtures.
+- cross-language conformance fixtures;
+- optional OpenTelemetry bridges that enrich application-owned spans;
+- an optional PostgreSQL adapter with an explicit migration and readiness
+  boundary;
+- generic storage seams so applications can provide their own backend.
 
 ## Boundaries
 
@@ -59,18 +63,18 @@ amber/
 
 ## Status
 
-Core and storage specification drafts v1 are in place under `spec/`. The Go
-and TypeScript implementations, conformance fixtures, and adapters will follow
-the shared contracts defined there. The first HTTP adapter is now implemented under
-`adapters/http/`, including request/response middleware for the standard HTTP
-runtimes. The transport-neutral messaging adapter is implemented
-under `adapters/messaging/`. A framework-neutral structured logging projection
-is implemented under `adapters/logging/`, and a framework-neutral tracing
-projection is implemented under `adapters/tracing/`. A process-local reference
-storage adapter, a Go file-backed store, and a generic Go key-value seam are
-implemented under `adapters/storage/`. The optional PostgreSQL integration has
-the explicit Go package path `go/adapters/storage/postgres/`; other
-database-specific adapters remain future work.
+Core and storage v1 specifications are in place under `spec/`. The Go and
+TypeScript implementations, conformance fixtures, and adapters follow the
+shared contracts defined there. The HTTP adapter under `adapters/http/`
+includes request/response middleware for standard HTTP runtimes. The
+transport-neutral messaging adapter is implemented under
+`adapters/messaging/`. Framework-neutral structured logging and tracing
+projections are implemented under `adapters/logging/` and
+`adapters/tracing/`. Process-local, file-backed, and generic key-value storage
+seams are implemented under `adapters/storage/`. The optional PostgreSQL
+integration has the explicit Go package path
+`go/adapters/storage/postgres/`; other database-specific adapters remain
+future work.
 The file and PostgreSQL persistence formats expose storage schema versions
 separate from Amber's provenance wire version, leaving migrations explicit.
 Runnable end-to-end composition and OpenTelemetry integration examples are
@@ -84,6 +88,21 @@ while production-specific integrations remain intentionally separate.
 A release-readiness matrix records the verified, environment-dependent, and
 out-of-scope portions of the project in
 [`docs/release-readiness.md`](docs/release-readiness.md).
+
+## Release readiness
+
+The local release-candidate gate currently passes:
+
+```sh
+make release-check
+```
+
+The PostgreSQL adapter was also verified locally against PostgreSQL 16 after
+applying `go/adapters/storage/postgres/migrations/001_amber_provenance.sql`.
+Before a deployment, the owner must apply that migration through application
+migration tooling, run `make postgres-schema-check`, and run the live
+integration check against the managed PostgreSQL version. Hosted GitHub Actions
+results and npm publishing still require repository and release credentials.
 
 Implementation reasoning and verification notes are indexed in
 [`docs/notes/README.md`](docs/notes/README.md).
@@ -99,17 +118,8 @@ make test
 This runs the Go packages, TypeScript build/tests, and shared conformance
 fixtures.
 
-The broader check gate also validates Go vet, TypeScript typechecking, and the
-publishable TypeScript package artifact:
-
-```sh
-make check
-```
-
-That gate also checks that an external Go module can import the local Amber
-module through its public module path.
-
-Run the full check gate, including Go vet and TypeScript typechecking, with:
+The broader check gate also validates Go vet, TypeScript typechecking, the
+publishable TypeScript package artifact, and an external Go module consumer:
 
 ```sh
 make check

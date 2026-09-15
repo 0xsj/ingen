@@ -15,9 +15,10 @@ to validate the adapter against its PostgreSQL version and driver.
 The storage package now has an opt-in `TestPostgresStoreLive` test. When
 `AMBER_POSTGRES_DSN` is set, it opens PostgreSQL through the official pgx
 `database/sql` compatibility driver, pings the database, begins a transaction,
-ensures the schema, exercises writes, idempotency, reads, work/causation/
-correlation queries, and conflict detection, then rolls the transaction back.
-The `make postgres-integration` target requires the DSN before running it.
+checks that the application-managed schema is ready, exercises writes,
+idempotency, reads, work/causation/correlation queries, and conflict detection,
+then rolls the transaction back. The `make postgres-integration` target
+requires the DSN and an already-migrated database before running it.
 
 ## Why
 
@@ -35,11 +36,11 @@ AMBER_POSTGRES_DSN='postgres://user:password@localhost:5432/amber?sslmode=disabl
 
 ## Gotchas
 
-- The live test requires a reachable PostgreSQL database and appropriate
-  schema-creation privileges.
-- Use a disposable or isolated database. The test creates the Amber table and
-  indexes inside a transaction; rollback removes them when they were created
-  by the test and rolls back all test writes.
+- The live test requires a reachable PostgreSQL database with the Amber
+  migration already applied and appropriate read/write privileges.
+- Use a disposable or isolated database. The test runs all provenance writes
+  inside a transaction and rolls them back when finished; it does not apply
+  migrations or create tables.
 - `make release-check` intentionally does not run this target because it must
   not make network connections or depend on secrets.
 - The Go application still chooses the driver, pool, migration lifecycle, and

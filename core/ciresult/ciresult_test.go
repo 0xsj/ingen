@@ -75,6 +75,31 @@ func TestLoadFileValidatesTheSharedEnvelope(t *testing.T) {
 	}
 }
 
+func TestSaveFileWritesValidatedEnvelope(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "result.json")
+	artifact := Artifact{
+		Schema:      Schema,
+		Tool:        "test-tool",
+		Kind:        "test",
+		Status:      "passed",
+		ExitCode:    0,
+		CreatedAt:   "2026-09-14T12:00:00Z",
+		Source:      Source{Root: "."},
+		Report:      []byte(`{"schema":"example.report/v1"}`),
+		Explanation: []byte(`{"schema":"example.explanation/v1"}`),
+	}
+	if err := SaveFile(path, artifact); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Tool != artifact.Tool || loaded.Status != artifact.Status {
+		t.Fatalf("loaded artifact = %+v, want %+v", loaded, artifact)
+	}
+}
+
 func TestLoadExternalProducerFixtures(t *testing.T) {
 	fixtures := []struct {
 		name   string

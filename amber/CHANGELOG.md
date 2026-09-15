@@ -65,6 +65,21 @@ All notable changes to Amber are documented here.
   explicit child response headers with the Go HTTP boundary behavior.
 - Added application-owned trust-validator coverage to both HTTP reference
   handlers, proving trusted acceptance and untrusted rejection before storage.
+- Added broker-neutral Go and TypeScript consumer reference flows and preserved
+  explicit child provenance metadata in messaging middleware.
+- Added a shared reference-vertical conformance fixture exercised by both SDKs.
+- Added a checked-in PostgreSQL v1 migration asset, embedded at the optional
+  package boundary and verified against the adapter schema declaration.
+- Added an offline `postgres-migration-check` preflight and explicit coverage
+  for missing PostgreSQL schema metadata during readiness checks.
+- Added explicit MIT license files and package repository metadata, with package
+  smoke coverage for published documentation and licensing files.
+- Recorded local PostgreSQL 16 live integration and post-migration read-only
+  schema-readiness verification against a disposable database.
+- Updated the root README to distinguish implemented capabilities, local
+  release evidence, and deployment-owned release actions.
+- Tightened PostgreSQL CI to apply the checked-in migration before readiness
+  and live integration, with the live contract requiring an existing schema.
 
 Before publishing a release, move the completed entries into a versioned
 section and record any compatibility or wire-format changes explicitly.

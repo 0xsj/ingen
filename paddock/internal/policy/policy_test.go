@@ -234,6 +234,86 @@ func TestLoadRejectsTransitiveNonRequiredRule(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnsupportedRuleOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		rule    policy.Rule
+		wantErr string
+	}{
+		{
+			name:    "deny dependencies needs deny targets",
+			rule:    policy.Rule{ID: "missing-deny", Kind: "deny-dependencies"},
+			wantErr: `rule "missing-deny" needs deny targets`,
+		},
+		{
+			name:    "mediated dependency needs allow-to targets",
+			rule:    policy.Rule{ID: "missing-allow-to", Kind: "mediated-dependency"},
+			wantErr: `rule "missing-allow-to" needs allow-to targets`,
+		},
+		{
+			name:    "layer direction needs direction",
+			rule:    policy.Rule{ID: "missing-direction", Kind: "layer-direction"},
+			wantErr: `rule "missing-direction" needs direction`,
+		},
+		{
+			name: "allow dependencies rejects direction",
+			rule: policy.Rule{
+				ID:        "allow-with-direction",
+				Kind:      "allow-dependencies",
+				Allow:     policy.Targets{{Literal: "internal/domain"}},
+				Direction: "toward-lower-layer",
+			},
+			wantErr: `rule "allow-with-direction" kind "allow-dependencies" cannot use direction`,
+		},
+		{
+			name: "no cycles rejects target selector",
+			rule: policy.Rule{
+				ID:   "cycles-with-to",
+				Kind: "no-cycles",
+				To:   policy.Selectors{{"role": "domain"}},
+			},
+			wantErr: `rule "cycles-with-to" kind "no-cycles" cannot use to`,
+		},
+		{
+			name: "coverage rejects source selector",
+			rule: policy.Rule{
+				ID:   "coverage-with-from",
+				Kind: "coverage",
+				From: policy.Selectors{{"role": "domain"}},
+			},
+			wantErr: `rule "coverage-with-from" kind "coverage" cannot use from`,
+		},
+		{
+			name: "component ownership rejects edge selector",
+			rule: policy.Rule{
+				ID:    "ownership-with-to",
+				Kind:  "component-owns",
+				Allow: policy.Targets{{Literal: "domain"}},
+				To:    policy.Selectors{{"role": "domain"}},
+			},
+			wantErr: `rule "ownership-with-to" kind "component-owns" cannot use to`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := policy.Policy{
+				Schema: "paddock.architecture/v1",
+				Source: policy.Source{Language: "go", Roots: []string{"internal"}},
+				Components: map[string]policy.Component{
+					"source": {Match: policy.Patterns{"internal/**"}},
+				},
+				Rules: []policy.Rule{test.rule},
+			}
+			candidate.Normalize()
+			err := candidate.Validate()
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("Policy.Validate error = %v, want substring %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestCanonicalPolicyHashIgnoresFormattingDefaultsAndOrdering(t *testing.T) {
 	first := policy.Policy{
 		Schema:  "paddock.architecture/v1",

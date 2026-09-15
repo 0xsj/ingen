@@ -143,6 +143,9 @@ func MiddlewareWithValidator[T any](next Handler[T], policy amber.IncomingPolicy
 		if !ok {
 			return outgoing, nil
 		}
+		if _, present := outgoing.Metadata[ProvenanceKey]; present {
+			return outgoing, nil
+		}
 		return WithOutgoingMessage(outgoing, provenance)
 	}
 }

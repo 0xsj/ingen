@@ -70,12 +70,17 @@ jobs:
         with:
           go-version-file: go/go.mod
 
-      - name: Run live PostgreSQL integration
-        run: make postgres-integration
+      - name: Apply checked-in PostgreSQL migration
+        run: make postgres-apply-migration
         env:
           AMBER_POSTGRES_DSN: postgres://amber:amber@localhost:5432/amber?sslmode=disable
 
       - name: Run PostgreSQL schema readiness check
         run: make postgres-schema-check
+        env:
+          AMBER_POSTGRES_DSN: postgres://amber:amber@localhost:5432/amber?sslmode=disable
+
+      - name: Run live PostgreSQL integration
+        run: make postgres-integration
         env:
           AMBER_POSTGRES_DSN: postgres://amber:amber@localhost:5432/amber?sslmode=disable

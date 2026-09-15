@@ -26,6 +26,9 @@ DEFECT_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-defect-status-200
 DEFECT_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect
 DEFECT_REMOVE_NAME_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-remove-name
 DEFECT_UNSUPPORTED_TYPE_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-unsupported-type
+DEFECT_PROCESS_STAYS_QUEUED_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-process-stays-queued
+DEFECT_PERSISTENCE_WRONG_KEY_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-persistence-wrong-key
+DEFECT_ACCEPTS_PNG_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-accepts-png
 SANDBOX_ROOT ?= .
 SANDBOX_PROBE_PATH ?= examples/document-pipeline-lab/contract/contract.yaml
 ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-oracle
@@ -65,7 +68,7 @@ MUTATION_SURVIVOR_CAMPAIGN_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipelin
 .PHONY: help build test test-race vet check alpha-interface-check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
 	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-aggregate-fresh sorna-oracle-freeze \
-	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build
+	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -123,6 +126,18 @@ defect-unsupported-type-build: ## Build the controlled unsupported-type-500 defe
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
 	$(GO_CMD) build -o "$(DEFECT_UNSUPPORTED_TYPE_BINARY)" ./examples/document-pipeline-lab/defects/unsupported-type-500/cmd/document-pipeline-defect
 
+defect-process-stays-queued-build: ## Build the controlled process-stays-queued defect binary
+	mkdir -p "$(SUBJECT_BINARY_DIR)"
+	$(GO_CMD) build -o "$(DEFECT_PROCESS_STAYS_QUEUED_BINARY)" ./examples/document-pipeline-lab/defects/process-stays-queued/cmd/document-pipeline-defect
+
+defect-persistence-wrong-key-build: ## Build the controlled persistence-wrong-key defect binary
+	mkdir -p "$(SUBJECT_BINARY_DIR)"
+	$(GO_CMD) build -o "$(DEFECT_PERSISTENCE_WRONG_KEY_BINARY)" ./examples/document-pipeline-lab/defects/persistence-wrong-key/cmd/document-pipeline-defect
+
+defect-accepts-png-build: ## Build the controlled accepts-png defect binary
+	mkdir -p "$(SUBJECT_BINARY_DIR)"
+	$(GO_CMD) build -o "$(DEFECT_ACCEPTS_PNG_BINARY)" ./examples/document-pipeline-lab/defects/accepts-png/cmd/document-pipeline-defect
+
 sorna-run: sorna-oracle-freeze subject-build ## Freeze the oracle, launch the isolated clean subject, run Sorna, and tear it down
 	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --subject-root "$(SUBJECT_ROOT)" --base-url "$(SUBJECT_URL)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant clean-baseline --output-dir "$(RUN_OUTPUT_DIR)"
 
@@ -176,7 +191,7 @@ mutation-provider-inspect: mutation-plan mutation-provider-validate ## Review pr
 mutation-provider-ci-result: mutation-plan mutation-provider-validate ## Write the provider preflight as a shared CI result envelope
 	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_PROVIDER)" $(MUTATION_PROVIDER_BINDING_FLAG) --format ci-result --output "$(MUTATION_PROVIDER_CI_RESULT_OUTPUT)"
 
-mutation-campaign-run: mutation-plan defect-build defect-remove-name-build defect-unsupported-type-build mutation-provider-validate ## Execute every planned document-pipeline mutation in an isolated fresh subject
+mutation-campaign-run: mutation-plan defect-build defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build mutation-provider-validate ## Execute every planned document-pipeline mutation in an isolated fresh subject
 	$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_PROVIDER)" $(MUTATION_PROVIDER_BINDING_FLAG) --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --base-address "$(DEFECT_ADDR)" --output-dir "$(MUTATION_CAMPAIGN_OUTPUT_DIR)" --output "$(MUTATION_CAMPAIGN_RESULT_OUTPUT)"
 
 mutation-campaign-verify: ## Verify campaign entries against their recorded evidence hashes

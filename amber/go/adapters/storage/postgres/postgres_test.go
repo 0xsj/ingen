@@ -17,10 +17,13 @@ type schemaChecker interface {
 
 var (
 	_ amberstorage.Store = (*amberpostgres.PostgresStore)(nil)
-	_ schemaChecker     = (*amberpostgres.PostgresStore)(nil)
+	_ schemaChecker      = (*amberpostgres.PostgresStore)(nil)
 )
 
 func TestPublicPostgresBoundary(t *testing.T) {
+	if strings.TrimSpace(amberpostgres.SchemaMigrationV1) != strings.TrimSpace(amberpostgres.PostgresSchema) {
+		t.Fatal("checked-in migration asset does not match PostgresSchema")
+	}
 	if amberpostgres.PostgresSchemaName != "amber_provenance" {
 		t.Fatalf("schema name = %q, want amber_provenance", amberpostgres.PostgresSchemaName)
 	}

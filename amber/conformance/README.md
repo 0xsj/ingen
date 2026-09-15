@@ -13,6 +13,9 @@ covers idempotent writes, conflict detection, missing-record behavior, logical
 work history, immediate causation lookup, and correlation history.
 [`otel-v1.json`](otel-v1.json) covers the OpenTelemetry-compatible form of the
 same stable `amber.*` tracing attribute projection.
+[`reference-v1.json`](reference-v1.json) captures the shared observable
+semantics exercised by the Go and TypeScript HTTP and messaging reference
+verticals.
 
 Conformance runners SHOULD:
 

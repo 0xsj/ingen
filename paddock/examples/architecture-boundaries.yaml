@@ -38,6 +38,11 @@ components:
       role: shared
 
 rules:
+  - id: approved-component-set
+    kind: component-owns
+    allow: [domain, application, port, infrastructure, shared]
+    message: architecture packages must belong to a declared component
+
   - id: domain-is-pure
     kind: allow-dependencies
     from: {role: domain}

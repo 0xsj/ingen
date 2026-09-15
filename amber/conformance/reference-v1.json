@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "http": {
+    "accepted_status": 200,
+    "rejected_status": 400,
+    "child_origin": "incoming",
+    "depth_increment": 1,
+    "causation_kind": "execution",
+    "correlation_preserved": true,
+    "explicit_child_propagation": true
+  },
+  "messaging": {
+    "processed_body_suffix": "-processed",
+    "child_origin": "incoming",
+    "depth_increment": 1,
+    "causation_kind": "execution",
+    "correlation_preserved": true,
+    "explicit_child_propagation": true
+  }
+}

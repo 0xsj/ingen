@@ -55,7 +55,8 @@ paddock policy test \
 ```
 
 The passing case proves that an approved shared-kernel package is usable from
-the domain. The failing case requires `domain-is-pure`,
+the domain and that all source packages belong to the declared component set.
+The failing case requires `domain-is-pure`,
 `application-not-infrastructure`, and `layers-point-inward`, so the fixture
 guards both the policy intent and the explanation rule IDs.
 

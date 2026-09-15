@@ -15,6 +15,9 @@ diff_output=${PADDOCK_DIFF:-paddock-policy-diff.json}
 policy_cases=${PADDOCK_CASES:-}
 review_output=${PADDOCK_REVIEW:-paddock-policy-review.json}
 result_output=${PADDOCK_RESULT:-paddock-ci-result.json}
+adapter_tests=${PADDOCK_ADAPTER_TESTS:-}
+adapter_test_result=${PADDOCK_ADAPTER_TEST_RESULT:-paddock-adapter-test-result.json}
+adapter_ci_result=${PADDOCK_ADAPTER_CI_RESULT:-}
 
 if [ -n "$graph_input" ] && [ -n "$adapter" ]; then
 	echo "PADDOCK_GRAPH and PADDOCK_ADAPTER cannot both be set" >&2
@@ -73,6 +76,29 @@ verify)
 		--policy "$policy" \
 		--lock "$lock"
 	;;
+adapter-test)
+	if [ -z "$adapter_tests" ]; then
+		echo "PADDOCK_ADAPTER_TESTS is required for adapter-test" >&2
+		exit 2
+	fi
+	adapter_test_status=0
+	set -- "$paddock" adapter test \
+		--cases "$adapter_tests" \
+		--output "$adapter_test_result"
+	if [ -n "$adapter_ci_result" ]; then
+		set -- "$@" --ci-result "$adapter_ci_result"
+	fi
+	"$@" || adapter_test_status=$?
+	if [ "$adapter_test_status" -eq 0 ] || [ "$adapter_test_status" -eq 1 ]; then
+		"$paddock" adapter test verify \
+			--input "$adapter_test_result" \
+			--files
+		if [ -n "$adapter_ci_result" ]; then
+			"$paddock" ci validate --input "$adapter_ci_result"
+		fi
+	fi
+	exit "$adapter_test_status"
+;;
 gate)
 	if [ -n "$graph_input" ]; then
 		"$paddock" ci "$source_root" \
@@ -99,7 +125,7 @@ gate)
 	fi
 	;;
 *)
-	echo "usage: $0 review|seal|verify|gate" >&2
+	echo "usage: $0 review|seal|verify|adapter-test|gate" >&2
 	exit 2
 	;;
 esac

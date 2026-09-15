@@ -13,11 +13,14 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Sorna loads, validates, canonicalizes, and seals contract and oracle inputs.
 - Baseline preconditions, subject policies, process isolation, access/executable telemetry, and evidence bundles are implemented.
 - Mutation plans and provider manifests have explicit schemas and are bound to concrete prepared subjects.
-- The document-pipeline example has three meaningful mutations:
+- The document-pipeline example has six meaningful mutations:
   - changing the accepted create response from `202` to `200`;
   - removing the required `name` field from the create response.
   - changing the unsupported-document response from `400` to `500`.
-- All three mutations have been killed by contract-driven checks. This demonstrates that the contract can detect defects; it is not, by itself, proof that the contract is complete.
+  - leaving the process response `queued` instead of transitioning to `completed`.
+  - persisting under a key different from the returned document ID.
+  - accepting an unsupported PNG document type.
+- All six mutations have been killed by contract-driven checks. This demonstrates that the contract can detect defects; it is not, by itself, proof that the contract is complete.
 - A reusable Go source provider can copy a subject, apply AST mutations, build isolated variants, record source/binary hashes, and publish a provider manifest only after successful preparation.
 - Provider capabilities are declared explicitly and reviewed before execution. The review is no-execution and can be emitted as the shared `ingen.ci-result/v1` envelope.
 - Plan binding is now an explicit caller policy: unbound fixture providers remain usable for local demonstrations, while `--require-plan-binding` blocks them. The generated Go provider passes the strict matched-binding review.
@@ -28,6 +31,7 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Campaign results now preserve expected-rule statuses and a compact per-entry diagnosis, so survivors and inconclusive outcomes remain actionable at the CI boundary.
 - The former extra-field survivor is now killed by contract v2's explicit closed response shapes (`additional_properties: false`), demonstrating a diagnosed contract gap being closed without changing mutation classification.
 - Source-provider provenance now records target-resolution counts, and ambiguous or missing Go AST targets return a typed `ingen.mutation-target-resolution-error/v1` preparation error without writing the source copy.
+- Go provider negative-path tests now cover ambiguous state targets, missing persistence targets, and malformed validation changes; ambiguity and missing-target cases verify that the source remains unchanged.
 - Go provider preparation now emits an `ingen.mutation-preparation/v1` summary with changed source files, hashes, and provenance, and rejects no-op mutations before build/publication.
 - Provider preparation now has a `mutation-preparation` CI envelope that binds the summary to the provider manifest and plan, and the default Nublar workflow retains it as a required check.
 - The current Sorna/Nublar alpha boundary is now named in [ALPHA-INTERFACES.md](ALPHA-INTERFACES.md), including stable cross-tool invariants and deliberately unfrozen areas.
@@ -38,6 +42,7 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Campaign plans now expose a stable semantic identity alongside the exact run-bound plan hash; strict provider execution continues to bind to exact plan bytes.
 - Campaign verification now recomputes both the exact plan-byte hash and the optional semantic identity before accepting a campaign result.
 - Alpha-boundary tests now reject exact plan tampering, semantic plan drift, and mismatched provider semantic identities before accepting the handoff.
+- The persistence mutation demonstrates that a green create response can still be invalid across requests; the campaign preserves the resulting failure blast radius in its diagnosis.
 - `sorna-ci-result` now includes the clean baseline run, so the fresh workflow no longer depends on a pre-existing run bundle.
 - Notes, module explanations, Make targets, and example documentation have been kept alongside the implementation.
 

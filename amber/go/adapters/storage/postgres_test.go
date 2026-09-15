@@ -126,6 +126,27 @@ func TestPostgresStoreChecksSchemaWithoutCreatingIt(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreRejectsMissingSchemaMetadata(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := NewPostgresStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(postgresSchemaVersionQuery)).
+		WithArgs(PostgresSchemaName).
+		WillReturnRows(sqlmock.NewRows([]string{"schema_version"}))
+	if err := store.CheckSchema(context.Background()); !errors.Is(err, ErrUnsupportedSchemaVersion) {
+		t.Fatalf("expected missing schema metadata error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPostgresStorePreservesIdempotencyAndConflicts(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

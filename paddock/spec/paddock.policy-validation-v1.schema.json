@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/paddock.policy-validation-v1.schema.json",
+  "title": "Paddock policy validation diagnostics",
+  "description": "Machine-readable diagnostics emitted when a policy cannot be loaded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "policy", "valid", "errors"],
+  "properties": {
+    "schema": {"const": "paddock.policy-validation/v1"},
+    "policy": {"type": "string", "minLength": 1},
+    "operation": {"enum": ["validate", "diff", "review"]},
+    "before": {"type": "string", "minLength": 1},
+    "after": {"type": "string", "minLength": 1},
+    "valid": {"const": false},
+    "errors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

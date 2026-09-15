@@ -223,6 +223,7 @@ The first HTTP/JSON implementation should support a small, deterministic set.
 ### Input and validation operators
 
 - remove required-field validation;
+- add an accepted input suffix;
 - widen a maximum length;
 - narrow a valid range;
 - accept an invalid enum value;
@@ -231,6 +232,8 @@ The first HTTP/JSON implementation should support a small, deterministic set.
 
 ### State operators
 
+- replace a named state transition;
+- replace a persistence key;
 - skip persistence;
 - skip state transition;
 - return stale state;
@@ -403,6 +406,7 @@ The first Sorna slice should implement at least:
 - required JSON field removal;
 - invalid-input acceptance;
 - persistence skip;
+- named state-transition replacement;
 - state-transition skip;
 - frontend stale-state mutation if the frontend adapter is included.
 

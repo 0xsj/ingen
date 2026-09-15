@@ -169,6 +169,117 @@ func createDocument(w http.ResponseWriter) {
 	}
 }
 
+func TestMutateDocumentPipelineChangesOnlyNamedStateTransition(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package documentpipeline
+
+func processDocument(doc *document) {
+	doc.Status = "queued"
+	doc.Status = "completed"
+}
+`
+	if err := os.WriteFile(filepath.Join(path, "server.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := mutateDocumentPipeline(root, mutation.Spec{
+		ID: "process-stays-queued", Plane: "implementation", Operator: "state.transition.replace", Target: "POST /documents/{id}/process",
+		Change: map[string]any{"from": "completed", "to": "queued"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.TargetResolution == nil || provenance.TargetResolution.CandidateCount != 1 || provenance.TargetResolution.AppliedCount != 1 {
+		t.Fatalf("target resolution = %+v, want exactly one candidate and applied target", provenance.TargetResolution)
+	}
+	contents, err := os.ReadFile(filepath.Join(path, "server.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := string(contents)
+	if !strings.Contains(mutated, `doc.Status = "queued"`) || strings.Count(mutated, `doc.Status = "queued"`) != 2 || strings.Contains(mutated, `doc.Status = "completed"`) {
+		t.Fatalf("mutated source = %s, want only completed transition replaced", contents)
+	}
+}
+
+func TestMutateDocumentPipelineChangesOnlyNamedPersistenceKey(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package documentpipeline
+
+func createDocument(h *handler, id string) {
+	h.store.docs[id] = &document{ID: id}
+	h.store.docs["other"] = &document{ID: "other"}
+}
+`
+	if err := os.WriteFile(filepath.Join(path, "server.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := mutateDocumentPipeline(root, mutation.Spec{
+		ID: "persistence-under-wrong-key", Plane: "implementation", Operator: "state.persistence.key.replace", Target: "POST /documents",
+		Change: map[string]any{"from": "id", "to": "mutation-discarded"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.TargetResolution == nil || provenance.TargetResolution.CandidateCount != 1 || provenance.TargetResolution.AppliedCount != 1 {
+		t.Fatalf("target resolution = %+v, want exactly one candidate and applied target", provenance.TargetResolution)
+	}
+	contents, err := os.ReadFile(filepath.Join(path, "server.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := string(contents)
+	if !strings.Contains(mutated, `h.store.docs["mutation-discarded"] = &document{ID: id}`) || !strings.Contains(mutated, `h.store.docs["other"] = &document{ID: "other"}`) || strings.Contains(mutated, "h.store.docs[id]") {
+		t.Fatalf("mutated source = %s, want only accepted document key replaced", contents)
+	}
+}
+
+func TestMutateDocumentPipelineChangesOnlyNamedValidationSuffix(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package documentpipeline
+
+func createDocument(input createRequest) bool {
+	if input.Name == "" || (extension != ".md" && extension != ".txt") {
+		return false
+	}
+	use(extension, ".txt")
+	return false
+}
+`
+	if err := os.WriteFile(filepath.Join(path, "server.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := mutateDocumentPipeline(root, mutation.Spec{
+		ID: "accepts-png", Plane: "implementation", Operator: "input.validation.suffix.add", Target: "POST /documents",
+		Change: map[string]any{"suffix": ".png"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.TargetResolution == nil || provenance.TargetResolution.CandidateCount != 1 || provenance.TargetResolution.AppliedCount != 1 {
+		t.Fatalf("target resolution = %+v, want exactly one candidate and applied target", provenance.TargetResolution)
+	}
+	contents, err := os.ReadFile(filepath.Join(path, "server.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := string(contents)
+	if !strings.Contains(mutated, `extension != ".md" && extension != ".txt" && extension != ".png"`) || !strings.Contains(mutated, `use(extension, ".txt")`) || strings.Count(mutated, `extension != ".png"`) != 1 || !strings.Contains(mutated, `extension != ".txt"`) {
+		t.Fatalf("mutated source = %s, want PNG added without removing TXT", contents)
+	}
+}
+
 func TestMutateDocumentPipelineRejectsAmbiguousStatusTarget(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")
@@ -253,6 +364,98 @@ func createDocument(w http.ResponseWriter) {
 	}
 	if !strings.Contains(err.Error(), "found 0") {
 		t.Fatalf("mutateDocumentPipeline() = %v, want missing-target error", err)
+	}
+}
+
+func TestMutateDocumentPipelineRejectsAmbiguousStateTransitionTarget(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package documentpipeline
+
+func processDocument(doc *document) {
+	doc.Status = "completed"
+	doc.Status = "completed"
+}
+`
+	serverPath := filepath.Join(path, "server.go")
+	if err := os.WriteFile(serverPath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := mutateDocumentPipeline(root, mutation.Spec{
+		ID: "process-stays-queued", Plane: "implementation", Operator: "state.transition.replace", Target: "POST /documents/{id}/process",
+		Change: map[string]any{"from": "completed", "to": "queued"},
+	})
+	var resolutionErr *campaign.TargetResolutionError
+	if err == nil || !errors.As(err, &resolutionErr) {
+		t.Fatalf("mutateDocumentPipeline() = %v, want target-resolution error", err)
+	}
+	if resolutionErr.Resolution.CandidateCount != 2 || resolutionErr.Resolution.AppliedCount != 0 {
+		t.Fatalf("resolution error = %+v, want two candidates and no applied targets", resolutionErr)
+	}
+	contents, readErr := os.ReadFile(serverPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(contents) != source {
+		t.Fatalf("ambiguous mutation changed source = %s, want no write", contents)
+	}
+}
+
+func TestMutateDocumentPipelineRejectsMissingPersistenceKeyTarget(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package documentpipeline
+
+func createDocument(h *handler, id string) {
+	h.store.docs["other"] = &document{ID: "other"}
+}
+`
+	serverPath := filepath.Join(path, "server.go")
+	if err := os.WriteFile(serverPath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := mutateDocumentPipeline(root, mutation.Spec{
+		ID: "persistence-under-wrong-key", Plane: "implementation", Operator: "state.persistence.key.replace", Target: "POST /documents",
+		Change: map[string]any{"from": "id", "to": "mutation-discarded"},
+	})
+	var resolutionErr *campaign.TargetResolutionError
+	if err == nil || !errors.As(err, &resolutionErr) {
+		t.Fatalf("mutateDocumentPipeline() = %v, want target-resolution error", err)
+	}
+	if resolutionErr.Resolution.CandidateCount != 0 || resolutionErr.Resolution.AppliedCount != 0 {
+		t.Fatalf("resolution error = %+v, want zero candidates and no applied targets", resolutionErr)
+	}
+	contents, readErr := os.ReadFile(serverPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(contents) != source {
+		t.Fatalf("missing-target mutation changed source = %s, want no write", contents)
+	}
+}
+
+func TestMutateDocumentPipelineRejectsUnsupportedValidationSuffix(t *testing.T) {
+	_, err := mutateDocumentPipeline(t.TempDir(), mutation.Spec{
+		ID: "accepts-gif", Plane: "implementation", Operator: "input.validation.suffix.add", Target: "POST /documents",
+		Change: map[string]any{"suffix": ".gif"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "only adding validation suffix .png") {
+		t.Fatalf("mutateDocumentPipeline() = %v, want unsupported suffix error", err)
+	}
+}
+
+func TestMutateDocumentPipelineRejectsMissingValidationSuffix(t *testing.T) {
+	_, err := mutateDocumentPipeline(t.TempDir(), mutation.Spec{
+		ID: "accepts-png", Plane: "implementation", Operator: "input.validation.suffix.add", Target: "POST /documents",
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing change.suffix") {
+		t.Fatalf("mutateDocumentPipeline() = %v, want missing suffix error", err)
 	}
 }
 

@@ -55,9 +55,14 @@ project without changing Overwatch or publishing anything:
 - External adapter protocol with capability negotiation.
 - Adapter conformance validation without policy evaluation.
 - Versioned adapter-test manifests and deterministic conformance evidence.
+- Persisted adapter-test results with manifest hash verification.
+- Standalone schemas for adapter-test manifests, results, and explanations.
+- Adapter-test results can be wrapped as shared `ingen.ci-result/v1` artifacts.
+- Portable CI workflow mode for adapter conformance checks.
+- Optional shared CI-result envelopes for adapter conformance evidence.
 - Component classification and language-neutral policy format.
 - Layer direction, allow/deny dependency, cross-context, cycle, coverage,
-  required-dependency, and unresolved-import rules.
+  required-dependency, component ownership, and unresolved-import rules.
 - Warnings, waivers, baselines, and deterministic exit codes.
 
 ### Review and CI workflow
@@ -71,6 +76,12 @@ project without changing Overwatch or publishing anything:
 - Policy diff and durable policy review artifacts.
 - Policy sealing and lock verification.
 - Policy-only validation with normalized JSON output for agent and CI preflight.
+- Semantic rule-option validation so required targets/directions are explicit
+  and unsupported fields fail before graph analysis.
+- JSON diagnostics for invalid policies, including a stable schema and error
+  code, while preserving normalized policy JSON for valid input.
+- Policy diff and review emit the same diagnostics for invalid before/after
+  policies, including the comparison operation and both input paths.
 - CI result artifacts using `ingen.ci-result/v1`.
 - Read-only CI artifact validation for Paddock and external producers.
 - Agent-facing text and JSON explanations.

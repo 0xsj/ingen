@@ -12,7 +12,8 @@ Last local verification: 2026-09-15.
 | Logging, tracing, and OpenTelemetry | Stable `amber.*` projections, SDK-backed tests, runnable examples | Ready |
 | Go storage | Memory, file, generic key-value, reusable contract suite, race coverage | Ready |
 | TypeScript storage | Memory and generic key-value stores, contract and concurrent Promise coverage | Ready |
-| PostgreSQL offline behavior | SQL mock tests, schema metadata/version checks, explicit optional package path | Ready for live verification |
+| PostgreSQL offline behavior | SQL mock tests, schema metadata/version checks, explicit optional package path | Ready |
+| PostgreSQL migration asset | Checked-in v1 SQL migration is embedded by the optional package and tested against `PostgresSchema` | Ready for application-owned migration tooling |
 | Package/module boundaries | TypeScript tarball smoke test, public API manifest, external Go consumer smoke test | Ready |
 | Verification | `make release-check` passes locally, including vet, typecheck, tests, race, fuzz, and examples | Ready |
 | Reference deployment vertical | Runnable Go `net/http` service composes inbound propagation, child derivation, injected storage, and response propagation | Ready as reference flow |
@@ -21,8 +22,8 @@ Last local verification: 2026-09-15.
 
 | Check | Command | Current status |
 | --- | --- | --- |
-| PostgreSQL full integration | `AMBER_POSTGRES_DSN=... make postgres-integration` | Not run locally; CI job configured |
-| PostgreSQL read-only readiness | `AMBER_POSTGRES_DSN=... make postgres-schema-check` | Not run locally; requires an already migrated database |
+| PostgreSQL full integration | `AMBER_POSTGRES_DSN=... make postgres-integration` | Passed locally against disposable PostgreSQL 16 |
+| PostgreSQL read-only readiness | `AMBER_POSTGRES_DSN=... make postgres-schema-check` | Passed locally against disposable PostgreSQL 16 after applying the v1 migration |
 | Managed PostgreSQL compatibility | Run the live check against the deployment's PostgreSQL version | Deployment owner must verify |
 | GitHub Actions service job | `.github/workflows/ci.yml` `postgres` job | Configured for live integration plus read-only schema readiness; hosted-run result is external to this workspace |
 
@@ -32,6 +33,8 @@ Last local verification: 2026-09-15.
   `amberpostgres` package.
 - Own database credentials, connection pooling, migrations, transaction scope,
   retention, backups, and recovery policy.
+- Apply `001_amber_provenance.sql` through the deployment's migration tooling,
+  then run the read-only schema check before enabling writes.
 - Run the live PostgreSQL checks against an isolated or disposable database and
   the managed PostgreSQL version used in production.
 - Decide npm publishing ownership and whether `@0xsj/amber` remains the final
@@ -74,3 +77,9 @@ The hosted and deployment-specific checkpoint is:
 AMBER_POSTGRES_DSN='postgres://user:password@host:5432/amber?sslmode=disable' \
   make postgres-integration
 ```
+
+The local live PostgreSQL checkpoint completed on 2026-09-15 against a
+disposable PostgreSQL 16 container. The integration check passed, the checked-in
+`001_amber_provenance.sql` migration was applied, and the read-only schema check
+reported `amber_provenance v1`. This verifies the local migration and adapter
+sequence; the managed PostgreSQL version remains a deployment-owner check.

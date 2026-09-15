@@ -31,8 +31,9 @@ const response = await handler(request, ProvenanceContext.empty());
 ```
 
 The wire format and incoming-data policy are defined in the repository's
-[`spec/v1.md`](../spec/v1.md). The package is currently version `0.1.0` and is
-still evolving with the shared Go implementation.
+[specification](https://github.com/0xsj/ingen/tree/main/amber/spec/v1.md). The
+package is currently version `0.1.0` and evolves alongside the shared Go
+implementation.
 
 ## Development
 
@@ -44,4 +45,6 @@ make examples       # runnable composition examples
 ```
 
 The package exports its public entry point through `dist/index.js` and
-`dist/index.d.ts`; test files are not part of the published `dist` artifact.
+`dist/index.d.ts`; test files and internal examples are not part of the
+published package artifact. The package includes its MIT license and repository
+metadata for downstream consumers.

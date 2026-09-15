@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.adapter-test-explanation-v1.schema.json",
+  "title": "Paddock adapter test explanation",
+  "description": "Compact summary for an adapter conformance result in a shared CI envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "source_schema", "status", "summary", "passed", "failed"],
+  "properties": {
+    "schema": {"const": "paddock.adapter-test-explanation/v1"},
+    "source_schema": {"const": "paddock.adapter-test-result/v1"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "summary": {"type": "string", "minLength": 1},
+    "passed": {"type": "integer", "minimum": 0},
+    "failed": {"type": "integer", "minimum": 0}
+  }
+}

@@ -72,10 +72,13 @@ with:
 make mutation-go-campaign-run
 ```
 
-It copies the subject source, applies the reviewed success-path or error-path
-mutation with the Go AST, and builds each variant without modifying the clean
-subject tree. The current catalogue covers create-response status replacement,
-required-field removal, and the unsupported-document error status.
+It copies the subject source, applies a reviewed success-path, error-path, or
+state-transition mutation with the Go AST, and builds each variant without
+modifying the clean subject tree. The current catalogue covers create-response
+status replacement, required-field removal, the unsupported-document error
+status, a process-transition defect that leaves the public process result
+queued, a persistence-key defect that makes the returned document ID
+unreadable, and an input-validation defect that accepts PNG documents.
 
 The opt-in survivor diagnostic is now a regression for the contract gap that it
 previously exposed:

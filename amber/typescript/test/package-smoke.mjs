@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -53,6 +53,17 @@ try {
     cwd: directory,
     stdio: "inherit",
   });
+  const installedRoot = join(directory, "node_modules", "@0xsj", "amber");
+  const installedPackage = JSON.parse(readFileSync(join(installedRoot, "package.json"), "utf8"));
+  if (installedPackage.license !== "MIT") {
+    throw new Error("installed package did not preserve MIT license metadata");
+  }
+  if (!existsSync(join(installedRoot, "LICENSE"))) {
+    throw new Error("installed package did not include LICENSE");
+  }
+  if (!existsSync(join(installedRoot, "README.md"))) {
+    throw new Error("installed package did not include README.md");
+  }
   execFileSync(process.execPath, [smokeFile], {
     cwd: directory,
     stdio: "inherit",

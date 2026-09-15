@@ -160,6 +160,52 @@ source:
 	}
 }
 
+func TestComponentOwnershipRejectsUndeclaredComponent(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	policyPath := filepath.Join(t.TempDir(), "ownership.yaml")
+	contents := `schema: paddock.architecture/v1
+project: ownership-test
+source:
+  language: go
+  roots: [cmd, internal]
+components:
+  domain:
+    match: internal/domain/**
+  service:
+    match: internal/service/**
+  repository:
+    match: internal/repository/**
+  transport:
+    match: internal/transport/**
+  command:
+    match: cmd/**
+rules:
+  - id: bounded-context-components
+    kind: component-owns
+    allow: [domain, service, repository, transport]
+    message: bounded context uses an undeclared component
+`
+	if err := os.WriteFile(policyPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := checker.Check(
+		filepath.Join(repoRoot, "paddock", "examples", "services", "layered-go", "good"),
+		policyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OK() {
+		t.Fatalf("component ownership violation was not blocking: %#v", result.Findings)
+	}
+	for _, finding := range result.Findings {
+		if finding.RuleID == "bounded-context-components" && finding.From == "cmd/api" && finding.FromComponent == "command" {
+			return
+		}
+	}
+	t.Fatalf("component ownership finding missing: %#v", result.Findings)
+}
+
 func TestWaiversPreserveActiveFindingsAndRejectExpiredOnes(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	tests := []struct {

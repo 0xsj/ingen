@@ -39,6 +39,23 @@ sh paddock/examples/ci/paddock-gate.sh seal
 sh paddock/examples/ci/paddock-gate.sh verify
 ```
 
+Adapter conformance can run as an independent CI job. It does not require a
+policy lock or source analysis result:
+
+```sh
+export PADDOCK_ADAPTER_TESTS=adapter-tests.yaml
+export PADDOCK_ADAPTER_TEST_RESULT=paddock-adapter-test-result.json
+export PADDOCK_ADAPTER_CI_RESULT=adapter-conformance-ci-result.json
+
+sh paddock/examples/ci/paddock-gate.sh adapter-test
+```
+
+The helper preserves the adapter-test exit status (`0` for all expected cases,
+`1` for a conformance mismatch, `2` for invalid input or an unverifiable
+result) and verifies the saved manifest hash before returning. When
+`PADDOCK_ADAPTER_CI_RESULT` is set, it also writes and validates a shared
+`ingen.ci-result/v1` envelope.
+
 The regular CI job consumes only the lock. It does not need the mutable source
 policy file:
 

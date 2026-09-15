@@ -23,6 +23,54 @@ type Policy struct {
 	Waivers    []Waiver             `yaml:"waivers" json:"waivers"`
 }
 
+const ValidationSchema = "paddock.policy-validation/v1"
+
+// ValidationDocument is emitted by policy validate when a policy cannot be
+// loaded. The normalized policy remains the successful JSON output; this
+// separate schema keeps invalid-policy diagnostics machine-readable without
+// changing that existing contract.
+type ValidationDocument struct {
+	Schema    string            `json:"schema"`
+	Policy    string            `json:"policy"`
+	Operation string            `json:"operation,omitempty"`
+	Before    string            `json:"before,omitempty"`
+	After     string            `json:"after,omitempty"`
+	Valid     bool              `json:"valid"`
+	Errors    []ValidationIssue `json:"errors"`
+}
+
+type ValidationIssue struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func ValidationDocumentForError(policyPath string, err error) ValidationDocument {
+	code := "invalid-policy"
+	message := err.Error()
+	switch {
+	case strings.HasPrefix(message, "read policy:"):
+		code = "read-policy"
+	case strings.HasPrefix(message, "parse policy:"):
+		code = "parse-policy"
+	case strings.HasPrefix(message, "parse policy JSON:"):
+		code = "parse-policy"
+	}
+	return ValidationDocument{
+		Schema: ValidationSchema,
+		Policy: policyPath,
+		Valid:  false,
+		Errors: []ValidationIssue{{Code: code, Message: message}},
+	}
+}
+
+func ValidationDocumentForComparison(operation, policyPath, beforePath, afterPath string, err error) ValidationDocument {
+	document := ValidationDocumentForError(policyPath, err)
+	document.Operation = operation
+	document.Before = beforePath
+	document.After = afterPath
+	return document
+}
+
 type Source struct {
 	Language string   `yaml:"language" json:"language"`
 	Roots    []string `yaml:"roots" json:"roots"`
@@ -274,18 +322,12 @@ func (p Policy) Validate() error {
 			return fmt.Errorf("rule %q has unsupported severity %q", rule.ID, rule.Severity)
 		}
 		switch rule.Kind {
-		case "allow-dependencies", "deny-dependencies", "layer-direction", "no-cross-context", "mediated-dependency", "public-api-only", "no-cycles", "coverage", "required-dependency", "unresolved":
+		case "allow-dependencies", "deny-dependencies", "layer-direction", "no-cross-context", "mediated-dependency", "public-api-only", "no-cycles", "coverage", "required-dependency", "component-owns", "unresolved":
 		default:
 			return fmt.Errorf("rule %q has unsupported kind %q", rule.ID, rule.Kind)
 		}
-		if rule.Kind == "layer-direction" && rule.Direction != "toward-lower-layer" && rule.Direction != "toward-higher-layer" {
-			return fmt.Errorf("rule %q has invalid direction %q", rule.ID, rule.Direction)
-		}
-		if (rule.Kind == "allow-dependencies" || rule.Kind == "required-dependency") && len(rule.Allow) == 0 {
-			return fmt.Errorf("rule %q needs allow targets", rule.ID)
-		}
-		if rule.Transitive && rule.Kind != "required-dependency" {
-			return fmt.Errorf("rule %q may use transitive only with required-dependency", rule.ID)
+		if err := validateRuleSemantics(rule); err != nil {
+			return err
 		}
 	}
 	for _, waiver := range p.Waivers {
@@ -307,6 +349,148 @@ func (p Policy) Validate() error {
 		expires, err := time.Parse("2006-01-02", waiver.Expires)
 		if err != nil || expires.Format("2006-01-02") != waiver.Expires {
 			return fmt.Errorf("waiver for rule %q has invalid expires date %q; use YYYY-MM-DD", waiver.Rule, waiver.Expires)
+		}
+	}
+	return nil
+}
+
+type ruleField struct {
+	name string
+	set  bool
+}
+
+func validateRuleSemantics(rule Rule) error {
+	if rule.Transitive && rule.Kind != "required-dependency" {
+		return fmt.Errorf("rule %q may use transitive only with required-dependency", rule.ID)
+	}
+
+	switch rule.Kind {
+	case "allow-dependencies":
+		if len(rule.Allow) == 0 {
+			return fmt.Errorf("rule %q needs allow targets", rule.ID)
+		}
+		return rejectRuleFields(rule,
+			ruleField{name: "to", set: len(rule.To) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "direction", set: rule.Direction != ""},
+			ruleField{name: "context-label", set: rule.ContextLabel != ""},
+		)
+	case "deny-dependencies":
+		if len(rule.Deny) == 0 {
+			return fmt.Errorf("rule %q needs deny targets", rule.ID)
+		}
+		return rejectRuleFields(rule,
+			ruleField{name: "to", set: len(rule.To) > 0},
+			ruleField{name: "allow", set: len(rule.Allow) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "direction", set: rule.Direction != ""},
+			ruleField{name: "context-label", set: rule.ContextLabel != ""},
+		)
+	case "layer-direction":
+		if rule.Direction == "" {
+			return fmt.Errorf("rule %q needs direction", rule.ID)
+		}
+		if rule.Direction != "toward-lower-layer" && rule.Direction != "toward-higher-layer" {
+			return fmt.Errorf("rule %q has invalid direction %q", rule.ID, rule.Direction)
+		}
+		return rejectRuleFields(rule,
+			ruleField{name: "allow", set: len(rule.Allow) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "context-label", set: rule.ContextLabel != ""},
+		)
+	case "no-cross-context":
+		return rejectRuleFields(rule,
+			ruleField{name: "allow", set: len(rule.Allow) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "direction", set: rule.Direction != ""},
+		)
+	case "mediated-dependency":
+		if len(rule.AllowTo) == 0 {
+			return fmt.Errorf("rule %q needs allow-to targets", rule.ID)
+		}
+		return rejectRuleFields(rule,
+			ruleField{name: "allow", set: len(rule.Allow) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "direction", set: rule.Direction != ""},
+		)
+	case "public-api-only":
+		return rejectRuleFields(rule,
+			ruleField{name: "allow", set: len(rule.Allow) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "direction", set: rule.Direction != ""},
+		)
+	case "no-cycles":
+		return rejectRuleFields(rule,
+			ruleField{name: "to", set: len(rule.To) > 0},
+			ruleField{name: "allow", set: len(rule.Allow) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "direction", set: rule.Direction != ""},
+			ruleField{name: "context-label", set: rule.ContextLabel != ""},
+		)
+	case "coverage":
+		return rejectRuleFields(rule,
+			ruleField{name: "from", set: len(rule.From) > 0},
+			ruleField{name: "to", set: len(rule.To) > 0},
+			ruleField{name: "allow", set: len(rule.Allow) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "direction", set: rule.Direction != ""},
+			ruleField{name: "context-label", set: rule.ContextLabel != ""},
+		)
+	case "required-dependency":
+		if len(rule.Allow) == 0 {
+			return fmt.Errorf("rule %q needs allow targets", rule.ID)
+		}
+		return rejectRuleFields(rule,
+			ruleField{name: "to", set: len(rule.To) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "direction", set: rule.Direction != ""},
+			ruleField{name: "context-label", set: rule.ContextLabel != ""},
+		)
+	case "component-owns":
+		if len(rule.Allow) == 0 {
+			return fmt.Errorf("rule %q needs allow targets", rule.ID)
+		}
+		return rejectRuleFields(rule,
+			ruleField{name: "to", set: len(rule.To) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "direction", set: rule.Direction != ""},
+			ruleField{name: "context-label", set: rule.ContextLabel != ""},
+		)
+	case "unresolved":
+		return rejectRuleFields(rule,
+			ruleField{name: "to", set: len(rule.To) > 0},
+			ruleField{name: "allow", set: len(rule.Allow) > 0},
+			ruleField{name: "deny", set: len(rule.Deny) > 0},
+			ruleField{name: "allow-to", set: len(rule.AllowTo) > 0},
+			ruleField{name: "transitive", set: rule.Transitive},
+			ruleField{name: "direction", set: rule.Direction != ""},
+			ruleField{name: "context-label", set: rule.ContextLabel != ""},
+		)
+	}
+	return nil
+}
+
+func rejectRuleFields(rule Rule, fields ...ruleField) error {
+	for _, field := range fields {
+		if field.set {
+			return fmt.Errorf("rule %q kind %q cannot use %s", rule.ID, rule.Kind, field.name)
 		}
 	}
 	return nil

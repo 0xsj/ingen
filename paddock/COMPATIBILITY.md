@@ -13,9 +13,11 @@ The machine-readable contracts live in [`spec/`](spec/):
 - `paddock.graph-request/v1` — external adapter request;
 - `paddock.adapter-tests/v1` — external adapter conformance manifest;
 - `paddock.adapter-test-result/v1` — adapter conformance evidence;
+- `paddock.adapter-test-explanation/v1` — compact adapter conformance summary;
 - `paddock.component-map/v1` — classified component dependency summary;
 - `paddock.policy-tests/v1` — policy test manifest input;
 - `paddock.policy-test-result/v1` — policy case outcomes and finding rule IDs;
+- `paddock.policy-validation/v1` — machine-readable policy load diagnostics;
 - `paddock.explanation/v1` — agent-facing findings, triage, and remediation;
 - `paddock.policy-diff/v1` — normalized policy change evidence;
 - `paddock.policy-review/v1` — durable policy change and test decision;

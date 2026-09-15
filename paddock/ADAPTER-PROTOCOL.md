@@ -150,12 +150,21 @@ Run or preflight the cases with:
 
 ```sh
 paddock adapter test validate --cases adapter-tests.yaml
-paddock adapter test --cases adapter-tests.yaml --format json
+paddock adapter test --cases adapter-tests.yaml \
+  --output adapter-test-result.json \
+  --ci-result adapter-conformance-ci-result.json \
+  --format json
+paddock adapter test verify --input adapter-test-result.json --files
+paddock ci validate --input adapter-conformance-ci-result.json
 ```
 
 Case roots are resolved relative to the manifest. `{{root}}` and
 `{{manifest_dir}}` may be used in adapter arguments. A case can expect a valid
 graph or an adapter error and can assert package/edge counts.
+The saved result includes the manifest path and SHA-256; `--files` makes the
+verification command recheck that the manifest has not changed.
+The optional CI result wraps the detailed result as opaque `report` JSON and
+uses `kind: adapter-conformance` for shared CI aggregation.
 
 This protocol is intentionally graph-oriented rather than language-oriented.
 Adding a language means implementing its adapter outside the Paddock rule

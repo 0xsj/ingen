@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	amber "github.com/0xsj/ingen/amber"
@@ -14,6 +15,7 @@ import (
 )
 
 func TestServiceHandlerAcceptsInboundProvenanceAndStoresChild(t *testing.T) {
+	fixture := loadReferenceFixture(t)
 	store := amberstorage.NewMemoryStore()
 	root, err := amber.Start()
 	if err != nil {
@@ -27,8 +29,8 @@ func TestServiceHandlerAcceptsInboundProvenanceAndStoresChild(t *testing.T) {
 
 	newServiceHandler(store).ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("service returned status %d, want %d", recorder.Code, http.StatusOK)
+	if recorder.Code != fixture.HTTP.AcceptedStatus {
+		t.Fatalf("service returned status %d, want %d", recorder.Code, fixture.HTTP.AcceptedStatus)
 	}
 	if recorder.Header().Get(amberhttp.HeaderName) == "" {
 		t.Fatal("service response omitted Amber provenance header")
@@ -44,16 +46,30 @@ func TestServiceHandlerAcceptsInboundProvenanceAndStoresChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.Origin() != amber.OriginIncoming {
-		t.Fatalf("stored origin = %q, want %q", stored.Origin(), amber.OriginIncoming)
+	if stored.Origin() != amber.Origin(fixture.HTTP.ChildOrigin) {
+		t.Fatalf("stored origin = %q, want %q", stored.Origin(), fixture.HTTP.ChildOrigin)
+	}
+	if stored.Depth() != root.Depth()+uint64(fixture.HTTP.DepthIncrement) {
+		t.Fatalf("stored depth = %d, want parent depth + %d", stored.Depth(), fixture.HTTP.DepthIncrement)
+	}
+	if fixture.HTTP.CorrelationPreserved && stored.CorrelationID() != root.CorrelationID() {
+		t.Fatalf("stored correlation = %s, want %s", stored.CorrelationID(), root.CorrelationID())
 	}
 	causation, ok := stored.Causation()
-	if !ok || causation.ID != root.ExecutionID() {
+	if !ok || causation.Kind != fixture.HTTP.CausationKind || causation.ID != root.ExecutionID() {
 		t.Fatalf("stored causation = %+v, want execution %s", causation, root.ExecutionID())
+	}
+	responseProvenance, present, err := amberhttp.DecodeHeader(recorder.Header().Get(amberhttp.HeaderName), amber.IncomingReject)
+	if err != nil || !present {
+		t.Fatalf("service response provenance was not decodable: present=%v err=%v", present, err)
+	}
+	if fixture.HTTP.ExplicitChildPropagation && responseProvenance.ExecutionID() != stored.ExecutionID() {
+		t.Fatalf("response execution = %s, want stored child %s", responseProvenance.ExecutionID(), stored.ExecutionID())
 	}
 }
 
 func TestServiceHandlerRejectsMalformedInboundProvenance(t *testing.T) {
+	fixture := loadReferenceFixture(t)
 	store := amberstorage.NewMemoryStore()
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/orders/42", nil)
 	request.Header.Set(amberhttp.HeaderName, "not-base64")
@@ -61,8 +77,8 @@ func TestServiceHandlerRejectsMalformedInboundProvenance(t *testing.T) {
 
 	newServiceHandler(store).ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("service returned status %d, want %d", recorder.Code, http.StatusBadRequest)
+	if recorder.Code != fixture.HTTP.RejectedStatus {
+		t.Fatalf("service returned status %d, want %d", recorder.Code, fixture.HTTP.RejectedStatus)
 	}
 	if recorder.Header().Get(amberhttp.HeaderName) != "" {
 		t.Fatal("rejected request returned an Amber provenance header")
@@ -70,6 +86,38 @@ func TestServiceHandlerRejectsMalformedInboundProvenance(t *testing.T) {
 	if recorder.Body.String() != "invalid Amber provenance\n" {
 		t.Fatalf("rejected request body = %q", recorder.Body.String())
 	}
+}
+
+type referenceFixture struct {
+	Version   int                       `json:"version"`
+	HTTP      referenceFlowExpectations `json:"http"`
+	Messaging referenceFlowExpectations `json:"messaging"`
+}
+
+type referenceFlowExpectations struct {
+	AcceptedStatus           int    `json:"accepted_status"`
+	RejectedStatus           int    `json:"rejected_status"`
+	ChildOrigin              string `json:"child_origin"`
+	DepthIncrement           int    `json:"depth_increment"`
+	CausationKind            string `json:"causation_kind"`
+	CorrelationPreserved     bool   `json:"correlation_preserved"`
+	ExplicitChildPropagation bool   `json:"explicit_child_propagation"`
+}
+
+func loadReferenceFixture(t *testing.T) referenceFixture {
+	t.Helper()
+	data, err := os.ReadFile("../../../conformance/reference-v1.json")
+	if err != nil {
+		t.Fatalf("read reference fixture: %v", err)
+	}
+	var fixture referenceFixture
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatalf("decode reference fixture: %v", err)
+	}
+	if fixture.Version != amber.Version {
+		t.Fatalf("reference fixture version = %d, want %d", fixture.Version, amber.Version)
+	}
+	return fixture
 }
 
 func TestServiceHandlerAppliesTrustValidatorBeforeStorage(t *testing.T) {

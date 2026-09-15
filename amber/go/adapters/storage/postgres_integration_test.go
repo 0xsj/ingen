@@ -36,8 +36,8 @@ func TestPostgresStoreLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.EnsureSchema(ctx); err != nil {
-		t.Fatalf("ensure postgres schema: %v", err)
+	if err := store.CheckSchema(ctx); err != nil {
+		t.Fatalf("check postgres schema: %v", err)
 	}
 	runStoreContract(t, func(*testing.T) Store { return store })
 }

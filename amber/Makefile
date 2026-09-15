@@ -1,8 +1,8 @@
-.PHONY: test check release-check lint fuzz race package-check module-check postgres-integration postgres-schema-check examples example-go example-go-service example-typescript example-otel-go example-otel-typescript test-go test-typescript lint-go lint-typescript build-typescript
+.PHONY: test check release-check lint fuzz race package-check module-check postgres-migration-check postgres-apply-migration postgres-integration postgres-schema-check examples example-go example-go-service example-go-messaging example-typescript example-typescript-messaging example-otel-go example-otel-typescript test-go test-typescript lint-go lint-typescript build-typescript
 
 test: test-go test-typescript
 
-check: lint test package-check module-check
+check: lint test package-check module-check postgres-migration-check
 
 release-check: check race fuzz examples
 
@@ -47,6 +47,13 @@ module-check:
 		go mod tidy && \
 		go run .
 
+postgres-migration-check:
+	cd go && go test ./adapters/storage/postgres -run '^TestPublicPostgresBoundary$$' -count=1
+
+postgres-apply-migration:
+	@test -n "$$AMBER_POSTGRES_DSN" || (echo "AMBER_POSTGRES_DSN must be set" && exit 1)
+	psql "$$AMBER_POSTGRES_DSN" -v ON_ERROR_STOP=1 -f go/adapters/storage/postgres/migrations/001_amber_provenance.sql
+
 postgres-integration:
 	@test -n "$$AMBER_POSTGRES_DSN" || (echo "AMBER_POSTGRES_DSN must be set" && exit 1)
 	cd go && go test ./adapters/storage -run '^TestPostgresStoreLive$$' -count=1
@@ -55,7 +62,7 @@ postgres-schema-check:
 	@test -n "$$AMBER_POSTGRES_DSN" || (echo "AMBER_POSTGRES_DSN must be set" && exit 1)
 	cd go && go run ./examples/postgres
 
-examples: example-go example-go-service example-typescript example-otel-go example-otel-typescript
+examples: example-go example-go-service example-go-messaging example-typescript example-typescript-messaging example-otel-go example-otel-typescript
 
 example-go:
 	cd go && go run ./examples/compose
@@ -63,8 +70,14 @@ example-go:
 example-go-service:
 	cd go && go run ./examples/service
 
+example-go-messaging:
+	cd go && go run ./examples/messaging
+
 example-typescript:
 	cd typescript && npm run example
+
+example-typescript-messaging:
+	cd typescript && npm run example-messaging
 
 example-otel-go:
 	cd go && go run ./examples/otel

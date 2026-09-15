@@ -71,7 +71,8 @@ The optional Go PostgreSQL package at
 `PostgresStore`, which uses the standard
 `database/sql` surface and PostgreSQL's `JSONB` storage plus indexed query
 columns. Call `EnsureSchema` during application setup, or apply the exported
-`PostgresSchema` through the application's migration system:
+`PostgresSchema` or checked-in `SchemaMigrationV1` SQL asset through the
+application's migration system:
 
 ```go
 db, err := sql.Open("your-postgres-driver", dsn)
@@ -87,6 +88,13 @@ if err := store.EnsureSchema(ctx); err != nil {
 }
 return store.Put(ctx, provenance)
 ```
+
+The optional package includes the migration asset at
+[`go/adapters/storage/postgres/migrations/001_amber_provenance.sql`](../../go/adapters/storage/postgres/migrations/001_amber_provenance.sql)
+and exposes the same content as `amberpostgres.SchemaMigrationV1`. Apply it
+through the application's migration tool, then use `CheckSchema` as a
+read-only deployment readiness probe. The package test keeps the asset aligned
+with `PostgresSchema`.
 
 The store uses `ON CONFLICT (execution_id) DO NOTHING` and compares an
 existing value before returning success, preserving idempotent writes and
@@ -105,14 +113,28 @@ make postgres-schema-check
 ```
 
 For live verification against a disposable or transaction-isolated database,
-set `AMBER_POSTGRES_DSN` and run:
+apply the migration through the application's migration tooling, set
+`AMBER_POSTGRES_DSN`, and run:
 
 ```sh
 make postgres-integration
 ```
 
-The live test runs all storage operations inside a transaction and rolls it
+For local environments with `psql`, the checked-in migration can be applied
+with `make postgres-apply-migration`. The live test checks the existing schema,
+runs all storage operations inside a transaction, and rolls provenance writes
 back when finished. The standard `make release-check` remains offline.
+
+For an offline migration-asset preflight that does not connect to PostgreSQL,
+run:
+
+```sh
+make postgres-migration-check
+```
+
+This checks that the embedded `SchemaMigrationV1` asset remains aligned with
+the adapter's declared schema. It does not execute SQL or replace
+`make postgres-schema-check` against a real database.
 
 ## Implementations
 

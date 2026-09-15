@@ -91,6 +91,7 @@
             "no-cycles",
             "coverage",
             "required-dependency",
+            "component-owns",
             "unresolved"
           ]
         },

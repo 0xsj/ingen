@@ -65,6 +65,8 @@ func CheckGraph(root, policyPath string, config policy.Policy, dependencyGraph *
 			checkCycles(dependencyGraph, config, rule, result)
 		case "required-dependency":
 			checkRequiredDependencies(dependencyGraph, byImport, config, rule, result)
+		case "component-owns":
+			checkComponentOwnership(dependencyGraph.Packages, config, rule, result)
 		default:
 			checkEdges(dependencyGraph, byImport, config, rule, result)
 		}
@@ -369,6 +371,53 @@ func checkRequiredDependencies(g *model.Graph, byImport map[string]*model.Packag
 			Message:  message,
 		})
 	}
+}
+
+func checkComponentOwnership(packages []*model.Package, config policy.Policy, rule policy.Rule, result *model.Result) {
+	for _, pkg := range packages {
+		if !underRoots(pkg.RelPath, config.Source.Roots) || !selectorsMatch(rule.From, pkg) {
+			continue
+		}
+		if anyComponentTargetMatches(rule.Allow, pkg) {
+			continue
+		}
+		message := rule.Message
+		if message == "" {
+			message = "source unit is not owned by an approved component"
+		}
+		finding := &model.Finding{
+			RuleID:        rule.ID,
+			Kind:          rule.Kind,
+			Severity:      rule.Severity,
+			From:          pkg.RelPath,
+			FromComponent: pkg.Component,
+			FromLabels:    copyLabels(pkg.Labels),
+			Message:       message,
+		}
+		result.Findings = append(result.Findings, finding)
+	}
+}
+
+func anyComponentTargetMatches(targets policy.Targets, pkg *model.Package) bool {
+	for _, target := range targets {
+		if target.Literal != "" && target.Literal == pkg.Component {
+			return true
+		}
+		if len(target.Labels) == 0 {
+			continue
+		}
+		matches := true
+		for key, expected := range target.Labels {
+			if pkg.Labels[key] != expected {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return true
+		}
+	}
+	return false
 }
 
 func requiredDependencyMatches(start *model.Package, edgesByFrom map[string][]*model.Edge, byImport map[string]*model.Package, rule policy.Rule) bool {

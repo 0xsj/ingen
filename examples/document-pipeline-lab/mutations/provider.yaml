@@ -16,6 +16,15 @@ mutation_provider:
     - plane: implementation
       operator: response.error.status.replace
       target: POST /documents
+    - plane: implementation
+      operator: state.transition.replace
+      target: POST /documents/{id}/process
+    - plane: implementation
+      operator: state.persistence.key.replace
+      target: POST /documents
+    - plane: implementation
+      operator: input.validation.suffix.add
+      target: POST /documents
   entries:
     - mutation_id: status-200-create
       command: .artifacts/document-pipeline-subject/document-pipeline-defect
@@ -40,3 +49,27 @@ mutation_provider:
         - "${SORA_ADDR}"
       subject_root: .
       variant: unsupported-type-500
+
+    - mutation_id: process-stays-queued
+      command: .artifacts/document-pipeline-subject/document-pipeline-defect-process-stays-queued
+      args:
+        - -addr
+        - "${SORA_ADDR}"
+      subject_root: .
+      variant: process-stays-queued
+
+    - mutation_id: persistence-under-wrong-key
+      command: .artifacts/document-pipeline-subject/document-pipeline-defect-persistence-wrong-key
+      args:
+        - -addr
+        - "${SORA_ADDR}"
+      subject_root: .
+      variant: persistence-under-wrong-key
+
+    - mutation_id: accepts-png
+      command: .artifacts/document-pipeline-subject/document-pipeline-defect-accepts-png
+      args:
+        - -addr
+        - "${SORA_ADDR}"
+      subject_root: .
+      variant: accepts-png

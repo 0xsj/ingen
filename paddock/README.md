@@ -178,7 +178,8 @@ The report contract is defined in
 `policy validate` performs policy-only validation and prints a concise summary
 in text mode. JSON mode emits the normalized, deterministically ordered
 `paddock.architecture/v1` policy, which is useful as an agent or CI preflight
-input before sealing or checking it.
+input before sealing or checking it. For invalid input, JSON mode emits a
+`paddock.policy-validation/v1` diagnostic document and exits `2`.
 
 `explain` consumes either a `paddock.report/v1` report or an
 `ingen.ci-result/v1` CI artifact and produces deterministic text or JSON with
@@ -220,7 +221,19 @@ schema, language, or capability errors exit `2`.
 
 `adapter test` runs a versioned `paddock.adapter-tests/v1` manifest with
 multiple roots or adapter modes and emits `paddock.adapter-test-result/v1`
-evidence. Use `adapter test validate` for manifest-only preflight.
+evidence. Use `--output <path>` to persist the result and `adapter test verify`
+to validate it later. Use `--ci-result <path>` to also emit a shared
+`ingen.ci-result/v1` envelope; `adapter test validate` performs manifest-only
+preflight.
+
+The `component-owns` rule adds a package-level ownership assertion. It checks
+that selected source units belong to one of the component names or label
+selectors listed in `allow`, which is useful for keeping a bounded context from
+gaining undeclared component types.
+
+`policy validate` performs semantic rule checks in addition to schema checks:
+required options must be present, and options unsupported by a rule kind are
+rejected before analysis runs.
 
 `ci validate --input <path>` validates an existing `ingen.ci-result/v1`
 artifact without rerunning analysis. It validates the shared envelope and
@@ -244,6 +257,8 @@ review boundary for agent-proposed policy edits; it does not apply or approve
 the proposal. Add `--cases <manifest.yaml>` to evaluate the proposed `--after`
 policy against a `paddock.policy-tests/v1` manifest. The test results are
 embedded in the diff, and a mismatched case exits `1`.
+If either policy cannot be loaded, JSON mode emits the
+`paddock.policy-validation/v1` diagnostic document and exits `2`.
 The diff contract is defined in
 [`spec/paddock.policy-diff-v1.schema.json`](spec/paddock.policy-diff-v1.schema.json).
 
@@ -266,7 +281,9 @@ preflight that does not load a policy or inspect source code.
 `policy review` writes a durable `paddock.policy-review/v1` JSON artifact that
 bundles the before/after policy diff and the proposed policy's test results.
 The artifact is suitable for pull-request or agent evidence; a failed case
-returns exit code `1`. Validate a saved artifact with
+returns exit code `1`. If either policy cannot be loaded, JSON mode emits the
+same structured validation diagnostic instead of creating an incomplete review
+artifact. Validate a saved artifact with
 `paddock policy review verify --input paddock-policy-review.json`; add `--files`
 to verify the recorded policy and manifest hashes against the current files.
 The review artifact contract is defined in
