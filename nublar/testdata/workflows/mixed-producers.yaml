@@ -1,0 +1,9 @@
+schema: ingen.nublar-workflow/v1
+id: mixed-producers-ci
+checks:
+  - id: behavioral-verification
+    tool: sorna
+    result: sorna.json
+  - id: architecture-verification
+    tool: paddock
+    result: paddock.json

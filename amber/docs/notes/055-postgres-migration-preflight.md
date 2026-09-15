@@ -30,6 +30,23 @@ This separates three checks with different responsibilities:
 - a deployment readiness probe confirms that application-managed migrations
   are present before writes are enabled.
 
+## Example
+
+Run the offline asset check before connecting to a database:
+
+```sh
+make postgres-migration-check
+```
+
+Then use the live migration, readiness, and integration sequence when
+PostgreSQL is in scope.
+
+## Gotchas
+
+- The preflight does not parse or execute SQL and cannot replace a live
+  database check.
+- `postgres-schema-check` still requires an already-applied migration.
+
 ## Used in
 
 - [`Makefile`](../../Makefile)

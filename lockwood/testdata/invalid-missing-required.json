@@ -1,0 +1,32 @@
+{
+  "schema": "lockwood.custody/v1",
+  "custody_id": "lockwood-missing-required",
+  "status": "accepted",
+  "artifact": {
+    "schema": "lockwood.artifact/v1",
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "size_bytes": 12,
+    "media_type": "application/json",
+    "logical_name": "missing.json"
+  },
+  "producer": {
+    "tool": "example",
+    "kind": "fixture"
+  },
+  "custodian": {
+    "tool": "lockwood"
+  },
+  "source": {
+    "path": "missing.json"
+  },
+  "integrity": {
+    "status": "verified",
+    "method": "sha256",
+    "verified_at": "2026-09-15T12:00:01Z"
+  },
+  "parents": [],
+  "handling": {
+    "redaction": "none",
+    "retention_class": "default"
+  }
+}

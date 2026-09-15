@@ -36,6 +36,18 @@ AMBER_POSTGRES_DSN='postgres://user:password@localhost:5432/amber?sslmode=disabl
   make postgres-schema-check
 ```
 
+## Example
+
+After applying the application-owned migration, run the read-only probe:
+
+```sh
+AMBER_POSTGRES_DSN='postgres://user:password@localhost:5432/amber?sslmode=disable' \
+  make postgres-schema-check
+```
+
+The command prints the expected schema name and version without performing DDL
+or provenance writes.
+
 ## Gotchas
 
 - The command requires a reachable database and the application-selected pgx

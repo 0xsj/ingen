@@ -21,6 +21,7 @@ lockwood/
 │   ├── custody/                  # Custody records and lineage
 │   │   ├── record.go
 │   │   ├── lineage.go
+│   │   ├── filesystem.go
 │   │   └── ingest.go
 │   ├── store/                    # Storage abstraction and local backend
 │   │   ├── store.go
@@ -37,7 +38,8 @@ lockwood/
 │       └── ciresult/             # Import ingen.ci-result/v1
 ├── spec/
 │   ├── lockwood.artifact-v1.schema.json
-│   └── lockwood.custody-v1.schema.json
+│   ├── lockwood.custody-v1.schema.json
+│   └── lockwood.custody-v2.schema.json
 ├── examples/
 │   └── custody-record.json
 └── testdata/

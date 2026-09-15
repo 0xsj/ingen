@@ -1,0 +1,41 @@
+{
+  "schema": "lockwood.custody/v1",
+  "custody_id": "lockwood-custody-0001",
+  "status": "accepted",
+  "artifact": {
+    "schema": "lockwood.artifact/v1",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size_bytes": 1234,
+    "media_type": "application/json",
+    "logical_name": "sorna-ci-result.json"
+  },
+  "received_at": "2026-09-15T12:00:00Z",
+  "producer": {
+    "tool": "sorna",
+    "kind": "behavioral-verification",
+    "version": "alpha"
+  },
+  "custodian": {
+    "tool": "lockwood",
+    "version": "draft"
+  },
+  "source": {
+    "run_id": "document-pipeline-run-0001",
+    "path": "document-pipeline-ci-result.json"
+  },
+  "integrity": {
+    "status": "verified",
+    "method": "sha256",
+    "verified_at": "2026-09-15T12:00:01Z"
+  },
+  "parents": [
+    {
+      "relation": "references",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "handling": {
+    "redaction": "none",
+    "retention_class": "default"
+  }
+}

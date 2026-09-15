@@ -36,6 +36,19 @@ identical. Separating them prevents a future provenance wire version from
 silently being treated as a file or SQL migration, and it gives production
 deployments a clear point at which to run and verify migrations.
 
+## Example
+
+Run the offline migration boundary check and the read-only live probe separately:
+
+```sh
+make postgres-migration-check
+AMBER_POSTGRES_DSN='postgres://user:password@host:5432/amber?sslmode=disable' \
+  make postgres-schema-check
+```
+
+The first command checks the embedded asset without a database; the second
+requires the application-owned migration to have been applied.
+
 ## Gotchas
 
 - `PostgresSchema` is still an idempotent bootstrap schema, not a general

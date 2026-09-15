@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.hammond-governance-v1.schema.json",
+  "title": "Hammond contract governance record",
+  "description": "A governance record for one immutable contract artifact and its review lineage.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "record_id", "contract", "state", "events"],
+  "properties": {
+    "schema": {"const": "ingen.hammond-governance/v1"},
+    "record_id": {"type": "string", "minLength": 1},
+    "contract": {"$ref": "#/$defs/contract-reference"},
+    "state": {
+      "enum": ["registered", "in_review", "approved", "rejected", "superseded"]
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/event"}
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contract-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "id", "version", "schema", "artifact"],
+      "properties": {
+        "project_id": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "schema": {"type": "string", "minLength": 1},
+        "artifact": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "contract-identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "id", "version", "schema", "artifact_sha256"],
+      "properties": {
+        "project_id": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "schema": {"type": "string", "minLength": 1},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "actor", "at"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {
+          "enum": [
+            "registered",
+            "review-opened",
+            "approval-recorded",
+            "rejection-recorded",
+            "amendment-created",
+            "superseded"
+          ]
+        },
+        "actor": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1},
+        "at": {"type": "string", "format": "date-time"},
+        "review_cycle_id": {"type": "string", "minLength": 1},
+        "decision": {"enum": ["approve", "reject"]},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "reason": {"type": "string", "minLength": 1},
+        "predecessor": {"$ref": "#/$defs/contract-identity"},
+        "successor": {"$ref": "#/$defs/contract-identity"},
+        "amendment_kind": {
+          "enum": ["clarifying", "additive", "restrictive", "corrective", "breaking"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "review-opened"}}},
+          "then": {"required": ["review_cycle_id"]}
+        },
+        {
+          "if": {"properties": {"type": {"const": "approval-recorded"}}},
+          "then": {
+            "required": ["role", "review_cycle_id", "decision", "artifact_sha256"],
+            "properties": {"decision": {"const": "approve"}}
+          }
+        },
+        {
+          "if": {"properties": {"type": {"const": "rejection-recorded"}}},
+          "then": {
+            "required": ["role", "review_cycle_id", "decision", "artifact_sha256", "reason"],
+            "properties": {"decision": {"const": "reject"}}
+          }
+        },
+        {
+          "if": {"properties": {"type": {"const": "amendment-created"}}},
+          "then": {
+            "required": ["predecessor", "successor", "amendment_kind", "reason"]
+          }
+        },
+        {
+          "if": {"properties": {"type": {"const": "superseded"}}},
+          "then": {"required": ["successor"]}
+        }
+      ]
+    }
+  }
+}

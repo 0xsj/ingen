@@ -31,6 +31,19 @@ optional while making adapter behavior reviewable and portable. A future
 backend can implement the contract without adopting PostgreSQL's schema or
 either SDK's internal error type.
 
+## Example
+
+An adapter review can start with the language-neutral contract and then run the
+shared suites:
+
+```sh
+sed -n '1,220p' spec/storage-v1.md
+make check
+```
+
+The contract remains optional for applications that do not need provenance
+persistence.
+
 ## Gotchas
 
 - The storage contract does not promise durability, transactions, pagination,

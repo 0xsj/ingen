@@ -1,0 +1,38 @@
+{
+  "schema": "lockwood.custody/v1",
+  "custody_id": "lockwood-invalid-lineage",
+  "status": "accepted",
+  "artifact": {
+    "schema": "lockwood.artifact/v1",
+    "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "size_bytes": 12,
+    "media_type": "application/json",
+    "logical_name": "lineage.json"
+  },
+  "received_at": "2026-09-15T12:00:00Z",
+  "producer": {
+    "tool": "example",
+    "kind": "fixture"
+  },
+  "custodian": {
+    "tool": "lockwood"
+  },
+  "source": {
+    "path": "lineage.json"
+  },
+  "integrity": {
+    "status": "verified",
+    "method": "sha256",
+    "verified_at": "2026-09-15T12:00:01Z"
+  },
+  "parents": [
+    {
+      "relation": "asserts",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  ],
+  "handling": {
+    "redaction": "none",
+    "retention_class": "default"
+  }
+}

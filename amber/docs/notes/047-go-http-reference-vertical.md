@@ -34,6 +34,17 @@ application owns the handler and transition choice, and the injected store owns
 persistence. PostgreSQL can replace the file store without changing the HTTP
 boundary.
 
+## Example
+
+Run the real loopback service reference flow with:
+
+```sh
+make example-go-service
+```
+
+The program starts a loopback listener, propagates a request value, stores an
+incoming child, and verifies the response propagation before exiting.
+
 ## Gotchas
 
 - The example is an executable reference flow, not a production server

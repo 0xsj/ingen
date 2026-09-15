@@ -8,7 +8,7 @@
   "required": ["schema", "operation", "root", "language", "adapter", "valid", "errors"],
   "properties": {
     "schema": {"const": "paddock.adapter-validation/v1"},
-    "operation": {"const": "adapter-validate"},
+    "operation": {"enum": ["adapter-validate", "graph"]},
     "root": {"type": "string", "minLength": 1},
     "language": {"type": "string", "minLength": 1},
     "source_unit": {"type": "string", "minLength": 1},

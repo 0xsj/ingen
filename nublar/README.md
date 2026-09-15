@@ -1,7 +1,11 @@
 # Nublar
 
 The proposed package and product layout is documented in
-[`ARCHITECTURE.md`](ARCHITECTURE.md).
+[`ARCHITECTURE.md`](ARCHITECTURE.md), and the ownership boundary is documented
+in [`PRODUCT-BOUNDARY.md`](PRODUCT-BOUNDARY.md). The persisted run artifact
+is described in [`RUN-ARTIFACT.md`](RUN-ARTIFACT.md), with run identity
+defined in [`RUN-IDENTITY.md`](RUN-IDENTITY.md). Execution ownership is
+defined in [`EXECUTION-BOUNDARY.md`](EXECUTION-BOUNDARY.md).
 
 Nublar is InGen's CI and delivery surface. Its first implementation slice is a
 small coordinator that aggregates shared CI result envelopes. It may eventually
@@ -66,6 +70,45 @@ preserves all complete producer results and only composes their statuses;
 Sorna remains the authority for contract, capability, plan-binding, and
 mutation findings. The unbound prebuilt fixture remains available through the
 local `mutation-campaign-*` targets but is not the default Nublar producer.
+
+The webhook-validation workflow follows the same boundary with a separate
+declaration: it supplies Sorna's webhook provider review, preparation,
+behavioral-verification, and mutation-campaign envelopes without requiring
+Nublar to understand webhook or mutation semantics.
+
+## Run collection
+
+The run-oriented command collects the workflow into an
+`ingen.nublar-run/v1` artifact. It generates an opaque run ID when one is not
+provided and records every declared check, including missing optional checks:
+
+```sh
+go run ./nublar/cmd/nublar run collect \
+  --workflow nublar/workflows/document-pipeline.yaml \
+  --root .artifacts \
+  --output .artifacts/nublar-run.json
+```
+
+The repository entry point is `make nublar-run-collect`; it also persists the
+run under `NUBLAR_RUN_STORE` (default `.artifacts/nublar-runs`).
+For a clean source/artifact proof, use `make nublar-run-collect-fresh`; it
+creates a new workspace and run store while reusing the configured Go caches.
+
+The existing `aggregate` command remains the compatibility command for the
+older prototype; the run path is the first persisted collection record.
+
+The first filesystem persistence boundary is documented in
+[`STORAGE.md`](STORAGE.md).
+The initial read contract is documented in
+[`RUN-QUERY.md`](RUN-QUERY.md).
+The CI-facing output and exit-code contract is documented in
+[`OUTPUT-BOUNDARY.md`](OUTPUT-BOUNDARY.md).
+The provider-neutral delivery projection is documented in
+[`DELIVERY-BOUNDARY.md`](DELIVERY-BOUNDARY.md).
+
+The mixed-producer integration fixture demonstrates the intended neutrality
+boundary: Nublar composes Sorna and Paddock envelopes while preserving each
+producer report as opaque data.
 
 ## Aggregate shared results
 

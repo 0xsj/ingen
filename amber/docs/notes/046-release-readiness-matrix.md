@@ -16,7 +16,8 @@ The remaining gaps are primarily environment and deployment decisions.
 state:
 
 - functionality verified locally by `make release-check`;
-- PostgreSQL checks configured but dependent on a live DSN or hosted CI; and
+- PostgreSQL checks verified locally against a disposable database while
+  managed-version and hosted-CI results remain environment-dependent; and
 - deployment-owned choices and explicit v1 non-goals.
 
 It establishes `make release-check` as the local stopping point and recommends
@@ -26,8 +27,19 @@ integrations.
 ## Why
 
 This prevents “next step” work from turning into indefinite foundation growth.
-It also makes the remaining PostgreSQL verification honest: the workflow is
-configured, but a local run still requires an isolated database and credentials.
+It also keeps PostgreSQL evidence honest: a local disposable-database pass does
+not stand in for managed-version compatibility or an observed hosted-run result.
+
+## Example
+
+The project checkpoint is:
+
+```sh
+make release-check
+```
+
+When PostgreSQL is in scope, follow it with the migration-first live sequence
+documented in `RELEASE.md`.
 
 ## Gotchas
 

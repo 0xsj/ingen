@@ -1,0 +1,125 @@
+package run
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"ingen/core/ciresult"
+	"ingen/nublar/internal/artifact"
+	"ingen/nublar/internal/workflow"
+)
+
+// CollectWorkflowFile loads one workflow and collects its declared result
+// files into a versioned Run. Workflow and result hashes are computed from the
+// same bytes that are parsed and validated.
+func CollectWorkflowFile(workflowPath, root, runID string) (Run, error) {
+	document, workflowRef, err := workflow.LoadFileWithReference(workflowPath)
+	if err != nil {
+		return Run{}, err
+	}
+	return CollectWorkflow(document, workflowRef, root, runID), nil
+}
+
+// CollectWorkflow resolves checks under root. Collection failures are recorded
+// in the returned run so CI consumers receive a reviewable error artifact.
+func CollectWorkflow(document workflow.Document, workflowRef ciresult.FileRef, root, runID string) Run {
+	if runID == "" {
+		generated, err := NewID()
+		if err == nil {
+			runID = generated
+		}
+	}
+	createdAt := time.Now().UTC()
+	r := Run{
+		Schema:    Schema,
+		RunID:     runID,
+		Workflow:  Workflow{ID: document.ID, File: workflowRef},
+		Status:    "passed",
+		CreatedAt: createdAt.Format(time.RFC3339Nano),
+		Checks:    make([]Check, 0, len(document.Checks)),
+	}
+
+	presentResults := 0
+	for _, declared := range document.Checks {
+		check := Check{
+			ID:       declared.ID,
+			Tool:     declared.Tool,
+			Path:     declared.Result,
+			Required: declared.IsRequired(),
+		}
+		path := filepath.Join(root, declared.Result)
+		loaded, err := artifact.LoadFile(path)
+		if err != nil {
+			check.Reason = err.Error()
+			if errors.Is(err, os.ErrNotExist) && !check.Required {
+				check.Status = "missing"
+				r.Warnings = append(r.Warnings, Issue{
+					CheckID: check.ID,
+					Tool:    check.Tool,
+					Path:    check.Path,
+					Reason:  check.Reason,
+				})
+			} else {
+				check.Status = "error"
+				r.Errors = append(r.Errors, Issue{
+					CheckID: check.ID,
+					Tool:    check.Tool,
+					Path:    check.Path,
+					Reason:  check.Reason,
+				})
+			}
+			r.Checks = append(r.Checks, check)
+			continue
+		}
+		if loaded.Artifact.Tool != check.Tool {
+			check.Status = "error"
+			check.Reason = fmt.Sprintf("producer tool is %q, workflow expects %q", loaded.Artifact.Tool, check.Tool)
+			r.Errors = append(r.Errors, Issue{
+				CheckID: check.ID,
+				Tool:    check.Tool,
+				Path:    check.Path,
+				Reason:  check.Reason,
+			})
+			r.Checks = append(r.Checks, check)
+			continue
+		}
+
+		check.Status = loaded.Artifact.Status
+		check.Result = &Result{
+			Ref: ciresult.FileRef{
+				Path:   check.Path,
+				SHA256: loaded.SHA256,
+			},
+			Artifact: loaded.Artifact,
+		}
+		presentResults++
+		r.Checks = append(r.Checks, check)
+	}
+
+	if presentResults == 0 && len(r.Errors) == 0 {
+		r.Errors = append(r.Errors, Issue{Reason: "workflow produced no result artifacts"})
+	}
+	r.Status = decision(r)
+	r.ExitCode, _ = ciresult.ExitCodeForStatus(r.Status)
+	r.CompletedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	return r
+}
+
+func decision(r Run) string {
+	if len(r.Errors) > 0 {
+		return "error"
+	}
+	status := "passed"
+	for _, check := range r.Checks {
+		if check.Status == "error" {
+			return "error"
+		}
+		if check.Result != nil && severity(check.Result.Artifact.Status) > severity(status) {
+			status = check.Result.Artifact.Status
+		}
+	}
+	return status
+}

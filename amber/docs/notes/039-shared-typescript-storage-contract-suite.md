@@ -32,6 +32,17 @@ The generic `KeyValueBackend` is intended for user-provided persistence. A
 backend should be able to adopt the TypeScript `ProvenanceStore` contract with
 confidence that the SDK's append-only and history semantics remain intact.
 
+## Example
+
+Run the shared TypeScript storage contract, including concurrent coverage, with:
+
+```sh
+cd typescript
+npm test
+```
+
+The contract suite runs against both the memory and generic key-value stores.
+
 ## Gotchas
 
 - TypeScript has no `context.Context`, so cancellation is not part of this

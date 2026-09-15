@@ -1,0 +1,12 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: public-context-apis-remain-valid
+    root: services/modular-monolith-go/good
+    expect: pass
+
+  - name: direct-cross-context-internals-are-rejected
+    root: services/modular-monolith-go/violating
+    expect: fail
+    require_rules:
+      - context-internals-are-private
+      - cross-context-access-is-mediated

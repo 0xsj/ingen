@@ -1,5 +1,13 @@
 # Sorna input-validation mutation checkpoint
 
+An invalid-input oracle should reject a widened input partition while leaving
+the already-valid paths unchanged.
+
+## Origin
+
+This note came from adding an accepted-suffix mutation after the document
+pipeline's response and state operators were in place.
+
 ## What changed
 
 The document-pipeline Go provider now supports
@@ -32,3 +40,8 @@ This is a deliberately small validation mutation. Broader input operators,
 such as removing size limits or changing malformed JSON handling, should wait
 until the alpha operator vocabulary is frozen and the contract's input
 partition is expanded deliberately.
+
+## Used in
+
+The document-pipeline Go source provider, the `accepts-png` fixture, and the
+Sorna mutation campaign.

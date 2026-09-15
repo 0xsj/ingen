@@ -32,6 +32,16 @@ refactoring the underlying implementation. A focused external-package test
 checks what consumers can actually import without coupling the test to
 unexported implementation details.
 
+## Example
+
+Run the external-package boundary check without connecting to PostgreSQL:
+
+```sh
+make postgres-migration-check
+```
+
+The same check is also included in `make check` and `make release-check`.
+
 ## Gotchas
 
 - This check verifies the Go package surface, not PostgreSQL connectivity or

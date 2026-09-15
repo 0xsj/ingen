@@ -53,6 +53,7 @@
         "assertions_passed": {"type": "boolean"},
         "package_count": {"type": "integer", "minimum": 0},
         "edge_count": {"type": "integer", "minimum": 0},
+        "error_code": {"type": "string", "minLength": 1},
         "error": {"type": "string"}
       }
     }

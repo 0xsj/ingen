@@ -32,6 +32,24 @@ This improves reviewability and operational handoff without turning Amber into
 a migration engine. The SQL asset, schema metadata version, and read-only
 probe now form one explicit deployment boundary.
 
+## Example
+
+An application-owned migration tool can execute the checked-in SQL asset, then
+probe readiness before enabling writes:
+
+```text
+001_amber_provenance.sql -> CheckSchema(ctx) -> provenance writes
+```
+
+The optional Go package also exposes the same content as
+`amberpostgres.SchemaMigrationV1` for migration systems that consume Go values.
+
+## Gotchas
+
+- Amber supplies the asset but does not track production migration history or
+  own the migration transaction.
+- `CheckSchema` is read-only and does not repair a missing schema.
+
 ## Used in
 
 - [`go/adapters/storage/postgres/migrations/001_amber_provenance.sql`](../../go/adapters/storage/postgres/migrations/001_amber_provenance.sql)

@@ -69,6 +69,8 @@ input exits `2`.
 The current schema identifiers and compatibility rules are documented in
 [`COMPATIBILITY.md`](COMPATIBILITY.md); machine-readable definitions are in
 [`spec/`](spec/).
+Working product boundaries and unresolved design choices are tracked in
+[`DECISIONS.md`](DECISIONS.md).
 
 The implemented Go commands are the checker, graph inspector, baseline
 generator, report explainer, and CI artifact producer:
@@ -221,13 +223,17 @@ schema, language, or capability errors exit `2`.
 Successful JSON output is the normalized `paddock.graph/v1` document. For an
 invalid external adapter, JSON mode emits `paddock.adapter-validation/v1` with
 a stable failure code and exits `2`; text mode retains the concise diagnostic.
+The same diagnostic is emitted by `graph --format json` when its explicit
+external adapter cannot produce a valid graph.
 
 `adapter test` runs a versioned `paddock.adapter-tests/v1` manifest with
 multiple roots or adapter modes and emits `paddock.adapter-test-result/v1`
 evidence. Use `--output <path>` to persist the result and `adapter test verify`
 to validate it later. Use `--ci-result <path>` to also emit a shared
 `ingen.ci-result/v1` envelope; `adapter test validate` performs manifest-only
-preflight.
+preflight. Each failed case records an optional stable `error_code`, such as
+`language-mismatch`, `invalid-graph`, or `process-failure`, alongside the
+human-readable error.
 
 The `component-owns` rule adds a package-level ownership assertion. It checks
 that selected source units belong to one of the component names or label
@@ -249,9 +255,27 @@ artifact exits `0` regardless of whether its recorded status is `passed` or
 source units by directory, applies conservative template role guesses, and
 writes all generated rules as warnings. The output is intentionally not an
 architecture verdict and will not overwrite an existing file without
-`--force`. It accepts `--graph` or `--adapter` for languages outside the
+`--force`. Use `--format json` for a `paddock.init/v1` summary that reports
+source-unit and edge counts, unclassified components, warning rules, and the
+required human-review state. This gives an agent enough context to judge the
+review surface without pretending that the scaffold inferred the intended
+architecture.
+It accepts `--graph` or `--adapter` for languages outside the
 built-in adapter registry; generic layered and cyclic drafts remain available
 for those languages.
+
+A simple agent handoff is:
+
+```sh
+paddock init ./service --output proposed-paddock.yaml --format json > paddock-init.json
+paddock policy validate --policy proposed-paddock.yaml --format json
+paddock policy diff --before paddock.yaml --after proposed-paddock.yaml --format json
+paddock policy review --before paddock.yaml --after proposed-paddock.yaml --format json
+```
+
+The summary describes the draft; `policy validate` checks its shape; `policy
+diff` exposes semantic changes; and `policy review` gives the approval-oriented
+result. None of these steps silently approves or applies a draft.
 
 `policy diff` validates both policy files and compares their normalized
 semantics. Its `paddock.policy-diff/v1` JSON output includes raw and canonical
@@ -291,6 +315,8 @@ same structured validation diagnostic instead of creating an incomplete review
 artifact. Validate a saved artifact with
 `paddock policy review verify --input paddock-policy-review.json`; add `--files`
 to verify the recorded policy and manifest hashes against the current files.
+When `--format json` is used, stdout contains only the review document so it
+can be consumed directly by an agent or CI step.
 The review artifact contract is defined in
 [`spec/paddock.policy-review-v1.schema.json`](spec/paddock.policy-review-v1.schema.json).
 
@@ -351,9 +377,11 @@ verification planes.
 
 ## Current state
 
-The first executable Go slice is implemented. It loads a policy, builds a
-package/import graph, classifies packages, applies the initial rule set, and
-emits text or JSON reports with deterministic exit codes.
+The executable development slice is implemented. Paddock loads a policy,
+builds or consumes a dependency graph, classifies source units, applies the
+rule set, and emits reviewable text or JSON artifacts with deterministic exit
+codes. Built-in Go, TypeScript/JavaScript, and Python adapters share the same
+policy engine, while external adapters use the versioned graph protocol.
 
 Policies can also carry reviewable waivers. Active waivers are visible in the
 report but do not block the check; expired waivers remain blocking. Waivers

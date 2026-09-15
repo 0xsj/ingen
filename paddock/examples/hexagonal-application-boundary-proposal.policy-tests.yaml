@@ -1,0 +1,11 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: application-depends-on-ports
+    root: services/hexagonal-go/good
+    expect: pass
+
+  - name: application-reaches-into-outbound-adapter
+    root: services/hexagonal-go/application-boundary-violating
+    expect: fail
+    require_rules:
+      - application-points-inward

@@ -30,6 +30,24 @@ deployment example while preserving the same handler construction. It also
 makes the trust boundary explicit: malformed input does not reach application
 logic or produce an outgoing provenance value.
 
+## Example
+
+Run the focused reference-service boundary tests with:
+
+```sh
+cd go
+go test ./examples/service -count=1
+```
+
+The tests cover accepted inbound values and malformed-input rejection without
+starting the listener used by the runnable example.
+
+## Gotchas
+
+- These tests protect the reference boundary; they do not make the reference
+  service a production server template.
+- Storage, routing, and trust policy remain application-owned choices.
+
 ## Used in
 
 - [`go/examples/service/main.go`](../../go/examples/service/main.go)

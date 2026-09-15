@@ -7,6 +7,8 @@ not an instruction to publish automatically.
 ## 1. Review scope and compatibility
 
 - Confirm the intended version and package name with the release owner.
+- Review [`VERSIONING.md`](VERSIONING.md); the prepared identity is `0.1.0`
+  with intended tag `amber/v0.1.0`, pending repository-level release approval.
 - Review changes to [`spec/`](spec/), public Go packages, and the TypeScript
   export manifest for compatibility impact.
 - Confirm the changelog describes user-visible behavior and any wire or storage
@@ -25,6 +27,9 @@ git diff --check
 This covers Go vet/tests, TypeScript typechecking/tests, shared conformance,
 package and module consumer checks, migration preflight, race detection, fuzz
 targets, and runnable examples.
+
+The TypeScript test suite also verifies that `VERSION`, `package.json`, and
+`package-lock.json` agree on `0.1.0`.
 
 ## 3. Verify PostgreSQL when it is in scope
 

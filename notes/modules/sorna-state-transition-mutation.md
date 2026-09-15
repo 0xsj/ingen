@@ -1,5 +1,14 @@
 # Sorna state-transition mutation checkpoint
 
+A state-transition mutation tests whether the oracle observes lifecycle
+completion rather than only isolated response values.
+
+## Origin
+
+This note came from adding the first process-lifecycle mutation to the
+document-pipeline campaign and observing its dependent rule become
+inconclusive.
+
 ## What changed
 
 The document-pipeline Go provider now supports a targeted
@@ -49,3 +58,8 @@ The fresh document workflow killed this mutation directly through
 setup requires a completed document; the other five rules were unaffected.
 The full four-mutation campaign passed with 4/4 killed and no execution errors,
 and Nublar passed all four required checks.
+
+## Used in
+
+The document-pipeline Go source provider, its prebuilt defect fixture, and the
+Sorna mutation campaign classification.

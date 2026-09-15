@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@paddock/shared/*": ["packages/shared/src/*"],
+      "@paddock/orders/*": ["packages/orders/src/*"]
+    }
+  }
+}

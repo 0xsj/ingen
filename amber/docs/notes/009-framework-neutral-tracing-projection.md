@@ -37,7 +37,8 @@ Amber Provenance -> amber.* attributes -> application span adapter -> span
   cardinality; the consuming tracing backend must apply its own policy.
 - Attribution and references remain available on the provenance value even
   though the default projection omits them.
-- An OpenTelemetry-specific adapter is still future work and may need explicit
+- The optional OpenTelemetry adapter enriches existing spans but does not create
+  span lifecycle semantics; future tracing integrations may still need explicit
   semantic-convention and cardinality decisions.
 
 ## Used in

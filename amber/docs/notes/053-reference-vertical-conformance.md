@@ -32,6 +32,25 @@ random IDs, a broker, or a network service. It tests the contract that a
 deployment can observe while keeping runtime and infrastructure choices
 application-owned.
 
+## Example
+
+Run the shared reference-vertical fixture through the full example and test
+gates:
+
+```sh
+make test
+make examples
+```
+
+The Go and TypeScript paths consume the same `reference-v1.json` expectations.
+
+## Gotchas
+
+- The fixture checks observable behavior, not framework-specific APIs or
+  generated IDs.
+- Passing conformance does not provide authentication, authorization, or
+  delivery guarantees.
+
 ## Used in
 
 - [`conformance/reference-v1.json`](../../conformance/reference-v1.json)

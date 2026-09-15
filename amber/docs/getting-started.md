@@ -105,6 +105,15 @@ OpenTelemetry composition without requiring external services. PostgreSQL is
 opt-in and must follow the migration-first sequence in
 [`RELEASE.md`](../RELEASE.md).
 
+The minimal snippets in this guide are also runnable as
+[`go/examples/getting-started`](../go/examples/getting-started/) and
+[`typescript/src/getting-started-example.ts`](../typescript/src/getting-started-example.ts):
+
+```sh
+make example-go-getting-started
+make example-typescript-getting-started
+```
+
 ## Further reading
 
 - [`spec/v1.md`](../spec/v1.md) — core invariants, transitions, and wire shape

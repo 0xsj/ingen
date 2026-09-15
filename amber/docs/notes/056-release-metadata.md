@@ -30,6 +30,25 @@ This makes the package artifact self-describing and avoids publishing a package
 that works at runtime but loses essential release context. It does not change
 the public Amber API or the core wire contract.
 
+## Example
+
+Inspect the package metadata and run the clean artifact smoke test through the
+release gate:
+
+```sh
+make package-check
+```
+
+The check builds a tarball, installs it into a temporary consumer, and verifies
+the public runtime, README, license, and package metadata.
+
+## Gotchas
+
+- Artifact validation does not publish the package or establish registry
+  ownership.
+- Repository-relative links should not be the only source of release metadata
+  shipped to npm consumers.
+
 ## Used in
 
 - [`LICENSE`](../../LICENSE)

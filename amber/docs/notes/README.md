@@ -74,6 +74,9 @@ evolves, not as a replacement for the code or specification.
 | Migration-first PostgreSQL CI | CI applies the checked-in migration before readiness and live integration, so the migration asset is exercised rather than silently replaced by bootstrap DDL | PostgreSQL workflow orders migration, readiness, then integration |
 | Contributor and release runbooks | Project prerequisites, verification commands, PostgreSQL sequencing, artifact checks, and release stop conditions are documented for handoff | `CONTRIBUTING.md` and `RELEASE.md` |
 | Getting started guide | Go and TypeScript users have a short adoption path covering root/child values, context, trust, storage choices, and verification | `docs/getting-started.md`, `go/README.md`, and `typescript/README.md` |
+| Runnable getting-started examples | The minimal Go and TypeScript adoption snippets compile and run as part of the examples gate | `make example-go-getting-started`, `make example-typescript-getting-started`, and `make examples` |
+| Versioning decision point | Current package/module facts and the approved `0.1.0` synchronized release identity are recorded separately from the not-yet-created monorepo tag and package publication | `VERSIONING.md` and `RELEASE.md` |
+| Release version consistency | A repository version file and TypeScript test keep the package and lockfile aligned at the approved `0.1.0` release identity | `npm test` reports release version metadata passed |
 
 When a later change alters one of these results, update the relevant note and
 this milestone table in the same change.
@@ -141,6 +144,9 @@ this milestone table in the same change.
 59. [PostgreSQL CI should exercise the checked-in migration before adapter writes](059-postgres-ci-migration-first.md)
 60. [Contributor and release runbooks should make the verified workflow repeatable](060-contributor-release-runbooks.md)
 61. [Getting started guidance should show the smallest useful cross-language path](061-getting-started-guide.md)
+62. [Getting-started snippets should be executable so the first-use path cannot drift](062-getting-started-examples.md)
+63. [Release identity should be decided separately from wire and storage versions](063-versioning-decision.md)
+64. [Release metadata should have one checked version source](064-release-version-consistency.md)
 
 ## Current open questions
 

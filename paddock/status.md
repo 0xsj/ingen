@@ -4,25 +4,16 @@ Last updated: 2026-09-15
 
 ## Where we left off
 
-Paddock has reached a release-candidate checkpoint. The core tool is usable as
-a compiled, language-neutral architecture gate rather than only as an
-experimental Go package.
+Paddock is at a development checkpoint: the core tool is usable as a compiled,
+language-neutral architecture gate rather than only as an experimental Go
+package. Release publication is intentionally out of scope while development
+continues.
 
-The current release candidate exercise was `0.1.0-rc1`:
-
-- four static artifacts were built for macOS/Linux on amd64/arm64;
-- the `paddock.release/v1` manifest and SHA-256 checksums were generated;
-- the compiled binary independently verified the release bundle;
-- the full Paddock test suite and `go vet` passed;
-- the Overwatch UI locked-policy gate passed with exit `0`;
-- the Overwatch backend locked-policy gate returned the expected exit `1` with
-  40 architectural findings.
-
-The backend result is intentional review feedback, not a Paddock failure. The
-backend policy is not yet an approved compliance gate for that codebase.
-
-No `paddock-v0.1.0-rc1` tag or hosted GitHub release has been created yet.
-The local release and verification path is ready for that external step.
+The draft-to-seal authoring loop has been exercised with the built-in Go,
+TypeScript/JavaScript, and Python adapters, plus an external adapter. The
+current work is therefore usage-driven hardening: observe adoption friction,
+false positives, adapter gaps, and CI ergonomics before adding more core
+surface area.
 
 The portable gate has now been dogfooded against the sibling Overwatch
 project without changing Overwatch or publishing anything:
@@ -44,6 +35,26 @@ project without changing Overwatch or publishing anything:
   authoritative. The candidate passed its policy review and reduced the
   backend result from 40 findings to 3, leaving only the `pkg/blob` boundary
   and the `audit/app/query` infrastructure dependency.
+- A fresh `init --format json` replay reported 136 source units and 1,607
+  edges, but its conservative draft differed from the reviewed backend policy
+  in 106 semantic changes. This confirms that initialization is an inventory
+  and review starting point, not an automatic policy migration.
+- A self-contained proposal fixture now guards the focused authoring loop: a
+  shared-kernel approval remains a one-rule diff, passes two expected policy
+  cases, and verifies the durable review artifact without creating a lock.
+- A second proposal fixture now covers cross-context architecture: adding
+  public-API privacy and mediated-access rules remains a two-rule diff, keeps
+  the good modular-monolith case passing, and attributes the violating case to
+  both intended rules.
+- A third proposal fixture now covers hexagonal direction: adding
+  `application-points-inward` remains a one-rule diff, keeps the good service
+  passing, and attributes the focused adapter violation to that rule alone.
+- The TypeScript monorepo now exercises the same proposal loop: adding
+  `shared-is-independent` remains a one-rule diff, keeps the good workspace
+  passing, and attributes the violating path-alias import to that rule alone.
+
+The Overwatch backend result is intentional review feedback, not a Paddock
+failure. Its policy is not yet an approved compliance gate for that codebase.
 
 ## Implemented
 
@@ -56,7 +67,10 @@ project without changing Overwatch or publishing anything:
 - Adapter conformance validation without policy evaluation.
 - Structured adapter validation diagnostics for process, graph, language,
   source-unit, and capability failures.
+- `graph --format json` reuses adapter diagnostics for explicit external adapter
+  failures.
 - Versioned adapter-test manifests and deterministic conformance evidence.
+- Adapter-test case results retain stable adapter/assertion error codes.
 - Persisted adapter-test results with manifest hash verification.
 - Standalone schemas for adapter-test manifests, results, and explanations.
 - Adapter-test results can be wrapped as shared `ingen.ci-result/v1` artifacts.
@@ -70,6 +84,8 @@ project without changing Overwatch or publishing anything:
 ### Review and CI workflow
 
 - `check`, `graph`, `init`, `baseline`, `ci`, and `explain` commands.
+- `init --format json` summaries for agent-facing draft review feedback,
+  including source-unit and edge counts.
 - Policy tests with expected pass/fail/error cases and required rule IDs.
 - Machine-readable policy-test evidence with deterministic finding rule IDs.
 - Standalone JSON Schema for `paddock.policy-test-result/v1`.
@@ -86,6 +102,10 @@ project without changing Overwatch or publishing anything:
   policies, including the comparison operation and both input paths.
 - Validation diagnostics include all independent policy issues with stable
   codes and policy paths.
+- Clean JSON reports emit an empty `findings` array rather than `null`, keeping
+  the required `paddock.report/v1` collection shape valid for consumers.
+- JSON policy-review output contains only the `paddock.policy-review/v1`
+  document; human output-path text remains limited to text mode.
 - CI result artifacts using `ingen.ci-result/v1`.
 - Read-only CI artifact validation for Paddock and external producers.
 - Agent-facing text and JSON explanations.
@@ -127,6 +147,14 @@ project without changing Overwatch or publishing anything:
   cross-context internal access.
 - Cross-language policy tests covering TypeScript feature slices and Python
   hexagonal boundaries.
+- TypeScript monorepo fixture covering package-style path aliases across
+  workspace packages and shared-to-domain boundary enforcement.
+- Initial compiled-binary smoke measurements for the Overwatch backend/UI and
+  the TypeScript workspace fixture.
+- Draft-to-review authoring-loop coverage proving conservative drafts fail
+  policy cases until their architectural boundaries are explicitly reviewed.
+- Initialization summaries expose graph scale, unclassified components, and
+  warning rules without changing the draft policy itself.
 - Layered-direction and non-compiling cyclic Go policy tests.
 - GitHub Actions release example and active tag-triggered workflow.
 
@@ -145,12 +173,13 @@ project without changing Overwatch or publishing anything:
 
 ### Should happen next
 
-1. Obtain the Overwatch architecture-owner decision on the backend triage:
-   shared-kernel policy expansion, code fixes, waivers, or temporary baseline.
-2. Revisit the UI proposal’s broad `components/**` vocabulary with actual
-   ownership feedback.
-3. Record adapter, path-resolution, performance, and policy-authoring issues
-   from the external run before expanding the core schemas.
+1. Use the development decision log to keep unresolved policy choices explicit
+   and prevent premature expansion of the rule language.
+2. Run another real dogfood cycle against one target and record adapter,
+   path-resolution, performance, false-positive, and policy-authoring friction.
+3. Incorporate the resulting evidence into the smallest useful implementation
+   batch. Overwatch architecture-owner decisions remain valuable input, but are
+   not required for Paddock development to continue.
 
 ### Likely near-term work
 
@@ -158,11 +187,8 @@ project without changing Overwatch or publishing anything:
   temporarily baselined.
 - Decide whether the Overwatch UI component vocabulary needs finer-grained
   presentation roles.
-- Freeze and document compatibility expectations for `paddock.graph/v1`, the
-  policy format, and the CI/release artifact schemas. (The first version of
-  this is now in `COMPATIBILITY.md`.)
-- Add release workflow smoke coverage if hosted CI exposes issues not visible
-  locally.
+- Exercise the current compatibility expectations in `COMPATIBILITY.md` with
+  real adapter and policy changes before freezing more contracts.
 - Extend the component map only when real users need additional aggregation or
   visualization detail.
 
@@ -176,22 +202,19 @@ project without changing Overwatch or publishing anything:
 
 ## Recommended development checkpoint
 
-The next useful stopping point is after the draft-to-seal authoring loop and
-one external adapter have been exercised. At that checkpoint, use observed
-adoption friction, false positives, adapter gaps, and CI ergonomics to decide
-which development work deserves priority. Release publication remains
-deferred while development continues.
+This checkpoint has now been reached: the draft-to-seal loop and one external
+adapter have been exercised. The next stopping point should be after one
+usage-driven hardening cycle has converted observed friction into either a
+small fix, a documented limitation, or a deliberately deferred decision.
+Release publication remains deferred while development continues.
 
 ## Useful resume commands
 
 ```sh
-make -C paddock release-check \
-  VERSION=0.1.0-rc1 \
-  COMMIT="$(git rev-parse --short HEAD)" \
-  BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+GOCACHE=/private/tmp/paddock-go-cache go test ./paddock/...
+GOCACHE=/private/tmp/paddock-go-cache go vet ./paddock/...
 
-make -C paddock release-artifacts \
-  VERSION=0.1.0-rc1 \
-  COMMIT="$(git rev-parse --short HEAD)" \
-  BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+go run ./paddock/cmd/paddock policy test \
+  --policy paddock/examples/hexagonal.yaml \
+  --cases paddock/examples/hexagonal.policy-tests.yaml
 ```

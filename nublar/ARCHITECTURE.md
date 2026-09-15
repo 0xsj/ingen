@@ -4,6 +4,13 @@ This is the proposed shape for Nublar as it grows beyond the current
 aggregation prototype. The near-term tree is intentionally small; the later
 directories are expansion points, not an implementation checklist.
 
+The product ownership and first-slice scope are defined in
+[`PRODUCT-BOUNDARY.md`](PRODUCT-BOUNDARY.md).
+The producer handoff and execution ownership are defined in
+[`EXECUTION-BOUNDARY.md`](EXECUTION-BOUNDARY.md).
+The CI-facing output and exit-code contract are defined in
+[`OUTPUT-BOUNDARY.md`](OUTPUT-BOUNDARY.md).
+
 ## Near-term tree
 
 ```text
@@ -15,8 +22,9 @@ nublar/
 │   └── nublar/
 │       └── main.go
 ├── spec/
+│   ├── decision-v1.schema.json
 │   ├── workflow-v1.schema.json
-│   └── result-v1.schema.json
+│   └── run-v1.schema.json
 ├── internal/
 │   ├── workflow/
 │   │   ├── document.go
@@ -31,9 +39,14 @@ nublar/
 │   │   ├── hasher.go
 │   │   └── provenance.go
 │   ├── storage/
-│   │   └── store.go
+│   │   ├── store.go
+│   │   └── filesystem/
+│   ├── delivery/
+│   │   ├── projection.go
+│   │   ├── publisher.go
+│   │   └── webhook/
 │   └── output/
-│       └── json.go
+│       └── output.go
 ├── workflows/
 │   └── document-pipeline.yaml
 └── testdata/
@@ -90,3 +103,7 @@ workflow policy, and delivery decisions.
 The current `internal/aggregate` package is the prototype predecessor of the
 future `internal/run` boundary, while `internal/workflow` already represents
 the intended workflow boundary.
+
+The mixed-producer fixture under `testdata/` demonstrates that the run path
+can compose Sorna and Paddock envelopes without importing either producer's
+implementation.

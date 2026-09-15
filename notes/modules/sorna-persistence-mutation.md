@@ -1,5 +1,13 @@
 # Sorna persistence mutation checkpoint
 
+A green create response does not prove that the persisted identity is usable by
+the next public request.
+
+## Origin
+
+This note came from adding a cross-request persistence mutation to the
+document-pipeline campaign.
+
 ## What changed
 
 The document-pipeline provider now supports
@@ -29,3 +37,8 @@ invalid-input rules remained unaffected.
 This is a useful reminder that one defect can create multiple direct-looking
 failures across a stateful oracle. The declared expected rule remains the
 classification anchor; the additional observations explain the blast radius.
+
+## Used in
+
+The document-pipeline Go source provider and the Sorna mutation campaign's
+cross-request diagnosis.

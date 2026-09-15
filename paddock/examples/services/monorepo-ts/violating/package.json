@@ -1,0 +1,5 @@
+{
+  "name": "paddock-monorepo-violating",
+  "private": true,
+  "workspaces": ["packages/*"]
+}

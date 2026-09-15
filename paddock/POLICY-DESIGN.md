@@ -326,6 +326,9 @@ verdict. Proposed changes should appear as a policy diff for human review.
 
 ## Open design questions
 
+The current posture on these questions, including what is intentionally
+deferred until real usage, is recorded in [`DECISIONS.md`](DECISIONS.md).
+
 - Should selectors classify files, packages, modules, or all three?
 - Are type-only imports architecture edges by default?
 - How should generated code be classified?

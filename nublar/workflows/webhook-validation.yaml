@@ -1,0 +1,19 @@
+schema: ingen.nublar-workflow/v1
+id: webhook-validation-ci
+checks:
+  - id: mutation-provider-review
+    tool: sorna
+    result: webhook-validation-go-provider-ci-result.json
+    required: true
+  - id: mutation-preparation
+    tool: sorna
+    result: webhook-validation-go-preparation-ci-result.json
+    required: true
+  - id: behavioral-verification
+    tool: sorna
+    result: webhook-validation-ci-result.json
+    required: true
+  - id: mutation-campaign
+    tool: sorna
+    result: webhook-validation-go-campaign-ci-result.json
+    required: true

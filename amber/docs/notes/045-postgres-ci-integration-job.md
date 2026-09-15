@@ -14,10 +14,10 @@ the real database engine.
 ## What
 
 The GitHub Actions workflow now has a separate `postgres` job with a PostgreSQL
-16 service container. It sets a disposable local DSN and runs
-`make postgres-integration`, which creates the schema and executes the shared
-storage contract inside a transaction that is rolled back at test completion,
-then runs `make postgres-schema-check` against the resulting migrated schema.
+16 service container. It applies the checked-in migration, runs
+`make postgres-schema-check`, and then runs `make postgres-integration` against
+the existing schema. The live contract executes storage operations inside a
+transaction that is rolled back at test completion.
 
 The existing `verify` job and local `make release-check` remain unchanged and
 offline. The PostgreSQL job runs in parallel and has no repository write or
@@ -30,6 +30,19 @@ the fast, reproducible local workflow. Keeping the job separate also makes a
 database failure visible as an adapter-specific CI failure rather than
 obscuring the language-level checks.
 
+## Example
+
+The workflow's migration-first sequence is reproducible locally with:
+
+```sh
+AMBER_POSTGRES_DSN='postgres://amber:amber@localhost:5432/amber?sslmode=disable' \
+  make postgres-apply-migration
+AMBER_POSTGRES_DSN='postgres://amber:amber@localhost:5432/amber?sslmode=disable' \
+  make postgres-schema-check
+AMBER_POSTGRES_DSN='postgres://amber:amber@localhost:5432/amber?sslmode=disable' \
+  make postgres-integration
+```
+
 ## Gotchas
 
 - The service version is pinned to PostgreSQL 16; deployments should still run
@@ -38,8 +51,8 @@ obscuring the language-level checks.
   production DSN or secret is required.
 - GitHub-hosted runner and container availability remain external CI
   dependencies.
-- The schema-check command runs after integration so the job verifies both
-  behavior and the operator-facing read-only readiness path.
+- The schema-check command runs before integration so the job verifies the
+  operator-facing readiness path before adapter writes.
 
 ## Used in
 

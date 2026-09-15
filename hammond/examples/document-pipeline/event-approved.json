@@ -1,0 +1,10 @@
+{
+  "id": "event-003",
+  "type": "approval-recorded",
+  "actor": "reviewer@example.test",
+  "role": "product-reviewer",
+  "review_cycle_id": "document-pipeline-v2-review-1",
+  "decision": "approve",
+  "artifact_sha256": "6b40dfb15fa67f96c9f3bc79bc46206d45f6d44124197b344757499299e43445",
+  "at": "2026-09-15T00:02:00Z"
+}

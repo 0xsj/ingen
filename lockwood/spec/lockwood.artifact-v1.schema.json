@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.artifact-v1.schema.json",
+  "title": "Lockwood artifact reference",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "digest", "size_bytes", "media_type"],
+  "properties": {
+    "schema": {"const": "lockwood.artifact/v1"},
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "media_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "logical_name": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

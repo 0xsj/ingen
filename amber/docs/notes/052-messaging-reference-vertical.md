@@ -33,6 +33,23 @@ consumer-owned transition explicit. A broker-specific adapter can supply
 delivery, retry, acknowledgement, and transaction semantics without changing
 Amber's portable message contract.
 
+## Example
+
+Run the broker-neutral Go consumer example without a broker:
+
+```sh
+make example-go-messaging
+```
+
+The TypeScript equivalent is included in `make examples` through
+`example-typescript-messaging`.
+
+## Gotchas
+
+- Broker delivery, acknowledgement, retry, and transaction behavior remain
+  outside the portable middleware.
+- The reference flow uses in-process messages and memory storage only.
+
 ## Used in
 
 - [`go/adapters/messaging/messaging.go`](../../go/adapters/messaging/messaging.go)

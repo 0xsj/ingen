@@ -1,0 +1,44 @@
+schema: paddock.architecture/v1
+project: monorepo-typescript
+
+source:
+  language: typescript
+  unit: file
+  roots: [packages]
+
+components:
+  shared:
+    match: packages/shared/src/**
+    labels:
+      role: shared
+      layer: 0
+
+  orders-domain:
+    match: packages/orders/src/domain/**
+    labels:
+      role: domain
+      context: orders
+      layer: 1
+
+  orders-application:
+    match: packages/orders/src/application/**
+    labels:
+      role: application
+      context: orders
+      layer: 2
+
+  orders-entrypoint:
+    match: packages/orders/src/index.ts
+    labels:
+      role: composition
+      context: orders
+      layer: 3
+
+rules:
+  - id: no-cycles
+    kind: no-cycles
+    message: workspace packages must remain acyclic
+
+  - id: no-unresolved-imports
+    kind: unresolved
+    message: package aliases and relative imports must resolve

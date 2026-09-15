@@ -1,0 +1,19 @@
+mutation_catalogue:
+  schema: ingen.mutation-catalogue/v1
+  id: webhook-validation-mutations
+  version: 1
+  contract_id: webhook-validation
+  contract_version: 1
+
+  mutations:
+    - id: accepts-duplicate
+      plane: implementation
+      operator: state.idempotency.disable
+      target: POST /webhooks/events
+      description: Accept a repeated event ID as a new delivery instead of returning the contracted duplicate response.
+      change:
+        from: reject-duplicate
+        to: accept-duplicate
+      expected_rule_ids:
+        - webhook.duplicate-is-idempotent
+      status: candidate

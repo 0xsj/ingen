@@ -30,6 +30,27 @@ This makes the trust boundary operationally visible while preserving Amber's
 v1 scope. Applications still own authentication, authorization, allowlists,
 key management, and any cryptographic envelope verification.
 
+## Example
+
+Provide a validator at the reference HTTP boundary when the application needs
+trust decisions beyond structural validation:
+
+```go
+server := amberhttp.MiddlewareWithValidator(
+    application,
+    amber.IncomingReject,
+    validateIncoming,
+)
+```
+
+The TypeScript reference handler exposes the corresponding validator hook.
+
+## Gotchas
+
+- A validator is application-owned policy; Amber does not authenticate or
+  authorize the caller.
+- The default path remains structurally validating and unsigned.
+
 ## Used in
 
 - [`go/examples/service/main.go`](../../go/examples/service/main.go)

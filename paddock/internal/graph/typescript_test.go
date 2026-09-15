@@ -29,6 +29,29 @@ func TestTypeScriptAdapterResolvesAliasesAndReportsUnresolvedEdges(t *testing.T)
 	}
 }
 
+func TestTypeScriptAdapterResolvesWorkspaceAliases(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	root := filepath.Join(repoRoot, "paddock", "examples", "services", "monorepo-ts", "good")
+	loaded, err := graph.LoadTypeScript(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantEdges := []struct {
+		from string
+		to   string
+	}{
+		{from: "packages/orders/src/domain/order.ts", to: "packages/shared/src/id.ts"},
+		{from: "packages/orders/src/application/service.ts", to: "packages/orders/src/domain/order.ts"},
+		{from: "packages/orders/src/index.ts", to: "packages/orders/src/application/service.ts"},
+	}
+	for _, want := range wantEdges {
+		if !hasEdge(loaded, want.from, want.to, "internal") {
+			t.Fatalf("workspace alias was not resolved from %s to %s: %#v", want.from, want.to, loaded.Edges)
+		}
+	}
+}
+
 func TestTypeScriptAdapterLoadsJSONCAndExtendedConfigs(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "config", "src"), 0o755); err != nil {

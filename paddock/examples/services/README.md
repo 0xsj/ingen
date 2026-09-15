@@ -9,11 +9,12 @@ deliberate structural defect:
 | Fixture | Deliberate violation |
 | --- | --- |
 | `layered-go` | the domain imports a transport package |
-| `hexagonal-go` | the domain imports `net/http` |
+| `hexagonal-go` | the domain imports `net/http`; its focused proposal variant has application code import an outbound adapter |
 | `modular-monolith-go` | orders imports billing internals directly |
 | `cyclic-go` | alpha and beta import each other |
 | `architecture-boundaries-go` | the good variant uses an approved shared-kernel value; the violating variant imports storage from the domain and infrastructure from the application |
 | `feature-sliced-ts` | shared code imports a feature and features cross-import |
+| `monorepo-ts` | a shared workspace package imports an orders domain package |
 | `python-hexagonal` | the domain imports a concrete adapter |
 
 The fixtures should remain small enough that a reviewer can hold the whole
@@ -33,6 +34,10 @@ paddock check paddock/examples/services/layered-go/violating \
 
 paddock check paddock/examples/services/feature-sliced-ts/violating \
   --policy paddock/examples/feature-sliced-frontend.yaml
+
+paddock policy test \
+  --policy paddock/examples/monorepo-ts.yaml \
+  --cases paddock/examples/monorepo-typescript.policy-tests.yaml
 
 paddock check paddock/examples/services/python-hexagonal/violating \
   --policy paddock/examples/python-hexagonal.yaml
@@ -60,6 +65,24 @@ The failing case requires `domain-is-pure`,
 `application-not-infrastructure`, and `layers-point-inward`, so the fixture
 guards both the policy intent and the explanation rule IDs.
 
+The same fixture also covers a focused policy proposal. The before-policy
+intentionally rejects the good service's shared-kernel value; the current
+architecture-boundaries policy proposes allowing it while preserving the
+application and domain boundaries:
+
+```sh
+paddock policy review \
+  --before paddock/examples/architecture-boundaries-before-shared-kernel.yaml \
+  --after paddock/examples/architecture-boundaries.yaml \
+  --cases paddock/examples/architecture-boundaries-proposal.policy-tests.yaml \
+  --output paddock-policy-review.json \
+  --format json
+```
+
+The acceptance suite expects this to remain a one-rule diff with two passing
+policy-test cases. Review success is evidence for a proposal; it does not
+create a policy lock.
+
 The modular-monolith policy test covers the bounded-context case:
 
 ```sh
@@ -71,6 +94,55 @@ paddock policy test \
 It proves that public context APIs and shared-kernel code are allowed while
 direct access to another context's internals is attributed to both the
 privacy and mediation rules.
+
+The same subjects cover a focused cross-context proposal. The before-policy
+has no cross-context boundary rules; the current modular-monolith policy adds
+public-API privacy and mediated-access enforcement:
+
+```sh
+paddock policy review \
+  --before paddock/examples/modular-monolith-before-boundaries.yaml \
+  --after paddock/examples/modular-monolith.yaml \
+  --cases paddock/examples/modular-monolith-proposal.policy-tests.yaml \
+  --output paddock-policy-review.json \
+  --format json
+```
+
+The acceptance suite expects two added rules, a passing good case, and a
+violating case attributed to both boundary rules.
+
+The hexagonal fixture also covers a focused adapter-direction proposal. Its
+before-policy leaves application-to-adapter imports unregulated; the proposal
+adds only `application-points-inward` and uses a deliberately small violating
+service where application code imports an outbound adapter:
+
+```sh
+paddock policy review \
+  --before paddock/examples/hexagonal-before-application-boundary.yaml \
+  --after paddock/examples/hexagonal-application-boundary-proposal.yaml \
+  --cases paddock/examples/hexagonal-application-boundary-proposal.policy-tests.yaml \
+  --output paddock-policy-review.json \
+  --format json
+```
+
+The proposal must remain a one-rule diff, with the good service passing and
+the violating service attributed to `application-points-inward`.
+
+The TypeScript monorepo fixture verifies that the same proposal workflow is
+language-neutral. The before-policy checks only graph integrity; the proposal
+adds one `shared-is-independent` rule for the package alias boundary:
+
+```sh
+paddock policy review \
+  --before paddock/examples/monorepo-typescript-before-shared-boundary.yaml \
+  --after paddock/examples/monorepo-typescript-shared-boundary-proposal.yaml \
+  --cases paddock/examples/monorepo-typescript-shared-boundary-proposal.policy-tests.yaml \
+  --output paddock-policy-review.json \
+  --format json
+```
+
+The proposal must remain a one-rule diff, with the good workspace passing and
+the violating alias import attributed to `shared-is-independent`.
 
 The same manifest-driven workflow is covered for the TypeScript and Python
 adapters:

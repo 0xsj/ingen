@@ -1,0 +1,38 @@
+policy:
+  schema: ingen.policy/v1
+  id: webhook-validation-subject
+  version: 1
+  status: draft
+  purpose: managed-subject-public-boundary
+  enforcement: host-enforced
+
+  filesystem:
+    read:
+      - path: .artifacts/webhook-validation-subject
+        reason: compiled webhook subject binary
+    write: []
+    deny:
+      - path: examples/webhook-validation-lab/contract
+        reason: subject must not read the contract as private verifier input
+      - path: examples/webhook-validation-lab/defects
+        reason: subject must not inspect mutation source or fixture implementation
+      - path: .artifacts/webhook-validation-go-provider
+        reason: subject must not inspect copied source-provider variants
+      - path: .artifacts/webhook-validation-oracle
+        reason: subject must not read frozen oracle evidence
+      - path: .git
+        reason: repository history and metadata are outside the subject boundary
+
+  network:
+    mode: allowlist
+    allow:
+      - host: localhost
+        ports:
+          - 8090
+          - 8091
+        direction: inbound
+        purpose: local Sorna readiness, public requests, and controlled mutation variants
+
+  process:
+    subject_id: webhook-validation
+    can_invoke_subject: false

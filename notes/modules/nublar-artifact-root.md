@@ -22,10 +22,21 @@ The preferred local entry point is:
 make nublar-aggregate-fresh
 ```
 
-It snapshots the current source tree into a new temporary workspace, excludes
+The persisted run path has a matching clean-workspace entry point:
+
+```sh
+make nublar-run-collect-fresh
+```
+
+It uses a new artifact root and a new run store, so both producer inputs and
+Nublar run history are independent of the caller's existing `.artifacts`.
+
+The fresh targets snapshot the current source tree into a new temporary
+workspace, exclude
 `.git`, `.artifacts`, and `.cache`, leaves the artifacts available for review,
-and prints the workspace even when an inner producer fails. Running inside the
-new workspace is important: Sorna's filesystem policies are relative to the
+reuse the configured Go caches for offline-safe dependency resolution, and
+print the workspace even when an inner producer fails. Running inside the new
+workspace is important: Sorna's filesystem policies are relative to the
 workspace and must continue to cover the oracle and subject paths.
 
 The root is an artifact-collection boundary, not a security boundary. Sorna's

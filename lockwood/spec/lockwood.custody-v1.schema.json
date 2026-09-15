@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.custody-v1.schema.json",
+  "title": "Lockwood custody record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "custody_id",
+    "status",
+    "artifact",
+    "received_at",
+    "producer",
+    "custodian",
+    "source",
+    "integrity",
+    "parents",
+    "handling"
+  ],
+  "properties": {
+    "schema": {"const": "lockwood.custody/v1"},
+    "custody_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "status": {
+      "enum": ["accepted", "quarantined", "rejected"]
+    },
+    "artifact": {"$ref": "lockwood.artifact-v1.schema.json"},
+    "received_at": {"type": "string", "format": "date-time"},
+    "producer": {"$ref": "#/$defs/producer"},
+    "custodian": {"$ref": "#/$defs/custodian"},
+    "source": {"$ref": "#/$defs/source"},
+    "integrity": {"$ref": "#/$defs/integrity"},
+    "parents": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/lineage"}
+    },
+    "handling": {"$ref": "#/$defs/handling"}
+  },
+  "$defs": {
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "kind"],
+      "properties": {
+        "tool": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "custodian": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool"],
+      "properties": {
+        "tool": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "run_id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "method"],
+      "properties": {
+        "status": {
+          "enum": ["verified", "failed", "not-checked"]
+        },
+        "method": {"const": "sha256"},
+        "verified_at": {"type": "string", "format": "date-time"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "verified"}}},
+          "then": {"required": ["verified_at"]}
+        }
+      ]
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation", "digest"],
+      "properties": {
+        "relation": {
+          "enum": ["references", "derived-from", "contains", "verifies"]
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "handling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["redaction", "retention_class"],
+      "properties": {
+        "redaction": {
+          "enum": ["none", "redacted"]
+        },
+        "retention_class": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "accepted"}}},
+      "then": {
+        "properties": {
+          "integrity": {
+            "properties": {
+              "status": {"const": "verified"}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

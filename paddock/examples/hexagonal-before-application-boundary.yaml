@@ -1,0 +1,60 @@
+schema: paddock.architecture/v1
+project: hexagonal-application
+
+source:
+  language: go
+  unit: package
+  roots: [cmd, internal]
+
+components:
+  domain:
+    match: internal/{context}/domain/**
+    labels:
+      role: domain
+      context: "{context}"
+
+  application:
+    match: internal/{context}/application/**
+    labels:
+      role: application
+      context: "{context}"
+
+  port:
+    match: internal/{context}/ports/**
+    labels:
+      role: port
+      context: "{context}"
+
+  inbound-adapter:
+    match: internal/{context}/adapters/inbound/**
+    labels:
+      role: inbound-adapter
+      context: "{context}"
+
+  outbound-adapter:
+    match: internal/{context}/adapters/outbound/**
+    labels:
+      role: outbound-adapter
+      context: "{context}"
+
+  composition:
+    match: cmd/**
+    labels:
+      role: composition
+
+rules:
+  - id: domain-is-pure
+    kind: allow-dependencies
+    from: {role: domain}
+    allow:
+      - standard-library:errors
+      - standard-library:fmt
+      - {role: domain, context: same}
+      - {role: port, context: same}
+    message: the domain depends on stable abstractions, not infrastructure
+
+  - id: contexts-are-islands
+    kind: no-cross-context
+    from: [{role: domain}, {role: application}, {role: port}]
+    to: [{role: domain}, {role: application}, {role: port}]
+    message: one bounded context must not import another bounded context

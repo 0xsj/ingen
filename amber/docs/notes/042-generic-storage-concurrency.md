@@ -26,6 +26,18 @@ insert-if-absent behavior. End-to-end concurrency coverage verifies that these
 responsibilities compose without duplicate records, lost writes, conflicts on
 identical retries, or unsafe map access.
 
+## Example
+
+Run Go's race-enabled storage coverage and the TypeScript contract coverage with:
+
+```sh
+make race
+cd typescript && npm test
+```
+
+Both suites exercise duplicate writes and concurrent history reads through the
+generic key-value seam.
+
 ## Gotchas
 
 - The built-in map backends are reference implementations; this does not prove

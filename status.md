@@ -48,6 +48,13 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - The persistence mutation demonstrates that a green create response can still be invalid across requests; the campaign preserves the resulting failure blast radius in its diagnosis.
 - `sorna-ci-result` now includes the clean baseline run, so the fresh workflow no longer depends on a pre-existing run bundle.
 - Notes, module explanations, Make targets, and example documentation have been kept alongside the implementation.
+- The first post-alpha webhook-validation lab now has a contract, isolated policies, a stateful black-box Go subject, a baseline workflow, and a fixture-based duplicate-idempotency mutation campaign; a webhook-specific source provider and Nublar integration remain intentionally deferred.
+- The webhook fixture campaign froze one semantic mutation, killed it with the duplicate rule, and preserved the campaign result as a passing CI envelope; the fixture path remains local-only until a source-level webhook provider is justified.
+- The reusable Go provider now supports the webhook mutation set with strict exact-plan binding, preparation evidence, and a source-level campaign target; the source provider remains vertical-aware at the target resolver, not in the generic preparation machinery.
+- The strict webhook source-provider campaign passed: one copied Go source variant was prepared, its provider and preparation envelopes passed, and the duplicate-idempotency mutation was killed in isolation.
+- The webhook vertical now has a Nublar workflow declaration and fresh aggregate/run-collection targets; Nublar consumes four opaque Sorna envelopes without adding webhook-specific semantics.
+- Sentinel now has a versioned webhook contract-workspace manifest and structural validator; it assembles role capabilities and Sorna/Nublar references without duplicating behavioral verification.
+- Sentinel now has a versioned lifecycle receipt that hashes the workspace manifest and records ordered, artifact-linked orchestration events without reinterpreting Sorna or Nublar results.
 
 ## Useful entry points
 
@@ -57,6 +64,12 @@ make mutation-provider-ci-result
 make mutation-campaign-ci-result
 make mutation-go-provider-ci-result
 make mutation-go-campaign-ci-result
+make webhook-alpha
+make webhook-mutation-alpha
+make webhook-go-mutation-alpha
+make nublar-webhook-aggregate-fresh
+make sentinel-workspace-validate
+make sentinel-run-bootstrap
 make nublar-aggregate
 ```
 
@@ -121,8 +134,14 @@ These are candidate directions, not an artificial checklist to complete all at o
 ## Recommended next step
 
 The Sorna alpha interface and committed-checkout reproducibility checkpoints
-now pass. Freeze this alpha baseline, then choose one post-alpha surface: a
-webhook validation lab or Sentinel contract-workspace design. New providers
-and broader mutation families stay behind that decision.
+now pass. The webhook validation lab is the first post-alpha surface and now
+has one campaign-level proof. The next deliberate choice is whether its
+fixture provider has earned a source-level webhook provider, or whether the
+source-provider path should be expanded with another meaningful webhook
+mutation, or whether this Nublar workflow should become the input to a
+Sentinel contract workspace design. The first workspace manifest now exists;
+the first lifecycle receipt now exists; the next choice is whether to add a
+real Herdr event adapter or enforce the declared role capabilities in a host
+execution boundary.
 
 This file is a project checkpoint, not a requirement to implement every avenue listed above immediately.

@@ -92,6 +92,9 @@ out-of-scope portions of the project in
 Contributor workflow and release handoff procedures are documented in
 [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`RELEASE.md`](RELEASE.md).
 
+The open version and tag decisions are recorded in
+[`VERSIONING.md`](VERSIONING.md).
+
 New users can start with the cross-language
 [`docs/getting-started.md`](docs/getting-started.md) guide.
 

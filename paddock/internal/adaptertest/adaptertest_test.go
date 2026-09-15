@@ -80,7 +80,7 @@ cases:
 	if document.Cases[0].Actual != "pass" || document.Cases[0].PackageCount != 2 || document.Cases[0].EdgeCount != 1 {
 		t.Fatalf("unexpected passing adapter case: %#v", document.Cases[0])
 	}
-	if document.Cases[1].Actual != "error" || document.Cases[1].Error == "" {
+	if document.Cases[1].Actual != "error" || document.Cases[1].ErrorCode != "language-mismatch" || document.Cases[1].Error == "" {
 		t.Fatalf("unexpected expected-error adapter case: %#v", document.Cases[1])
 	}
 	if err := document.Validate(); err != nil {

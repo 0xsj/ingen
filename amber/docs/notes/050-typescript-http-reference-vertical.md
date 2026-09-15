@@ -32,6 +32,24 @@ introducing a framework-specific Node server or a mandatory storage runtime.
 Fetch-compatible applications can provide their own server, worker, or
 framework adapter and their own durable `ProvenanceStore`.
 
+## Example
+
+Run the TypeScript reference-service tests with:
+
+```sh
+cd typescript
+npm test
+```
+
+The suite covers accepted, absent, and malformed inbound requests as well as
+explicit child response propagation.
+
+## Gotchas
+
+- The handler is Fetch-compatible rather than tied to a specific Node server
+  or web framework.
+- Applications still choose storage, routing, and deployment trust policy.
+
 ## Used in
 
 - [`typescript/src/reference-service.ts`](../../typescript/src/reference-service.ts)

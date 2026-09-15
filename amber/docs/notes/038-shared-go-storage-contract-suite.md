@@ -23,9 +23,9 @@ It exercises every local `Store` implementation for:
 
 The harness inserts a child before its parent and retry, making insertion order
 different from the required history order. The opt-in live PostgreSQL test uses
-the same suite after creating its transaction-local schema. PostgreSQL queries
-now order directly from the stored JSONB `depth` and `attempt` fields, followed
-by `execution_id`.
+the same suite after the application-managed migration has been applied and
+the schema has been verified. PostgreSQL queries now order directly from the
+stored JSONB `depth` and `attempt` fields, followed by `execution_id`.
 
 ## Why
 
@@ -33,6 +33,18 @@ A backend that satisfies only `Put` and `Get` can still return misleading
 history or silently diverge on cancellation and conflict semantics. One suite
 keeps the portable contract explicit and gives future adapters a concrete
 acceptance bar.
+
+## Example
+
+Run the offline implementations through the shared contract with:
+
+```sh
+cd go
+go test ./adapters/storage -run 'Test.*StoreContract' -count=1
+```
+
+Run the same contract against a migrated PostgreSQL database with
+`AMBER_POSTGRES_DSN=... make postgres-integration`.
 
 ## Gotchas
 

@@ -1,0 +1,20 @@
+mutation_provider:
+  schema: ingen.mutation-provider/v1
+  id: webhook-validation-fixtures
+  version: 1
+  plan_schema: ingen.mutation-plan/v1
+
+  # This is a temporary prebuilt-variant provider. It proves the webhook
+  # campaign handoff without pretending to be a general source mutator.
+  capabilities:
+    - plane: implementation
+      operator: state.idempotency.disable
+      target: POST /webhooks/events
+  entries:
+    - mutation_id: accepts-duplicate
+      command: .artifacts/webhook-validation-subject/webhook-validation-defect
+      args:
+        - -addr
+        - "${SORA_ADDR}"
+      subject_root: .
+      variant: accepts-duplicate

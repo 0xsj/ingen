@@ -30,6 +30,27 @@ This keeps the two operational contracts explicit:
 - the read-only command proves that an already-migrated database reports the
   schema version expected by the adapter.
 
+## Example
+
+The PostgreSQL workflow's migration-first sequence is:
+
+```sh
+AMBER_POSTGRES_DSN='postgres://amber:amber@localhost:5432/amber?sslmode=disable' \
+  make postgres-apply-migration
+AMBER_POSTGRES_DSN='postgres://amber:amber@localhost:5432/amber?sslmode=disable' \
+  make postgres-schema-check
+AMBER_POSTGRES_DSN='postgres://amber:amber@localhost:5432/amber?sslmode=disable' \
+  make postgres-integration
+```
+
+## Gotchas
+
+- The service job uses PostgreSQL 16; managed deployments still require their
+  own compatibility check.
+- Hosted workflow results are external evidence and must not be inferred from
+  a local `make release-check` pass.
+- The default release gate remains service-free and does not run these targets.
+
 ## Used in
 
 - [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)

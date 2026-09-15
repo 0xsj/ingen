@@ -1,0 +1,13 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: shared-kernel-proposal-unblocks-approved-value
+    root: services/architecture-boundaries-go/good
+    expect: pass
+
+  - name: shared-kernel-proposal-preserves-boundaries
+    root: services/architecture-boundaries-go/violating
+    expect: fail
+    require_rules:
+      - domain-is-pure
+      - application-not-infrastructure
+      - layers-point-inward

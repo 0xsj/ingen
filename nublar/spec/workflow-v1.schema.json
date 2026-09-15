@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.nublar-workflow-v1.schema.json",
+  "title": "InGen Nublar workflow declaration",
+  "description": "A declarative set of producer result checks collected by Nublar.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "checks"],
+  "properties": {
+    "schema": {"const": "ingen.nublar-workflow/v1"},
+    "id": {"type": "string", "minLength": 1},
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "tool", "result"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "tool": {"type": "string", "minLength": 1},
+          "result": {"type": "string", "minLength": 1},
+          "required": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

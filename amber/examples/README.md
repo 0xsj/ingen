@@ -22,6 +22,13 @@ portable across Node and browser-oriented runtimes.
 The examples use `httptest`/`Request` objects rather than opening a network
 port, so they demonstrate adapter composition without external services.
 
+The smallest root/context/child walkthroughs are available as
+[`go/examples/getting-started`](../go/examples/getting-started/) and
+[`typescript/src/getting-started-example.ts`](../typescript/src/getting-started-example.ts).
+Run them individually with `make example-go-getting-started` and
+`make example-typescript-getting-started`, or use `make examples` for the full
+set.
+
 The OpenTelemetry examples separately show application-owned tracer setup,
 Amber span enrichment, and finished-span inspection using in-memory SDK
 recorders. They do not require a collector or network destination.

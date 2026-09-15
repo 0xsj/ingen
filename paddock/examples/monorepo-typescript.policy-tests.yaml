@@ -1,0 +1,12 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: workspace-aliases-and-boundaries
+    root: services/monorepo-ts/good
+    expect: pass
+
+  - name: shared-package-boundary-violation
+    root: services/monorepo-ts/violating
+    expect: fail
+    require_rules:
+      - layers-point-inward
+      - shared-is-independent

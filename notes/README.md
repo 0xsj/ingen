@@ -33,6 +33,17 @@ These are starting points, not a second architecture document.
 ## Current notes
 
 - [The contract can cross language boundaries](concepts/the-contract-can-cross-language-boundaries.md)
+- [A webhook lab needs idempotency before delivery infrastructure](modules/webhook-validation-lab.md)
+- [A webhook mutation should break idempotency across requests](modules/webhook-idempotency-mutation.md)
+- [A source provider should share preparation mechanics but own target meaning](modules/webhook-go-source-provider.md)
+- [A second vertical should enter Nublar through the same opaque CI envelope](modules/nublar-webhook-workflow.md)
+- [A Sentinel workspace assembles handoffs without becoming a second verifier](modules/sentinel-contract-workspace.md)
+- [A Sentinel receipt connects lifecycle events to opaque artifacts](modules/sentinel-run-receipt.md)
+- [Hammond approval governs identified bytes, not behavior](modules/hammond-governance-artifact-identity.md)
+- [A governance schema must be enforced at the load boundary](modules/hammond-schema-runtime-validation.md)
+- [A valid governance lineage is more than an acyclic graph](modules/hammond-lineage-is-semantic.md)
+- [A review decision must belong to the review cycle it closes](modules/hammond-review-cycle-binding.md)
+- [A governance state must name the policy that materializes it](modules/hammond-review-policy-boundary.md)
 - [A state label is not an executable transition](concepts/a-state-label-is-not-a-transition.md)
 - [A subject URL is not an isolation boundary](concepts/a-url-is-not-an-isolation-boundary.md)
 - [A killed mutation proves sensitivity, not correctness](concepts/a-killed-mutation-proves-sensitivity.md)

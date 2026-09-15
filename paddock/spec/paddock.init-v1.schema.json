@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.init-v1.schema.json",
+  "title": "Paddock initialization summary",
+  "description": "Agent-facing summary of a generated draft policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "root",
+    "output",
+    "language",
+    "source_unit",
+    "template",
+    "component_count",
+    "unclassified_components",
+    "warning_rules",
+    "review_required"
+  ],
+  "properties": {
+    "schema": {"const": "paddock.init/v1"},
+    "root": {"type": "string", "minLength": 1},
+    "output": {"type": "string", "minLength": 1},
+    "language": {"type": "string", "minLength": 1},
+    "source_unit": {"enum": ["package", "file"]},
+    "template": {"type": "string", "minLength": 1},
+    "source_unit_count": {"type": "integer", "minimum": 1},
+    "edge_count": {"type": "integer", "minimum": 0},
+    "component_count": {"type": "integer", "minimum": 1},
+    "unclassified_components": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "warning_rules": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "review_required": {"const": true}
+  }
+}

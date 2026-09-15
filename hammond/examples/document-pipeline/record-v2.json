@@ -1,0 +1,23 @@
+{
+  "schema": "ingen.hammond-governance/v1",
+  "record_id": "document-pipeline-v2",
+  "contract": {
+    "project_id": "document-pipeline",
+    "id": "document-pipeline",
+    "version": 2,
+    "schema": "ingen.contract/v1",
+    "artifact": {
+      "uri": "examples/document-pipeline-lab/contract/contract.yaml",
+      "sha256": "6b40dfb15fa67f96c9f3bc79bc46206d45f6d44124197b344757499299e43445"
+    }
+  },
+  "state": "registered",
+  "events": [
+    {
+      "id": "event-001",
+      "type": "registered",
+      "actor": "contract-owner",
+      "at": "2026-09-15T00:00:00Z"
+    }
+  ]
+}

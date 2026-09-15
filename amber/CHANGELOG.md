@@ -31,8 +31,8 @@ All notable changes to Amber are documented here.
   fuzzing, and runnable examples.
 - Added an optional Go PostgreSQL storage adapter with JSONB persistence,
   indexed history queries, and append-only conflict semantics.
-- Added an opt-in live PostgreSQL integration check using pgx and a rolled-back
-  transaction; the default release gate remains offline.
+- Added an opt-in live PostgreSQL integration check using pgx against an
+  application-migrated schema; the default release gate remains offline.
 - Added a generic Go key-value storage seam so applications can provide their
   own backend while Amber retains serialization and append-only invariants.
 - Added an explicit optional Go PostgreSQL package import path for the
@@ -85,6 +85,12 @@ All notable changes to Amber are documented here.
   conditions.
 - Added a cross-language getting-started guide and a Go SDK README for first-use
   adoption and adapter-boundary orientation.
+- Added runnable Go and TypeScript getting-started examples to keep the first-use
+  snippets covered by the examples and release-candidate gates.
+- Recorded the current package/module version facts and approved synchronized
+  `0.1.0` release identity without creating tags or publishing artifacts.
+- Established `VERSION` as the release-version source and added a TypeScript
+  consistency check for the `0.1.0` package and lockfile metadata.
 
 Before publishing a release, move the completed entries into a versioned
 section and record any compatibility or wire-format changes explicitly.

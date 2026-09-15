@@ -23,6 +23,7 @@ schema identities and meanings stable until an intentional interface review:
 | CI result envelope | `ingen.ci-result/v1` | InGen core | Language-neutral status, exit code, source identity, input hashes, and opaque producer report. |
 | Nublar workflow | `ingen.nublar-workflow/v1` | Nublar | Required/optional CI result paths resolved under an artifact root. |
 | Nublar aggregate | `ingen.nublar-result/v1` | Nublar | Preserved input envelopes plus severity composition. |
+| Nublar decision | `ingen.nublar-decision/v1` | Nublar | Provider-neutral delivery projection without producer reports. |
 
 The `v1` labels are alpha interfaces, not a claim that every field is already
 ideal. A breaking field or semantic change must be deliberate, documented, and

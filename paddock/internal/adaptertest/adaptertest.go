@@ -72,6 +72,7 @@ type CaseResult struct {
 	AssertionsPassed bool   `json:"assertions_passed"`
 	PackageCount     int    `json:"package_count,omitempty"`
 	EdgeCount        int    `json:"edge_count,omitempty"`
+	ErrorCode        string `json:"error_code,omitempty"`
 	Error            string `json:"error,omitempty"`
 }
 
@@ -238,6 +239,7 @@ func Run(manifestPath string) (Document, error) {
 		}
 		if checkErr != nil {
 			caseResult.Actual = "error"
+			caseResult.ErrorCode = graph.ValidationCode(checkErr)
 			caseResult.Error = checkErr.Error()
 			if testCase.ErrorContains != "" && !strings.Contains(caseResult.Error, testCase.ErrorContains) {
 				caseResult.AssertionsPassed = false
@@ -248,10 +250,16 @@ func Run(manifestPath string) (Document, error) {
 			caseResult.EdgeCount = response.EdgeCount
 			if testCase.PackageCount != nil && response.PackageCount != *testCase.PackageCount {
 				caseResult.AssertionsPassed = false
+				caseResult.ErrorCode = "package-count-mismatch"
 				caseResult.Error = fmt.Sprintf("package_count = %d, want %d", response.PackageCount, *testCase.PackageCount)
 			}
 			if testCase.EdgeCount != nil && response.EdgeCount != *testCase.EdgeCount {
 				caseResult.AssertionsPassed = false
+				if caseResult.ErrorCode != "" {
+					caseResult.ErrorCode = "graph-count-mismatch"
+				} else {
+					caseResult.ErrorCode = "edge-count-mismatch"
+				}
 				caseResult.Error = appendError(caseResult.Error, fmt.Sprintf("edge_count = %d, want %d", response.EdgeCount, *testCase.EdgeCount))
 			}
 		}
@@ -390,6 +398,9 @@ func (d Document) Validate() error {
 		if testCase.Actual == "error" && testCase.Error == "" {
 			return fmt.Errorf("adapter test result case %q error outcome needs an error", testCase.Name)
 		}
+		if testCase.ErrorCode != "" && strings.TrimSpace(testCase.ErrorCode) == "" {
+			return fmt.Errorf("adapter test result case %q has an empty error code", testCase.Name)
+		}
 	}
 	return nil
 }
@@ -416,6 +427,9 @@ func Text(w io.Writer, document Document) error {
 			detail += fmt.Sprintf(", %d packages, %d edges", testCase.PackageCount, testCase.EdgeCount)
 		}
 		if testCase.Error != "" {
+			if testCase.ErrorCode != "" {
+				detail += " [" + testCase.ErrorCode + "]"
+			}
 			detail += ": " + testCase.Error
 		}
 		if _, err := fmt.Fprintf(w, "  %s %s (%s)\n", testCase.Status, testCase.Name, detail); err != nil {

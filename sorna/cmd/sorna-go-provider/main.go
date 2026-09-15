@@ -1,5 +1,6 @@
-// Command sorna-go-provider prepares the first source-level Go mutation
-// variant for the document-pipeline lab.
+// Command sorna-go-provider prepares source-level Go mutation variants for a
+// selected InGen subject. The generic provider owns copying and building;
+// each subject supplies its own narrow target resolver.
 package main
 
 import (
@@ -30,16 +31,32 @@ func run(args []string) int {
 	sourceRoot := flags.String("source-root", ".", "clean Go source root")
 	outputDir := flags.String("output-dir", ".artifacts/document-pipeline-go-provider", "retained copied mutation source variants")
 	binaryDir := flags.String("binary-dir", ".artifacts/document-pipeline-subject/go-mutations", "runnable mutation binaries")
-	buildPackage := flags.String("build-package", "./examples/document-pipeline-lab/subject/cmd/document-pipeline", "Go package to build in each copied variant")
-	providerID := flags.String("provider-id", "document-pipeline-go-source", "generated provider manifest ID")
+	subject := flags.String("subject", "document-pipeline", "subject mutation set: document-pipeline or webhook-validation")
+	buildPackage := flags.String("build-package", "", "optional Go package override to build in each copied variant")
+	providerID := flags.String("provider-id", "", "optional generated provider manifest ID override")
+	binaryName := flags.String("binary-name", "", "optional runnable binary name override")
 	providerPath := flags.String("provider", "", "generated provider manifest path; defaults inside output-dir")
 	summaryPath := flags.String("summary-output", "", "preparation summary path; defaults inside output-dir")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if len(flags.Args()) != 0 {
-		fmt.Fprintln(os.Stderr, "usage: sorna-go-provider [--plan <path>] [--source-root <dir>] [--output-dir <dir>] [--binary-dir <dir>] [--build-package <package>] [--provider <path>] [--summary-output <path>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna-go-provider [--subject document-pipeline|webhook-validation] [--plan <path>] [--source-root <dir>] [--output-dir <dir>] [--binary-dir <dir>] [--build-package <package>] [--provider-id <id>] [--binary-name <name>] [--provider <path>] [--summary-output <path>]")
 		return 2
+	}
+	config, err := configurationForSubject(*subject)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if *buildPackage != "" {
+		config.BuildPackage = *buildPackage
+	}
+	if *providerID != "" {
+		config.ProviderID = *providerID
+	}
+	if *binaryName != "" {
+		config.BinaryName = *binaryName
 	}
 	planBytes, err := os.ReadFile(*planPath)
 	if err != nil {
@@ -65,20 +82,12 @@ func run(args []string) int {
 		SourceRoot:   *sourceRoot,
 		OutputDir:    *outputDir,
 		BinaryDir:    *binaryDir,
-		BuildPackage: *buildPackage,
-		BinaryName:   "document-pipeline",
-		ProviderID:   *providerID,
-		Capabilities: []campaign.ProviderCapability{
-			{Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents"},
-			{Plane: "implementation", Operator: "response.field.remove", Target: "POST /documents"},
-			{Plane: "implementation", Operator: "response.field.add", Target: "POST /documents"},
-			{Plane: "implementation", Operator: "response.error.status.replace", Target: "POST /documents"},
-			{Plane: "implementation", Operator: "state.transition.replace", Target: "POST /documents/{id}/process"},
-			{Plane: "implementation", Operator: "state.persistence.key.replace", Target: "POST /documents"},
-			{Plane: "implementation", Operator: "input.validation.suffix.add", Target: "POST /documents"},
-		},
-		SubjectArgs: []string{"-addr", "${SORA_ADDR}"},
-		Mutate:      mutateDocumentPipeline,
+		BuildPackage: config.BuildPackage,
+		BinaryName:   config.BinaryName,
+		ProviderID:   config.ProviderID,
+		Capabilities: config.Capabilities,
+		SubjectArgs:  config.SubjectArgs,
+		Mutate:       config.Mutate,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -104,6 +113,50 @@ func run(args []string) int {
 		fmt.Printf("mutation: %s\nbinary: %s\nbinary hash: %s\n", variant.MutationID, variant.BinaryPath, variant.BinarySHA256)
 	}
 	return 0
+}
+
+type sourceProviderConfig struct {
+	BuildPackage string
+	BinaryName   string
+	ProviderID   string
+	Capabilities []campaign.ProviderCapability
+	SubjectArgs  []string
+	Mutate       goprovider.MutateFunc
+}
+
+func configurationForSubject(subject string) (sourceProviderConfig, error) {
+	switch subject {
+	case "document-pipeline":
+		return sourceProviderConfig{
+			BuildPackage: "./examples/document-pipeline-lab/subject/cmd/document-pipeline",
+			BinaryName:   "document-pipeline",
+			ProviderID:   "document-pipeline-go-source",
+			Capabilities: []campaign.ProviderCapability{
+				{Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents"},
+				{Plane: "implementation", Operator: "response.field.remove", Target: "POST /documents"},
+				{Plane: "implementation", Operator: "response.field.add", Target: "POST /documents"},
+				{Plane: "implementation", Operator: "response.error.status.replace", Target: "POST /documents"},
+				{Plane: "implementation", Operator: "state.transition.replace", Target: "POST /documents/{id}/process"},
+				{Plane: "implementation", Operator: "state.persistence.key.replace", Target: "POST /documents"},
+				{Plane: "implementation", Operator: "input.validation.suffix.add", Target: "POST /documents"},
+			},
+			SubjectArgs: []string{"-addr", "${SORA_ADDR}"},
+			Mutate:      mutateDocumentPipeline,
+		}, nil
+	case "webhook-validation":
+		return sourceProviderConfig{
+			BuildPackage: "./examples/webhook-validation-lab/subject/cmd/webhook-validation",
+			BinaryName:   "webhook-validation",
+			ProviderID:   "webhook-validation-go-source",
+			Capabilities: []campaign.ProviderCapability{
+				{Plane: "implementation", Operator: "state.idempotency.disable", Target: "POST /webhooks/events"},
+			},
+			SubjectArgs: []string{"-addr", "${SORA_ADDR}"},
+			Mutate:      mutateWebhookValidation,
+		}, nil
+	default:
+		return sourceProviderConfig{}, fmt.Errorf("unsupported Go provider subject %q", subject)
+	}
 }
 
 // mutateDocumentPipeline is intentionally narrow. It proves that the Go
@@ -533,6 +586,87 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 	}
 	if err := os.WriteFile(path, formatted.Bytes(), 0o644); err != nil {
 		return campaign.ProviderProvenance{}, fmt.Errorf("write mutated document subject source: %w", err)
+	}
+	return provenance, nil
+}
+
+// mutateWebhookValidation is the first webhook-specific source mutation. It
+// disables the duplicate guard while preserving the rest of the subject. The
+// generic Go provider still owns copy, build, hashing, and publication.
+func mutateWebhookValidation(variantRoot string, spec mutation.Spec) (campaign.ProviderProvenance, error) {
+	if spec.Plane != "implementation" {
+		return campaign.ProviderProvenance{}, fmt.Errorf("Go webhook provider only supports implementation mutations")
+	}
+	if spec.Operator != "state.idempotency.disable" || spec.Target != "POST /webhooks/events" {
+		return campaign.ProviderProvenance{}, fmt.Errorf("unsupported webhook mutation %q at %q", spec.Operator, spec.Target)
+	}
+	from, err := changeString(spec, "from")
+	if err != nil {
+		return campaign.ProviderProvenance{}, err
+	}
+	to, err := changeString(spec, "to")
+	if err != nil {
+		return campaign.ProviderProvenance{}, err
+	}
+	if from != "reject-duplicate" || to != "accept-duplicate" {
+		return campaign.ProviderProvenance{}, fmt.Errorf("webhook provider supports only reject-duplicate -> accept-duplicate, got %s -> %s", from, to)
+	}
+
+	provenance := campaign.ProviderProvenance{
+		Location: "examples/webhook-validation-lab/subject/server.go:receiveEvent:duplicate-guard",
+		Before:   "if _, exists := h.store.accepted[input.ID]; exists",
+		After:    "if _, exists := h.store.accepted[input.ID]; exists && false",
+	}
+	path := filepath.Join(variantRoot, "examples", "webhook-validation-lab", "subject", "server.go")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return campaign.ProviderProvenance{}, fmt.Errorf("read webhook subject source: %w", err)
+	}
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, path, contents, parser.ParseComments)
+	if err != nil {
+		return campaign.ProviderProvenance{}, fmt.Errorf("parse webhook subject source: %w", err)
+	}
+
+	var targets []*ast.IfStmt
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name.Name != "receiveEvent" || function.Body == nil {
+			continue
+		}
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			condition, ok := node.(*ast.IfStmt)
+			if !ok {
+				return true
+			}
+			guard, ok := condition.Cond.(*ast.Ident)
+			if !ok || guard.Name != "exists" {
+				return true
+			}
+			targets = append(targets, condition)
+			return true
+		})
+	}
+	if len(targets) != 1 {
+		return campaign.ProviderProvenance{}, campaign.NewTargetResolutionError(spec, provenance.Location, len(targets))
+	}
+
+	targets[0].Cond = &ast.BinaryExpr{
+		X:  ast.NewIdent("exists"),
+		Op: token.LAND,
+		Y:  ast.NewIdent("false"),
+	}
+	provenance.TargetResolution = &campaign.TargetResolution{
+		Selector:       provenance.Location,
+		CandidateCount: len(targets),
+		AppliedCount:   1,
+	}
+	var formatted bytes.Buffer
+	if err := format.Node(&formatted, fileSet, file); err != nil {
+		return campaign.ProviderProvenance{}, fmt.Errorf("format mutated webhook subject source: %w", err)
+	}
+	if err := os.WriteFile(path, formatted.Bytes(), 0o644); err != nil {
+		return campaign.ProviderProvenance{}, fmt.Errorf("write mutated webhook subject source: %w", err)
 	}
 	return provenance, nil
 }

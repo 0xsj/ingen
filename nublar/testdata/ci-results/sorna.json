@@ -1,0 +1,19 @@
+{
+  "schema": "ingen.ci-result/v1",
+  "tool": "sorna",
+  "kind": "behavioral-verification",
+  "status": "passed",
+  "exit_code": 0,
+  "created_at": "2026-09-15T12:00:00Z",
+  "source": {
+    "root": "fixtures/document-pipeline"
+  },
+  "report": {
+    "schema": "test.sorna-report/v1",
+    "cases": 7
+  },
+  "explanation": {
+    "schema": "test.sorna-explanation/v1",
+    "summary": "behavioral checks passed"
+  }
+}

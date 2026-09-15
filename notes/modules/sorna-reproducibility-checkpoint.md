@@ -1,4 +1,13 @@
-# Fresh-workspace reproducibility has two identities
+# A fresh-workspace reproducibility check has two identities
+
+A reproducible workflow can keep its semantic inputs stable while its exact
+run-bound plan bytes change with each baseline execution.
+
+## Origin
+
+This note began when repeated fresh Sorna runs produced different exact plan
+hashes even though the contract, oracle, policy, and mutation meaning were
+unchanged.
 
 ## Question
 
@@ -172,3 +181,8 @@ were stable before the correction.
 This establishes reproducibility for the current committed source on the
 current platform and toolchain. It does not claim that different Go versions,
 architectures, or build environments will produce identical binaries.
+
+## Used in
+
+The Sorna document-pipeline alpha checkpoint, `make nublar-aggregate-fresh`,
+and the committed-checkout reproducibility comparison at `aacaf52`.

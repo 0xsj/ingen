@@ -271,6 +271,29 @@ func TestCLICrossLanguagePolicyTests(t *testing.T) {
 	}
 }
 
+func TestCLIMonorepoTypeScriptPolicyTests(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "monorepo-ts.yaml")
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "monorepo-typescript.policy-tests.yaml")
+	output, exitCode := runCLI(t, cli, repoRoot, "policy", "test", "--policy", policyPath, "--cases", manifestPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("monorepo TypeScript policy test exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var document policytest.Document
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode monorepo TypeScript policy test document: %v\n%s", err, output)
+	}
+	if document.Status != "PASS" || document.Passed != 2 || document.Failed != 0 || len(document.Cases) != 2 {
+		t.Fatalf("unexpected monorepo TypeScript policy test document: %#v", document)
+	}
+	if document.Cases[0].Actual != "pass" || document.Cases[1].Actual != "fail" ||
+		strings.Join(document.Cases[1].FindingRules, ",") != "layers-point-inward,shared-is-independent" ||
+		len(document.Cases[1].MissingRules) != 0 {
+		t.Fatalf("unexpected monorepo TypeScript policy evidence: %#v", document.Cases)
+	}
+}
+
 func TestCLILayeredAndCyclicPolicyTests(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	cli := buildCLI(t, repoRoot)
@@ -456,6 +479,15 @@ func TestBaselineSchemaContract(t *testing.T) {
 	)
 }
 
+func TestInitSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.init-v1.schema.json"),
+		"init summary",
+		[]string{"schema", "root", "output", "language", "source_unit", "template", "component_count", "unclassified_components", "warning_rules", "review_required"},
+	)
+}
+
 func assertSchemaContract(t *testing.T, schemaPath, label string, wantRequired []string) {
 	t.Helper()
 	data, err := os.ReadFile(schemaPath)
@@ -513,6 +545,30 @@ func TestCLIJSONReport(t *testing.T) {
 	}
 	if len(result.Findings) != 2 {
 		t.Fatalf("finding count = %d, want 2; findings: %#v", len(result.Findings), result.Findings)
+	}
+}
+
+func TestCLICleanJSONReportUsesEmptyFindingsArray(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"check",
+		filepath.Join(repoRoot, "paddock", "examples", "services", "feature-sliced-ts", "good"),
+		"--policy", filepath.Join(repoRoot, "paddock", "examples", "feature-sliced-frontend.yaml"),
+		"--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var result model.Result
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("decode clean JSON report: %v\n%s", err, output)
+	}
+	if result.Findings == nil {
+		t.Fatalf("clean report findings must be an empty array, not null: %s", output)
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("clean report finding count = %d, want 0", len(result.Findings))
 	}
 }
 
@@ -752,6 +808,51 @@ func TestCLIInitCreatesReviewableDraft(t *testing.T) {
 		}
 	}
 
+	jsonOutputPath := filepath.Join(t.TempDir(), "paddock.yaml")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"init", source, "--template", "layered", "--output", jsonOutputPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("JSON init failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var summary struct {
+		Schema                 string   `json:"schema"`
+		Root                   string   `json:"root"`
+		Output                 string   `json:"output"`
+		Language               string   `json:"language"`
+		SourceUnit             string   `json:"source_unit"`
+		Template               string   `json:"template"`
+		SourceUnitCount        int      `json:"source_unit_count"`
+		EdgeCount              int      `json:"edge_count"`
+		ComponentCount         int      `json:"component_count"`
+		UnclassifiedComponents []string `json:"unclassified_components"`
+		WarningRules           []string `json:"warning_rules"`
+		ReviewRequired         bool     `json:"review_required"`
+	}
+	if err := json.Unmarshal([]byte(output), &summary); err != nil {
+		t.Fatalf("decode JSON init summary: %v\n%s", err, output)
+	}
+	if summary.Schema != "paddock.init/v1" || summary.Root == "" || summary.Output != jsonOutputPath ||
+		summary.Language != "go" || summary.SourceUnit != "package" || summary.Template != "layered" ||
+		summary.SourceUnitCount == 0 || summary.EdgeCount < 0 || summary.ComponentCount == 0 ||
+		summary.WarningRules == nil || !summary.ReviewRequired {
+		t.Fatalf("unexpected JSON init summary: %#v", summary)
+	}
+	if _, err := policy.Load(jsonOutputPath); err != nil {
+		t.Fatalf("JSON init did not write a valid draft: %v", err)
+	}
+
+	invalidFormatPath := filepath.Join(t.TempDir(), "paddock.yaml")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"init", source, "--template", "layered", "--output", invalidFormatPath, "--format", "yaml",
+	)
+	if exitCode != 2 || !strings.Contains(output, "unsupported format") {
+		t.Fatalf("invalid init format returned exit=%d output:%s", exitCode, output)
+	}
+	if _, err := os.Stat(invalidFormatPath); !os.IsNotExist(err) {
+		t.Fatalf("invalid init format left an output file behind: err=%v", err)
+	}
+
 	output, exitCode = runCLI(t, cli, repoRoot,
 		"init", source, "--template", "layered", "--output", outputPath,
 	)
@@ -852,6 +953,19 @@ func TestCLIAdapterValidate(t *testing.T) {
 	if diagnostics.Schema != graph.ValidationSchema || diagnostics.Operation != "adapter-validate" || diagnostics.Language != "go" || diagnostics.SourceUnit != "file" || diagnostics.Adapter != "python3" || diagnostics.Valid || len(diagnostics.Errors) != 1 || diagnostics.Errors[0].Code != "language-mismatch" || !strings.Contains(diagnostics.Errors[0].Message, "expects language rust") {
 		t.Fatalf("unexpected adapter validation diagnostics: %#v", diagnostics)
 	}
+	graphBadArgs := append([]string{"graph"}, badArgs[2:5]...)
+	graphBadArgs = append(graphBadArgs, badArgs[7:]...)
+	graphBadArgs = append(graphBadArgs, "--format", "json")
+	output, exitCode = runCLI(t, cli, repoRoot, graphBadArgs...)
+	if exitCode != 2 {
+		t.Fatalf("invalid graph JSON exit code = %d, want 2; output:\n%s", exitCode, output)
+	}
+	if err := json.Unmarshal([]byte(output), &diagnostics); err != nil {
+		t.Fatalf("decode graph validation diagnostics: %v\n%s", err, output)
+	}
+	if diagnostics.Schema != graph.ValidationSchema || diagnostics.Operation != "graph" || len(diagnostics.Errors) != 1 || diagnostics.Errors[0].Code != "language-mismatch" {
+		t.Fatalf("unexpected graph validation diagnostics: %#v", diagnostics)
+	}
 }
 
 func TestCLIAdapterTestManifest(t *testing.T) {
@@ -928,6 +1042,9 @@ cases:
 	}
 	if document.Schema != adaptertest.DocumentSchema || document.Status != "PASS" || document.Passed != 2 || document.Failed != 0 || len(document.Cases) != 2 {
 		t.Fatalf("unexpected adapter test result: %#v", document)
+	}
+	if document.Cases[1].ErrorCode != "language-mismatch" {
+		t.Fatalf("adapter test error code = %q, want language-mismatch", document.Cases[1].ErrorCode)
 	}
 }
 
@@ -1200,6 +1317,21 @@ rules:
 	if review.Schema != policyreview.Schema || review.Status != "PASS" || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" {
 		t.Fatalf("unexpected policy review: %#v", review)
 	}
+	jsonReviewPath := filepath.Join(directory, "policy-review-json.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "review", "--before", beforePath, "--after", afterPath, "--cases", manifestPath,
+		"--output", jsonReviewPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("JSON policy review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var jsonReview policyreview.Document
+	if err := json.Unmarshal([]byte(output), &jsonReview); err != nil {
+		t.Fatalf("decode JSON policy review: %v\n%s", err, output)
+	}
+	if jsonReview.Schema != policyreview.Schema || jsonReview.Status != "PASS" || jsonReview.Diff.Tests == nil || jsonReview.Diff.Tests.Status != "PASS" {
+		t.Fatalf("unexpected JSON policy review: %#v", jsonReview)
+	}
 	invalidReviewOutput := filepath.Join(directory, "invalid-policy-review.json")
 	output, exitCode = runCLI(t, cli, repoRoot,
 		"policy", "review", "--before", beforePath, "--after", invalidAfterPath, "--cases", manifestPath, "--output", invalidReviewOutput, "--format", "json",
@@ -1239,6 +1371,209 @@ rules:
 	)
 	if exitCode != 1 || !strings.Contains(output, "POLICY-REVIEW FAIL") {
 		t.Fatalf("mismatched policy review returned exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIPolicyProposalWorkflow(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	beforePath := filepath.Join(repoRoot, "paddock", "examples", "architecture-boundaries-before-shared-kernel.yaml")
+	afterPath := filepath.Join(repoRoot, "paddock", "examples", "architecture-boundaries.yaml")
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "architecture-boundaries-proposal.policy-tests.yaml")
+	goodRoot := filepath.Join(repoRoot, "paddock", "examples", "services", "architecture-boundaries-go", "good")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "check", goodRoot, "--policy", beforePath)
+	if exitCode != 1 || !strings.Contains(output, "domain-is-pure") {
+		t.Fatalf("before policy did not reject the shared-kernel dependency: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("proposal diff failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var diff policydiff.Document
+	if err := json.Unmarshal([]byte(output), &diff); err != nil {
+		t.Fatalf("decode proposal diff: %v\n%s", err, output)
+	}
+	if diff.Status != "changed" || diff.Summary.Added != 0 || diff.Summary.Removed != 0 || diff.Summary.Changed != 1 || diff.Summary.Total != 1 || len(diff.Changes) != 1 || diff.Changes[0].Path != "rules.domain-is-pure" {
+		t.Fatalf("proposal diff is not focused: %#v", diff)
+	}
+
+	reviewPath := filepath.Join(t.TempDir(), "policy-review.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "review", "--before", beforePath, "--after", afterPath,
+		"--cases", manifestPath, "--output", reviewPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("proposal review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var review policyreview.Document
+	if err := json.Unmarshal([]byte(output), &review); err != nil {
+		t.Fatalf("decode proposal review: %v\n%s", err, output)
+	}
+	if review.Status != "PASS" || review.Diff.Summary.Total != 1 || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" || review.Diff.Tests.Passed != 2 {
+		t.Fatalf("proposal review is not a focused passing review: %#v", review)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("proposal review verification failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIPolicyCrossContextProposalWorkflow(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	beforePath := filepath.Join(repoRoot, "paddock", "examples", "modular-monolith-before-boundaries.yaml")
+	afterPath := filepath.Join(repoRoot, "paddock", "examples", "modular-monolith.yaml")
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "modular-monolith-proposal.policy-tests.yaml")
+	violatingRoot := filepath.Join(repoRoot, "paddock", "examples", "services", "modular-monolith-go", "violating")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "check", violatingRoot, "--policy", beforePath)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("before policy unexpectedly rejected the unregulated cross-context graph: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("cross-context proposal diff failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var diff policydiff.Document
+	if err := json.Unmarshal([]byte(output), &diff); err != nil {
+		t.Fatalf("decode cross-context proposal diff: %v\n%s", err, output)
+	}
+	if diff.Status != "changed" || diff.Summary.Added != 2 || diff.Summary.Removed != 0 || diff.Summary.Changed != 0 || diff.Summary.Total != 2 || len(diff.Changes) != 2 {
+		t.Fatalf("cross-context proposal diff is not focused: %#v", diff)
+	}
+	paths := map[string]bool{}
+	for _, change := range diff.Changes {
+		paths[change.Path] = true
+	}
+	if !paths["rules.context-internals-are-private"] || !paths["rules.cross-context-access-is-mediated"] {
+		t.Fatalf("cross-context proposal changed unexpected paths: %#v", paths)
+	}
+
+	reviewPath := filepath.Join(t.TempDir(), "policy-review.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "review", "--before", beforePath, "--after", afterPath,
+		"--cases", manifestPath, "--output", reviewPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("cross-context proposal review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var review policyreview.Document
+	if err := json.Unmarshal([]byte(output), &review); err != nil {
+		t.Fatalf("decode cross-context proposal review: %v\n%s", err, output)
+	}
+	if review.Status != "PASS" || review.Diff.Summary.Total != 2 || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" || review.Diff.Tests.Passed != 2 {
+		t.Fatalf("cross-context proposal review is not a focused passing review: %#v", review)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("cross-context proposal verification failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIPolicyHexagonalProposalWorkflow(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	beforePath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal-before-application-boundary.yaml")
+	afterPath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal-application-boundary-proposal.yaml")
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "hexagonal-application-boundary-proposal.policy-tests.yaml")
+	violatingRoot := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "application-boundary-violating")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "check", violatingRoot, "--policy", beforePath)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("before policy unexpectedly rejected the unregulated adapter dependency: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("hexagonal proposal diff failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var diff policydiff.Document
+	if err := json.Unmarshal([]byte(output), &diff); err != nil {
+		t.Fatalf("decode hexagonal proposal diff: %v\n%s", err, output)
+	}
+	if diff.Status != "changed" || diff.Summary.Added != 1 || diff.Summary.Removed != 0 || diff.Summary.Changed != 0 || diff.Summary.Total != 1 || len(diff.Changes) != 1 || diff.Changes[0].Path != "rules.application-points-inward" {
+		t.Fatalf("hexagonal proposal diff is not focused: %#v", diff)
+	}
+
+	reviewPath := filepath.Join(t.TempDir(), "policy-review.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "review", "--before", beforePath, "--after", afterPath,
+		"--cases", manifestPath, "--output", reviewPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("hexagonal proposal review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var review policyreview.Document
+	if err := json.Unmarshal([]byte(output), &review); err != nil {
+		t.Fatalf("decode hexagonal proposal review: %v\n%s", err, output)
+	}
+	if review.Status != "PASS" || review.Diff.Summary.Total != 1 || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" || review.Diff.Tests.Passed != 2 {
+		t.Fatalf("hexagonal proposal review is not a focused passing review: %#v", review)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("hexagonal proposal verification failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIPolicyTypeScriptProposalWorkflow(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	beforePath := filepath.Join(repoRoot, "paddock", "examples", "monorepo-typescript-before-shared-boundary.yaml")
+	afterPath := filepath.Join(repoRoot, "paddock", "examples", "monorepo-typescript-shared-boundary-proposal.yaml")
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "monorepo-typescript-shared-boundary-proposal.policy-tests.yaml")
+	violatingRoot := filepath.Join(repoRoot, "paddock", "examples", "services", "monorepo-ts", "violating")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "check", violatingRoot, "--policy", beforePath)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("before policy unexpectedly rejected the unregulated TypeScript boundary: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("TypeScript proposal diff failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var diff policydiff.Document
+	if err := json.Unmarshal([]byte(output), &diff); err != nil {
+		t.Fatalf("decode TypeScript proposal diff: %v\n%s", err, output)
+	}
+	if diff.Status != "changed" || diff.Summary.Added != 1 || diff.Summary.Removed != 0 || diff.Summary.Changed != 0 || diff.Summary.Total != 1 || len(diff.Changes) != 1 || diff.Changes[0].Path != "rules.shared-is-independent" {
+		t.Fatalf("TypeScript proposal diff is not focused: %#v", diff)
+	}
+
+	reviewPath := filepath.Join(t.TempDir(), "policy-review.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "review", "--before", beforePath, "--after", afterPath,
+		"--cases", manifestPath, "--output", reviewPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("TypeScript proposal review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var review policyreview.Document
+	if err := json.Unmarshal([]byte(output), &review); err != nil {
+		t.Fatalf("decode TypeScript proposal review: %v\n%s", err, output)
+	}
+	if review.Status != "PASS" || review.Diff.Summary.Total != 1 || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" || review.Diff.Tests.Passed != 2 {
+		t.Fatalf("TypeScript proposal review is not a focused passing review: %#v", review)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("TypeScript proposal verification failed: exit=%d output:\n%s", exitCode, output)
 	}
 }
 

@@ -1,0 +1,30 @@
+policy:
+  schema: ingen.policy/v1
+  id: webhook-validation-oracle
+  version: 1
+  status: draft
+  purpose: independent-oracle-generation
+  enforcement: host-enforced
+
+  filesystem:
+    read:
+      - path: examples/webhook-validation-lab/contract
+        reason: sealed contract and explicitly attached public fixtures
+    write:
+      - path: .artifacts/webhook-validation-oracle
+        reason: frozen oracle output and generation evidence
+    deny:
+      - path: examples/webhook-validation-lab/subject
+        reason: implementation source must not enter oracle generation
+      - path: .git
+        reason: repository history and metadata are not oracle inputs
+
+  network:
+    mode: disabled
+
+  process:
+    subject_id: webhook-validation
+    can_invoke_subject: false
+    allowed_tools:
+      - name: go
+        purpose: deterministic Sorna SDK and oracle tooling

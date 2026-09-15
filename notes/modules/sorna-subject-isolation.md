@@ -55,6 +55,9 @@ from treating one process's observations as proof about the other.
 - The run remains assurance level 0. Host enforcement and host logs are useful
   evidence, but they do not independently attest to complete observation or
   subject identity enforcement.
+- A fixture-based mutation still needs its source directory denied in the
+  subject policy. Preparing a binary outside the public boundary does not by
+  itself prevent the launched process from reading the fixture implementation.
 
 ## Limits
 
@@ -70,5 +73,6 @@ from treating one process's observations as proof about the other.
 
 - [`sorna run`](../../sorna/cmd/sorna/)
 - [`subject policy`](../../examples/document-pipeline-lab/policy/subject.yaml)
+- [`webhook subject policy`](../../examples/webhook-validation-lab/policy/subject.yaml)
 - [`lifecycle`](../../sorna/internal/lifecycle/)
 - [`evidence`](../../sorna/internal/evidence/)

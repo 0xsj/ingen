@@ -1,0 +1,222 @@
+# Hammond Governance Specification
+
+Status: working v1 design
+
+Hammond records cross-project governance decisions about contract artifacts. It
+does not interpret contract rules, generate oracles, run subjects, or produce
+verification evidence.
+
+## 1. Scope
+
+The first Hammond slice governs one immutable contract artifact at a time. It
+can:
+
+- register a contract reference;
+- move the reference through review states;
+- record decisions against the exact artifact digest;
+- create a successor amendment without changing the predecessor; and
+- show the resulting contract lineage.
+
+The first implementation is local and file-backed. The record shape must not
+depend on that storage choice.
+
+## 2. Ownership boundaries
+
+| Concern | Owner |
+| --- | --- |
+| Contract syntax and behavioral rules | Sorna |
+| Contract canonicalization and sealing | Sorna |
+| Oracle generation, verification, mutation, and evidence | Sorna |
+| Local workspaces, roles, and operator workflow | Sentinel |
+| Review decisions, approvals, amendments, and lineage | Hammond |
+
+Hammond stores a reference to a contract artifact. It does not copy the
+contract body into a second authoritative format.
+
+## 3. Core identity
+
+A governed contract version is identified by the combination of:
+
+```text
+project_id + contract_id + version + artifact_sha256
+```
+
+The artifact digest is the SHA-256 of the canonical contract bytes consumed by
+the governed workflow. A path or URI is useful for retrieval, but it is not an
+identity and must never replace the digest.
+
+The reference should contain:
+
+```yaml
+contract:
+  project_id: document-pipeline
+  id: document-pipeline
+  version: 1
+  schema: ingen.contract/v1
+  artifact:
+    uri: examples/document-pipeline-lab/contract/contract.yaml
+    sha256: <64 lowercase hexadecimal characters>
+```
+
+The `schema`, `id`, and `version` fields describe the Sorna contract. Hammond's
+own record schema is separate and will be versioned as
+`ingen.hammond-governance/v1`.
+
+## 4. Governance lifecycle
+
+Hammond's state is separate from the Sorna contract's `draft`, `sealed`, and
+`superseded` status:
+
+```text
+registered -> in_review -> approved
+                       \-> rejected
+
+approved -> superseded
+rejected  -> in_review
+```
+
+Rules:
+
+- `registered` requires a contract reference and source identity.
+- `in_review` means a review cycle has been opened for that exact identity.
+- `approved` means the recorded approvals satisfy the active review policy.
+- `rejected` preserves the reason and may begin a later review cycle.
+- `superseded` is terminal for that governed version and points to a successor.
+- An approved version cannot be edited or moved back to review.
+- A new version is created through an amendment or successor record, and an
+  amendment is created only from an approved predecessor.
+- A predecessor is superseded only after its successor has been independently
+  approved and the amendment link already exists.
+
+Hammond does not infer that an approved artifact is behaviorally correct. It
+records that the required governance decision was made for identified bytes.
+
+## 5. Review decisions
+
+Every decision is bound to the full contract identity and must include:
+
+- a stable decision ID;
+- the review cycle ID opened by the current review;
+- reviewer identity;
+- reviewer role or authority;
+- decision: `approve` or `reject`;
+- the exact artifact SHA-256;
+- a UTC timestamp; and
+- an optional rationale or review reference.
+
+A decision for a different version, contract ID, project, or artifact digest
+cannot satisfy the review for the governed record.
+
+A decision from an earlier review cycle cannot satisfy a later review. Review
+cycle IDs must be unique within a governance record.
+
+The v1 domain model records decisions and evaluates them against a supplied
+review policy. The default policy requires one approval from one distinct actor
+in the active cycle. The model does not yet define organization-wide identity,
+permissions, or a policy configuration artifact.
+
+## 6. Amendments and lineage
+
+An amendment creates a new contract version. It must contain:
+
+- the complete identity of the predecessor;
+- the complete identity of the successor;
+- an amendment kind;
+- a human-readable reason; and
+- the author and UTC creation time.
+
+The amendment kind follows the Sorna contract vocabulary:
+
+- `clarifying` — intended behavior is unchanged;
+- `additive` — a new requirement is added;
+- `restrictive` — permitted behavior is narrowed;
+- `corrective` — an incorrect requirement is changed; or
+- `breaking` — prior compatibility is intentionally invalidated.
+
+The predecessor remains readable and its review history remains attached to
+its original digest. A successor must be governed independently; approval of a
+predecessor never carries forward automatically.
+
+The initial lineage model uses one predecessor link per amendment. It may
+represent branches, but it must reject cycles and self-links.
+
+## 7. Record shape
+
+The first exchange artifact is a governance record containing one contract
+reference and its append-only event history:
+
+```yaml
+schema: ingen.hammond-governance/v1
+record_id: document-pipeline-v1
+contract:
+  project_id: document-pipeline
+  id: document-pipeline
+  version: 1
+  schema: ingen.contract/v1
+  artifact:
+    uri: examples/document-pipeline-lab/contract/contract.yaml
+    sha256: <digest>
+state: approved
+events:
+  - id: event-001
+    type: registered
+    actor: contract-owner
+    at: 2026-09-15T00:00:00Z
+  - id: event-002
+    type: review-opened
+    actor: contract-owner
+    at: 2026-09-15T00:01:00Z
+    review_cycle_id: review-001
+  - id: event-003
+    type: approval-recorded
+    actor: reviewer@example.test
+    role: product-reviewer
+    review_cycle_id: review-001
+    decision: approve
+    artifact_sha256: <digest>
+    at: 2026-09-15T00:02:00Z
+```
+
+The `state` field is a materialized value derived from valid events. The
+events remain the audit history and must not be silently rewritten.
+
+## 8. Required invariants
+
+The v1 validator must reject:
+
+- a missing or malformed contract identity;
+- a non-lowercase 64-character SHA-256 digest;
+- an event bound to a different contract identity or digest;
+- duplicate event IDs;
+- invalid lifecycle transitions;
+- an approval without reviewer, role, decision, digest, or timestamp;
+- an approval or rejection that is not bound to the active review cycle;
+- an amendment without a predecessor, successor, kind, reason, or author;
+- an amendment with a self-link or lineage cycle; and
+- an attempt to mutate a superseded or approved historical record.
+
+Validation must be deterministic and independent of the persistence backend.
+
+## 9. First executable milestone
+
+The first CLI or package-level workflow should demonstrate:
+
+1. Register the existing document-pipeline contract reference.
+2. Open a review for its exact artifact digest.
+3. Record a valid approval and materialize `approved` state.
+4. Create a linked version 2 amendment.
+5. Preserve version 1 and print the version 1 -> version 2 lineage.
+
+This milestone does not require a server, UI, database, external identity
+provider, or automatic Sorna execution.
+
+## 10. Deferred decisions
+
+The following remain outside v1:
+
+- organization and team identity providers;
+- quorum and role policy configuration formats;
+- hosted registry APIs;
+- artifact blob storage and retention;
+- merge conflict handling for concurrent amendments; and
+- automatic approval or amendment based on Sorna results.

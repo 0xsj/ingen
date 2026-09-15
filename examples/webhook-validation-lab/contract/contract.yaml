@@ -1,0 +1,110 @@
+contract:
+  schema: ingen.contract/v1
+  id: webhook-validation
+  version: 1
+  status: draft
+  title: Deterministic webhook ingestion boundary
+
+  interface:
+    kind: http-json
+    public_entrypoints:
+      - method: POST
+        path: /webhooks/events
+
+  vocabulary:
+    event_id: non-empty string identifying one delivery
+    event_type: supported event name
+    event_payload: JSON object belonging to the event type
+
+  rules:
+    - id: webhook.accepts.valid-event
+      strength: must
+      subject: POST /webhooks/events
+      given:
+        body:
+          id: evt-001
+          type: invoice.created
+          payload:
+            invoice_id: inv-001
+            amount: 4200
+      expect:
+        status: 202
+        body:
+          type: object
+          additional_properties: false
+          required: [accepted, event_id, status]
+          properties:
+            accepted: {equals: true}
+            event_id: {equals: evt-001}
+            status: {equals: accepted}
+
+    - id: webhook.rejects-missing-id
+      strength: must
+      subject: POST /webhooks/events
+      given:
+        body:
+          type: invoice.created
+          payload:
+            invoice_id: inv-002
+      expect:
+        status: 400
+        error:
+          code: invalid_event
+
+    - id: webhook.rejects-unsupported-type
+      strength: must
+      subject: POST /webhooks/events
+      given:
+        body:
+          id: evt-unsupported
+          type: shipment.delayed
+          payload:
+            shipment_id: ship-001
+      expect:
+        status: 422
+        error:
+          code: unsupported_event_type
+
+    - id: webhook.duplicate-is-idempotent
+      strength: must
+      subject: POST /webhooks/events
+      given:
+        state: event_already_accepted
+        setup:
+          - id: accept-event
+            request:
+              method: POST
+              path: /webhooks/events
+              body:
+                id: evt-duplicate
+                type: invoice.created
+                payload:
+                  invoice_id: inv-003
+            expect:
+              status: 202
+              body:
+                required: [event_id, status]
+                properties:
+                  event_id: {equals: evt-duplicate}
+                  status: {equals: accepted}
+        body:
+          id: evt-duplicate
+          type: invoice.created
+          payload:
+            invoice_id: inv-003
+      expect:
+        status: 200
+        body:
+          type: object
+          additional_properties: false
+          required: [duplicate, event_id, status]
+          properties:
+            duplicate: {equals: true}
+            event_id: {equals: evt-duplicate}
+            status: {equals: duplicate}
+
+  unspecified:
+    - signature and authentication transport
+    - delivery retry and queue behavior
+    - event retention duration
+    - JSON member ordering

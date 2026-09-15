@@ -48,6 +48,7 @@ func CheckGraph(root, policyPath string, config policy.Policy, dependencyGraph *
 		PackageCount: len(dependencyGraph.Packages),
 		EdgeCount:    len(dependencyGraph.Edges),
 		SourceUnit:   config.Source.Unit,
+		Findings:     make([]*model.Finding, 0),
 		Rules:        summarizeRules(config.Rules),
 	}
 

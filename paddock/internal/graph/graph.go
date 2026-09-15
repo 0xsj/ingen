@@ -35,6 +35,21 @@ type ValidationIssue struct {
 
 func ValidationDocumentForError(operation, root, language, unit, adapter string, err error) ValidationDocument {
 	message := err.Error()
+	code := ValidationCode(err)
+	return ValidationDocument{
+		Schema:     ValidationSchema,
+		Operation:  operation,
+		Root:       root,
+		Language:   language,
+		SourceUnit: unit,
+		Adapter:    adapter,
+		Valid:      false,
+		Errors:     []ValidationIssue{{Code: code, Message: message}},
+	}
+}
+
+func ValidationCode(err error) string {
+	message := err.Error()
 	code := "adapter-validation"
 	switch {
 	case strings.Contains(message, "expects language") || strings.Contains(message, "requested language"):
@@ -52,16 +67,7 @@ func ValidationDocumentForError(operation, root, language, unit, adapter string,
 	case strings.Contains(message, "request"):
 		code = "invalid-request"
 	}
-	return ValidationDocument{
-		Schema:     ValidationSchema,
-		Operation:  operation,
-		Root:       root,
-		Language:   language,
-		SourceUnit: unit,
-		Adapter:    adapter,
-		Valid:      false,
-		Errors:     []ValidationIssue{{Code: code, Message: message}},
-	}
+	return code
 }
 
 type Document struct {

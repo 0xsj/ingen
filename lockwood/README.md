@@ -22,3 +22,15 @@ and artifact sharing become a real workflow need.
 
 The current planning proposal is recorded in
 [`PROPOSED-TREE.md`](PROPOSED-TREE.md).
+
+The first boundary draft is recorded in
+[`CUSTODY-SPEC.md`](CUSTODY-SPEC.md).
+
+The draft machine-readable contracts are in
+[`spec/`](spec/).
+
+Custody v2 can preserve credential-free remote source URI/version metadata;
+this records provenance only and does not fetch or attest remote objects.
+
+The initial local CLI exposes `put`, `import-sorna`, `get`, `inspect`, `verify`,
+`find`, and read-only `reconcile` reporting for orphaned or damaged storage.

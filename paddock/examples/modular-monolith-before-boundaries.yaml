@@ -1,0 +1,54 @@
+schema: paddock.architecture/v1
+project: modular-monolith
+
+source:
+  language: go
+  unit: package
+  roots: [cmd, internal, pkg]
+
+components:
+  context-public:
+    match: internal/{context}/api/**
+    labels:
+      role: context-api
+      context: "{context}"
+
+  context-internal:
+    match:
+      - internal/{context}/domain/**
+      - internal/{context}/application/**
+      - internal/{context}/adapters/**
+    labels:
+      role: context-internal
+      context: "{context}"
+
+  shared-kernel:
+    match: pkg/shared/**
+    labels:
+      role: shared-kernel
+
+  composition:
+    match: cmd/**
+    labels:
+      role: composition
+
+rules:
+  - id: shared-kernel-is-context-free
+    kind: deny-dependencies
+    from: {role: shared-kernel}
+    deny:
+      - {role: context-internal}
+      - {role: context-api}
+    message: shared code cannot become coupled to one context
+
+  - id: composition-may-know-all-contexts
+    kind: allow-dependencies
+    from: {role: composition}
+    allow:
+      - {role: context-api}
+      - {role: shared-kernel}
+    message: only the composition root may assemble the module graph
+
+  - id: no-cycles
+    kind: no-cycles
+    message: context dependencies must remain understandable and directional

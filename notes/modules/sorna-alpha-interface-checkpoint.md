@@ -19,8 +19,9 @@ records the invariants that currently connect them, and separates those from
 internal evidence and unresolved product surfaces.
 
 `make alpha-interface-check` makes the checkpoint repeatable without requiring
-generated artifacts. `make nublar-aggregate-fresh` remains the end-to-end
-workflow proof.
+generated artifacts. `make nublar-aggregate-fresh` remains the aggregate
+end-to-end workflow proof, while `make nublar-run-collect-fresh` additionally
+proves the persisted run path.
 
 ## Why
 
@@ -45,7 +46,7 @@ Nublar, and SDK work from importing Sorna internals by convenience.
 
 - `ALPHA-INTERFACES.md`
 - `Makefile` target `alpha-interface-check`
-- The Sorna document-pipeline workflow and Nublar aggregate
+- The Sorna document-pipeline workflow and Nublar aggregate/run paths
 
 ## Related
 

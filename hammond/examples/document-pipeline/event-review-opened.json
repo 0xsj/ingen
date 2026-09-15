@@ -1,0 +1,7 @@
+{
+  "id": "event-002",
+  "type": "review-opened",
+  "actor": "contract-owner",
+  "at": "2026-09-15T00:01:00Z",
+  "review_cycle_id": "document-pipeline-v2-review-1"
+}

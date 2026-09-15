@@ -1,5 +1,14 @@
 # Sorna provider negative paths
 
+A source mutator must select exactly one reviewed target before it can write a
+mutation.
+
+## Origin
+
+This note came from hardening the Go provider after the document-pipeline
+operator vocabulary expanded to state, persistence, and input-validation
+mutations.
+
 ## What changed
 
 The Go document provider's unit tests now cover target-resolution failures for
@@ -40,3 +49,8 @@ frozen.
 The focused provider tests and `make alpha-interface-check` pass. The latter
 also covers the core, Sorna, document-pipeline, and current Nublar integration
 surfaces.
+
+## Used in
+
+The Go document provider's AST target resolution and preparation handoff to
+Sorna's campaign executor.

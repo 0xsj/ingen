@@ -1,5 +1,13 @@
 # Shared CI exit-code contract
 
+A shared CI envelope needs one status-to-exit-code mapping so coordinators do
+not reimplement producer semantics.
+
+## Origin
+
+This note came from comparing Sorna and Nublar's independently maintained
+status mappings at the alpha CI boundary.
+
 ## What changed
 
 The shared `core/ciresult` package now owns the status mapping used by the
@@ -32,3 +40,8 @@ producer report remains the place to interpret that domain-specific result.
 
 The mapping is implemented by `ciresult.ExitCodeForStatus` and validated by
 the shared envelope tests.
+
+## Used in
+
+The shared `core/ciresult` envelope, Sorna CI producers, and Nublar aggregate
+composition.

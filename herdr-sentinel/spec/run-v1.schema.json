@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.sentinel-run-v1.schema.json",
+  "title": "InGen Sentinel lifecycle receipt v1",
+  "description": "A Sentinel orchestration receipt connecting a workspace to lifecycle events and artifact references.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "workspace", "status", "created_at", "updated_at", "events"],
+  "properties": {
+    "schema": {"const": "ingen.sentinel-run/v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "workspace": {"$ref": "#/$defs/workspace-ref"},
+    "status": {"enum": ["created", "running", "completed", "failed", "blocked", "cleaned"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/event"}
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact-ref"}
+    }
+  },
+  "$defs": {
+    "file-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "workspace-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "file"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "file": {"$ref": "#/$defs/file-ref"}
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "type", "at"],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 1},
+        "type": {
+          "enum": [
+            "workspace-created",
+            "worktree-created",
+            "role-launched",
+            "role-blocked",
+            "role-completed",
+            "artifact-produced",
+            "policy-applied",
+            "policy-violated",
+            "sorna-started",
+            "sorna-completed",
+            "review-approved",
+            "review-waived",
+            "cleanup-completed"
+          ]
+        },
+        "at": {"type": "string", "format": "date-time"},
+        "role": {"type": "string", "minLength": 1},
+        "workspace": {"type": "string", "minLength": 1},
+        "artifact_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "outcome": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "artifact-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "kind", "ref"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "ref": {"$ref": "#/$defs/file-ref"}
+      }
+    }
+  }
+}

@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +45,10 @@ func main() {
 		}
 	case "graph":
 		if err := graphCommand(os.Args[2:]); err != nil {
+			var exitFailure *graphCommandExitError
+			if errors.As(err, &exitFailure) {
+				os.Exit(exitFailure.code)
+			}
 			fmt.Fprintln(os.Stderr, "paddock:", err)
 			os.Exit(2)
 		}
@@ -320,6 +326,9 @@ func graphCommand(args []string) error {
 	if graphInputPath != "" && adapterExecutable != "" {
 		return fmt.Errorf("graph accepts either --input/--graph or --adapter, not both")
 	}
+	if format != "text" && format != "json" {
+		return fmt.Errorf("unsupported format %q; use text or json", format)
+	}
 
 	var loaded *model.Graph
 	unit := ""
@@ -390,7 +399,7 @@ func graphCommand(args []string) error {
 			var document paddockgraph.Document
 			loaded, document, err = paddockgraph.LoadExternal(context.Background(), adapterExecutable, adapterArgs, adapterRequest)
 			if err != nil {
-				return err
+				return graphCommandFailure(format, absRoot, language, request.Unit, adapterExecutable, err)
 			}
 			unit = document.Unit
 			roots = append([]string(nil), document.Roots...)
@@ -437,6 +446,25 @@ func graphCommand(args []string) error {
 	default:
 		return fmt.Errorf("unsupported format %q; use text or json", format)
 	}
+}
+
+type graphCommandExitError struct {
+	code int
+}
+
+func (e *graphCommandExitError) Error() string {
+	return "graph command exited with a structured diagnostic"
+}
+
+func graphCommandFailure(format, root, language, unit, adapter string, err error) error {
+	if format != "json" {
+		return err
+	}
+	diagnostics := paddockgraph.ValidationDocumentForError("graph", root, language, unit, adapter, err)
+	if encodeErr := json.NewEncoder(os.Stdout).Encode(diagnostics); encodeErr != nil {
+		return encodeErr
+	}
+	return &graphCommandExitError{code: 2}
 }
 
 func printGraphText(w io.Writer, document graphDocument) error {
@@ -589,6 +617,7 @@ func initCommand(args []string) error {
 	adapterArgs := []string(nil)
 	template := ""
 	outputPath := "paddock.yaml"
+	format := "text"
 	force := false
 	rootSet := false
 	for index := 0; index < len(args); index++ {
@@ -636,6 +665,12 @@ func initCommand(args []string) error {
 			}
 			index++
 			outputPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires text or json", arg)
+			}
+			index++
+			format = args[index]
 		case "--force":
 			force = true
 		default:
@@ -651,6 +686,9 @@ func initCommand(args []string) error {
 	}
 	if graphInputPath != "" && adapterExecutable != "" {
 		return fmt.Errorf("init accepts either --graph/--input or --adapter, not both")
+	}
+	if format != "text" && format != "json" {
+		return fmt.Errorf("unsupported format %q; use text or json", format)
 	}
 
 	var loaded *model.Graph
@@ -733,8 +771,67 @@ func initCommand(args []string) error {
 	if err := os.WriteFile(outputPath, contents, 0o644); err != nil {
 		return fmt.Errorf("write starter policy: %w", err)
 	}
+	if format == "json" {
+		generated, err := paddockpolicy.Load(outputPath)
+		if err != nil {
+			return fmt.Errorf("validate generated policy: %w", err)
+		}
+		document := initDocumentForPolicy(root, outputPath, language, unit, template, loaded, generated)
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	}
 	_, err = fmt.Fprintf(os.Stdout, "INIT %s (draft; review before CI)\n", outputPath)
 	return err
+}
+
+const initSchema = "paddock.init/v1"
+
+type initDocument struct {
+	Schema                 string   `json:"schema"`
+	Root                   string   `json:"root"`
+	Output                 string   `json:"output"`
+	Language               string   `json:"language"`
+	SourceUnit             string   `json:"source_unit"`
+	Template               string   `json:"template"`
+	SourceUnitCount        int      `json:"source_unit_count"`
+	EdgeCount              int      `json:"edge_count"`
+	ComponentCount         int      `json:"component_count"`
+	UnclassifiedComponents []string `json:"unclassified_components"`
+	WarningRules           []string `json:"warning_rules"`
+	ReviewRequired         bool     `json:"review_required"`
+}
+
+func initDocumentForPolicy(root, outputPath, language, unit, template string, graph *model.Graph, generated paddockpolicy.Policy) initDocument {
+	unclassified := make([]string, 0)
+	for name, component := range generated.Components {
+		role, _ := component.Labels["role"].(string)
+		if role == "" || role == "unclassified" {
+			unclassified = append(unclassified, name)
+		}
+	}
+	sort.Strings(unclassified)
+	warningRules := make([]string, 0)
+	for _, rule := range generated.Rules {
+		if rule.Severity == "warning" {
+			warningRules = append(warningRules, rule.ID)
+		}
+	}
+	sort.Strings(warningRules)
+	return initDocument{
+		Schema:                 initSchema,
+		Root:                   root,
+		Output:                 outputPath,
+		Language:               language,
+		SourceUnit:             unit,
+		Template:               template,
+		SourceUnitCount:        len(graph.Packages),
+		EdgeCount:              len(graph.Edges),
+		ComponentCount:         len(generated.Components),
+		UnclassifiedComponents: unclassified,
+		WarningRules:           warningRules,
+		ReviewRequired:         true,
+	}
 }
 
 func sourceUnit(language string) string {
@@ -1227,8 +1324,10 @@ func reviewPolicy(args []string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err := fmt.Fprintf(os.Stdout, "  output: %s\n", outputPath); err != nil {
-		return 0, err
+	if format == "text" {
+		if _, err := fmt.Fprintf(os.Stdout, "  output: %s\n", outputPath); err != nil {
+			return 0, err
+		}
 	}
 	if document.Status == "FAIL" {
 		return 1, nil
@@ -2368,7 +2467,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: paddock check <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--baseline <file>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock graph <source-root> [--policy <policy.yaml> | --language <language> | --input <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock map <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock init <source-root> [--language <language>] [--unit package|file] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--template <name>] [--output paddock.yaml] [--force]")
+	fmt.Fprintln(os.Stderr, "       paddock init <source-root> [--language <language>] [--unit package|file] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--template <name>] [--output paddock.yaml] [--format text|json] [--force]")
 	fmt.Fprintln(os.Stderr, "       paddock policy validate --policy <policy.yaml> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy diff --before <policy.yaml> --after <policy.yaml> [--cases <manifest.yaml>] [--adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy review --before <policy.yaml> --after <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...]] --output <review.json> [--format text|json]")

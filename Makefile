@@ -18,6 +18,8 @@ SUBJECT_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline
 RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-run
 CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-ci-result.json
 NUBLAR_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/nublar-result.json
+NUBLAR_RUN_OUTPUT ?= $(ARTIFACT_ROOT)/nublar-run.json
+NUBLAR_RUN_STORE ?= $(ARTIFACT_ROOT)/nublar-runs
 NUBLAR_WORKFLOW ?= nublar/workflows/document-pipeline.yaml
 DEFECT_ADDR ?= 127.0.0.1:8081
 DEFECT_URL ?= http://127.0.0.1:8081
@@ -29,6 +31,44 @@ DEFECT_UNSUPPORTED_TYPE_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect
 DEFECT_PROCESS_STAYS_QUEUED_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-process-stays-queued
 DEFECT_PERSISTENCE_WRONG_KEY_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-persistence-wrong-key
 DEFECT_ACCEPTS_PNG_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-accepts-png
+WEBHOOK_CONTRACT ?= examples/webhook-validation-lab/contract/contract.yaml
+WEBHOOK_POLICY ?= examples/webhook-validation-lab/policy/isolation.yaml
+WEBHOOK_SUBJECT_POLICY ?= examples/webhook-validation-lab/policy/subject.yaml
+WEBHOOK_SUBJECT_ADDR ?= 127.0.0.1:8090
+WEBHOOK_SUBJECT_URL ?= http://127.0.0.1:8090
+WEBHOOK_SUBJECT_BINARY_DIR ?= $(ARTIFACT_ROOT)/webhook-validation-subject
+WEBHOOK_SUBJECT_BINARY ?= $(WEBHOOK_SUBJECT_BINARY_DIR)/webhook-validation
+WEBHOOK_ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/webhook-validation-oracle
+WEBHOOK_ORACLE_OUTPUT ?= $(WEBHOOK_ORACLE_OUTPUT_DIR)/oracle.json
+WEBHOOK_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/webhook-validation-run
+WEBHOOK_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-ci-result.json
+WEBHOOK_MUTATION_CATALOGUE ?= examples/webhook-validation-lab/mutations/catalogue.yaml
+WEBHOOK_MUTATION_PLAN_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-mutation-plan.json
+WEBHOOK_MUTATION_PROVIDER ?= examples/webhook-validation-lab/mutations/provider.yaml
+WEBHOOK_MUTATION_PROVIDER_REQUIRE_PLAN_BINDING ?= false
+WEBHOOK_MUTATION_PROVIDER_BINDING_FLAG = $(if $(filter true 1 yes,$(WEBHOOK_MUTATION_PROVIDER_REQUIRE_PLAN_BINDING)),--require-plan-binding,)
+WEBHOOK_MUTATION_PROVIDER_REVIEW_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-provider-review.json
+WEBHOOK_MUTATION_PROVIDER_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-provider-review-ci-result.json
+WEBHOOK_MUTATION_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/webhook-validation-mutation
+WEBHOOK_MUTATION_RESULT_OUTPUT ?= $(WEBHOOK_MUTATION_OUTPUT_DIR)/campaign-result.json
+WEBHOOK_MUTATION_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-mutation-ci-result.json
+WEBHOOK_DEFECT_ADDR ?= 127.0.0.1:8091
+WEBHOOK_DEFECT_BINARY ?= $(WEBHOOK_SUBJECT_BINARY_DIR)/webhook-validation-defect
+WEBHOOK_GO_PROVIDER_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/webhook-validation-go-provider
+WEBHOOK_GO_PROVIDER_BINARY_DIR ?= $(ARTIFACT_ROOT)/webhook-validation-subject/go-mutations
+WEBHOOK_GO_PROVIDER ?= $(WEBHOOK_GO_PROVIDER_OUTPUT_DIR)/provider.yaml
+WEBHOOK_GO_PROVIDER_SUMMARY ?= $(WEBHOOK_GO_PROVIDER_OUTPUT_DIR)/preparation.json
+WEBHOOK_GO_PROVIDER_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-go-provider-ci-result.json
+WEBHOOK_GO_PREPARATION_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-go-preparation-ci-result.json
+WEBHOOK_GO_CAMPAIGN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/webhook-validation-go-campaign
+WEBHOOK_GO_CAMPAIGN_RESULT_OUTPUT ?= $(WEBHOOK_GO_CAMPAIGN_OUTPUT_DIR)/campaign-result.json
+WEBHOOK_GO_CAMPAIGN_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-go-campaign-ci-result.json
+WEBHOOK_NUBLAR_WORKFLOW ?= nublar/workflows/webhook-validation.yaml
+WEBHOOK_NUBLAR_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-nublar-result.json
+WEBHOOK_NUBLAR_RUN_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-nublar-run.json
+WEBHOOK_NUBLAR_RUN_STORE ?= $(ARTIFACT_ROOT)/webhook-validation-nublar-runs
+SENTINEL_WORKSPACE ?= herdr-sentinel/workspaces/webhook-validation.yaml
+SENTINEL_RUN_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-run.json
 SANDBOX_ROOT ?= .
 SANDBOX_PROBE_PATH ?= examples/document-pipeline-lab/contract/contract.yaml
 ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-oracle
@@ -67,8 +107,9 @@ MUTATION_SURVIVOR_CAMPAIGN_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipelin
 
 .PHONY: help build test test-race vet check alpha-interface-check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
-	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-aggregate-fresh sorna-oracle-freeze \
-	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build
+	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
+	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha
+	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -114,6 +155,111 @@ subject-build: ## Build the clean document-pipeline subject binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
 	$(GO_CMD) build -trimpath -o "$(SUBJECT_BINARY)" ./examples/document-pipeline-lab/subject/cmd/document-pipeline
 
+webhook-contract-validate: ## Validate the webhook-validation contract
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(WEBHOOK_CONTRACT)"
+
+webhook-policy-validate: ## Validate the webhook oracle policy
+	$(GO_CMD) run ./sorna/cmd/sorna policy validate "$(WEBHOOK_POLICY)"
+
+webhook-subject-policy-validate: ## Validate the managed webhook subject policy
+	$(GO_CMD) run ./sorna/cmd/sorna policy validate "$(WEBHOOK_SUBJECT_POLICY)"
+
+webhook-subject-test: ## Test the webhook-validation subject only
+	$(GO_CMD) test ./examples/webhook-validation-lab/subject/...
+
+webhook-subject-build: ## Build the clean webhook-validation subject binary
+	mkdir -p "$(WEBHOOK_SUBJECT_BINARY_DIR)"
+	$(GO_CMD) build -trimpath -o "$(WEBHOOK_SUBJECT_BINARY)" ./examples/webhook-validation-lab/subject/cmd/webhook-validation
+
+webhook-oracle-freeze: webhook-contract-validate webhook-policy-validate ## Freeze the webhook-validation oracle
+	mkdir -p "$(WEBHOOK_ORACLE_OUTPUT_DIR)"
+	$(GO_CMD) run ./sorna/cmd/sorna oracle freeze --contract "$(WEBHOOK_CONTRACT)" --policy "$(WEBHOOK_POLICY)" --root . --output-dir "$(WEBHOOK_ORACLE_OUTPUT_DIR)"
+
+webhook-run: webhook-oracle-freeze webhook-subject-policy-validate webhook-subject-build ## Run the managed webhook-validation subject against its frozen oracle
+	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(WEBHOOK_ORACLE_OUTPUT)" --policy "$(WEBHOOK_POLICY)" --subject-policy "$(WEBHOOK_SUBJECT_POLICY)" --subject-root . --base-url "$(WEBHOOK_SUBJECT_URL)" --subject-command "$(WEBHOOK_SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(WEBHOOK_SUBJECT_ADDR)" --ready-path /healthz --subject-variant clean-baseline --output-dir "$(WEBHOOK_RUN_OUTPUT_DIR)"
+
+webhook-ci-result: webhook-run ## Run the webhook-validation baseline and write a CI result envelope
+	mkdir -p "$(dir $(WEBHOOK_CI_RESULT_OUTPUT))"
+	$(GO_CMD) run ./sorna/cmd/sorna gate --format ci-result "$(WEBHOOK_RUN_OUTPUT_DIR)" > "$(WEBHOOK_CI_RESULT_OUTPUT)"
+
+webhook-alpha: webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-ci-result ## Validate and run the first webhook-validation Sorna slice
+
+webhook-mutation-catalogue-validate: ## Validate the webhook-validation mutation catalogue
+	$(GO_CMD) run ./sorna/cmd/sorna mutation validate "$(WEBHOOK_MUTATION_CATALOGUE)" --contract "$(WEBHOOK_CONTRACT)"
+
+webhook-defect-build: ## Build the controlled webhook duplicate-idempotency defect binary
+	mkdir -p "$(WEBHOOK_SUBJECT_BINARY_DIR)"
+	$(GO_CMD) build -trimpath -o "$(WEBHOOK_DEFECT_BINARY)" ./examples/webhook-validation-lab/defects/accepts-duplicate/cmd/webhook-validation-defect
+
+webhook-mutation-plan: webhook-run webhook-mutation-catalogue-validate ## Build a ready webhook mutation campaign plan
+	mkdir -p "$(dir $(WEBHOOK_MUTATION_PLAN_OUTPUT))"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation plan "$(WEBHOOK_MUTATION_CATALOGUE)" --contract "$(WEBHOOK_CONTRACT)" --oracle "$(WEBHOOK_ORACLE_OUTPUT)" --baseline-evidence "$(WEBHOOK_RUN_OUTPUT_DIR)" --subject-policy "$(WEBHOOK_SUBJECT_POLICY)" --output "$(WEBHOOK_MUTATION_PLAN_OUTPUT)"
+
+webhook-mutation-provider-validate: ## Validate the webhook-validation mutation provider manifest
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider validate "$(WEBHOOK_MUTATION_PROVIDER)"
+
+webhook-mutation-provider-inspect: webhook-mutation-plan webhook-mutation-provider-validate ## Review webhook fixture capabilities against the ready mutation plan
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(WEBHOOK_MUTATION_PLAN_OUTPUT)" --provider "$(WEBHOOK_MUTATION_PROVIDER)" $(WEBHOOK_MUTATION_PROVIDER_BINDING_FLAG) --format json --output "$(WEBHOOK_MUTATION_PROVIDER_REVIEW_OUTPUT)"
+
+webhook-mutation-provider-ci-result: webhook-mutation-plan webhook-mutation-provider-validate ## Write the webhook provider preflight as a shared CI result
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(WEBHOOK_MUTATION_PLAN_OUTPUT)" --provider "$(WEBHOOK_MUTATION_PROVIDER)" $(WEBHOOK_MUTATION_PROVIDER_BINDING_FLAG) --format ci-result --output "$(WEBHOOK_MUTATION_PROVIDER_CI_RESULT_OUTPUT)"
+
+webhook-mutation-run: webhook-mutation-plan webhook-defect-build webhook-mutation-provider-validate ## Execute the webhook duplicate-idempotency mutation
+	$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(WEBHOOK_MUTATION_PLAN_OUTPUT)" --provider "$(WEBHOOK_MUTATION_PROVIDER)" $(WEBHOOK_MUTATION_PROVIDER_BINDING_FLAG) --oracle "$(WEBHOOK_ORACLE_OUTPUT)" --policy "$(WEBHOOK_POLICY)" --subject-policy "$(WEBHOOK_SUBJECT_POLICY)" --base-address "$(WEBHOOK_DEFECT_ADDR)" --output-dir "$(WEBHOOK_MUTATION_OUTPUT_DIR)" --output "$(WEBHOOK_MUTATION_RESULT_OUTPUT)"
+
+webhook-mutation-verify: ## Verify webhook mutation evidence and result bindings
+	$(GO_CMD) run ./sorna/cmd/sorna mutation verify "$(WEBHOOK_MUTATION_RESULT_OUTPUT)"
+
+webhook-mutation-ci-result: webhook-mutation-provider-ci-result webhook-defect-build ## Verify the webhook campaign and write a shared CI result
+	-$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(WEBHOOK_MUTATION_PLAN_OUTPUT)" --provider "$(WEBHOOK_MUTATION_PROVIDER)" $(WEBHOOK_MUTATION_PROVIDER_BINDING_FLAG) --oracle "$(WEBHOOK_ORACLE_OUTPUT)" --policy "$(WEBHOOK_POLICY)" --subject-policy "$(WEBHOOK_SUBJECT_POLICY)" --base-address "$(WEBHOOK_DEFECT_ADDR)" --output-dir "$(WEBHOOK_MUTATION_OUTPUT_DIR)" --output "$(WEBHOOK_MUTATION_RESULT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation verify "$(WEBHOOK_MUTATION_RESULT_OUTPUT)" --format ci-result --source-root . --output "$(WEBHOOK_MUTATION_CI_RESULT_OUTPUT)"
+
+webhook-mutation-alpha: webhook-mutation-ci-result ## Run the first webhook mutation campaign slice
+
+webhook-go-provider-build: webhook-mutation-plan ## Prepare the webhook mutation through the reusable Go source provider
+	$(GO_CMD) run ./sorna/cmd/sorna-go-provider --subject webhook-validation --plan "$(WEBHOOK_MUTATION_PLAN_OUTPUT)" --source-root . --output-dir "$(WEBHOOK_GO_PROVIDER_OUTPUT_DIR)" --binary-dir "$(WEBHOOK_GO_PROVIDER_BINARY_DIR)" --provider "$(WEBHOOK_GO_PROVIDER)" --summary-output "$(WEBHOOK_GO_PROVIDER_SUMMARY)"
+
+webhook-go-provider-ci-result: webhook-go-provider-build ## Review the webhook Go provider with mandatory exact plan binding
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(WEBHOOK_MUTATION_PLAN_OUTPUT)" --provider "$(WEBHOOK_GO_PROVIDER)" --require-plan-binding --format ci-result --output "$(WEBHOOK_GO_PROVIDER_CI_RESULT_OUTPUT)"
+
+webhook-go-preparation-ci-result: webhook-go-provider-build ## Expose webhook Go-provider preparation as a shared CI result
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider preparation "$(WEBHOOK_GO_PROVIDER_SUMMARY)" --provider "$(WEBHOOK_GO_PROVIDER)" --source-root . --format ci-result --output "$(WEBHOOK_GO_PREPARATION_CI_RESULT_OUTPUT)"
+
+webhook-go-campaign-run: webhook-go-provider-build ## Execute the webhook campaign using the source-level Go provider
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider validate "$(WEBHOOK_GO_PROVIDER)"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(WEBHOOK_MUTATION_PLAN_OUTPUT)" --provider "$(WEBHOOK_GO_PROVIDER)" --require-plan-binding --oracle "$(WEBHOOK_ORACLE_OUTPUT)" --policy "$(WEBHOOK_POLICY)" --subject-policy "$(WEBHOOK_SUBJECT_POLICY)" --base-address "$(WEBHOOK_DEFECT_ADDR)" --output-dir "$(WEBHOOK_GO_CAMPAIGN_OUTPUT_DIR)" --output "$(WEBHOOK_GO_CAMPAIGN_RESULT_OUTPUT)"
+
+webhook-go-campaign-verify: ## Verify the webhook source-provider campaign result and evidence bindings
+	$(GO_CMD) run ./sorna/cmd/sorna mutation verify "$(WEBHOOK_GO_CAMPAIGN_RESULT_OUTPUT)"
+
+webhook-go-campaign-ci-result: webhook-go-provider-ci-result webhook-go-preparation-ci-result ## Verify the strict webhook Go campaign and write a shared CI result
+	-$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(WEBHOOK_MUTATION_PLAN_OUTPUT)" --provider "$(WEBHOOK_GO_PROVIDER)" --require-plan-binding --oracle "$(WEBHOOK_ORACLE_OUTPUT)" --policy "$(WEBHOOK_POLICY)" --subject-policy "$(WEBHOOK_SUBJECT_POLICY)" --base-address "$(WEBHOOK_DEFECT_ADDR)" --output-dir "$(WEBHOOK_GO_CAMPAIGN_OUTPUT_DIR)" --output "$(WEBHOOK_GO_CAMPAIGN_RESULT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation verify "$(WEBHOOK_GO_CAMPAIGN_RESULT_OUTPUT)" --format ci-result --source-root . --output "$(WEBHOOK_GO_CAMPAIGN_CI_RESULT_OUTPUT)"
+
+webhook-go-mutation-alpha: webhook-go-campaign-ci-result ## Run the first webhook source-provider mutation slice
+
+nublar-webhook-aggregate: webhook-ci-result webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-ci-result ## Aggregate the webhook Sorna envelopes through Nublar
+	mkdir -p "$(dir $(WEBHOOK_NUBLAR_RESULT_OUTPUT))"
+	$(GO_CMD) run ./nublar/cmd/nublar aggregate --workflow "$(WEBHOOK_NUBLAR_WORKFLOW)" --root "$(ARTIFACT_ROOT)" --output "$(WEBHOOK_NUBLAR_RESULT_OUTPUT)"
+
+nublar-webhook-run-collect: webhook-ci-result webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-ci-result ## Collect the webhook workflow as a durable Nublar run
+	mkdir -p "$(dir $(WEBHOOK_NUBLAR_RUN_OUTPUT))" "$(WEBHOOK_NUBLAR_RUN_STORE)"
+	$(GO_CMD) run ./nublar/cmd/nublar run collect --workflow "$(WEBHOOK_NUBLAR_WORKFLOW)" --root "$(ARTIFACT_ROOT)" --store "$(WEBHOOK_NUBLAR_RUN_STORE)" --output "$(WEBHOOK_NUBLAR_RUN_OUTPUT)"
+
+nublar-webhook-aggregate-fresh: ## Run the complete webhook workflow in a fresh temporary workspace
+	workspace=$$(mktemp -d /private/tmp/ingen-webhook-workspace.XXXXXX); \
+	trap 'printf "workspace: %s\nartifact root: %s\n" "$$workspace" "$$workspace/.artifacts"' EXIT; \
+	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
+	$(MAKE) -C "$$workspace" nublar-webhook-aggregate; status=$$?; \
+	exit $$status
+
+sentinel-workspace-validate: ## Validate the Sentinel webhook contract workspace manifest
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel workspace validate "$(SENTINEL_WORKSPACE)"
+
+sentinel-run-bootstrap: ## Create a Sentinel lifecycle receipt for the webhook workspace
+	mkdir -p "$(dir $(SENTINEL_RUN_OUTPUT))"
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel run bootstrap --workspace "$(SENTINEL_WORKSPACE)" --output "$(SENTINEL_RUN_OUTPUT)"
+
 defect-build: ## Build the controlled status-200-create defect binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
 	$(GO_CMD) build -o "$(DEFECT_BINARY)" ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect
@@ -158,11 +304,22 @@ nublar-aggregate: sorna-ci-result mutation-go-provider-ci-result mutation-go-pre
 	mkdir -p "$(dir $(NUBLAR_RESULT_OUTPUT))"
 	$(GO_CMD) run ./nublar/cmd/nublar aggregate --workflow "$(NUBLAR_WORKFLOW)" --root "$(ARTIFACT_ROOT)" --output "$(NUBLAR_RESULT_OUTPUT)"
 
+nublar-run-collect: sorna-ci-result mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-ci-result ## Collect and persist the document-pipeline Nublar run artifact
+	mkdir -p "$(dir $(NUBLAR_RUN_OUTPUT))" "$(NUBLAR_RUN_STORE)"
+	$(GO_CMD) run ./nublar/cmd/nublar run collect --workflow "$(NUBLAR_WORKFLOW)" --root "$(ARTIFACT_ROOT)" --store "$(NUBLAR_RUN_STORE)" --output "$(NUBLAR_RUN_OUTPUT)"
+
+nublar-run-collect-fresh: ## Run the complete document-pipeline workflow and persist its Nublar run in a fresh workspace
+	workspace=$$(mktemp -d /private/tmp/ingen-nublar-workspace.XXXXXX); \
+	trap 'printf "workspace: %s\nartifact root: %s\nrun store: %s\n" "$$workspace" "$$workspace/.artifacts" "$$workspace/.artifacts/nublar-runs"' EXIT; \
+	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
+	$(MAKE) -C "$$workspace" GO_CACHE="$(abspath $(GO_CACHE))" GO_MOD_CACHE="$(abspath $(GO_MOD_CACHE))" nublar-run-collect; status=$$?; \
+	exit $$status
+
 nublar-aggregate-fresh: ## Run the complete document-pipeline workflow in a fresh temporary workspace
 	workspace=$$(mktemp -d /private/tmp/ingen-workspace.XXXXXX); \
 	trap 'printf "workspace: %s\\nartifact root: %s\\n" "$$workspace" "$$workspace/.artifacts"' EXIT; \
 	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
-	$(MAKE) -C "$$workspace" nublar-aggregate; status=$$?; \
+	$(MAKE) -C "$$workspace" GO_CACHE="$(abspath $(GO_CACHE))" GO_MOD_CACHE="$(abspath $(GO_MOD_CACHE))" nublar-aggregate; status=$$?; \
 	exit $$status
 	exit $$status
 

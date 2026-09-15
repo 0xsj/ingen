@@ -467,3 +467,84 @@ func TestMutateDocumentPipelineRejectsUnsupportedOperator(t *testing.T) {
 		t.Fatalf("mutateDocumentPipeline() = %v, want unsupported operator error", err)
 	}
 }
+
+func TestMutateWebhookValidationDisablesOnlyDuplicateGuard(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "webhook-validation-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package webhookvalidation
+
+func receiveEvent() {
+	if _, exists := accepted["event"]; exists {
+		return
+	}
+	accepted["event"] = struct{}{}
+}
+`
+	serverPath := filepath.Join(path, "server.go")
+	if err := os.WriteFile(serverPath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	provenance, err := mutateWebhookValidation(root, mutation.Spec{
+		ID: "accepts-duplicate", Plane: "implementation", Operator: "state.idempotency.disable", Target: "POST /webhooks/events",
+		Change: map[string]any{"from": "reject-duplicate", "to": "accept-duplicate"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.TargetResolution == nil || provenance.TargetResolution.CandidateCount != 1 || provenance.TargetResolution.AppliedCount != 1 {
+		t.Fatalf("target resolution = %+v, want exactly one candidate and applied target", provenance.TargetResolution)
+	}
+	contents, err := os.ReadFile(serverPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "if _, exists := accepted[\"event\"]; exists && false") || !strings.Contains(string(contents), `accepted["event"] = struct{}{}`) {
+		t.Fatalf("mutated source = %s, want only duplicate guard disabled", contents)
+	}
+}
+
+func TestMutateWebhookValidationRejectsAmbiguousDuplicateGuard(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "webhook-validation-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package webhookvalidation
+
+func receiveEvent() {
+	if _, exists := accepted["first"]; exists {
+		return
+	}
+	if _, exists := accepted["second"]; exists {
+		return
+	}
+}
+`
+	serverPath := filepath.Join(path, "server.go")
+	if err := os.WriteFile(serverPath, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := mutateWebhookValidation(root, mutation.Spec{
+		ID: "accepts-duplicate", Plane: "implementation", Operator: "state.idempotency.disable", Target: "POST /webhooks/events",
+		Change: map[string]any{"from": "reject-duplicate", "to": "accept-duplicate"},
+	})
+	var resolutionErr *campaign.TargetResolutionError
+	if err == nil || !errors.As(err, &resolutionErr) {
+		t.Fatalf("mutateWebhookValidation() = %v, want target-resolution error", err)
+	}
+	if resolutionErr.Resolution.CandidateCount != 2 || resolutionErr.Resolution.AppliedCount != 0 {
+		t.Fatalf("resolution error = %+v, want two candidates and no applied targets", resolutionErr)
+	}
+	contents, readErr := os.ReadFile(serverPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(contents) != source {
+		t.Fatalf("ambiguous mutation changed source = %s, want no write", contents)
+	}
+}

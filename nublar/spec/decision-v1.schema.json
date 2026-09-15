@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.nublar-decision-v1.schema.json",
+  "title": "InGen Nublar provider-neutral delivery decision",
+  "description": "A compact projection of a Nublar run for delivery adapters.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "workflow",
+    "status",
+    "exit_code",
+    "created_at",
+    "completed_at",
+    "checks"
+  ],
+  "properties": {
+    "schema": {"const": "ingen.nublar-decision/v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "workflow": {"$ref": "#/$defs/workflow"},
+    "status": {"enum": ["passed", "failed", "error"]},
+    "exit_code": {"enum": [0, 1, 2]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/issue"}
+    },
+    "errors": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/issue"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "passed"}}},
+      "then": {"properties": {"exit_code": {"const": 0}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "failed"}}},
+      "then": {"properties": {"exit_code": {"const": 1}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "error"}}},
+      "then": {"properties": {"exit_code": {"const": 2}}}
+    }
+  ],
+  "$defs": {
+    "file-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "file"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "file": {"$ref": "#/$defs/file-ref"}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tool", "path", "required", "status"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "tool": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"},
+        "status": {"enum": ["passed", "failed", "error", "missing"]},
+        "result": {"$ref": "#/$defs/file-ref"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "check_id": {"type": "string"},
+        "tool": {"type": "string"},
+        "path": {"type": "string"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

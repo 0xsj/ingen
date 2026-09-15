@@ -1,4 +1,4 @@
-.PHONY: test check release-check lint fuzz race package-check module-check postgres-migration-check postgres-apply-migration postgres-integration postgres-schema-check examples example-go example-go-service example-go-messaging example-typescript example-typescript-messaging example-otel-go example-otel-typescript test-go test-typescript lint-go lint-typescript build-typescript
+.PHONY: test check release-check lint fuzz race package-check module-check postgres-migration-check postgres-apply-migration postgres-integration postgres-schema-check examples example-go example-go-service example-go-messaging example-go-getting-started example-typescript example-typescript-messaging example-typescript-getting-started example-otel-go example-otel-typescript test-go test-typescript lint-go lint-typescript build-typescript
 
 test: test-go test-typescript
 
@@ -62,7 +62,7 @@ postgres-schema-check:
 	@test -n "$$AMBER_POSTGRES_DSN" || (echo "AMBER_POSTGRES_DSN must be set" && exit 1)
 	cd go && go run ./examples/postgres
 
-examples: example-go example-go-service example-go-messaging example-typescript example-typescript-messaging example-otel-go example-otel-typescript
+examples: example-go example-go-service example-go-messaging example-go-getting-started example-typescript example-typescript-messaging example-typescript-getting-started example-otel-go example-otel-typescript
 
 example-go:
 	cd go && go run ./examples/compose
@@ -73,11 +73,17 @@ example-go-service:
 example-go-messaging:
 	cd go && go run ./examples/messaging
 
+example-go-getting-started:
+	cd go && go run ./examples/getting-started
+
 example-typescript:
 	cd typescript && npm run example
 
 example-typescript-messaging:
 	cd typescript && npm run example-messaging
+
+example-typescript-getting-started:
+	cd typescript && npm run example-getting-started
 
 example-otel-go:
 	cd go && go run ./examples/otel

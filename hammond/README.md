@@ -8,6 +8,9 @@ It is not a separate service yet. Sentinel should continue to provide the
 local contract workspace, and Hammond should only grow when projects need
 shared governance beyond a single Herdr workspace.
 
+The working v1 governance model is documented in
+[GOVERNANCE-SPEC.md](GOVERNANCE-SPEC.md).
+
 ## Proposed v1 tree
 
 The first Hammond slice should remain a small, local governance module around
@@ -25,12 +28,15 @@ hammond/
 │       └── main.go
 │
 ├── internal/
-│   ├── governance/
-│   │   ├── types.go          # contract refs, reviews, approvals, amendments
-│   │   ├── validate.go       # structural and governance invariants
-│   │   ├── lifecycle.go      # draft/review/approved/superseded transitions
-│   │   ├── lineage.go        # parent, successor, and amendment relationships
-│   │   └── governance_test.go
+	│   ├── governance/
+	│   │   ├── types.go          # contract refs, reviews, approvals, amendments
+	│   │   ├── policy.go         # explicit approval policy and quorum counting
+	│   │   ├── validate.go       # structural and governance invariants
+	│   │   ├── lifecycle.go      # draft/review/approved/superseded transitions
+	│   │   ├── lineage.go        # parent, successor, and amendment relationships
+	│   │   ├── amendment.go      # policy-aware amendment and supersession events
+	│   │   ├── codec.go          # strict JSON record and event decoding
+	│   │   └── governance_test.go
 │   │
 │   └── store/
 │       ├── store.go          # persistence interface
@@ -42,9 +48,9 @@ hammond/
 │
 ├── examples/
 │   └── document-pipeline/
-│       ├── contract-reference.json
-│       ├── review-record.json
-│       └── amendment-record.json
+│       ├── record-v2.json
+│       ├── event-review-opened.json
+│       └── event-approved.json
 │
 ├── contracts/
 │   └── .gitkeep
@@ -63,3 +69,34 @@ The first milestone is intentionally narrow: register one contract, approve
 its exact artifact hash, create a linked amendment, and print the resulting
 lineage. An HTTP API, UI, database migrations, and external integrations are
 deferred until this model is stable.
+
+## Local CLI slice
+
+The current CLI can register a record, append validated events, create a linked
+amendment, supersede a predecessor after successor approval, inspect stored
+records, list the registry, and validate lineage:
+
+```sh
+STORE=/tmp/hammond-records
+
+go run ./hammond/cmd/hammond register \
+  --store "$STORE" \
+  --record hammond/examples/document-pipeline/record-v2.json
+
+go run ./hammond/cmd/hammond append-event \
+  --store "$STORE" \
+  --record hammond/examples/document-pipeline/record-v2.json \
+  --event hammond/examples/document-pipeline/event-review-opened.json
+
+go run ./hammond/cmd/hammond append-event \
+  --store "$STORE" \
+  --record hammond/examples/document-pipeline/record-v2.json \
+  --event hammond/examples/document-pipeline/event-approved.json
+
+go run ./hammond/cmd/hammond lineage --store "$STORE"
+```
+
+The store and CLI use the explicit v1 default policy: one approval from one
+distinct actor in the active review cycle. Library callers that need a higher
+threshold can use the policy-aware governance and lineage methods; policy
+configuration and role authorization are not persisted yet.

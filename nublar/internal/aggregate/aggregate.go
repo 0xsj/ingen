@@ -3,9 +3,11 @@
 package aggregate
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +16,8 @@ import (
 	"time"
 
 	"ingen/core/ciresult"
+	"ingen/nublar/internal/artifact"
+	"ingen/nublar/internal/output"
 	"ingen/nublar/internal/workflow"
 )
 
@@ -56,15 +60,11 @@ func ComposeFiles(paths []string) (Report, error) {
 		if strings.TrimSpace(path) == "" {
 			return Report{}, fmt.Errorf("CI result path must not be empty")
 		}
-		result, err := ciresult.LoadFile(path)
+		loaded, err := artifact.LoadFile(path)
 		if err != nil {
 			return Report{}, err
 		}
-		digest, err := hashFile(path)
-		if err != nil {
-			return Report{}, fmt.Errorf("hash CI result %q: %w", path, err)
-		}
-		inputs = append(inputs, Input{Path: path, SHA256: digest, Result: result})
+		inputs = append(inputs, Input{Path: path, SHA256: loaded.SHA256, Result: loaded.Artifact})
 	}
 	return Compose(inputs)
 }
@@ -113,16 +113,17 @@ func ComposeWorkflow(document workflow.Document, root string) Report {
 	inputs := make([]Input, 0, len(document.Checks))
 	for _, check := range document.Checks {
 		path := filepath.Join(root, check.Result)
-		result, err := ciresult.LoadFile(path)
+		loaded, err := artifact.LoadFile(path)
 		if err != nil {
 			issue := Issue{CheckID: check.ID, Tool: check.Tool, Path: check.Result, Reason: err.Error()}
-			if check.IsRequired() {
+			if check.IsRequired() || !errors.Is(err, os.ErrNotExist) {
 				report.Errors = append(report.Errors, issue)
 			} else {
 				report.Warnings = append(report.Warnings, issue)
 			}
 			continue
 		}
+		result := loaded.Artifact
 		if result.Tool != check.Tool {
 			report.Errors = append(report.Errors, Issue{
 				CheckID: check.ID,
@@ -132,17 +133,7 @@ func ComposeWorkflow(document workflow.Document, root string) Report {
 			})
 			continue
 		}
-		digest, hashErr := hashFile(path)
-		if hashErr != nil {
-			report.Errors = append(report.Errors, Issue{
-				CheckID: check.ID,
-				Tool:    check.Tool,
-				Path:    check.Result,
-				Reason:  fmt.Sprintf("hash result: %v", hashErr),
-			})
-			continue
-		}
-		inputs = append(inputs, Input{CheckID: check.ID, Path: check.Result, SHA256: digest, Result: result})
+		inputs = append(inputs, Input{CheckID: check.ID, Path: check.Result, SHA256: loaded.SHA256, Result: result})
 	}
 	report.Results = inputs
 	if len(report.Errors) > 0 || len(report.Results) == 0 {
@@ -165,15 +156,11 @@ func ComposeWorkflow(document workflow.Document, root string) Report {
 // ComposeWorkflowFile loads a workflow, records its exact bytes, and resolves
 // its declared checks against root.
 func ComposeWorkflowFile(path, root string) (Report, error) {
-	document, err := workflow.LoadFile(path)
+	document, reference, err := workflow.LoadFileWithReference(path)
 	if err != nil {
 		return Report{}, err
 	}
 	report := ComposeWorkflow(document, root)
-	reference, err := workflow.FileReference(path)
-	if err != nil {
-		return Report{}, err
-	}
 	report.Workflow = &reference
 	return report, nil
 }
@@ -263,16 +250,12 @@ func exitCode(status string) int {
 }
 
 func SaveFile(path string, report Report) error {
-	file, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("create Nublar report %s: %w", path, err)
-	}
-	if err := WriteJSON(file, report); err != nil {
-		_ = file.Close()
+	var data bytes.Buffer
+	if err := WriteJSON(&data, report); err != nil {
 		return fmt.Errorf("write Nublar report %s: %w", path, err)
 	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close Nublar report %s: %w", path, err)
+	if err := output.WriteFile(path, data.Bytes()); err != nil {
+		return err
 	}
 	return nil
 }
