@@ -41,6 +41,7 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Nublar can aggregate provider preflight, behavioral verification, mutation preparation, and mutation campaign results. The fresh document-pipeline aggregate passed all four required checks.
 - All generated outputs now derive from `ARTIFACT_ROOT`, and `make nublar-aggregate-fresh` snapshots the current source tree into a new temporary workspace before running the full document workflow.
 - The fresh-workspace reproducibility checkpoint is recorded in [sorna-reproducibility-checkpoint.md](notes/modules/sorna-reproducibility-checkpoint.md): stable contract/oracle/policy and binary identities matched, while the exact mutation-plan hash changed only with the regenerated baseline run ID.
+- The committed-checkout reproducibility checkpoint now passes at `aacaf52` in two clean worktrees: oracle, clean baseline, and all six mutation binary hashes matched; exact plan hashes differed only by generated baseline run ID, while the semantic identity remained stable.
 - Campaign plans now expose a stable semantic identity alongside the exact run-bound plan hash; strict provider execution continues to bind to exact plan bytes.
 - Campaign verification now recomputes both the exact plan-byte hash and the optional semantic identity before accepting a campaign result.
 - Alpha-boundary tests now reject exact plan tampering, semantic plan drift, and mismatched provider semantic identities before accepting the handoff.
@@ -119,9 +120,9 @@ These are candidate directions, not an artificial checklist to complete all at o
 
 ## Recommended next step
 
-The alpha interface checkpoint is now documented and executable. The next
-checkpoint is to rerun from a committed clean checkout and compare the exact
-run-bound hash with the new stable semantic plan identity. New providers or
-Sentinel work stay behind the named boundaries.
+The Sorna alpha interface and committed-checkout reproducibility checkpoints
+now pass. Freeze this alpha baseline, then choose one post-alpha surface: a
+webhook validation lab or Sentinel contract-workspace design. New providers
+and broader mutation families stay behind that decision.
 
 This file is a project checkpoint, not a requirement to implement every avenue listed above immediately.

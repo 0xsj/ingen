@@ -78,9 +78,10 @@ unchanged.
 
 ## Next use
 
-Before adding another mutation operator, rerun from a committed clean checkout
-and compare both identities. The current fresh-workspace command remains the
-repeatable alpha smoke test.
+The committed-checkout comparison below is the release-level reproducibility
+checkpoint for the current local platform and toolchain. Before adding another
+mutation operator, preserve this result as the alpha baseline and decide
+whether the next surface is a new example or a coordinator boundary.
 
 The identity implementation was then verified in
 `/private/tmp/ingen-workspace.tUh1UW`. It emitted the exact plan hash
@@ -139,3 +140,35 @@ run ID as designed.
 This remains a pre-commit rehearsal because the source was copied from the
 current worktree. A committed clean-checkout run is still required before
 calling the result release-level reproducibility evidence.
+
+## Final committed-checkout checkpoint
+
+The reproducibility correction was committed as `aacaf52`:
+
+```text
+fix: normalize clean subject build paths
+```
+
+The complete workflow was then run from two independent clean worktrees at
+that exact revision:
+
+| Identity | `/private/tmp/ingen-repro.EWNRG2` | `/private/tmp/ingen-repro.Ef5tAG` |
+| --- | --- | --- |
+| exact plan hash | `52f571a86d9a9b732013f5a21e59ebe50adb868d2e42b6b1b96656f9dbd8601e` | `637a82dd3fa9456dae40fd1301586155829c46b4594bf76f21d73ae1d4832496` |
+| semantic plan hash | `02c66722e8b2b7b29607b967759189142cf43cfa8d76521fc6be2eba272a343e` | `02c66722e8b2b7b29607b967759189142cf43cfa8d76521fc6be2eba272a343e` |
+| oracle hash | `9deb58ce9c89573b4ce81c2720aee1df5f9c6e40968f2912fdcf39a959ea7f59` | `9deb58ce9c89573b4ce81c2720aee1df5f9c6e40968f2912fdcf39a959ea7f59` |
+| clean baseline binary | `b16b236930e2a98c58a99a82e08d0838bf8ed1900d2258d2f6768a54cf2cebc8` | `b16b236930e2a98c58a99a82e08d0838bf8ed1900d2258d2f6768a54cf2cebc8` |
+
+Both runs passed all 7 baseline cases, killed all 6 mutations, and passed
+provider review, preparation, campaign verification, and Nublar aggregation.
+All six mutation binary hashes also matched across the two worktrees.
+
+The earlier committed run exposed that the direct clean build lacked Go's
+`-trimpath` flag and therefore produced checkout-dependent baseline hashes.
+Adding the flag to `subject-build` removed that source-path variance. The
+mutation provider already used `-trimpath`, which is why its variant hashes
+were stable before the correction.
+
+This establishes reproducibility for the current committed source on the
+current platform and toolchain. It does not claim that different Go versions,
+architectures, or build environments will produce identical binaries.
