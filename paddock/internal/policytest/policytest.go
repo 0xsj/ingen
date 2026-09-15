@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -63,6 +64,7 @@ type CaseResult struct {
 	Actual       string   `json:"actual"`
 	Status       string   `json:"status"`
 	Findings     int      `json:"findings,omitempty"`
+	FindingRules []string `json:"finding_rules,omitempty"`
 	Error        string   `json:"error,omitempty"`
 	MissingRules []string `json:"missing_rules,omitempty"`
 }
@@ -184,6 +186,11 @@ func RunWithOptions(manifestPath, policyPath string, config policy.Policy, optio
 			for _, finding := range result.Findings {
 				foundRules[finding.RuleID] = struct{}{}
 			}
+			caseResult.FindingRules = make([]string, 0, len(foundRules))
+			for ruleID := range foundRules {
+				caseResult.FindingRules = append(caseResult.FindingRules, ruleID)
+			}
+			sort.Strings(caseResult.FindingRules)
 			for _, ruleID := range testCase.RequireRules {
 				if _, found := foundRules[ruleID]; !found {
 					caseResult.MissingRules = append(caseResult.MissingRules, ruleID)

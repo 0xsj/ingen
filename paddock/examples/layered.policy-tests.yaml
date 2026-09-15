@@ -1,0 +1,11 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: inward-layered-service
+    root: services/layered-go/good
+    expect: pass
+
+  - name: reversed-layered-dependency
+    root: services/layered-go/violating
+    expect: fail
+    require_rules:
+      - dependencies-point-inward

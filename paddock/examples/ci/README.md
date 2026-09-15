@@ -57,7 +57,32 @@ export PADDOCK_GRAPH=paddock-graph.json
 sh paddock/examples/ci/paddock-gate.sh gate
 ```
 
-The graph path is optional; without it, Paddock uses its built-in adapter.
+The graph path is optional; when neither a graph nor an external adapter is
+configured, Paddock uses its built-in adapter.
+
+The gate can also invoke an external adapter itself and persist the graph as
+part of the CI artifact inputs. Set `PADDOCK_ADAPTER` to the executable and,
+when arguments are needed, set `PADDOCK_ADAPTER_ARGS_FILE` to a text file with
+one argument per line:
+
+```sh
+export PADDOCK_ADAPTER=python3
+export PADDOCK_ADAPTER_ARGS_FILE=paddock-adapter.args
+export PADDOCK_GRAPH_OUTPUT=paddock-graph.json
+```
+
+For example, the conformance fixture can be configured with an args file whose
+lines are:
+
+```text
+paddock/examples/adapter/conformance-adapter.py
+--workspace
+/path/to/workspace
+```
+
+With these variables, `gate` passes the adapter and repeated
+`--adapter-arg` values to Paddock, then writes `PADDOCK_GRAPH_OUTPUT`. Set
+either `PADDOCK_GRAPH` or `PADDOCK_ADAPTER`, not both.
 
 Alternatively, a CI job can let Paddock invoke the adapter and persist the
 graph in one command:

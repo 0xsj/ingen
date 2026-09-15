@@ -129,6 +129,39 @@ func TestVerifyPreparedSubjectRejectsSourceOrBinaryDrift(t *testing.T) {
 	}
 }
 
+func TestValidateProviderRejectsInvalidTargetResolution(t *testing.T) {
+	provider := ProviderManifest{
+		Schema:     ProviderSchema,
+		ID:         "source-provider",
+		Version:    1,
+		PlanSchema: Schema,
+		Capabilities: []ProviderCapability{{
+			Plane: "implementation", Operator: "test.operator", Target: "GET /",
+		}},
+		Entries: []ProviderEntry{{
+			MutationID: "m1",
+			Command:    "subject",
+			Provenance: &ProviderProvenance{
+				SourceDir:    "source",
+				SourceSHA256: strings.Repeat("a", 64),
+				BinarySHA256: strings.Repeat("b", 64),
+				Location:     "source/main.go",
+				Before:       "old",
+				After:        "new",
+				TargetResolution: &TargetResolution{
+					Selector:       "source/main.go",
+					CandidateCount: 0,
+					AppliedCount:   1,
+				},
+			},
+		}},
+	}
+	problems := ValidateProvider(provider)
+	if len(problems) != 1 || !strings.Contains(problems[0], "applied_count must not exceed candidate_count") {
+		t.Fatalf("problems = %v, want invalid target-resolution counts", problems)
+	}
+}
+
 func mutationSpec(id string) mutation.Spec {
 	return mutation.Spec{ID: id, Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents"}
 }

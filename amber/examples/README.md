@@ -9,7 +9,7 @@ These examples compose the current adapters into one small request flow:
 5. persist the child; and
 6. project the child into logging and tracing fields.
 
-Run both examples from the project root:
+Run all examples from the project root:
 
 ```sh
 make examples
@@ -22,7 +22,13 @@ portable across Node and browser-oriented runtimes.
 The examples use `httptest`/`Request` objects rather than opening a network
 port, so they demonstrate adapter composition without external services.
 
+The OpenTelemetry examples separately show application-owned tracer setup,
+Amber span enrichment, and finished-span inspection using in-memory SDK
+recorders. They do not require a collector or network destination.
+
 ## Implementations
 
 - Go: [`go/examples/compose`](../go/examples/compose/)
 - TypeScript: [`typescript/src/example.ts`](../typescript/src/example.ts)
+- Go OpenTelemetry: [`go/examples/otel`](../go/examples/otel/)
+- TypeScript OpenTelemetry: [`typescript/src/otel-example.ts`](../typescript/src/otel-example.ts)

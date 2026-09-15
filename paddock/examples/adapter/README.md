@@ -31,3 +31,27 @@ paddock ci . --policy-lock paddock.lock.json \
 The machine-readable contracts are
 [`paddock.graph-request-v1.schema.json`](../../spec/paddock.graph-request-v1.schema.json)
 and [`paddock.graph-v1.schema.json`](../../spec/paddock.graph-v1.schema.json).
+
+## Conformance fixture
+
+`conformance-adapter.py` is a dependency-free Python adapter that validates
+the request and returns a small synthetic Rust graph. It is useful for testing
+the external-language seam without requiring a Rust parser:
+
+```sh
+python3 paddock/examples/adapter/conformance-adapter.py \
+  --workspace /path/to/workspace \
+  < request.json
+
+paddock graph /path/to/workspace \
+  --policy paddock.yaml \
+  --adapter python3 \
+  --adapter-arg paddock/examples/adapter/conformance-adapter.py \
+  --adapter-arg --workspace \
+  --adapter-arg /path/to/workspace \
+  --format json
+```
+
+The fixture supports `rust` with `file` source units and declares the
+`import` edge kind. It intentionally checks capability negotiation and that
+adapter arguments preserve the workspace boundary.

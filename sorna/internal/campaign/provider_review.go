@@ -6,23 +6,25 @@ const ProviderReviewSchema = "ingen.mutation-provider-review/v1"
 
 // ProviderReviewInput identifies the exact bytes reviewed by BuildProviderReview.
 type ProviderReviewInput struct {
-	PlanPath       string
-	PlanSHA256     string
-	ProviderPath   string
-	ProviderSHA256 string
-	Plan           Plan
-	Provider       ProviderManifest
+	PlanPath           string
+	PlanSHA256         string
+	ProviderPath       string
+	ProviderSHA256     string
+	RequirePlanBinding bool
+	Plan               Plan
+	Provider           ProviderManifest
 }
 
 // ProviderReview is a human- and CI-readable capability review. It describes
 // why a provider is ready or blocked without starting any subject process.
 type ProviderReview struct {
-	Schema       string                   `json:"schema"`
-	Status       string                   `json:"status"`
-	Plan         ProviderReviewPlan       `json:"plan"`
-	Provider     ProviderReviewProvider   `json:"provider"`
-	Capabilities []ProviderCapability     `json:"capabilities"`
-	Mutations    []ProviderMutationReview `json:"mutations"`
+	Schema             string                   `json:"schema"`
+	Status             string                   `json:"status"`
+	RequirePlanBinding bool                     `json:"require_plan_binding,omitempty"`
+	Plan               ProviderReviewPlan       `json:"plan"`
+	Provider           ProviderReviewProvider   `json:"provider"`
+	Capabilities       []ProviderCapability     `json:"capabilities"`
+	Mutations          []ProviderMutationReview `json:"mutations"`
 }
 
 type ProviderReviewPlan struct {
@@ -54,8 +56,9 @@ type ProviderMutationReview struct {
 // prepared entries with a plan. It does not inspect or execute subject code.
 func BuildProviderReview(input ProviderReviewInput) ProviderReview {
 	review := ProviderReview{
-		Schema: ProviderReviewSchema,
-		Status: "ready",
+		Schema:             ProviderReviewSchema,
+		Status:             "ready",
+		RequirePlanBinding: input.RequirePlanBinding,
 		Plan: ProviderReviewPlan{
 			Path:   input.PlanPath,
 			SHA256: input.PlanSHA256,
@@ -78,6 +81,8 @@ func BuildProviderReview(input ProviderReviewInput) ProviderReview {
 			review.Provider.PlanBinding = "mismatch"
 			review.Status = "blocked"
 		}
+	} else if input.RequirePlanBinding {
+		review.Status = "blocked"
 	}
 
 	entries := make(map[string]bool, len(input.Provider.Entries))

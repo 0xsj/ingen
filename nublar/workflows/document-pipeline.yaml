@@ -3,9 +3,17 @@ id: document-pipeline-ci
 checks:
   - id: mutation-provider-review
     tool: sorna
-    result: .artifacts/document-pipeline-provider-review-ci-result.json
+    result: document-pipeline-go-provider-ci-result.json
+    required: true
+  - id: mutation-preparation
+    tool: sorna
+    result: document-pipeline-go-preparation-ci-result.json
     required: true
   - id: behavioral-verification
     tool: sorna
-    result: .artifacts/document-pipeline-ci-result.json
+    result: document-pipeline-ci-result.json
+    required: true
+  - id: mutation-campaign
+    tool: sorna
+    result: document-pipeline-go-campaign-ci-result.json
     required: true

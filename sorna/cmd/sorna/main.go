@@ -731,9 +731,10 @@ func mutationCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: sorna mutation validate <catalogue> [--contract <path>]")
 		fmt.Fprintln(os.Stderr, "       sorna mutation plan <catalogue> --contract <path> --oracle <path> --baseline-evidence <dir> [--subject-policy <path>] [--output <path>]")
 		fmt.Fprintln(os.Stderr, "       sorna mutation provider validate <path>")
-		fmt.Fprintln(os.Stderr, "       sorna mutation provider inspect <plan> --provider <path> [--format text|json|ci-result] [--output <path>]")
-		fmt.Fprintln(os.Stderr, "       sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
-		fmt.Fprintln(os.Stderr, "       sorna mutation verify <campaign-result>")
+		fmt.Fprintln(os.Stderr, "       sorna mutation provider inspect <plan> --provider <path> [--require-plan-binding] [--format text|json|ci-result] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation provider preparation <summary> --provider <path> [--format ci-result] [--source-root <dir>] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--require-plan-binding] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation verify <campaign-result> [--format text|ci-result] [--source-root <dir>] [--output <path>]")
 		fmt.Fprintln(os.Stderr, "       sorna mutation list <catalogue>")
 		return 2
 	}
@@ -785,7 +786,8 @@ func validateMutationCatalogue(args []string) int {
 func mutationProviderCommand(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: sorna mutation provider validate <path>")
-		fmt.Fprintln(os.Stderr, "       sorna mutation provider inspect <plan> --provider <path> [--format text|json|ci-result] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation provider inspect <plan> --provider <path> [--require-plan-binding] [--format text|json|ci-result] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation provider preparation <summary> --provider <path> [--format ci-result] [--source-root <dir>] [--output <path>]")
 		return 2
 	}
 	switch args[0] {
@@ -793,10 +795,13 @@ func mutationProviderCommand(args []string) int {
 		return validateMutationProvider(args[1:])
 	case "inspect":
 		return inspectMutationProvider(args[1:])
+	case "preparation":
+		return mutationProviderPreparation(args[1:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown mutation provider command:", args[0])
 		fmt.Fprintln(os.Stderr, "usage: sorna mutation provider validate <path>")
-		fmt.Fprintln(os.Stderr, "       sorna mutation provider inspect <plan> --provider <path> [--format text|json|ci-result] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation provider inspect <plan> --provider <path> [--require-plan-binding] [--format text|json|ci-result] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation provider preparation <summary> --provider <path> [--format ci-result] [--source-root <dir>] [--output <path>]")
 		return 2
 	}
 }
@@ -817,19 +822,20 @@ func validateMutationProvider(args []string) int {
 
 func inspectMutationProvider(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: sorna mutation provider inspect <plan> --provider <path> [--format text|json|ci-result] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation provider inspect <plan> --provider <path> [--require-plan-binding] [--format text|json|ci-result] [--output <path>]")
 		return 2
 	}
 	flags := flag.NewFlagSet("mutation provider inspect", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	providerPath := flags.String("provider", "", "provider manifest to review")
+	requirePlanBinding := flags.Bool("require-plan-binding", false, "block providers that do not declare the reviewed plan hash")
 	format := flags.String("format", "text", "review output format: text, json, or ci-result")
 	outputPath := flags.String("output", "", "optional output path; existing files are not overwritten")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
 	if len(flags.Args()) != 0 || *providerPath == "" || (*format != "text" && *format != "json" && *format != "ci-result") {
-		fmt.Fprintln(os.Stderr, "usage: sorna mutation provider inspect <plan> --provider <path> [--format text|json|ci-result] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation provider inspect <plan> --provider <path> [--require-plan-binding] [--format text|json|ci-result] [--output <path>]")
 		return 2
 	}
 	planPath := args[0]
@@ -854,12 +860,13 @@ func inspectMutationProvider(args []string) int {
 		return 1
 	}
 	review := campaign.BuildProviderReview(campaign.ProviderReviewInput{
-		PlanPath:       planPath,
-		PlanSHA256:     campaign.HashBytes(planBytes),
-		ProviderPath:   *providerPath,
-		ProviderSHA256: campaign.HashBytes(providerBytes),
-		Plan:           plan,
-		Provider:       provider,
+		PlanPath:           planPath,
+		PlanSHA256:         campaign.HashBytes(planBytes),
+		ProviderPath:       *providerPath,
+		ProviderSHA256:     campaign.HashBytes(providerBytes),
+		RequirePlanBinding: *requirePlanBinding,
+		Plan:               plan,
+		Provider:           provider,
 	})
 	var output []byte
 	if *format == "ci-result" {
@@ -919,6 +926,37 @@ func inspectMutationProvider(args []string) int {
 	return 0
 }
 
+func mutationProviderPreparation(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation provider preparation <summary> --provider <path> [--format ci-result] [--source-root <dir>] [--output <path>]")
+		return 2
+	}
+	flags := flag.NewFlagSet("mutation provider preparation", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	providerPath := flags.String("provider", "", "provider manifest bound to the preparation summary")
+	format := flags.String("format", "ci-result", "output format: ci-result")
+	sourceRoot := flags.String("source-root", ".", "source root recorded in the CI result")
+	outputPath := flags.String("output", "", "optional CI result output path; existing files are not overwritten")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 || *providerPath == "" || *format != "ci-result" {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation provider preparation <summary> --provider <path> [--format ci-result] [--source-root <dir>] [--output <path>]")
+		return 2
+	}
+	summaryPath := args[0]
+	artifact, err := evidence.BuildMutationPreparationCIResult(summaryPath, *providerPath, *sourceRoot)
+	if err != nil {
+		errorArtifact, artifactErr := evidence.BuildMutationPreparationCIErrorResult(summaryPath, *providerPath, *sourceRoot, err)
+		if artifactErr != nil {
+			fmt.Fprintln(os.Stderr, "build mutation preparation CI error result:", artifactErr)
+			return 2
+		}
+		return emitCIResult(errorArtifact, *outputPath, "mutation preparation")
+	}
+	return emitCIResult(artifact, *outputPath, "mutation preparation")
+}
+
 func formatProviderReview(review campaign.ProviderReview) string {
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "provider: %s (%s@%d)\n", review.Provider.Path, review.Provider.ID, review.Provider.Version)
@@ -940,7 +978,7 @@ func formatProviderReview(review campaign.ProviderReview) string {
 
 func runMutationCampaign(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--require-plan-binding] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
 		return 2
 	}
 	flags := flag.NewFlagSet("mutation run", flag.ContinueOnError)
@@ -949,6 +987,7 @@ func runMutationCampaign(args []string) int {
 	oraclePath := flags.String("oracle", "", "path to the frozen oracle artifact")
 	policyPath := flags.String("policy", "", "path to the oracle isolation policy")
 	subjectPolicyPath := flags.String("subject-policy", "", "path to the managed-subject isolation policy")
+	requirePlanBinding := flags.Bool("require-plan-binding", false, "reject providers that do not declare the reviewed plan hash")
 	baseAddress := flags.String("base-address", "127.0.0.1:8081", "first subject address; each mutation receives the next port")
 	readyPath := flags.String("ready-path", "/healthz", "HTTP path used to wait for each subject")
 	outputDir := flags.String("output-dir", ".artifacts/document-pipeline-campaign", "root directory for per-mutation evidence")
@@ -957,7 +996,7 @@ func runMutationCampaign(args []string) int {
 		return 2
 	}
 	if len(flags.Args()) != 0 || *providerPath == "" || *oraclePath == "" || *policyPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--require-plan-binding] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
 		return 2
 	}
 	planPath := args[0]
@@ -987,6 +1026,10 @@ func runMutationCampaign(args []string) int {
 		for _, problem := range problems {
 			fmt.Fprintln(os.Stderr, "-", problem)
 		}
+		return 1
+	}
+	if *requirePlanBinding && provider.PlanSHA256 == "" {
+		fmt.Fprintln(os.Stderr, "campaign provider does not declare the reviewed plan hash")
 		return 1
 	}
 	if provider.PlanSHA256 != "" && provider.PlanSHA256 != planHash {
@@ -1186,12 +1229,31 @@ func runMutationCampaign(args []string) int {
 }
 
 func verifyMutationCampaign(args []string) int {
-	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: sorna mutation verify <campaign-result>")
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation verify <campaign-result> [--format text|ci-result] [--source-root <dir>] [--output <path>]")
 		return 2
 	}
-	result, err := campaign.LoadResult(args[0])
+	flags := flag.NewFlagSet("mutation verify", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	format := flags.String("format", "text", "output format: text or ci-result")
+	sourceRoot := flags.String("source-root", ".", "source root recorded in the CI result")
+	outputPath := flags.String("output", "", "optional CI result output path; existing files are not overwritten")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 || (*format != "text" && *format != "ci-result") {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation verify <campaign-result> [--format text|ci-result] [--source-root <dir>] [--output <path>]")
+		return 2
+	}
+	campaignPath := args[0]
+	result, err := campaign.LoadResult(campaignPath)
 	if err != nil {
+		if *format == "ci-result" {
+			artifact, artifactErr := evidence.BuildMutationCampaignCIErrorResult(campaignPath, *sourceRoot, err)
+			if artifactErr == nil {
+				return emitMutationCampaignCIResult(artifact, *outputPath)
+			}
+		}
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -1201,22 +1263,91 @@ func verifyMutationCampaign(args []string) int {
 			continue
 		}
 		if err := evidence.Verify(entry.EvidencePath); err != nil {
+			if *format == "ci-result" {
+				artifact, artifactErr := evidence.BuildMutationCampaignCIErrorResult(campaignPath, *sourceRoot, fmt.Errorf("verify mutation %s evidence: %w", entry.MutationID, err))
+				if artifactErr == nil {
+					return emitMutationCampaignCIResult(artifact, *outputPath)
+				}
+			}
 			fmt.Fprintf(os.Stderr, "verify mutation %s evidence: %v\n", entry.MutationID, err)
 			return 1
 		}
 		actual, err := campaign.HashEvidence(entry.EvidencePath)
 		if err != nil {
+			if *format == "ci-result" {
+				artifact, artifactErr := evidence.BuildMutationCampaignCIErrorResult(campaignPath, *sourceRoot, fmt.Errorf("hash mutation %s evidence: %w", entry.MutationID, err))
+				if artifactErr == nil {
+					return emitMutationCampaignCIResult(artifact, *outputPath)
+				}
+			}
 			fmt.Fprintf(os.Stderr, "hash mutation %s evidence: %v\n", entry.MutationID, err)
 			return 1
 		}
 		if actual != *entry.Evidence {
+			if *format == "ci-result" {
+				artifact, artifactErr := evidence.BuildMutationCampaignCIErrorResult(campaignPath, *sourceRoot, fmt.Errorf("mutation %s evidence hashes do not match campaign result", entry.MutationID))
+				if artifactErr == nil {
+					return emitMutationCampaignCIResult(artifact, *outputPath)
+				}
+			}
 			fmt.Fprintf(os.Stderr, "mutation %s evidence hashes do not match campaign result\n", entry.MutationID)
 			return 1
 		}
 		verified++
 	}
-	fmt.Printf("verified: %s (%d evidence entries)\n", args[0], verified)
+	if *format == "ci-result" {
+		artifact, err := evidence.BuildMutationCampaignCIResult(result, campaignPath, *sourceRoot)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		return emitMutationCampaignCIResult(artifact, *outputPath)
+	}
+	fmt.Printf("verified: %s (%d evidence entries)\n", campaignPath, verified)
 	return 0
+}
+
+func emitMutationCampaignCIResult(artifact ciresult.Artifact, outputPath string) int {
+	return emitCIResult(artifact, outputPath, "mutation campaign")
+}
+
+func emitCIResult(artifact ciresult.Artifact, outputPath, label string) int {
+	var buffer bytes.Buffer
+	if err := ciresult.WriteJSON(&buffer, artifact); err != nil {
+		fmt.Fprintf(os.Stderr, "encode %s CI result: %v\n", label, err)
+		return 2
+	}
+	if outputPath == "" {
+		if _, err := os.Stdout.Write(buffer.Bytes()); err != nil {
+			fmt.Fprintf(os.Stderr, "write %s CI result: %v\n", label, err)
+			return 2
+		}
+		return artifact.ExitCode
+	}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "create %s CI result directory: %v\n", label, err)
+		return 2
+	}
+	file, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			fmt.Fprintf(os.Stderr, "%s CI result output already exists: %s\n", label, outputPath)
+		} else {
+			fmt.Fprintf(os.Stderr, "open %s CI result output: %v\n", label, err)
+		}
+		return 2
+	}
+	if _, err := file.Write(buffer.Bytes()); err != nil {
+		_ = file.Close()
+		fmt.Fprintf(os.Stderr, "write %s CI result: %v\n", label, err)
+		return 2
+	}
+	if err := file.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "close %s CI result: %v\n", label, err)
+		return 2
+	}
+	fmt.Printf("CI result: %s\nstatus: %s\n", outputPath, artifact.Status)
+	return artifact.ExitCode
 }
 
 func campaignEntryPath(outputDir string, planned campaign.MutationEntry) string {
@@ -1831,8 +1962,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sorna mutation validate <catalogue> [--contract <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation plan <catalogue> --contract <path> --oracle <path> --baseline-evidence <dir> [--subject-policy <path>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation provider validate <path>")
-	fmt.Fprintln(os.Stderr, "  sorna mutation provider inspect <plan> --provider <path> [--format text|json|ci-result] [--output <path>]")
-	fmt.Fprintln(os.Stderr, "  sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  sorna mutation provider inspect <plan> --provider <path> [--require-plan-binding] [--format text|json|ci-result] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  sorna mutation provider preparation <summary> --provider <path> [--format ci-result] [--source-root <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--require-plan-binding] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation list <catalogue>")
 	fmt.Fprintln(os.Stderr, "  sorna evidence verify <directory>")
 	fmt.Fprintln(os.Stderr, "  sorna gate [--minimum-observation-coverage <state>] [--format text|json|ci-result] <evidence-directory>")

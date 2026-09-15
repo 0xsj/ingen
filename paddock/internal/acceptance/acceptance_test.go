@@ -11,7 +11,9 @@ import (
 
 	"ingen/paddock/internal/artifact"
 	"ingen/paddock/internal/baseline"
+	"ingen/paddock/internal/componentmap"
 	"ingen/paddock/internal/explain"
+	"ingen/paddock/internal/graph"
 	"ingen/paddock/internal/model"
 	"ingen/paddock/internal/policy"
 	"ingen/paddock/internal/policydiff"
@@ -163,6 +165,220 @@ func TestCLIPolicyTestManifest(t *testing.T) {
 	}
 }
 
+func TestCLIModularMonolithPolicyTests(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "modular-monolith.yaml")
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "modular-monolith.policy-tests.yaml")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "policy", "test", "--policy", policyPath, "--cases", manifestPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("modular monolith policy test exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var document policytest.Document
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode modular monolith policy test document: %v\n%s", err, output)
+	}
+	if document.Status != "PASS" || document.Passed != 2 || document.Failed != 0 || len(document.Cases) != 2 {
+		t.Fatalf("unexpected modular monolith policy test document: %#v", document)
+	}
+	if document.Cases[0].Actual != "pass" || document.Cases[1].Actual != "fail" || document.Cases[1].Findings != 2 || strings.Join(document.Cases[1].FindingRules, ",") != "context-internals-are-private,cross-context-access-is-mediated" || len(document.Cases[1].MissingRules) != 0 {
+		t.Fatalf("unexpected modular monolith evidence: %#v", document.Cases)
+	}
+}
+
+func TestCLICrossLanguagePolicyTests(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	tests := []struct {
+		name     string
+		policy   string
+		manifest string
+		findings int
+		ruleIDs  string
+	}{
+		{
+			name:     "feature sliced TypeScript",
+			policy:   "feature-sliced-frontend.yaml",
+			manifest: "feature-sliced.policy-tests.yaml",
+			findings: 5,
+			ruleIDs:  "features-do-not-cross,layers-point-downward,no-cycles,no-unresolved-imports,shared-is-feature-free",
+		},
+		{
+			name:     "Python hexagonal",
+			policy:   "python-hexagonal.yaml",
+			manifest: "python-hexagonal.policy-tests.yaml",
+			findings: 2,
+			ruleIDs:  "domain-is-pure,no-cycles",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policyPath := filepath.Join(repoRoot, "paddock", "examples", test.policy)
+			manifestPath := filepath.Join(repoRoot, "paddock", "examples", test.manifest)
+			output, exitCode := runCLI(t, cli, repoRoot, "policy", "test", "--policy", policyPath, "--cases", manifestPath, "--format", "json")
+			if exitCode != 0 {
+				t.Fatalf("cross-language policy test exit code = %d, want 0; output:\n%s", exitCode, output)
+			}
+			var document policytest.Document
+			if err := json.Unmarshal([]byte(output), &document); err != nil {
+				t.Fatalf("decode cross-language policy test document: %v\n%s", err, output)
+			}
+			if document.Status != "PASS" || document.Passed != 2 || document.Failed != 0 || len(document.Cases) != 2 {
+				t.Fatalf("unexpected cross-language policy test document: %#v", document)
+			}
+			violating := document.Cases[1]
+			if violating.Actual != "fail" || violating.Findings != test.findings || strings.Join(violating.FindingRules, ",") != test.ruleIDs || len(violating.MissingRules) != 0 {
+				t.Fatalf("unexpected %s evidence: %#v", test.name, violating)
+			}
+		})
+	}
+}
+
+func TestCLILayeredAndCyclicPolicyTests(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	tests := []struct {
+		name     string
+		policy   string
+		manifest string
+		cases    int
+		passed   int
+		findings int
+		ruleIDs  string
+	}{
+		{
+			name:     "layered",
+			policy:   "layered.yaml",
+			manifest: "layered.policy-tests.yaml",
+			cases:    2,
+			passed:   2,
+			findings: 1,
+			ruleIDs:  "dependencies-point-inward",
+		},
+		{
+			name:     "cyclic",
+			policy:   "cyclic.yaml",
+			manifest: "cyclic.policy-tests.yaml",
+			cases:    1,
+			passed:   1,
+			findings: 1,
+			ruleIDs:  "no-cycles",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policyPath := filepath.Join(repoRoot, "paddock", "examples", test.policy)
+			manifestPath := filepath.Join(repoRoot, "paddock", "examples", test.manifest)
+			output, exitCode := runCLI(t, cli, repoRoot, "policy", "test", "--policy", policyPath, "--cases", manifestPath, "--format", "json")
+			if exitCode != 0 {
+				t.Fatalf("%s policy test exit code = %d, want 0; output:\n%s", test.name, exitCode, output)
+			}
+			var document policytest.Document
+			if err := json.Unmarshal([]byte(output), &document); err != nil {
+				t.Fatalf("decode %s policy test document: %v\n%s", test.name, err, output)
+			}
+			if document.Status != "PASS" || document.Passed != test.passed || document.Failed != 0 || len(document.Cases) != test.cases {
+				t.Fatalf("unexpected %s policy test document: %#v", test.name, document)
+			}
+			violating := document.Cases[len(document.Cases)-1]
+			if violating.Actual != "fail" || violating.Findings != test.findings || strings.Join(violating.FindingRules, ",") != test.ruleIDs || len(violating.MissingRules) != 0 {
+				t.Fatalf("unexpected %s evidence: %#v", test.name, violating)
+			}
+		})
+	}
+}
+
+func TestCLIArchitectureBoundaryPolicyTests(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "architecture-boundaries.yaml")
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "architecture-boundaries.policy-tests.yaml")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "policy", "test", "--policy", policyPath, "--cases", manifestPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("architecture boundary policy test exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var document policytest.Document
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode architecture boundary policy test document: %v\n%s", err, output)
+	}
+	if document.Status != "PASS" || document.Passed != 2 || document.Failed != 0 {
+		t.Fatalf("unexpected architecture boundary policy test document: %#v", document)
+	}
+	if len(document.Cases) != 2 || document.Cases[0].Actual != "pass" || document.Cases[1].Actual != "fail" || len(document.Cases[1].MissingRules) != 0 {
+		t.Fatalf("unexpected architecture boundary cases: %#v", document.Cases)
+	}
+	if document.Cases[1].Findings != 3 || strings.Join(document.Cases[1].FindingRules, ",") != "application-not-infrastructure,domain-is-pure,layers-point-inward" {
+		t.Fatalf("unexpected architecture boundary evidence: %#v", document.Cases[1])
+	}
+}
+
+func TestPolicyTestResultSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.policy-test-result-v1.schema.json"),
+		"policy-test result",
+		[]string{"schema", "policy", "manifest", "status", "passed", "failed", "cases"},
+	)
+}
+
+func TestPolicyTestManifestSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.policy-tests-v1.schema.json"),
+		"policy-test manifest",
+		[]string{"schema", "cases"},
+	)
+}
+
+func TestExplanationSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.explanation-v1.schema.json"),
+		"explanation",
+		[]string{"schema", "source_schema", "status", "root", "module_path", "package_count", "edge_count", "triage", "summary", "findings"},
+	)
+}
+
+func assertSchemaContract(t *testing.T, schemaPath, label string, wantRequired []string) {
+	t.Helper()
+	data, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		ID         string                     `json:"$id"`
+		Schema     string                     `json:"$schema"`
+		Type       string                     `json:"type"`
+		Required   []string                   `json:"required"`
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("decode %s schema: %v", label, err)
+	}
+	if schema.ID == "" || schema.Schema == "" || schema.Type != "object" {
+		t.Fatalf("incomplete %s schema: %#v", label, schema)
+	}
+	for _, name := range wantRequired {
+		found := false
+		for _, required := range schema.Required {
+			if required == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s schema is missing required field %q", label, name)
+		}
+		if _, ok := schema.Properties[name]; !ok {
+			t.Fatalf("%s schema is missing property %q", label, name)
+		}
+	}
+}
+
 func TestCLIJSONReport(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	cli := buildCLI(t, repoRoot)
@@ -229,6 +445,35 @@ func TestCLIGraphCommand(t *testing.T) {
 	)
 	if exitCode != 0 || !strings.Contains(output, `"language": "python"`) || !strings.Contains(output, `"edge_count"`) {
 		t.Fatalf("Python graph output is incomplete: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIComponentMapCommand(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	source := filepath.Join(repoRoot, "paddock", "examples", "services", "ui-boundary-ts", "violating")
+	policy := filepath.Join(repoRoot, "paddock", "examples", "overwatch", "overwatch-ui-layered-proposal.yaml")
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"map", source, "--policy", policy, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("map exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var document componentmap.Document
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode component map JSON: %v\n%s", err, output)
+	}
+	if document.Schema != componentmap.Schema || document.Language != "typescript" || document.PackageCount != 4 || document.EdgeCount != 3 {
+		t.Fatalf("unexpected component map identity: %#v", document)
+	}
+	foundBoundary := false
+	for _, dependency := range document.Dependencies {
+		if dependency.From == "lib-services" && dependency.To == "components" && dependency.Edges == 1 {
+			foundBoundary = true
+		}
+	}
+	if !foundBoundary {
+		t.Fatalf("component map omitted service-to-presentation boundary: %#v", document.Dependencies)
 	}
 }
 
@@ -438,6 +683,138 @@ func TestCLIInitWithExternalAdapter(t *testing.T) {
 	}
 }
 
+func TestCLIExternalAdapterAuthoringLoop(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	directory := t.TempDir()
+	sourceRoot := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(sourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	adapter := filepath.Join(repoRoot, "paddock", "examples", "adapter", "conformance-adapter.py")
+	beforePath := filepath.Join(directory, "before.yaml")
+	afterPath := filepath.Join(directory, "paddock.yaml")
+	casesPath := filepath.Join(directory, "policy-tests.yaml")
+	reviewPath := filepath.Join(directory, "policy-review.json")
+	lockPath := filepath.Join(directory, "paddock.lock.json")
+
+	components := `components:
+  application:
+    match: src/app/**
+    labels:
+      role: application
+      context: orders
+  domain:
+    match: src/domain/**
+    labels:
+      role: domain
+      context: orders
+`
+	before := `schema: paddock.architecture/v1
+project: external-adapter-conformance
+source:
+  language: rust
+  unit: file
+  roots: [src]
+` + components + `rules: []
+`
+	after := `schema: paddock.architecture/v1
+project: external-adapter-conformance
+source:
+  language: rust
+  unit: file
+  roots: [src]
+` + components + `rules:
+  - id: domain-is-pure
+    kind: allow-dependencies
+    from: {role: domain}
+    allow:
+      - standard-library: std
+    message: domain dependencies must remain approved
+  - id: no-cycles
+    kind: no-cycles
+`
+	manifest := `schema: paddock.policy-tests/v1
+cases:
+  - name: conformance-pass
+    root: ` + filepath.ToSlash(sourceRoot) + `
+    expect: pass
+`
+	for path, contents := range map[string]string{
+		beforePath: before,
+		afterPath:  after,
+		casesPath:  manifest,
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	adapterArgs := []string{
+		"--adapter", "python3",
+		"--adapter-arg", adapter,
+		"--adapter-arg", "--workspace",
+		"--adapter-arg", sourceRoot,
+	}
+	output, exitCode := runCLI(t, cli, repoRoot, "policy", "validate", "--policy", afterPath)
+	if exitCode != 0 || !strings.Contains(output, "POLICY VALID") || !strings.Contains(output, "source: rust (file)") {
+		t.Fatalf("draft policy validation failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	graphArgs := append([]string{"graph", sourceRoot, "--policy", afterPath, "--format", "json"}, adapterArgs...)
+	output, exitCode = runCLI(t, cli, repoRoot, graphArgs...)
+	if exitCode != 0 {
+		t.Fatalf("external graph conformance failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var graphDocument graph.Document
+	if err := json.Unmarshal([]byte(output), &graphDocument); err != nil {
+		t.Fatalf("decode conformance graph: %v\n%s", err, output)
+	}
+	if graphDocument.Schema != graph.DocumentSchema || graphDocument.Language != "rust" || graphDocument.Unit != "file" || len(graphDocument.Packages) != 2 || len(graphDocument.Edges) != 1 {
+		t.Fatalf("unexpected conformance graph: %#v", graphDocument)
+	}
+
+	mapArgs := append([]string{"map", sourceRoot, "--policy", afterPath, "--format", "json"}, adapterArgs...)
+	output, exitCode = runCLI(t, cli, repoRoot, mapArgs...)
+	if exitCode != 0 {
+		t.Fatalf("component inspection failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var componentDocument componentmap.Document
+	if err := json.Unmarshal([]byte(output), &componentDocument); err != nil {
+		t.Fatalf("decode component map: %v\n%s", err, output)
+	}
+	if componentDocument.Schema != componentmap.Schema || componentDocument.PackageCount != 2 || len(componentDocument.Dependencies) != 1 || componentDocument.Dependencies[0].From != "application" || componentDocument.Dependencies[0].To != "domain" {
+		t.Fatalf("unexpected component map: %#v", componentDocument)
+	}
+
+	reviewArgs := []string{
+		"policy", "review",
+		"--before", beforePath,
+		"--after", afterPath,
+		"--cases", casesPath,
+		"--output", reviewPath,
+	}
+	reviewArgs = append(reviewArgs, adapterArgs...)
+	output, exitCode = runCLI(t, cli, repoRoot, reviewArgs...)
+	if exitCode != 0 || !strings.Contains(output, "POLICY-REVIEW PASS") {
+		t.Fatalf("policy review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("policy review verification failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "seal", "--input", afterPath, "--output", lockPath)
+	if exitCode != 0 || !strings.Contains(output, "SEALED") {
+		t.Fatalf("policy sealing failed: exit=%d output:\n%s", exitCode, output)
+	}
+	checkArgs := append([]string{"check", sourceRoot, "--policy-lock", lockPath}, adapterArgs...)
+	output, exitCode = runCLI(t, cli, repoRoot, checkArgs...)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("locked external-adapter check failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
 func TestCLIPolicyDiff(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	cli := buildCLI(t, repoRoot)
@@ -582,6 +959,41 @@ rules:
 	)
 	if exitCode != 1 || !strings.Contains(output, "POLICY-REVIEW FAIL") {
 		t.Fatalf("mismatched policy review returned exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIPolicyValidate(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	policyPath := filepath.Join(t.TempDir(), "minimal.yaml")
+	contents := `schema: paddock.architecture/v1
+project: validation-test
+source:
+  language: go
+  roots: [internal]
+components:
+  source:
+    match: internal/**
+`
+	if err := os.WriteFile(policyPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	output, exitCode := runCLI(t, cli, repoRoot, "policy", "validate", "--policy", policyPath)
+	if exitCode != 0 || !strings.Contains(output, "POLICY VALID") || !strings.Contains(output, "source: go (package)") || !strings.Contains(output, "rules: 0") {
+		t.Fatalf("policy validation text is incomplete: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "validate", "--policy", policyPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("policy validation JSON exit code = %d; output:\n%s", exitCode, output)
+	}
+	var normalized policy.Policy
+	if err := json.Unmarshal([]byte(output), &normalized); err != nil {
+		t.Fatalf("decode normalized policy: %v\n%s", err, output)
+	}
+	if normalized.Schema != "paddock.architecture/v1" || normalized.Source.Unit != "package" || normalized.Rules == nil || normalized.Waivers == nil {
+		t.Fatalf("policy was not normalized: %#v", normalized)
 	}
 }
 
@@ -741,6 +1153,109 @@ func TestPortableCIWorkflow(t *testing.T) {
 	}
 	if workflowArtifact.Graph == nil || workflowArtifact.Graph.SHA256 == "" {
 		t.Fatalf("workflow CI artifact omitted graph evidence: %#v", workflowArtifact)
+	}
+}
+
+func TestPortableCIWorkflowWithExternalAdapter(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	workflow := filepath.Join(repoRoot, "paddock", "examples", "ci", "paddock-gate.sh")
+	adapter := filepath.Join(repoRoot, "paddock", "examples", "adapter", "conformance-adapter.py")
+	directory := t.TempDir()
+	sourceRoot := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(sourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(directory, "paddock.yaml")
+	proposedPath := filepath.Join(directory, "proposed.yaml")
+	casesPath := filepath.Join(directory, "policy-tests.yaml")
+	argsPath := filepath.Join(directory, "adapter.args")
+	lockPath := filepath.Join(directory, "paddock.lock.json")
+	reviewPath := filepath.Join(directory, "paddock-policy-review.json")
+	graphPath := filepath.Join(directory, "paddock-graph.json")
+	resultPath := filepath.Join(directory, "paddock-ci-result.json")
+	policy := `schema: paddock.architecture/v1
+project: portable-external-adapter
+source:
+  language: rust
+  unit: file
+  roots: [src]
+components:
+  application:
+    match: src/app/**
+    labels:
+      role: application
+  domain:
+    match: src/domain/**
+    labels:
+      role: domain
+rules:
+  - id: domain-is-pure
+    kind: allow-dependencies
+    from: {role: domain}
+    allow:
+      - standard-library: std
+  - id: no-cycles
+    kind: no-cycles
+`
+	proposed := policy + "\n# candidate policy reviewed by CI\n"
+	cases := `schema: paddock.policy-tests/v1
+cases:
+  - name: external-adapter-pass
+    root: ` + filepath.ToSlash(sourceRoot) + `
+    expect: pass
+`
+	args := adapter + "\n--workspace\n" + sourceRoot + "\n"
+	for path, contents := range map[string]string{
+		policyPath:   policy,
+		proposedPath: proposed,
+		casesPath:    cases,
+		argsPath:     args,
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	env := []string{
+		"PADDOCK=" + cli,
+		"PADDOCK_POLICY=" + policyPath,
+		"PADDOCK_PROPOSED_POLICY=" + proposedPath,
+		"PADDOCK_CASES=" + casesPath,
+		"PADDOCK_LOCK=" + lockPath,
+		"PADDOCK_SOURCE_ROOT=" + sourceRoot,
+		"PADDOCK_ADAPTER=python3",
+		"PADDOCK_ADAPTER_ARGS_FILE=" + argsPath,
+		"PADDOCK_GRAPH_OUTPUT=" + graphPath,
+		"PADDOCK_REVIEW=" + reviewPath,
+		"PADDOCK_RESULT=" + resultPath,
+	}
+
+	output, exitCode := runWorkflow(t, workflow, repoRoot, env, "review")
+	if exitCode != 0 || !strings.Contains(output, "POLICY-REVIEW PASS") {
+		t.Fatalf("external workflow review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "seal")
+	if exitCode != 0 || !strings.Contains(output, "SEALED") {
+		t.Fatalf("external workflow seal failed: exit=%d output:\n%s", exitCode, output)
+	}
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "verify")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("external workflow verify failed: exit=%d output:\n%s", exitCode, output)
+	}
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "gate")
+	if exitCode != 0 {
+		t.Fatalf("external workflow gate failed: exit=%d output:\n%s", exitCode, output)
+	}
+	workflowArtifact, err := artifact.Load(resultPath)
+	if err != nil {
+		t.Fatalf("load external workflow CI artifact: %v", err)
+	}
+	if workflowArtifact.Graph == nil || workflowArtifact.Graph.SHA256 == "" {
+		t.Fatalf("external workflow CI artifact omitted graph evidence: %#v", workflowArtifact)
+	}
+	if _, document, err := graph.LoadDocument(graphPath); err != nil || document.Language != "rust" || document.Unit != "file" {
+		t.Fatalf("external workflow graph is invalid: err=%v document=%#v", err, document)
 	}
 }
 

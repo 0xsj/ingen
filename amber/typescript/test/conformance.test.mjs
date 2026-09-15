@@ -7,6 +7,7 @@ import {
   decodeMetadata,
   inspectIncomingJSON,
   MemoryStore,
+  setProvenanceAttributes,
   StorageConflictError,
   toLogFields,
   toTraceAttributes,
@@ -213,6 +214,24 @@ if (canonical(toTraceAttributes(tracingProvenance)) !== canonical(tracingFixture
   );
 }
 console.log("TypeScript tracing conformance fixture passed");
+
+const otelFixturePath = new URL("../../conformance/otel-v1.json", import.meta.url);
+const otelFixture = JSON.parse(await readFile(otelFixturePath, "utf8"));
+if (otelFixture.version !== 1) {
+  throw new Error("OpenTelemetry fixture version mismatch");
+}
+const otelProvenance = Provenance.fromJSON(otelFixture.value);
+const otelAttributes = {};
+setProvenanceAttributes(
+  { setAttributes: (attributes) => Object.assign(otelAttributes, attributes) },
+  otelProvenance,
+);
+if (canonical(otelAttributes) !== canonical(otelFixture.expected)) {
+  throw new Error(
+    `OpenTelemetry attribute mismatch:\n got ${JSON.stringify(otelAttributes)}\nwant ${JSON.stringify(otelFixture.expected)}`,
+  );
+}
+console.log("TypeScript OpenTelemetry conformance fixture passed");
 
 const storageFixturePath = new URL("../../conformance/storage-v1.json", import.meta.url);
 const storageFixture = JSON.parse(await readFile(storageFixturePath, "utf8"));

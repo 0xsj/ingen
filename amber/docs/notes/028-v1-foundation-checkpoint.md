@@ -40,7 +40,7 @@ Stable core -> choose one deployment vertical -> implement adapter -> verify
 ## Gotchas
 
 - The checkpoint is not a claim that every production integration exists.
-- PostgreSQL, broker-specific behavior, OpenTelemetry bindings, authenticated
+- PostgreSQL, broker-specific behavior, collector configuration, authenticated
   envelopes, key rotation, replay protection, and package publication remain
   separate decisions.
 - A future lossless implementation may preserve unknown fields, but it must

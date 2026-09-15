@@ -41,6 +41,14 @@ evolves, not as a replacement for the code or specification.
 | Package install smoke test | The TypeScript tarball is installed in an isolated temporary project and its public ESM entry point performs a provenance round trip | `make package-check` passes |
 | Go module consumer smoke test | A temporary external Go module imports the public Amber module path and propagates a provenance header | `make module-check` passes |
 | v1 foundation checkpoint | Core semantics and release checks are stable; production-specific integrations and authenticated extensions remain separately scoped | Spec stability boundary and all local gates pass |
+| OpenTelemetry adapter | Optional Go and TypeScript bridges apply the stable `amber.*` tracing projection to existing OTel-compatible spans without creating span lifecycle semantics | OTel adapter tests, shared fixture, and package smoke test pass |
+| OpenTelemetry SDK integration proof | The Go and TypeScript bridges are verified against real OpenTelemetry SDK tracers and in-memory span recorders without requiring a collector | `make check` and `make race` pass with the SDK-backed integration tests |
+| OpenTelemetry runnable examples | Both SDK bridges have offline, runnable examples showing application-owned tracer setup, Amber enrichment, and finished-span inspection | `make examples` runs the composition and OTel examples |
+| Public API compatibility check | TypeScript runtime exports are pinned to a reviewed manifest and the external Go consumer exercises all adapter package boundaries | `make check` passes the manifest, package artifact, and module consumer checks |
+| Release-candidate gate | One root command combines static checks, cross-language tests, package/module consumers, race detection, fuzzing, and runnable examples | `make release-check` passes |
+| PostgreSQL storage adapter | Go provides an optional PostgreSQL implementation of the append-only Store contract with JSONB values and indexed work/causation/correlation queries | PostgreSQL adapter tests and the release gate pass without a live database |
+| PostgreSQL live integration | An opt-in transaction-isolated test validates the adapter against a real PostgreSQL server through pgx without making the default gate network-dependent | `AMBER_POSTGRES_DSN=... make postgres-integration` |
+| Generic Go storage backend seam | Go exposes a backend-neutral key-value seam so users can supply their own persistence while Amber retains serialization and storage invariants | Key-value store tests and the release gate pass |
 
 When a later change alters one of these results, update the relevant note and
 this milestone table in the same change.
@@ -75,6 +83,14 @@ this milestone table in the same change.
 26. [The package artifact should pass a clean consumer smoke test](026-package-install-smoke-test.md)
 27. [The Go module should pass a clean consumer smoke test](027-go-module-consumer-smoke-test.md)
 28. [The v1 foundation should have an explicit freeze boundary](028-v1-foundation-checkpoint.md)
+29. [OpenTelemetry should enrich existing spans without entering the core](029-opentelemetry-adapter.md)
+30. [The OpenTelemetry bridge should be proven against a real SDK span](030-opentelemetry-sdk-integration.md)
+31. [OpenTelemetry integration should have a runnable application path](031-opentelemetry-examples.md)
+32. [The public API should change only through an explicit compatibility check](032-public-api-compatibility.md)
+33. [Release readiness should have one repeatable project gate](033-release-candidate-gate.md)
+34. [PostgreSQL should implement the existing storage contract without changing v1](034-postgres-storage-adapter.md)
+35. [PostgreSQL compatibility should be testable against a real database without entering the default gate](035-postgres-live-integration.md)
+36. [A generic storage backend should own persistence while Amber owns invariants](036-generic-storage-backend-seam.md)
 
 ## Current open questions
 

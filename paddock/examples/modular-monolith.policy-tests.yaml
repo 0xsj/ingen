@@ -1,0 +1,12 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: public-context-apis-and-shared-kernel
+    root: services/modular-monolith-go/good
+    expect: pass
+
+  - name: cross-context-internal-access
+    root: services/modular-monolith-go/violating
+    expect: fail
+    require_rules:
+      - context-internals-are-private
+      - cross-context-access-is-mediated

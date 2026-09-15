@@ -29,7 +29,11 @@ For the document lab, the operators are deliberately narrow:
 
 Both operators require exactly one matching AST target. An ambiguous or
 missing source shape is a preparation error instead of silently producing an
-unknown mutation.
+unknown mutation. Successful entries now record `target_resolution` alongside
+the edit provenance: the selector, number of candidates, and number applied.
+The provider returns `ingen.mutation-target-resolution-error/v1` when the
+candidate count is zero or greater than one, with `applied_count: 0`; the
+source copy is not written in either case.
 
 The provider keeps copied source variants under its output directory for
 review, while placing only built binaries under the managed subject's allowed
@@ -43,11 +47,17 @@ Generated dependency/cache trees such as `node_modules`, `.artifacts`, and
 the copied build input cannot silently escape the source root.
 
 Each generated entry records semantic edit provenance (`location`, `before`,
-and `after`) plus the relative copied source directory, a deterministic hash
-of that source tree, and the built binary hash. The campaign executor verifies
-the two byte identities immediately before launch. This closes the practical
+and `after`) plus target resolution, the relative copied source directory, a
+deterministic hash of that source tree, and the built binary hash. The campaign
+executor verifies the two byte identities immediately before launch. This closes the practical
 time-of-check/time-of-use gap between provider preparation and subject start;
 it does not claim that the provider itself is independently trusted.
+
+The command also writes `preparation.json` using the
+`ingen.mutation-preparation/v1` schema. It records the plan hash, changed source
+files, source/binary identities, and the retained provenance for every variant.
+The provider rejects a no-op mutation before building or publishing it, so a
+successful summary represents an actual source change.
 
 ## Command
 
@@ -56,6 +66,9 @@ make mutation-go-provider-build
 make mutation-go-campaign-run
 make mutation-go-campaign-verify
 ```
+
+Use `--summary-output` to choose a different preparation-summary path. The
+default is `<output-dir>/preparation.json`.
 
 The generated provider manifest remains the normal Sorna handoff. Its exact
 bytes are copied into each mutation evidence bundle, while the managed-subject
@@ -67,7 +80,8 @@ This is not a general Go mutation engine. It proves the source-copy, AST
 transformation, isolated build, provenance, and Sorna handoff mechanics for
 two controlled response operators. Future operators need their own
 target-resolution and ambiguity rules, plus provider-level build diagnostics
-and source identity.
+and source identity. The target-resolution error is deliberately
+language-neutral; its selector remains provider-owned.
 
 ## Used in
 

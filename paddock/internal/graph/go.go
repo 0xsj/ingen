@@ -2,6 +2,7 @@ package graph
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"go/parser"
@@ -44,13 +45,20 @@ func LoadGo(root string) (*model.Graph, error) {
 
 	cmd := exec.Command("go", "list", "-e", "-json", "./...")
 	cmd.Dir = root
-	output, err := cmd.CombinedOutput()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
 	if err != nil {
-		return nil, fmt.Errorf("go list: %w\n%s", err, strings.TrimSpace(string(output)))
+		diagnostic := strings.TrimSpace(stderr.String())
+		if diagnostic != "" {
+			return nil, fmt.Errorf("go list: %w\n%s", err, diagnostic)
+		}
+		return nil, fmt.Errorf("go list: %w", err)
 	}
 
 	var listed []listPackage
-	decoder := json.NewDecoder(bufio.NewReader(strings.NewReader(string(output))))
+	decoder := json.NewDecoder(bufio.NewReader(bytes.NewReader(stdout.Bytes())))
 	for {
 		var item listPackage
 		if err := decoder.Decode(&item); err != nil {

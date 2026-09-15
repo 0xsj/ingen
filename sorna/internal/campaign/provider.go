@@ -59,12 +59,60 @@ type ProviderEntry struct {
 // source and executable bytes it prepared. It is optional for legacy fixture
 // providers, but source-level providers should populate every field.
 type ProviderProvenance struct {
-	SourceDir    string `json:"source_dir" yaml:"source_dir"`
-	SourceSHA256 string `json:"source_sha256" yaml:"source_sha256"`
-	BinarySHA256 string `json:"binary_sha256" yaml:"binary_sha256"`
-	Location     string `json:"location" yaml:"location"`
-	Before       string `json:"before" yaml:"before"`
-	After        string `json:"after" yaml:"after"`
+	SourceDir        string            `json:"source_dir" yaml:"source_dir"`
+	SourceSHA256     string            `json:"source_sha256" yaml:"source_sha256"`
+	BinarySHA256     string            `json:"binary_sha256" yaml:"binary_sha256"`
+	Location         string            `json:"location" yaml:"location"`
+	Before           string            `json:"before" yaml:"before"`
+	After            string            `json:"after" yaml:"after"`
+	TargetResolution *TargetResolution `json:"target_resolution,omitempty" yaml:"target_resolution,omitempty"`
+}
+
+// TargetResolution records the provider's deterministic source-target
+// selection. A successful source mutation should report exactly one candidate
+// and one applied target; the counts make that decision reviewable without
+// requiring a consumer to inspect source code.
+type TargetResolution struct {
+	Selector       string `json:"selector" yaml:"selector"`
+	CandidateCount int    `json:"candidate_count" yaml:"candidate_count"`
+	AppliedCount   int    `json:"applied_count" yaml:"applied_count"`
+}
+
+// TargetResolutionError is returned when a provider cannot select exactly one
+// source target for a planned mutation. It is both human-readable through
+// Error and machine-readable through its exported fields and JSON tags.
+type TargetResolutionError struct {
+	Schema     string           `json:"schema"`
+	Status     string           `json:"status"`
+	MutationID string           `json:"mutation_id"`
+	Plane      string           `json:"plane"`
+	Operator   string           `json:"operator"`
+	Target     string           `json:"target"`
+	Resolution TargetResolution `json:"resolution"`
+}
+
+// TargetResolutionErrorSchema identifies the structured preparation error
+// emitted when source-target selection is not unique.
+const TargetResolutionErrorSchema = "ingen.mutation-target-resolution-error/v1"
+
+func NewTargetResolutionError(spec mutation.Spec, selector string, candidateCount int) *TargetResolutionError {
+	return &TargetResolutionError{
+		Schema:     TargetResolutionErrorSchema,
+		Status:     "blocked",
+		MutationID: spec.ID,
+		Plane:      spec.Plane,
+		Operator:   spec.Operator,
+		Target:     spec.Target,
+		Resolution: TargetResolution{
+			Selector:       selector,
+			CandidateCount: candidateCount,
+			AppliedCount:   0,
+		},
+	}
+}
+
+func (e *TargetResolutionError) Error() string {
+	return fmt.Sprintf("mutation %q target resolution for %s found %d candidate(s), applied %d; expected exactly one", e.MutationID, e.Resolution.Selector, e.Resolution.CandidateCount, e.Resolution.AppliedCount)
 }
 
 // PreparedSubject is the resolved command handed to `sorna run`.
@@ -196,6 +244,20 @@ func ValidateProvider(provider ProviderManifest) []string {
 			}
 			if strings.TrimSpace(provenance.After) == "" {
 				problems = append(problems, path+".provenance.after must be non-empty")
+			}
+			if resolution := provenance.TargetResolution; resolution != nil {
+				if strings.TrimSpace(resolution.Selector) == "" {
+					problems = append(problems, path+".provenance.target_resolution.selector must be non-empty")
+				}
+				if resolution.CandidateCount < 0 {
+					problems = append(problems, path+".provenance.target_resolution.candidate_count must not be negative")
+				}
+				if resolution.AppliedCount < 0 {
+					problems = append(problems, path+".provenance.target_resolution.applied_count must not be negative")
+				}
+				if resolution.AppliedCount > resolution.CandidateCount {
+					problems = append(problems, path+".provenance.target_resolution.applied_count must not exceed candidate_count")
+				}
 			}
 		}
 		for argumentIndex, argument := range entry.Args {

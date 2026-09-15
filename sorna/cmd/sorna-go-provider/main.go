@@ -33,11 +33,12 @@ func run(args []string) int {
 	buildPackage := flags.String("build-package", "./examples/document-pipeline-lab/subject/cmd/document-pipeline", "Go package to build in each copied variant")
 	providerID := flags.String("provider-id", "document-pipeline-go-source", "generated provider manifest ID")
 	providerPath := flags.String("provider", "", "generated provider manifest path; defaults inside output-dir")
+	summaryPath := flags.String("summary-output", "", "preparation summary path; defaults inside output-dir")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if len(flags.Args()) != 0 {
-		fmt.Fprintln(os.Stderr, "usage: sorna-go-provider [--plan <path>] [--source-root <dir>] [--output-dir <dir>] [--binary-dir <dir>] [--build-package <package>] [--provider <path>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna-go-provider [--plan <path>] [--source-root <dir>] [--output-dir <dir>] [--binary-dir <dir>] [--build-package <package>] [--provider <path>] [--summary-output <path>]")
 		return 2
 	}
 	planBytes, err := os.ReadFile(*planPath)
@@ -53,6 +54,10 @@ func run(args []string) int {
 	providerOutput := *providerPath
 	if providerOutput == "" {
 		providerOutput = filepath.Join(*outputDir, "provider.yaml")
+	}
+	preparationOutput := *summaryPath
+	if preparationOutput == "" {
+		preparationOutput = filepath.Join(*outputDir, "preparation.json")
 	}
 	result, err := goprovider.Build(goprovider.Request{
 		Plan:         plan,
@@ -74,6 +79,7 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	result.Preparation.PlanPath = *planPath
 	providerHash, err := goprovider.WriteManifest(providerOutput, result.Provider)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -83,7 +89,12 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "verify generated provider:", err)
 		return 1
 	}
-	fmt.Printf("provider: %s\nhash: %s\nvariants: %d\n", providerOutput, providerHash, len(result.Variants))
+	preparationHash, err := campaign.WritePreparationSummary(preparationOutput, result.Preparation)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("provider: %s\nhash: %s\npreparation: %s\npreparation hash: %s\nvariants: %d\n", providerOutput, providerHash, preparationOutput, preparationHash, len(result.Variants))
 	for _, variant := range result.Variants {
 		fmt.Printf("mutation: %s\nbinary: %s\nbinary hash: %s\n", variant.MutationID, variant.BinaryPath, variant.BinarySHA256)
 	}
@@ -150,7 +161,12 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 	if err != nil {
 		return campaign.ProviderProvenance{}, fmt.Errorf("parse document subject source: %w", err)
 	}
-	changed := 0
+	var statusTargets []*ast.SelectorExpr
+	type fieldTarget struct {
+		body  *ast.CompositeLit
+		index int
+	}
+	var fieldTargets []fieldTarget
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Name.Name != "createDocument" || function.Body == nil {
@@ -174,8 +190,7 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 				if !ok || packageName.Name != "http" {
 					return true
 				}
-				status.Sel.Name = "StatusOK"
-				changed++
+				statusTargets = append(statusTargets, status)
 				return true
 			}
 			if len(call.Args) < 3 {
@@ -209,15 +224,28 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 				if err != nil || name != fieldToRemove {
 					continue
 				}
-				body.Elts = append(body.Elts[:index], body.Elts[index+1:]...)
-				changed++
-				return true
+				fieldTargets = append(fieldTargets, fieldTarget{body: body, index: index})
 			}
 			return true
 		})
 	}
-	if changed != 1 {
-		return campaign.ProviderProvenance{}, fmt.Errorf("expected exactly one %s mutation target, found %d", operator, changed)
+	candidateCount := len(statusTargets)
+	if operator == "response.field.remove" {
+		candidateCount = len(fieldTargets)
+	}
+	if candidateCount != 1 {
+		return campaign.ProviderProvenance{}, campaign.NewTargetResolutionError(spec, provenance.Location, candidateCount)
+	}
+	if operator == "response.status.replace" {
+		statusTargets[0].Sel.Name = "StatusOK"
+	} else {
+		target := fieldTargets[0]
+		target.body.Elts = append(target.body.Elts[:target.index], target.body.Elts[target.index+1:]...)
+	}
+	provenance.TargetResolution = &campaign.TargetResolution{
+		Selector:       provenance.Location,
+		CandidateCount: candidateCount,
+		AppliedCount:   1,
 	}
 	var formatted bytes.Buffer
 	if err := format.Node(&formatted, fileSet, file); err != nil {

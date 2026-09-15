@@ -11,6 +11,8 @@ projection, and [`tracing-v1.json`](tracing-v1.json) covers the matching
 framework-neutral tracing attribute projection. [`storage-v1.json`](storage-v1.json)
 covers idempotent writes, conflict detection, missing-record behavior, logical
 work history, immediate causation lookup, and correlation history.
+[`otel-v1.json`](otel-v1.json) covers the OpenTelemetry-compatible form of the
+same stable `amber.*` tracing attribute projection.
 
 Conformance runners SHOULD:
 

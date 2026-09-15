@@ -121,13 +121,14 @@ support for an operator merely because it has an executable entry.
 The no-execution review command is:
 
 ```sh
-sorna mutation provider inspect <plan> --provider <path> [--format text|json] [--output <path>]
+sorna mutation provider inspect <plan> --provider <path> [--require-plan-binding] [--format text|json|ci-result] [--output <path>]
 ```
 
 JSON output uses `ingen.mutation-provider-review/v1`. A `ready` report means
-every plan mutation has a prepared entry and declared capability; `blocked`
-reports identify the missing entry, undeclared capability, or mismatched bound
-plan hash.
+every plan mutation has a prepared entry and declared capability. By default,
+an absent provider plan hash is reported as `unbound` but remains usable for
+local fixture workflows; `--require-plan-binding` turns that state into a
+blocked review. A mismatched declared hash is always blocked.
 
 `sorna mutation run` launches one fresh managed Sorna run per plan entry. Each
 entry receives its own address and evidence directory, and the campaign result
@@ -141,7 +142,8 @@ under `campaign/`. Its manifest and `checksums.sha256` bind those copies to the
 run; `campaign/provenance.json` records the source paths, hashes, sequence, and
 mutation ID. This proves which campaign inputs the executor consumed, while
 remaining distinct from a future attestation of how a provider built a
-mutated subject.
+mutated subject. The executor accepts the same `--require-plan-binding` flag,
+so campaign execution can enforce the policy independently of preflight.
 
 `sorna mutation verify` re-verifies each referenced evidence bundle and compares
 its current manifest and checksum-file hashes with the campaign result. A
@@ -164,6 +166,28 @@ Source-level entries may also include `provenance` with a relative copied
 source directory, source-tree and binary SHA-256 digests, and human-readable
 `location`, `before`, and `after` edit descriptions. Sorna verifies those
 source and binary digests immediately before launching the prepared subject.
+They may also include `target_resolution`, containing the provider's selector,
+candidate count, and applied count. A successful source mutation should report
+one candidate and one applied target. If a provider finds zero or multiple
+targets, it should return the structured
+`ingen.mutation-target-resolution-error/v1` preparation error with the same
+counts and apply nothing.
+
+The Go source provider also writes an `ingen.mutation-preparation/v1` summary
+(`preparation.json` by default). It binds the plan hash to each prepared
+variant, lists changed source files, records source and binary hashes, and
+retains the semantic provenance. A provider rejects a no-op mutation before
+building or publishing that variant.
+Sorna can expose the summary to a coordinator with:
+
+```sh
+sorna mutation provider preparation preparation.json \
+  --provider provider.yaml --format ci-result \
+  --output mutation-preparation-ci-result.json
+```
+
+The resulting `mutation-preparation` envelope retains the summary and binds it
+to the provider manifest and plan without interpreting source-language details.
 
 ## 5. Operator families
 

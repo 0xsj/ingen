@@ -55,7 +55,7 @@ func CheckGraph(root, policyPath string, config policy.Policy, dependencyGraph *
 	for _, pkg := range dependencyGraph.Packages {
 		byImport[pkg.ImportPath] = pkg
 	}
-	classify(dependencyGraph.Packages, config, result)
+	result.Findings = append(result.Findings, Classify(dependencyGraph.Packages, config)...)
 
 	for _, rule := range config.Rules {
 		switch rule.Kind {
@@ -157,7 +157,11 @@ func matchesAnyPath(pattern string, values ...string) bool {
 	return false
 }
 
-func classify(packages []*model.Package, config policy.Policy, result *model.Result) {
+// Classify assigns policy components and returns findings for overlapping
+// component matches. Unmatched packages remain unclassified so callers that
+// only need graph summaries can still inspect the complete source graph.
+func Classify(packages []*model.Package, config policy.Policy) []*model.Finding {
+	findings := make([]*model.Finding, 0)
 	for _, pkg := range packages {
 		matches := make([]componentMatch, 0, 1)
 		for name, component := range config.Components {
@@ -177,7 +181,7 @@ func classify(packages []*model.Package, config policy.Policy, result *model.Res
 			pkg.Labels = matches[0].labels
 		}
 		if len(matches) > 1 {
-			result.Findings = append(result.Findings, &model.Finding{
+			findings = append(findings, &model.Finding{
 				RuleID:   "coverage",
 				Kind:     "coverage",
 				Severity: "error",
@@ -186,6 +190,7 @@ func classify(packages []*model.Package, config policy.Policy, result *model.Res
 			})
 		}
 	}
+	return findings
 }
 
 type componentMatch struct {

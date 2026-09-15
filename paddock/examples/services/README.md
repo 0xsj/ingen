@@ -12,6 +12,7 @@ deliberate structural defect:
 | `hexagonal-go` | the domain imports `net/http` |
 | `modular-monolith-go` | orders imports billing internals directly |
 | `cyclic-go` | alpha and beta import each other |
+| `architecture-boundaries-go` | the good variant uses an approved shared-kernel value; the violating variant imports storage from the domain and infrastructure from the application |
 | `feature-sliced-ts` | shared code imports a feature and features cross-import |
 | `python-hexagonal` | the domain imports a concrete adapter |
 
@@ -44,6 +45,63 @@ paddock policy test \
   --policy paddock/examples/hexagonal.yaml \
   --cases paddock/examples/hexagonal.policy-tests.yaml
 ```
+
+The architecture-boundaries fixture demonstrates the small boundary loop:
+
+```sh
+paddock policy test \
+  --policy paddock/examples/architecture-boundaries.yaml \
+  --cases paddock/examples/architecture-boundaries.policy-tests.yaml
+```
+
+The passing case proves that an approved shared-kernel package is usable from
+the domain. The failing case requires `domain-is-pure`,
+`application-not-infrastructure`, and `layers-point-inward`, so the fixture
+guards both the policy intent and the explanation rule IDs.
+
+The modular-monolith policy test covers the bounded-context case:
+
+```sh
+paddock policy test \
+  --policy paddock/examples/modular-monolith.yaml \
+  --cases paddock/examples/modular-monolith.policy-tests.yaml
+```
+
+It proves that public context APIs and shared-kernel code are allowed while
+direct access to another context's internals is attributed to both the
+privacy and mediation rules.
+
+The same manifest-driven workflow is covered for the TypeScript and Python
+adapters:
+
+```sh
+paddock policy test \
+  --policy paddock/examples/feature-sliced-frontend.yaml \
+  --cases paddock/examples/feature-sliced.policy-tests.yaml
+
+paddock policy test \
+  --policy paddock/examples/python-hexagonal.yaml \
+  --cases paddock/examples/python-hexagonal.policy-tests.yaml
+```
+
+These cases verify that the same policy-test contract reports language-specific
+graphs while preserving stable architecture rule IDs.
+
+Layered direction and cycle detection are covered by the remaining Go
+manifests:
+
+```sh
+paddock policy test \
+  --policy paddock/examples/layered.yaml \
+  --cases paddock/examples/layered.policy-tests.yaml
+
+paddock policy test \
+  --policy paddock/examples/cyclic.yaml \
+  --cases paddock/examples/cyclic.policy-tests.yaml
+```
+
+The cyclic subject intentionally does not compile; its manifest preserves the
+expected `no-cycles` result from Paddock's source-graph handling.
 
 The manifest uses `paddock.policy-tests/v1`. Each case names a source root and
 expects `pass`, `fail`, or `error`; roots are relative to the manifest file.

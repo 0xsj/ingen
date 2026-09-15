@@ -13,6 +13,7 @@ import (
 	paddockartifact "ingen/paddock/internal/artifact"
 	paddockbaseline "ingen/paddock/internal/baseline"
 	"ingen/paddock/internal/checker"
+	paddockcomponentmap "ingen/paddock/internal/componentmap"
 	paddockexplain "ingen/paddock/internal/explain"
 	paddockgraph "ingen/paddock/internal/graph"
 	"ingen/paddock/internal/model"
@@ -40,6 +41,11 @@ func main() {
 		}
 	case "graph":
 		if err := graphCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "paddock:", err)
+			os.Exit(2)
+		}
+	case "map":
+		if err := componentMapCommand(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "paddock:", err)
 			os.Exit(2)
 		}
@@ -432,6 +438,111 @@ func printGraphText(w io.Writer, document graphDocument) error {
 	return nil
 }
 
+func componentMapCommand(args []string) error {
+	root := "."
+	policyPath := ""
+	policyLockPath := ""
+	graphInputPath := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
+	format := "text"
+	rootSet := false
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--policy", "-p":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a path", args[index])
+			}
+			index++
+			policyPath = args[index]
+		case "--policy-lock":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a path", args[index])
+			}
+			index++
+			policyLockPath = args[index]
+		case "--graph", "--input":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a graph document path", args[index])
+			}
+			index++
+			graphInputPath = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an executable path", args[index])
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an argument", args[index])
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			if strings.HasPrefix(args[index], "-") {
+				return fmt.Errorf("unknown option %q", args[index])
+			}
+			if rootSet {
+				return fmt.Errorf("unexpected argument %q", args[index])
+			}
+			root = args[index]
+			rootSet = true
+		}
+	}
+	if policyPath == "" && policyLockPath == "" {
+		return fmt.Errorf("map requires --policy <policy.yaml> or --policy-lock <lock.json>")
+	}
+	if graphInputPath != "" && adapterExecutable != "" {
+		return fmt.Errorf("map accepts either --graph or --adapter, not both")
+	}
+	evaluation, err := loadEvaluationPolicy(policyPath, policyLockPath)
+	if err != nil {
+		return err
+	}
+	var loaded *model.Graph
+	if graphInputPath != "" {
+		loaded, err = loadGraphInput(graphInputPath, evaluation.Config)
+	} else if adapterExecutable != "" {
+		loaded, err = loadExternalGraph(root, evaluation.Config, adapterExecutable, adapterArgs)
+	} else {
+		loaded, err = paddockgraph.LoadWithRequest(paddockgraph.LoadRequest{
+			Root:  root,
+			Unit:  evaluation.Config.Source.Unit,
+			Roots: append([]string(nil), evaluation.Config.Source.Roots...),
+		}, evaluation.Config.Source.Language)
+	}
+	if err != nil {
+		return err
+	}
+	classificationFindings := checker.Classify(loaded.Packages, evaluation.Config)
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve source root: %w", err)
+	}
+	document, err := paddockcomponentmap.Build(absRoot, evaluation.Config.Source.Language, evaluation.Config.Source.Unit, loaded, classificationFindings)
+	if err != nil {
+		return err
+	}
+	switch format {
+	case "text":
+		_, err = fmt.Fprint(os.Stdout, paddockcomponentmap.Text(document))
+		return err
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	default:
+		return fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+}
+
 func initCommand(args []string) error {
 	root := "."
 	language := ""
@@ -641,6 +752,8 @@ func policyCommand(args []string) (int, error) {
 		return 0, fmt.Errorf("policy requires diff, seal, verify, or test subcommand")
 	}
 	switch args[0] {
+	case "validate":
+		return 0, validatePolicy(args[1:])
 	case "diff":
 		return diffPolicies(args[1:])
 	case "seal":
@@ -656,6 +769,59 @@ func policyCommand(args []string) (int, error) {
 		return reviewPolicy(args[1:])
 	default:
 		return 0, fmt.Errorf("unsupported policy subcommand %q", args[0])
+	}
+}
+
+func validatePolicy(args []string) error {
+	policyPath := ""
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--policy", "-p":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a policy path", args[index])
+			}
+			index++
+			policyPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			return fmt.Errorf("unknown option %q", args[index])
+		}
+	}
+	if policyPath == "" {
+		return fmt.Errorf("policy validate requires --policy <policy.yaml>")
+	}
+	config, err := paddockpolicy.Load(policyPath)
+	if err != nil {
+		return err
+	}
+
+	switch format {
+	case "text":
+		fmt.Fprintln(os.Stdout, "POLICY VALID")
+		fmt.Fprintf(os.Stdout, "policy: %s\n", policyPath)
+		if config.Project != "" {
+			fmt.Fprintf(os.Stdout, "project: %s\n", config.Project)
+		}
+		fmt.Fprintf(os.Stdout, "source: %s (%s)\n", config.Source.Language, config.Source.Unit)
+		fmt.Fprintf(os.Stdout, "components: %d\n", len(config.Components))
+		fmt.Fprintf(os.Stdout, "rules: %d\n", len(config.Rules))
+		fmt.Fprintf(os.Stdout, "waivers: %d\n", len(config.Waivers))
+		return nil
+	case "json":
+		data, err := paddockpolicy.CanonicalJSON(config)
+		if err != nil {
+			return err
+		}
+		_, err = os.Stdout.Write(append(data, '\n'))
+		return err
+	default:
+		return fmt.Errorf("unsupported format %q; use text or json", format)
 	}
 }
 
@@ -1718,7 +1884,9 @@ func releaseCommand(args []string) (int, error) {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: paddock check <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--baseline <file>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock graph <source-root> [--policy <policy.yaml> | --language <language> | --input <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock map <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock init <source-root> [--language <language>] [--unit package|file] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--template <name>] [--output paddock.yaml] [--force]")
+	fmt.Fprintln(os.Stderr, "       paddock policy validate --policy <policy.yaml> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy diff --before <policy.yaml> --after <policy.yaml> [--cases <manifest.yaml>] [--adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy review --before <policy.yaml> --after <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...]] --output <review.json> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy review verify --input <review.json> [--files] [--format text|json]")

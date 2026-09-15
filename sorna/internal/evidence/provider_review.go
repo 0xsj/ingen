@@ -59,20 +59,24 @@ func BuildProviderReviewCIResult(review campaign.ProviderReview, sourceRoot stri
 }
 
 type providerReviewExplanationPayload struct {
-	Schema        string   `json:"schema"`
-	Status        string   `json:"status"`
-	PlanBinding   string   `json:"plan_binding"`
-	BlockedChecks []string `json:"blocked_checks,omitempty"`
+	Schema              string   `json:"schema"`
+	Status              string   `json:"status"`
+	PlanBinding         string   `json:"plan_binding"`
+	PlanBindingRequired bool     `json:"plan_binding_required,omitempty"`
+	BlockedChecks       []string `json:"blocked_checks,omitempty"`
 }
 
 func buildProviderReviewExplanation(review campaign.ProviderReview) providerReviewExplanationPayload {
 	explanation := providerReviewExplanationPayload{
-		Schema:      "sorna.provider-review-explanation/v1",
-		Status:      review.Status,
-		PlanBinding: review.Provider.PlanBinding,
+		Schema:              "sorna.provider-review-explanation/v1",
+		Status:              review.Status,
+		PlanBinding:         review.Provider.PlanBinding,
+		PlanBindingRequired: review.RequirePlanBinding,
 	}
 	if review.Provider.PlanBinding == "mismatch" {
 		explanation.BlockedChecks = append(explanation.BlockedChecks, "provider plan hash does not match the reviewed plan")
+	} else if review.RequirePlanBinding && review.Provider.PlanBinding == "unbound" {
+		explanation.BlockedChecks = append(explanation.BlockedChecks, "provider plan hash is required but was not declared")
 	}
 	for _, mutation := range review.Mutations {
 		if mutation.Status != "supported" {

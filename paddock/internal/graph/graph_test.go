@@ -61,6 +61,36 @@ func TestStableCopySortsGraphWithoutMutatingInput(t *testing.T) {
 	}
 }
 
+func TestLoadGoKeepsToolDiagnosticsOutOfJSONStream(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example/service\n\ngo 1.23\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goStub := filepath.Join(bin, "go")
+	stub := "#!/bin/sh\n" +
+		"echo module-cache-warning >&2\n" +
+		"printf '{\"ImportPath\":\"example/service\",\"Dir\":\"%s\",\"GoFiles\":[\"main.go\"],\"Imports\":[]}\\n' \"$PWD\"\n"
+	if err := os.WriteFile(goStub, []byte(stub), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	loaded, err := graph.LoadGo(root)
+	if err != nil {
+		t.Fatalf("LoadGo rejected valid JSON with stderr diagnostics: %v", err)
+	}
+	if loaded.ModulePath != "example/service" || len(loaded.Packages) != 1 || loaded.Packages[0].ImportPath != "example/service" {
+		t.Fatalf("unexpected graph: %#v", loaded)
+	}
+}
+
 func TestLoadExternalAdapterNegotiatesRequestAndResponse(t *testing.T) {
 	directory := t.TempDir()
 	root := filepath.Join(directory, "source")

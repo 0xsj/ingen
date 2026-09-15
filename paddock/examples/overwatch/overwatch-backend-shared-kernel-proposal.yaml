@@ -1,0 +1,120 @@
+# REVIEW REQUIRED: candidate shared-kernel vocabulary only.
+# This proposal is intentionally not sealed and is not the current CI authority.
+
+schema: paddock.architecture/v1
+project: overwatch-backend-shared-kernel-proposal
+
+source:
+  language: go
+  unit: package
+  roots: [cmd, internal, pkg, root]
+
+components:
+  context-root:
+    match: internal/{context}
+    labels:
+      role: context-root
+      context: "{context}"
+  domain:
+    match: internal/{context}/domain/**
+    labels:
+      role: domain
+      context: "{context}"
+      layer: "0"
+  application:
+    match: internal/{context}/app/**
+    labels:
+      role: application
+      context: "{context}"
+      layer: "1"
+  infrastructure:
+    match: internal/{context}/infra/**
+    labels:
+      role: infrastructure
+      context: "{context}"
+      layer: "2"
+  adapter:
+    match: internal/{context}/transport/**
+    labels:
+      role: adapter
+      context: "{context}"
+      layer: "3"
+  shared:
+    match: pkg/{package}/**
+    labels:
+      role: shared
+      package: "{package}"
+      layer: "0"
+  root:
+    match: root/**
+    labels:
+      role: composition-root
+  command:
+    match: cmd/**
+    labels:
+      role: composition
+
+rules:
+  - id: domain-is-pure
+    kind: allow-dependencies
+    from: {role: domain}
+    allow:
+      - {standard-library: approved}
+      - {role: shared, package: errors}
+      - {role: shared, package: id}
+      - {role: shared, package: events}
+      - {role: domain, context: same}
+    message: domain code may use approved standard-library and shared-kernel value/event packages only
+
+  - id: contexts-are-islands
+    kind: no-cross-context
+    message: a bounded context must not import another bounded context
+
+  - id: application-not-infrastructure
+    kind: deny-dependencies
+    from: {role: application}
+    deny:
+      - {role: infrastructure}
+      - {role: adapter}
+    message: application code must not reach into infrastructure or transport
+
+  - id: shared-is-context-free
+    kind: deny-dependencies
+    from: {role: shared}
+    deny:
+      - {role: context-root}
+      - {role: domain}
+      - {role: application}
+      - {role: infrastructure}
+      - {role: adapter}
+      - {role: composition-root}
+    message: shared code must not depend on application-specific code
+
+  - id: root-is-a-leaf
+    kind: deny-dependencies
+    from:
+      - {role: context-root}
+      - {role: domain}
+      - {role: application}
+      - {role: infrastructure}
+      - {role: adapter}
+      - {role: shared}
+    deny:
+      - {role: composition-root}
+    message: only the composition layer may import the composition root
+
+  - id: layers-point-inward
+    kind: layer-direction
+    direction: toward-lower-layer
+    message: dependencies should point toward lower layers
+
+  - id: no-cycles
+    kind: no-cycles
+    message: the backend dependency graph must remain acyclic
+
+  - id: complete-classification
+    kind: coverage
+    severity: warning
+    message: every source package must have one reviewed component
+
+waivers: []

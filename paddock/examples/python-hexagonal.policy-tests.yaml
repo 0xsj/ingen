@@ -1,0 +1,12 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: python-hexagonal-good
+    root: services/python-hexagonal/good
+    expect: pass
+
+  - name: python-domain-adapter-violation
+    root: services/python-hexagonal/violating
+    expect: fail
+    require_rules:
+      - domain-is-pure
+      - no-cycles

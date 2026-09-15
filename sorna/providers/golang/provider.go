@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -53,8 +54,9 @@ type Variant struct {
 // Result contains the provider manifest handed to the existing Sorna campaign
 // executor and the preparation records useful to a human reviewer.
 type Result struct {
-	Provider campaign.ProviderManifest
-	Variants []Variant
+	Provider    campaign.ProviderManifest
+	Variants    []Variant
+	Preparation campaign.PreparationSummary
 }
 
 // Build copies the source root once per mutation, applies the supplied Go
@@ -169,6 +171,8 @@ func Build(request Request) (Result, error) {
 		Entries:      make([]campaign.ProviderEntry, 0, len(request.Plan.Mutations)),
 	}
 	variants := make([]Variant, 0, len(request.Plan.Mutations))
+	preparationVariants := make([]campaign.PreparationVariant, 0, len(request.Plan.Mutations))
+	skips := []string{outputDir, binaryDir, stagedOutput, stagedBinary}
 	for _, planned := range request.Plan.Mutations {
 		name := fmt.Sprintf("%03d-%s", planned.Sequence, safeID(planned.Spec.ID))
 		variantDir := filepath.Join(stagedOutput, "variants", name)
@@ -183,6 +187,13 @@ func Build(request Request) (Result, error) {
 		sourceHash, err := campaign.HashTree(sourceDir)
 		if err != nil {
 			return Result{}, fmt.Errorf("hash mutated source for %s: %w", planned.Spec.ID, err)
+		}
+		changedFiles, err := changedFiles(sourceRoot, sourceDir, skips)
+		if err != nil {
+			return Result{}, fmt.Errorf("summarize source mutation %s: %w", planned.Spec.ID, err)
+		}
+		if len(changedFiles) == 0 {
+			return Result{}, fmt.Errorf("mutation %s did not change any source files", planned.Spec.ID)
 		}
 		stagedBinaryPath := filepath.Join(stagedBinary, name, request.BinaryName)
 		if err := os.MkdirAll(filepath.Dir(stagedBinaryPath), 0o755); err != nil {
@@ -205,20 +216,27 @@ func Build(request Request) (Result, error) {
 		if err != nil {
 			return Result{}, fmt.Errorf("hash binary for mutation %s: %w", planned.Spec.ID, err)
 		}
+		var targetResolution *campaign.TargetResolution
+		if provenance.TargetResolution != nil {
+			copy := *provenance.TargetResolution
+			targetResolution = &copy
+		}
+		entryProvenance := &campaign.ProviderProvenance{
+			SourceDir:        filepath.ToSlash(sourceRelative),
+			SourceSHA256:     sourceHash,
+			BinarySHA256:     binaryHash,
+			Location:         provenance.Location,
+			Before:           provenance.Before,
+			After:            provenance.After,
+			TargetResolution: targetResolution,
+		}
 		provider.Entries = append(provider.Entries, campaign.ProviderEntry{
 			MutationID:  planned.Spec.ID,
 			Command:     command,
 			Args:        append([]string(nil), request.SubjectArgs...),
 			SubjectRoot: ".",
 			Variant:     planned.Spec.ID,
-			Provenance: &campaign.ProviderProvenance{
-				SourceDir:    filepath.ToSlash(sourceRelative),
-				SourceSHA256: sourceHash,
-				BinarySHA256: binaryHash,
-				Location:     provenance.Location,
-				Before:       provenance.Before,
-				After:        provenance.After,
-			},
+			Provenance:  entryProvenance,
 		})
 		variants = append(variants, Variant{
 			Sequence:     planned.Sequence,
@@ -226,6 +244,16 @@ func Build(request Request) (Result, error) {
 			SourceDir:    finalSourceDir,
 			BinaryPath:   binaryPath,
 			BinarySHA256: binaryHash,
+		})
+		preparationVariants = append(preparationVariants, campaign.PreparationVariant{
+			Sequence:     planned.Sequence,
+			MutationID:   planned.Spec.ID,
+			SourceDir:    filepath.ToSlash(sourceRelative),
+			SourceSHA256: sourceHash,
+			BinaryPath:   command,
+			BinarySHA256: binaryHash,
+			ChangedFiles: changedFiles,
+			Provenance:   cloneProvenance(entryProvenance),
 		})
 	}
 	if problems := campaign.ValidateProvider(provider); len(problems) > 0 {
@@ -241,7 +269,90 @@ func Build(request Request) (Result, error) {
 		return Result{}, fmt.Errorf("publish Go provider binaries: %w", err)
 	}
 	keepBinary = true
-	return Result{Provider: provider, Variants: variants}, nil
+	return Result{
+		Provider: provider,
+		Variants: variants,
+		Preparation: campaign.PreparationSummary{
+			Schema:     campaign.PreparationSummarySchema,
+			ProviderID: provider.ID,
+			PlanPath:   "",
+			PlanSHA256: provider.PlanSHA256,
+			Variants:   preparationVariants,
+		},
+	}, nil
+}
+
+func cloneProvenance(provenance *campaign.ProviderProvenance) *campaign.ProviderProvenance {
+	if provenance == nil {
+		return nil
+	}
+	copy := *provenance
+	if provenance.TargetResolution != nil {
+		resolution := *provenance.TargetResolution
+		copy.TargetResolution = &resolution
+	}
+	return &copy
+}
+
+func changedFiles(originalRoot, variantRoot string, skips []string) ([]string, error) {
+	original, err := snapshotFiles(originalRoot, skips)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot original source: %w", err)
+	}
+	variant, err := snapshotFiles(variantRoot, nil)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot variant source: %w", err)
+	}
+	paths := make(map[string]bool)
+	for path := range original {
+		paths[path] = true
+	}
+	for path := range variant {
+		paths[path] = true
+	}
+	changed := make([]string, 0)
+	for path := range paths {
+		if original[path] != variant[path] {
+			changed = append(changed, path)
+		}
+	}
+	sort.Strings(changed)
+	return changed, nil
+}
+
+func snapshotFiles(root string, skips []string) (map[string]string, error) {
+	files := make(map[string]string)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path != root && isSkipped(path, skips) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if path == root || entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symbolic links are not supported in source summary: %s", path)
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("unsupported source summary entry %s", path)
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		digest, err := hashFile(path)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(relative)] = digest
+		return nil
+	})
+	return files, err
 }
 
 // WriteManifest writes the provider handoff as a YAML document and returns

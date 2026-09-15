@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/paddock.component-map-v1.schema.json",
+  "title": "Paddock component dependency map",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "language",
+    "source_unit",
+    "root",
+    "package_count",
+    "edge_count",
+    "components",
+    "dependencies"
+  ],
+  "properties": {
+    "schema": {"const": "paddock.component-map/v1"},
+    "language": {"type": "string", "minLength": 1},
+    "source_unit": {"enum": ["package", "file"]},
+    "root": {"type": "string", "minLength": 1},
+    "module_path": {"type": "string"},
+    "package_count": {"type": "integer", "minimum": 0},
+    "edge_count": {"type": "integer", "minimum": 0},
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "package_count", "packages"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+          "package_count": {"type": "integer", "minimum": 0},
+          "packages": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to", "edges"],
+        "properties": {
+          "from": {"type": "string", "minLength": 1},
+          "to": {"type": "string", "minLength": 1},
+          "edges": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "external_dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "target", "target_kind", "edges"],
+        "properties": {
+          "from": {"type": "string", "minLength": 1},
+          "target": {"type": "string", "minLength": 1},
+          "target_kind": {"type": "string", "minLength": 1},
+          "edges": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "classification_findings": {"type": "array", "items": {"type": "object"}}
+  }
+}

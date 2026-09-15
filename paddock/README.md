@@ -31,6 +31,8 @@ paddock version
 paddock init
 paddock check .
 paddock graph .
+paddock map . --policy paddock.yaml
+paddock policy validate --policy paddock.yaml
 paddock policy diff --before paddock.yaml --after proposed-paddock.yaml
 paddock policy seal --input paddock.yaml --output paddock.lock.json
 paddock explain paddock-report.json
@@ -64,6 +66,9 @@ release checklist. That command also writes a versioned
 Verify a generated bundle with `paddock release verify --manifest
 release-manifest.json`; a digest mismatch exits `1` and malformed manifest
 input exits `2`.
+The current schema identifiers and compatibility rules are documented in
+[`COMPATIBILITY.md`](COMPATIBILITY.md); machine-readable definitions are in
+[`spec/`](spec/).
 
 The implemented Go commands are the checker, graph inspector, baseline
 generator, report explainer, and CI artifact producer:
@@ -123,6 +128,10 @@ go run ./paddock/cmd/paddock policy diff \
   --after proposed-paddock.yaml \
   --format json
 
+go run ./paddock/cmd/paddock policy validate \
+  --policy paddock.yaml \
+  --format json
+
 go run ./paddock/cmd/paddock policy seal \
   --input paddock.yaml \
   --output paddock.lock.json
@@ -164,6 +173,11 @@ with status 1; an invalid policy, unreadable source, or incompatible baseline
 exits with status 2. Baselines retain accepted findings in the report, mark
 them as non-blocking, and report entries that have become stale.
 
+`policy validate` performs policy-only validation and prints a concise summary
+in text mode. JSON mode emits the normalized, deterministically ordered
+`paddock.architecture/v1` policy, which is useful as an agent or CI preflight
+input before sealing or checking it.
+
 `explain` consumes either a `paddock.report/v1` report or an
 `ingen.ci-result/v1` CI artifact and produces deterministic text or JSON with
 the observed dependency, matched rule constraints, policy reason, finding
@@ -175,7 +189,8 @@ never changes the underlying verdict. Use `--rule <id>` to select one rule, or
 `--status all|active|blocking|advisory|waived|baselined|expired-waiver` to
 select a finding state. `blocking` selects active error findings, including
 expired waivers. Filtered output records its selection and retains the original
-overall verdict.
+overall verdict. The JSON contract is defined in
+[`spec/paddock.explanation-v1.schema.json`](spec/paddock.explanation-v1.schema.json).
 
 `graph` exposes the adapter output before classification and rule evaluation.
 It accepts either `--policy` or an explicit `--language`, and emits the stable
@@ -189,6 +204,12 @@ An external adapter can be invoked with `--adapter` and repeated
 `check` can invoke an adapter directly. `ci` can do the same when
 `--graph-output` names the durable graph file whose hash is recorded in the
 CI artifact.
+
+`map` provides a compact review view after policy classification. It emits the
+`paddock.component-map/v1` shape with component package counts, cross-component
+edge counts, and grouped external or unresolved dependencies. It is an
+inspection aid only and never changes the policy verdict; use `--format json`
+when an agent or another tool needs the structured map.
 
 `init` creates a deterministic draft policy from the current graph. It groups
 source units by directory, applies conservative template role guesses, and
@@ -213,7 +234,12 @@ invalid policy or manifest exits `2`. Use `--format json` for an agent-facing
 `paddock.policy-test-result/v1` document. External-language cases can pass the
 same `--adapter` and repeated `--adapter-arg` options as `check`.
 Cases can also use `require_rules` to assert that a failure is attributed to
-specific rule IDs rather than merely observing any failure.
+specific rule IDs rather than merely observing any failure. JSON results also
+include the deterministic `finding_rules` list for each evaluated case.
+The result contract is defined in
+[`spec/paddock.policy-test-result-v1.schema.json`](spec/paddock.policy-test-result-v1.schema.json).
+The manifest contract is defined in
+[`spec/paddock.policy-tests-v1.schema.json`](spec/paddock.policy-tests-v1.schema.json).
 
 `policy review` writes a durable `paddock.policy-review/v1` JSON artifact that
 bundles the before/after policy diff and the proposed policy's test results.

@@ -30,11 +30,31 @@ sorna mutation provider inspect .artifacts/document-pipeline-mutation-plan.json 
 Existing report paths are refused so a later review cannot silently overwrite
 an earlier artifact.
 
+Unbound providers remain available for local fixture demonstrations, where the
+provider is a reviewed static handoff. A stricter caller can require the
+provider to declare the exact plan hash:
+
+```sh
+sorna mutation provider inspect plan.json \
+  --provider provider.yaml \
+  --require-plan-binding
+```
+
+In this mode, an unbound provider is `blocked`, just like a mismatched provider.
+The same flag is available on `sorna mutation run`, so a campaign executor can
+enforce the policy even if a separate preflight was skipped. The generated Go
+provider is the first example that produces a matched plan binding.
+
 For CI collection, `--format ci-result` wraps the same report as
 `ingen.ci-result/v1` with `kind: mutation-provider-review`. A ready report is
 `passed`; a blocked report is `failed`; neither path starts a subject. Nublar
 can aggregate this envelope with Sorna's behavioral-verification result while
 leaving both producer reports intact.
+
+The default document-pipeline Nublar workflow uses the generated Go provider
+and passes `--require-plan-binding`. The static fixture provider remains a
+useful local demonstration, but it is intentionally not the production-style
+workflow input.
 
 ## Used in
 

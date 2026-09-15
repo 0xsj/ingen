@@ -51,6 +51,15 @@ The backend command is expected to exit `1` while the current code has its
 review findings; the latest locked run records 40 findings. The UI command
 below exits `0`. Both use the same language-neutral CI result contract.
 
+The current backend findings are grouped and triaged in
+[`overwatch-backend-triage.md`](overwatch-backend-triage.md). It is a review
+note only; it does not alter the policy or sealed lock.
+
+The shared-kernel decision is represented as a separate, unsealed candidate
+at `overwatch-backend-shared-kernel-proposal.yaml`. It permits `pkg/id` and
+`pkg/events` for domain code so the remaining code-boundary findings can be
+measured independently. It is not an approval of that vocabulary.
+
 The companion UI now has a committed starter draft at
 `paddock/examples/overwatch/overwatch-ui-draft.yaml`. It is intentionally
 conservative: it records the source vocabulary Paddock can currently see

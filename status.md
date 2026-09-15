@@ -1,6 +1,6 @@
 # InGen status
 
-As of 2026-09-14
+As of 2026-09-15
 
 ## Current checkpoint
 
@@ -19,8 +19,19 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Both mutations have been killed by contract-driven checks. This demonstrates that the contract can detect defects; it is not, by itself, proof that the contract is complete.
 - A reusable Go source provider can copy a subject, apply AST mutations, build isolated variants, record source/binary hashes, and publish a provider manifest only after successful preparation.
 - Provider capabilities are declared explicitly and reviewed before execution. The review is no-execution and can be emitted as the shared `ingen.ci-result/v1` envelope.
+- Plan binding is now an explicit caller policy: unbound fixture providers remain usable for local demonstrations, while `--require-plan-binding` blocks them. The generated Go provider passes the strict matched-binding review.
+- `make mutation-go-provider-ci-result` provides a strict positive-path example; the fixture provider's strict review returns `blocked` as expected.
+- The default Nublar document workflow now uses the strict Go provider and strict Go mutation campaign; the unbound fixture remains local-only.
+- Verified mutation campaign results can now be emitted as the shared `ingen.ci-result/v1` envelope, preserving the complete campaign report and exposing survivors or integrity failures to Nublar.
+- Mutation campaign CI explanations now classify failed entries as contract-insensitive, insufficient-observation, invalid, equivalent, timeout, execution-error, or unclassified campaign failures, with aggregate category counts.
+- Source-provider provenance now records target-resolution counts, and ambiguous or missing Go AST targets return a typed `ingen.mutation-target-resolution-error/v1` preparation error without writing the source copy.
+- Go provider preparation now emits an `ingen.mutation-preparation/v1` summary with changed source files, hashes, and provenance, and rejects no-op mutations before build/publication.
+- Provider preparation now has a `mutation-preparation` CI envelope that binds the summary to the provider manifest and plan, and the default Nublar workflow retains it as a required check.
+- The current Sorna/Nublar alpha boundary is now named in [ALPHA-INTERFACES.md](ALPHA-INTERFACES.md), including stable cross-tool invariants and deliberately unfrozen areas.
 - Campaign provenance, source/binary integrity checks, evidence verification, and campaign-result verification are in place.
-- Nublar can aggregate the provider preflight result with the behavioral verification result.
+- Nublar can aggregate provider preflight, behavioral verification, and mutation campaign results. The fresh document-pipeline aggregate passed all three checks.
+- All generated outputs now derive from `ARTIFACT_ROOT`, and `make nublar-aggregate-fresh` snapshots the current source tree into a new temporary workspace before running the full document workflow.
+- `sorna-ci-result` now includes the clean baseline run, so the fresh workflow no longer depends on a pre-existing run bundle.
 - Notes, module explanations, Make targets, and example documentation have been kept alongside the implementation.
 
 ## Useful entry points
@@ -28,6 +39,10 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 ```sh
 make mutation-provider-inspect
 make mutation-provider-ci-result
+make mutation-campaign-ci-result
+make mutation-go-provider-ci-result
+make mutation-go-campaign-ci-result
+make nublar-aggregate
 ```
 
 The Go source-provider campaign can be run with `make mutation-go-campaign-run`; use fresh output directories when overriding its paths. The resulting campaign can be checked with the matching `make mutation-go-campaign-verify` target.
@@ -37,8 +52,11 @@ The Go source-provider campaign can be run with `make mutation-go-campaign-run`;
 - Green implementation tests are weak evidence unless the contract is independently meaningful. The killed mutations are the first concrete signal that the document-pipeline contract is sensitive to important behavioral defects.
 - Mutation killing measures contract sensitivity, not contract correctness or completeness. A surviving mutation is useful evidence, but it still needs diagnosis.
 - Source and binary hashes establish pre-launch integrity and detect drift. They do not constitute a cryptographic proof that an agent never saw implementation details; that requires stronger execution provenance and environment design.
-- The fixture provider is currently usable for local demonstrations without a plan hash binding. The generated Go provider supports a matched plan hash. A release policy still needs to decide when an unbound provider is acceptable.
+- The fixture provider is currently usable for local demonstrations without a plan hash binding. The generated Go provider is the strict production-style path; the default Nublar workflow requires its matched plan hash.
+- The local fixture workflow remains in optional-binding mode; the default Nublar workflow now selects strict binding through the generated Go provider and executor.
 - Provider outputs, evidence outputs, and review outputs intentionally refuse unsafe reuse of existing paths. Campaigns should therefore use fresh artifact directories.
+- Workflow result paths are declared in the Nublar YAML. Overriding Make output variables does not automatically rewrite those declarations; custom artifact paths require a matching workflow declaration or a fresh workflow file.
+- The workflow declaration now names files relative to the artifact root. A fresh workspace keeps those paths aligned with the workspace-relative Sorna policies.
 - The scoped validation suite passes:
 
   ```sh
@@ -56,25 +74,26 @@ These are candidate directions, not an artificial checklist to complete all at o
 ### Reproducibility checkpoint
 
 - Re-run the complete Sorna slice from a clean checkout and record the exact artifact set.
-- Decide whether production-ready providers must always be plan-hash matched, with unbound providers restricted to explicitly local/demo use.
+- Review whether the strict Go-provider workflow is the right alpha default before adding other language providers.
 - Freeze the Sorna alpha boundary before adding more mutation operators.
 
 ### CI and Nublar
 
-- Decide whether mutation campaign results should also be emitted as a shared CI result, so Nublar can aggregate behavioral verification, provider preflight, and mutation outcomes uniformly.
-- Define the CI failure taxonomy and exit-code contract for blocked preflight, failed behavioral rules, killed mutations, surviving mutations, and infrastructure errors.
-- Add a clean workflow execution path that assembles the full proof without relying on manually chosen commands.
+- The mutation campaign CI envelope and its initial failure taxonomy are now present, but both remain alpha interfaces.
+- The preparation CI envelope is now present; its report and cross-artifact binding rules remain alpha interfaces.
+- Define the remaining cross-tool exit-code contract for blocked preflight, failed behavioral rules, killed mutations, surviving mutations, and infrastructure errors; keep the producer-specific mutation categories in Sorna's explanation.
+- The repository now has a clean workflow execution path; decide whether the temporary fresh-workspace runner should eventually become a first-class Nublar workflow command rather than remain a Makefile convenience.
 
 ### Sorna hardening
 
 - Move the provider capability vocabulary into a versioned contract/schema rather than keeping it only in code and examples.
-- Improve provider build diagnostics and preserve a reviewable source-diff or mutation-summary artifact.
+- Improve provider build diagnostics further and preserve a reviewable source-diff or mutation-summary artifact.
 - Continue tightening TOCTOU handling, immutable inputs, subprocess boundaries, and telemetry guarantees.
 - Add negative cases for malformed providers, ambiguous targets, unsupported operators, drift, and partial preparation.
 
 ### Mutation depth and examples
 
-- Add operators only when they represent meaningful contract risks, beginning with more precise target resolution and ambiguity reporting.
+- Add operators only when they represent meaningful contract risks, extending the target-resolution and ambiguity rules beyond the document-pipeline proof.
 - Expand the document-pipeline lab and later add the webhook and document-processing scenarios discussed earlier.
 - Use surviving mutations to guide contract improvements instead of optimizing for a mutation score.
 
@@ -86,6 +105,9 @@ These are candidate directions, not an artificial checklist to complete all at o
 
 ## Recommended next step
 
-Use the next checkpoint to establish clean-checkout reproducibility and decide the policy for unbound versus plan-hash-matched providers. After that, freeze the alpha interfaces and choose whether the next concrete investment is the unified mutation CI result or deeper contract/mutation semantics.
+The alpha interface checkpoint is now documented and executable. The next
+choice is between deeper contract/mutation semantics (especially surviving
+mutation diagnosis) and broader workflow execution, with new providers or
+Sentinel work kept behind the named boundaries.
 
 This file is a project checkpoint, not a requirement to implement every avenue listed above immediately.

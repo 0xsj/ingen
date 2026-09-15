@@ -1,0 +1,7 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: import-cycle
+    root: services/cyclic-go/violating
+    expect: fail
+    require_rules:
+      - no-cycles

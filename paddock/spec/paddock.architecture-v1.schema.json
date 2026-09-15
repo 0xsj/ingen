@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/paddock.architecture-v1.schema.json",
+  "title": "Paddock architecture policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "source", "components"],
+  "properties": {
+    "schema": {"const": "paddock.architecture/v1"},
+    "project": {"type": "string"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "roots"],
+      "properties": {
+        "language": {"type": "string", "minLength": 1},
+        "unit": {"enum": ["package", "file"]},
+        "roots": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "components": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/component"
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/rule"}
+    },
+    "waivers": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/waiver"}
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["match", "labels"],
+      "properties": {
+        "match": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+          ]
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {"type": ["string", "number", "boolean"]}
+        }
+      }
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "selectors": {
+      "oneOf": [
+        {"$ref": "#/$defs/selector"},
+        {"type": "array", "items": {"$ref": "#/$defs/selector"}}
+      ]
+    },
+    "target": {
+      "oneOf": [
+        {"type": "string"},
+        {"type": "object", "additionalProperties": {"type": "string"}}
+      ]
+    },
+    "targets": {
+      "oneOf": [
+        {"$ref": "#/$defs/target"},
+        {"type": "array", "items": {"$ref": "#/$defs/target"}}
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {
+          "enum": [
+            "allow-dependencies",
+            "deny-dependencies",
+            "layer-direction",
+            "no-cross-context",
+            "mediated-dependency",
+            "public-api-only",
+            "no-cycles",
+            "coverage",
+            "required-dependency",
+            "unresolved"
+          ]
+        },
+        "severity": {"enum": ["error", "warning", "info"]},
+        "from": {"$ref": "#/$defs/selectors"},
+        "to": {"$ref": "#/$defs/selectors"},
+        "allow": {"$ref": "#/$defs/targets"},
+        "deny": {"$ref": "#/$defs/targets"},
+        "allow_to": {"$ref": "#/$defs/targets"},
+        "allow-to": {"$ref": "#/$defs/targets"},
+        "transitive": {"type": "boolean"},
+        "direction": {"enum": ["toward-lower-layer", "toward-higher-layer"]},
+        "context_label": {"type": "string"},
+        "context-label": {"type": "string"},
+        "message": {"type": "string"}
+      }
+    },
+    "waiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "from", "reason", "owner", "expires"],
+      "properties": {
+        "rule": {"type": "string", "minLength": 1},
+        "from": {"type": "string", "minLength": 1},
+        "to": {"type": "string"},
+        "reason": {"type": "string", "minLength": 1},
+        "owner": {"type": "string", "minLength": 1},
+        "expires": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+      }
+    }
+  }
+}

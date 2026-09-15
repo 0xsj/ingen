@@ -59,6 +59,11 @@ oracle and subject telemetry are evidence, not independent attestation.
 See [MODULES.md](MODULES.md) for the repository map and the intended status of
 each area.
 
+The current cross-tool alpha boundary is recorded in
+[ALPHA-INTERFACES.md](ALPHA-INTERFACES.md). The focused verification command
+is `make alpha-interface-check`; the complete clean workflow is
+`make nublar-aggregate-fresh`.
+
 Amber now has a language-neutral v1 specification, Go and TypeScript
 implementations, shared conformance fixtures, and focused transition tests.
 
@@ -77,6 +82,7 @@ make sorna-run
 make evidence-verify
 make sorna-ci-result
 make nublar-aggregate
+make nublar-aggregate-fresh
 ```
 
 `make sorna-run` freezes the oracle, launches the clean subject, waits for
@@ -94,3 +100,12 @@ To exercise the first controlled defect, run `make sorna-defect-run`. The
 output should show a failing contract verdict and a `killed` mutation outcome.
 In mutation mode, the command exits successfully when the declared mutation is
 killed.
+
+`make sorna-ci-result` now includes the clean managed baseline run, so it can
+also start from an empty artifact root. Generated artifacts default to
+`.artifacts`. For a clean, reviewable run with no stale-output collisions, use
+`make nublar-aggregate-fresh`; it snapshots the current source tree into a new
+temporary workspace, runs with the normal workspace-relative policies, and
+prints the workspace and artifact locations when the workflow ends. The
+`ARTIFACT_ROOT` variable can also relocate outputs when the selected policy
+paths cover that location.

@@ -125,6 +125,54 @@ producer-owned `ingen.mutation-provider-review/v1` artifact, while `inputs`
 binds the exact plan and provider files. A blocked review maps to envelope
 `status: "failed"` and exit code `1`; no subject process is launched.
 
+Sorna also adapts a verified mutation campaign result with:
+
+```sh
+sorna mutation verify campaign-result.json \
+  --format ci-result --source-root . \
+  --output mutation-campaign-ci-result.json
+```
+
+This uses `kind: "mutation-campaign"`. The complete
+`ingen.mutation-campaign-result/v1` value remains in `report`; `inputs` binds
+the campaign result and its plan by SHA-256. A campaign with only killed
+mutations maps to `passed`; surviving or inconclusive mutations map to
+`failed`; result or evidence integrity failures map to `error`.
+
+The producer-owned explanation uses `sorna.mutation-campaign-explanation/v1`.
+Each failed entry includes a stable `category`, and `failure_categories`
+counts those categories for collectors that do not want to inspect every
+entry. The initial categories are:
+
+| Category | Meaning |
+| --- | --- |
+| `contract-insensitive` | The subject mutation survived the contract checks. |
+| `insufficient-observation` | The run could not decide whether the mutation was killed. |
+| `invalid-mutant` | The prepared mutation was invalid for execution. |
+| `equivalent-mutant` | The mutation was classified as behaviorally equivalent. |
+| `execution-timeout` | The mutation run exceeded its execution limit. |
+| `execution-error` | Campaign execution or provider execution errored. |
+| `campaign-failure` | A failed entry had an unclassified outcome. |
+
+These categories improve diagnosis; the envelope `status` and `exit_code`
+remain authoritative for orchestration.
+
+Provider preparation can cross the same boundary before execution:
+
+```sh
+sorna mutation provider preparation preparation.json \
+  --provider provider.yaml --format ci-result \
+  --output mutation-preparation-ci-result.json
+```
+
+This uses `kind: "mutation-preparation"`. The complete
+`ingen.mutation-preparation/v1` summary remains in `report`; `inputs` binds the
+preparation summary, provider manifest, and plan by exact SHA-256 references.
+Sorna validates that the summary and provider agree on provider ID, plan hash,
+variant paths, and prepared identities before emitting a passing envelope.
+Nublar may retain this artifact as preparation evidence without interpreting
+the source-language details.
+
 ## Nublar consumer
 
 Nublar composes multiple envelopes without importing their producer packages:
@@ -157,11 +205,12 @@ id: document-pipeline-ci
 checks:
   - id: behavioral-verification
     tool: sorna
-    result: .artifacts/document-pipeline-ci-result.json
+    result: document-pipeline-ci-result.json
     required: true
 ```
 
-Checks are required by default. A missing required result or a result whose
+Workflow result paths are relative to the artifact root supplied to Nublar's
+`--root` option. Checks are required by default. A missing required result or a result whose
 `tool` does not match the declaration produces an aggregate `error` with exit
 code `2`; an explicitly optional missing result becomes a warning. The
 aggregate records the workflow file path and SHA-256, which identifies the

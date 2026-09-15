@@ -1,0 +1,13 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: approved-shared-kernel-and-inward-dependencies
+    root: services/architecture-boundaries-go/good
+    expect: pass
+
+  - name: forbidden-domain-and-application-boundaries
+    root: services/architecture-boundaries-go/violating
+    expect: fail
+    require_rules:
+      - domain-is-pure
+      - application-not-infrastructure
+      - layers-point-inward

@@ -56,4 +56,7 @@ func TestRunRecordsExpectedFixtureOutcomes(t *testing.T) {
 	if len(document.Cases[1].MissingRules) != 0 {
 		t.Fatalf("required rule was not found: %#v", document.Cases[1])
 	}
+	if len(document.Cases[0].FindingRules) != 0 || len(document.Cases[1].FindingRules) != 1 || document.Cases[1].FindingRules[0] != "domain-is-pure" {
+		t.Fatalf("unexpected finding rule IDs: %#v", document.Cases)
+	}
 }

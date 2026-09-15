@@ -1,6 +1,7 @@
 package goprovider
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,7 +45,10 @@ func TestBuildCopiesMutatesAndBuildsFreshGoVariant(t *testing.T) {
 			if variantRoot == root || spec.ID != "m1" {
 				return campaign.ProviderProvenance{}, os.ErrInvalid
 			}
-			return campaign.ProviderProvenance{Location: "cmd/subject/main.go:main", Before: "clean", After: "mutated"}, os.WriteFile(filepath.Join(variantRoot, "cmd", "subject", "mutation.marker"), []byte(spec.ID), 0o644)
+			return campaign.ProviderProvenance{
+				Location: "cmd/subject/main.go:main", Before: "clean", After: "mutated",
+				TargetResolution: &campaign.TargetResolution{Selector: "cmd/subject/main.go:main", CandidateCount: 1, AppliedCount: 1},
+			}, os.WriteFile(filepath.Join(variantRoot, "cmd", "subject", "mutation.marker"), []byte(spec.ID), 0o644)
 		},
 	})
 	if err != nil {
@@ -52,6 +56,9 @@ func TestBuildCopiesMutatesAndBuildsFreshGoVariant(t *testing.T) {
 	}
 	if result.Provider.PlanSHA256 != strings.Repeat("e", 64) || len(result.Provider.Capabilities) != 1 || len(result.Provider.Entries) != 1 || len(result.Variants) != 1 {
 		t.Fatalf("result = %+v, want one provider capability, entry, and variant", result)
+	}
+	if result.Preparation.Schema != campaign.PreparationSummarySchema || len(result.Preparation.Variants) != 1 || len(result.Preparation.Variants[0].ChangedFiles) != 1 || result.Preparation.Variants[0].ChangedFiles[0] != "cmd/subject/mutation.marker" {
+		t.Fatalf("preparation = %+v, want one reviewable changed file", result.Preparation)
 	}
 	if !result.Provider.Supports(plan.Mutations[0].Spec) {
 		t.Fatalf("provider capabilities = %+v, want test plan capability", result.Provider.Capabilities)
@@ -75,6 +82,9 @@ func TestBuildCopiesMutatesAndBuildsFreshGoVariant(t *testing.T) {
 	}
 	if entry.Provenance == nil || entry.Provenance.Location != "cmd/subject/main.go:main" || entry.Provenance.Before != "clean" || entry.Provenance.After != "mutated" {
 		t.Fatalf("provider provenance = %+v, want edit provenance", entry.Provenance)
+	}
+	if entry.Provenance.TargetResolution == nil || entry.Provenance.TargetResolution.CandidateCount != 1 || entry.Provenance.TargetResolution.AppliedCount != 1 {
+		t.Fatalf("target resolution = %+v, want one selected target", entry.Provenance.TargetResolution)
 	}
 	if entry.Provenance.SourceDir != ".generated/variants/001-m1/source" || entry.Provenance.SourceSHA256 == "" || entry.Provenance.BinarySHA256 != variant.BinarySHA256 {
 		t.Fatalf("provider provenance identities = %+v, want generated paths and hashes", entry.Provenance)
@@ -101,6 +111,31 @@ func TestBuildCopiesMutatesAndBuildsFreshGoVariant(t *testing.T) {
 	}
 	if providerHash != actualHash {
 		t.Fatalf("provider hash = %s, actual %s", providerHash, actualHash)
+	}
+
+	summaryPath := filepath.Join(root, ".generated", "preparation.json")
+	result.Preparation.PlanPath = "plan.json"
+	summaryHash, err := campaign.WritePreparationSummary(summaryPath, result.Preparation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualSummaryHash, err := campaign.HashFile(summaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summaryHash != actualSummaryHash {
+		t.Fatalf("preparation summary hash = %s, actual %s", summaryHash, actualSummaryHash)
+	}
+	contents, err := os.ReadFile(summaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary campaign.PreparationSummary
+	if err := json.Unmarshal(contents, &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.Schema != campaign.PreparationSummarySchema || summary.Variants[0].ChangedFiles[0] != "cmd/subject/mutation.marker" {
+		t.Fatalf("loaded preparation summary = %+v, want changed-file record", summary)
 	}
 }
 
@@ -182,6 +217,43 @@ func TestBuildFailureDoesNotPublishPartialOutputs(t *testing.T) {
 	for _, entry := range entries {
 		if strings.Contains(entry.Name(), ".staging-") {
 			t.Fatalf("staging directory %q remained after failure", entry.Name())
+		}
+	}
+}
+
+func TestBuildRejectsNoOpMutation(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/provider-test\n\ngo 1.27\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "cmd", "subject"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cmd", "subject", "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(root, "generated")
+	binaries := filepath.Join(root, "binaries")
+	_, err := Build(Request{
+		Plan:         testPlan(),
+		PlanSHA256:   strings.Repeat("e", 64),
+		SourceRoot:   root,
+		OutputDir:    output,
+		BinaryDir:    binaries,
+		BuildPackage: "./cmd/subject",
+		Capabilities: testCapabilities(),
+		Mutate: func(string, mutation.Spec) (campaign.ProviderProvenance, error) {
+			return campaign.ProviderProvenance{
+				Location: "cmd/subject/main.go:main", Before: "clean", After: "still clean",
+			}, nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "did not change any source files") {
+		t.Fatalf("Build() = %v, want no-op mutation rejection", err)
+	}
+	for name, path := range map[string]string{"output": output, "binaries": binaries} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("%s directory stat error = %v, want unpublished output", name, statErr)
 		}
 	}
 }

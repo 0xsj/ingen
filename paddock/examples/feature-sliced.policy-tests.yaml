@@ -1,0 +1,15 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: layered-feature-slices
+    root: services/feature-sliced-ts/good
+    expect: pass
+
+  - name: feature-slice-boundary-violations
+    root: services/feature-sliced-ts/violating
+    expect: fail
+    require_rules:
+      - features-do-not-cross
+      - layers-point-downward
+      - no-cycles
+      - no-unresolved-imports
+      - shared-is-feature-free

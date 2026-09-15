@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/paddock.policy-test-result-v1.schema.json",
+  "title": "Paddock policy test result",
+  "description": "Machine-readable outcomes from a Paddock policy-test manifest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "policy",
+    "manifest",
+    "status",
+    "passed",
+    "failed",
+    "cases"
+  ],
+  "properties": {
+    "schema": {
+      "const": "paddock.policy-test-result/v1"
+    },
+    "policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest": {
+      "$ref": "#/$defs/file-ref"
+    },
+    "adapter": {
+      "$ref": "#/$defs/adapter"
+    },
+    "status": {
+      "enum": ["PASS", "FAIL"]
+    },
+    "passed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/case-result"
+      }
+    }
+  },
+  "$defs": {
+    "file-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable"],
+      "properties": {
+        "executable": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "case-result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "root",
+        "expected",
+        "actual",
+        "status"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected": {
+          "enum": ["pass", "fail", "error"]
+        },
+        "actual": {
+          "enum": ["pass", "fail", "error"]
+        },
+        "status": {
+          "enum": ["PASS", "FAIL"]
+        },
+        "findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "finding_rules": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "error": {
+          "type": "string"
+        },
+        "missing_rules": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

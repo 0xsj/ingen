@@ -25,11 +25,15 @@ id: document-pipeline-ci
 checks:
   - id: mutation-provider-review
     tool: sorna
-    result: .artifacts/document-pipeline-provider-review-ci-result.json
+    result: document-pipeline-go-provider-ci-result.json
     required: true
   - id: behavioral-verification
     tool: sorna
-    result: .artifacts/document-pipeline-ci-result.json
+    result: document-pipeline-ci-result.json
+    required: true
+  - id: mutation-campaign
+    tool: sorna
+    result: document-pipeline-go-campaign-ci-result.json
     required: true
 ```
 
@@ -40,21 +44,25 @@ check optional. Paths are relative to the workspace root supplied to Nublar.
 go run ./nublar/cmd/nublar workflow validate nublar/workflows/document-pipeline.yaml
 go run ./nublar/cmd/nublar aggregate \
   --workflow nublar/workflows/document-pipeline.yaml \
-  --root . \
+  --root .artifacts \
   --output .artifacts/nublar-result.json
 ```
 
-Missing required results produce an `error` aggregate with exit code `2`.
+The workflow result paths are relative to the artifact root supplied with
+`--root`; the repository Makefile supplies `.artifacts` by default and the
+`nublar-aggregate-fresh` target supplies a new temporary root. Missing required results produce an `error` aggregate with exit code `2`.
 Missing optional results are recorded as warnings. A result whose envelope
 claims a different producer than the workflow declares is also an error. The
 aggregate records the workflow path and SHA-256 so the collection policy is
 part of the result provenance. Each consumed CI-result file is also recorded
 with its own SHA-256.
 
-The document-pipeline workflow collects Sorna's provider-preflight envelope as
-well as its behavioral-verification envelope. Nublar preserves both complete
-producer results and only composes their statuses; the provider review remains
-the authority for capability and plan-binding findings.
+The document-pipeline workflow collects Sorna's strict Go-provider preflight,
+behavioral-verification, and strict Go mutation-campaign envelopes. Nublar
+preserves all complete producer results and only composes their statuses;
+Sorna remains the authority for contract, capability, plan-binding, and
+mutation findings. The unbound prebuilt fixture remains available through the
+local `mutation-campaign-*` targets but is not the default Nublar producer.
 
 ## Aggregate shared results
 

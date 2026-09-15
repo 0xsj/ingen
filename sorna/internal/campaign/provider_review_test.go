@@ -59,6 +59,28 @@ func TestBuildProviderReviewReportsReadyUnboundFixture(t *testing.T) {
 	}
 }
 
+func TestBuildProviderReviewBlocksUnboundProviderWhenBindingIsRequired(t *testing.T) {
+	review := BuildProviderReview(ProviderReviewInput{
+		Plan:               reviewPlan(),
+		PlanSHA256:         strings.Repeat("d", 64),
+		RequirePlanBinding: true,
+		Provider: ProviderManifest{
+			ID: "fixture-provider", Version: 1,
+			Capabilities: []ProviderCapability{
+				{Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents"},
+				{Plane: "implementation", Operator: "response.field.remove", Target: "POST /documents"},
+			},
+			Entries: []ProviderEntry{
+				{MutationID: "status-200-create", Command: "status-subject"},
+				{MutationID: "remove-name-create", Command: "field-subject"},
+			},
+		},
+	})
+	if review.Status != "blocked" || !review.RequirePlanBinding || review.Provider.PlanBinding != "unbound" {
+		t.Fatalf("review = %+v, want blocked required-binding review", review)
+	}
+}
+
 func reviewPlan() Plan {
 	return Plan{Mutations: []MutationEntry{
 		{Sequence: 1, Spec: mutation.Spec{ID: "status-200-create", Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents"}},

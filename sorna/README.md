@@ -23,6 +23,12 @@ Package areas:
 - `internal/sandbox`: process, filesystem, network, and resource policy;
 - `cmd/sorna`: the headless CLI.
 
+Provider preparation can be exposed before mutation execution with
+`sorna mutation provider preparation <summary> --provider <manifest>
+--format ci-result`. The resulting `mutation-preparation` envelope binds the
+summary to the exact provider and plan inputs for a coordinator such as
+Nublar.
+
 The oracle access boundary is a real security boundary. The rest of the
 directory layout is a maintainable starting point, not a demand for separate
 services.
@@ -116,9 +122,12 @@ make mutation-provider-validate
 make mutation-provider-inspect
 make mutation-campaign-run
 make mutation-campaign-verify
+make mutation-campaign-ci-result
 make mutation-go-provider-build
+make mutation-go-provider-ci-result
 make mutation-go-campaign-run
 make mutation-go-campaign-verify
+make mutation-go-campaign-ci-result
 ```
 
 Catalogue validation checks stable IDs, canonical mutation planes, operators,
@@ -146,6 +155,25 @@ launching a subject. It shows the exact plan/provider hashes, plan binding
 state, declared capabilities, and per-mutation entry/capability matches.
 With `--format ci-result`, the same report becomes a shared CI envelope for
 Nublar.
+
+Plan binding is optional for the local fixture provider but can be required by
+callers that want every prepared provider tied to the exact plan bytes:
+
+```sh
+sorna mutation provider inspect plan.json \
+  --provider provider.yaml --require-plan-binding
+```
+
+The generated Go provider produces a matched binding. The same
+`--require-plan-binding` flag is accepted by `sorna mutation run`, so execution
+can enforce the policy independently of preflight.
+
+`sorna mutation verify <campaign-result> --format ci-result` verifies every
+recorded evidence bundle and emits a shared `ingen.ci-result/v1` envelope with
+the complete campaign result as its report. A passed campaign means every
+planned mutation was killed; survivors or inconclusive entries produce a
+failed envelope, while evidence or result integrity errors produce an error
+envelope.
 
 The first source-level Go provider is deliberately narrow. It copies the clean
 Go module once per plan entry, applies the document lab's reviewed

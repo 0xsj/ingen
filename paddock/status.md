@@ -1,6 +1,6 @@
 # Paddock status
 
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 ## Where we left off
 
@@ -21,6 +21,30 @@ The current release candidate exercise was `0.1.0-rc1`:
 The backend result is intentional review feedback, not a Paddock failure. The
 backend policy is not yet an approved compliance gate for that codebase.
 
+No `paddock-v0.1.0-rc1` tag or hosted GitHub release has been created yet.
+The local release and verification path is ready for that external step.
+
+The portable gate has now been dogfooded against the sibling Overwatch
+project without changing Overwatch or publishing anything:
+
+- the locked UI proposal passed with 437 packages, 1,680 edges, and zero
+  findings;
+- the locked backend review policy returned the expected exit `1` with 40
+  findings: 38 `domain-is-pure`, one `application-not-infrastructure`, and one
+  `layers-point-inward` finding;
+- the Go adapter now keeps `go list` diagnostics on stderr instead of allowing
+  cache warnings to corrupt its machine-readable JSON stream. The managed
+  workspace still requires a writable Go build cache for the Go tool itself;
+  the successful backend run used an isolated temporary cache.
+- The backend findings are grouped in
+  `examples/overwatch/overwatch-backend-triage.md`; no policy or lock change
+  has been made pending architecture-owner decisions.
+- An unsealed shared-kernel policy candidate now measures the effect of
+  allowing `pkg/id` and `pkg/events`; the current review policy and lock remain
+  authoritative. The candidate passed its policy review and reduced the
+  backend result from 40 findings to 3, leaving only the `pkg/blob` boundary
+  and the `audit/app/query` infrastructure dependency.
+
 ## Implemented
 
 ### Analysis and enforcement
@@ -38,10 +62,21 @@ backend policy is not yet an approved compliance gate for that codebase.
 
 - `check`, `graph`, `init`, `baseline`, `ci`, and `explain` commands.
 - Policy tests with expected pass/fail/error cases and required rule IDs.
+- Machine-readable policy-test evidence with deterministic finding rule IDs.
+- Standalone JSON Schema for `paddock.policy-test-result/v1`.
+- Standalone JSON Schema for `paddock.policy-tests/v1` manifests.
 - Policy diff and durable policy review artifacts.
 - Policy sealing and lock verification.
+- Policy-only validation with normalized JSON output for agent and CI preflight.
 - CI result artifacts using `ingen.ci-result/v1`.
 - Agent-facing text and JSON explanations.
+- Standalone JSON Schema for `paddock.explanation/v1` agent handoff artifacts.
+- Agent-facing component dependency maps with grouped internal, external, and
+  unresolved edges.
+- Portable CI gate support for invoking an external adapter and persisting its
+  graph evidence.
+- Machine-readable architecture policy schema and documented v1 compatibility
+  rules for Paddock contracts.
 
 ### Distribution
 
@@ -57,8 +92,16 @@ backend policy is not yet an approved compliance gate for that codebase.
 
 - Go, TypeScript, and Python service examples.
 - TypeScript good/violating boundary fixture.
+- Dependency-free Python external-adapter conformance fixture.
 - Overwatch backend review policy, lock, and policy tests.
 - Overwatch UI draft policy, layered proposal, lock, and policy tests.
+- Architecture-boundary Go fixtures covering approved shared-kernel and inward
+  dependency rules.
+- Modular-monolith policy tests covering public APIs, shared kernel, and
+  cross-context internal access.
+- Cross-language policy tests covering TypeScript feature slices and Python
+  hexagonal boundaries.
+- Layered-direction and non-compiling cyclic Go policy tests.
 - GitHub Actions release example and active tag-triggered workflow.
 
 ## Important current decisions
@@ -76,14 +119,12 @@ backend policy is not yet an approved compliance gate for that codebase.
 
 ### Should happen next
 
-1. Review the current working-tree changes and decide whether to publish
-   `paddock-v0.1.0-rc1`.
-2. Push the tag only after the release assets and GitHub workflow are approved.
-3. Observe the hosted workflow end to end: build, verify, upload, and release.
-4. Use the published binary in at least one external repository or project
-   CI job.
-5. Record adapter, path-resolution, performance, and policy-authoring issues
-   from that real run before changing the core schemas.
+1. Obtain the Overwatch architecture-owner decision on the backend triage:
+   shared-kernel policy expansion, code fixes, waivers, or temporary baseline.
+2. Revisit the UI proposal’s broad `components/**` vocabulary with actual
+   ownership feedback.
+3. Record adapter, path-resolution, performance, and policy-authoring issues
+   from the external run before expanding the core schemas.
 
 ### Likely near-term work
 
@@ -92,11 +133,12 @@ backend policy is not yet an approved compliance gate for that codebase.
 - Decide whether the Overwatch UI component vocabulary needs finer-grained
   presentation roles.
 - Freeze and document compatibility expectations for `paddock.graph/v1`, the
-  policy format, and the CI/release artifact schemas.
+  policy format, and the CI/release artifact schemas. (The first version of
+  this is now in `COMPATIBILITY.md`.)
 - Add release workflow smoke coverage if hosted CI exposes issues not visible
   locally.
-- Add a component dependency matrix or graph summary optimized for human and
-  agent review.
+- Extend the component map only when real users need additional aggregation or
+  visualization detail.
 
 ### Defer until real usage asks for them
 
@@ -106,14 +148,13 @@ backend policy is not yet an approved compliance gate for that codebase.
 - Hosted dashboards or centralized policy services.
 - Large-scale performance work beyond the first real monorepo measurements.
 
-## Recommended stopping point
+## Recommended development checkpoint
 
-Do not add more core Paddock features until the release candidate has been
-consumed by at least one real project. The next decision should be based on
-observed adoption friction, false positives, adapter gaps, and CI ergonomics.
-
-At that point, either promote Paddock to a small stable `0.1` release or
-revise the policy/protocol surface before expanding the feature set.
+The next useful stopping point is after the draft-to-seal authoring loop and
+one external adapter have been exercised. At that checkpoint, use observed
+adoption friction, false positives, adapter gaps, and CI ergonomics to decide
+which development work deserves priority. Release publication remains
+deferred while development continues.
 
 ## Useful resume commands
 

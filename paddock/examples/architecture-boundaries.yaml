@@ -1,0 +1,69 @@
+schema: paddock.architecture/v1
+project: architecture-boundaries
+
+source:
+  language: go
+  unit: package
+  roots: [internal, pkg]
+
+components:
+  domain:
+    match: internal/{context}/domain/**
+    labels:
+      role: domain
+      context: "{context}"
+
+  application:
+    match: internal/{context}/application/**
+    labels:
+      role: application
+      context: "{context}"
+
+  port:
+    match: internal/{context}/ports/**
+    labels:
+      role: port
+      context: "{context}"
+
+  infrastructure:
+    match:
+      - internal/{context}/infra/**
+      - internal/storage/**
+    labels:
+      role: infrastructure
+
+  shared:
+    match: pkg/shared/**
+    labels:
+      role: shared
+
+rules:
+  - id: domain-is-pure
+    kind: allow-dependencies
+    from: {role: domain}
+    allow:
+      - standard-library:errors
+      - standard-library:fmt
+      - {role: domain, context: same}
+      - {role: port, context: same}
+      - {role: shared}
+    message: domains may use stable abstractions and approved shared-kernel values
+
+  - id: application-not-infrastructure
+    kind: deny-dependencies
+    from: {role: application}
+    deny:
+      - {role: infrastructure}
+    message: application code must not import infrastructure
+
+  - id: layers-point-inward
+    kind: allow-dependencies
+    from: [{role: application}, {role: port}]
+    allow:
+      - standard-library:errors
+      - standard-library:fmt
+      - {role: domain, context: same}
+      - {role: port, context: same}
+      - {role: application, context: same}
+      - {role: shared}
+    message: application and ports may depend only on inward layers and shared kernel

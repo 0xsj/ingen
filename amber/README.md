@@ -67,9 +67,13 @@ runtimes. The transport-neutral messaging adapter is implemented
 under `adapters/messaging/`. A framework-neutral structured logging projection
 is implemented under `adapters/logging/`, and a framework-neutral tracing
 projection is implemented under `adapters/tracing/`. A process-local reference
-storage adapter and a Go file-backed store are implemented under
-`adapters/storage/`; database-specific adapters are still future work.
-Runnable end-to-end composition examples are available through `make examples`.
+storage adapter, a Go file-backed store, a generic Go key-value seam, and an
+optional PostgreSQL store are implemented under `adapters/storage/`; other
+database-specific adapters remain future work.
+Runnable end-to-end composition and OpenTelemetry integration examples are
+available through `make examples`.
+Optional OpenTelemetry bridges enrich existing spans with the same `amber.*`
+projection without making the base TypeScript package depend on an OTel runtime.
 Incoming trust validators are available as opt-in hooks; v1 transport values
 remain unsigned by default.
 The v1 core is now at a foundation checkpoint: its core semantics are stable,
@@ -121,6 +125,13 @@ Run Go’s race detector across the SDK and adapters with:
 
 ```sh
 make race
+```
+
+Run the complete release-candidate gate, including checks, race detection,
+fuzzing, and examples, with:
+
+```sh
+make release-check
 ```
 
 GitHub Actions runs the check gate, race detector, and composition examples on

@@ -6,4 +6,5 @@ export * from "./transport.js";
 export * from "./messaging.js";
 export * from "./logging.js";
 export * from "./tracing.js";
+export * from "./otel.js";
 export * from "./storage.js";

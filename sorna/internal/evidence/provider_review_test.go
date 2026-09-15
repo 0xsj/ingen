@@ -60,3 +60,26 @@ func TestBuildProviderReviewCIResultMapsBlockedReviewToFailed(t *testing.T) {
 		t.Fatalf("explanation = %+v, want plan mismatch reason", explanation)
 	}
 }
+
+func TestBuildProviderReviewCIResultExplainsRequiredUnboundBinding(t *testing.T) {
+	review := campaign.ProviderReview{
+		Schema:             campaign.ProviderReviewSchema,
+		Status:             "blocked",
+		RequirePlanBinding: true,
+		Plan:               campaign.ProviderReviewPlan{Path: "plan.json", SHA256: strings.Repeat("a", 64)},
+		Provider: campaign.ProviderReviewProvider{
+			Path: "provider.yaml", SHA256: strings.Repeat("b", 64), ID: "provider", Version: 1, PlanBinding: "unbound",
+		},
+	}
+	artifact, err := BuildProviderReviewCIResult(review, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var explanation providerReviewExplanationPayload
+	if err := json.Unmarshal(artifact.Explanation, &explanation); err != nil {
+		t.Fatal(err)
+	}
+	if !explanation.PlanBindingRequired || len(explanation.BlockedChecks) != 1 || !strings.Contains(explanation.BlockedChecks[0], "required") {
+		t.Fatalf("explanation = %+v, want required unbound binding reason", explanation)
+	}
+}
