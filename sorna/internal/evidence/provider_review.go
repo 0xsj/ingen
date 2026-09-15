@@ -22,9 +22,12 @@ func BuildProviderReviewCIResult(review campaign.ProviderReview, sourceRoot stri
 		exitCode = 0
 	case "blocked":
 		status = "failed"
-		exitCode = 1
 	default:
 		return ciresult.Artifact{}, fmt.Errorf("provider review has unsupported status %q", review.Status)
+	}
+	exitCode, err := ciresult.ExitCodeForStatus(status)
+	if err != nil {
+		return ciresult.Artifact{}, fmt.Errorf("map provider review status: %w", err)
 	}
 	if strings.TrimSpace(sourceRoot) == "" {
 		sourceRoot = "."

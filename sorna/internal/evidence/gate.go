@@ -118,8 +118,11 @@ func EvaluateGate(outputDir string, policy GatePolicy) (GateResult, error) {
 	}
 	if len(reasons) > 0 {
 		result.Status = "failed"
-		result.ExitCode = 1
 		result.Reasons = reasons
+	}
+	result.ExitCode, err = ciresult.ExitCodeForStatus(result.Status)
+	if err != nil {
+		return GateResult{}, fmt.Errorf("map Sorna gate status: %w", err)
 	}
 	return result, nil
 }

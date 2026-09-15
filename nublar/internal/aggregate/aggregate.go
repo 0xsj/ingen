@@ -255,16 +255,11 @@ func severity(status string) int {
 }
 
 func exitCode(status string) int {
-	switch status {
-	case "passed":
-		return 0
-	case "failed":
-		return 1
-	case "error":
-		return 2
-	default:
+	code, err := ciresult.ExitCodeForStatus(status)
+	if err != nil {
 		return 2
 	}
+	return code
 }
 
 func SaveFile(path string, report Report) error {

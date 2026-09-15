@@ -63,6 +63,12 @@ An artifact with `status: error` contains `error` and may omit `report` and
 Nublar should report the status and retain the nested evidence; it must not
 reinterpret findings or turn an explanation into an authoritative verdict.
 
+The mapping is shared by the Go implementation as
+`core/ciresult.ExitCodeForStatus`: producers may have richer internal result
+states, but the envelope exposes only `passed`/`0`, `failed`/`1`, and
+`error`/`2`. An unknown status is invalid rather than silently becoming an
+infrastructure error.
+
 `sha256` values identify exact input files used for the run. They are integrity
 references, not an attestation by themselves. A producer may use the named
 top-level fields for well-known inputs and `inputs` for additional files. A

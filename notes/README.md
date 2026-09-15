@@ -51,6 +51,7 @@ These are starting points, not a second architecture document.
 - [Input-validation mutations test rejected inputs](modules/sorna-input-validation-mutation.md)
 - [Provider negative paths protect reviewed mutation targets](modules/sorna-provider-negative-paths.md)
 - [A versioned provider schema keeps capability handoffs language-neutral](modules/sorna-provider-schema.md)
+- [A shared CI envelope needs one status-to-exit-code contract](modules/ci-result-exit-code-contract.md)
 - [Mutation results separate target sensitivity from setup fallout](modules/sorna-mutation-result-model.md)
 - [A live process check adds lifecycle evidence without upgrading isolation assurance](modules/sorna-live-process-check.md)
 - [A managed subject lifecycle improves reproducibility without proving isolation](modules/sorna-managed-subject-lifecycle.md)

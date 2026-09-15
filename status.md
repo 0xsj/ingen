@@ -33,6 +33,7 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Source-provider provenance now records target-resolution counts, and ambiguous or missing Go AST targets return a typed `ingen.mutation-target-resolution-error/v1` preparation error without writing the source copy.
 - Go provider negative-path tests now cover ambiguous state targets, missing persistence targets, and malformed validation changes; ambiguity and missing-target cases verify that the source remains unchanged.
 - The versioned provider manifest schema is now published under `sorna/spec/`; it gives future language providers and CI consumers a language-neutral structural contract while Go retains semantic runtime validation.
+- Shared CI exit-code mapping is now centralized in `core/ciresult` and consumed by Sorna and Nublar; producer-specific outcomes remain in their nested reports.
 - Go provider preparation now emits an `ingen.mutation-preparation/v1` summary with changed source files, hashes, and provenance, and rejects no-op mutations before build/publication.
 - Provider preparation now has a `mutation-preparation` CI envelope that binds the summary to the provider manifest and plan, and the default Nublar workflow retains it as a required check.
 - The current Sorna/Nublar alpha boundary is now named in [ALPHA-INTERFACES.md](ALPHA-INTERFACES.md), including stable cross-tool invariants and deliberately unfrozen areas.
@@ -94,7 +95,7 @@ These are candidate directions, not an artificial checklist to complete all at o
 
 - The mutation campaign CI envelope and its initial failure taxonomy are now present, but both remain alpha interfaces.
 - The preparation CI envelope is now present; its report and cross-artifact binding rules remain alpha interfaces.
-- Define the remaining cross-tool exit-code contract for blocked preflight, failed behavioral rules, killed mutations, surviving mutations, and infrastructure errors; keep the producer-specific mutation categories in Sorna's explanation.
+- Keep exercising the shared exit-code contract as new producer kinds are added; blocked preflight, failed behavioral rules, killed mutations, surviving mutations, and infrastructure errors now map through the common envelope.
 - The repository now has a clean workflow execution path; decide whether the temporary fresh-workspace runner should eventually become a first-class Nublar workflow command rather than remain a Makefile convenience.
 
 ### Sorna hardening

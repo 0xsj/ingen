@@ -33,6 +33,30 @@ func TestArtifactValidatesOpaqueProducerReport(t *testing.T) {
 	}
 }
 
+func TestExitCodeForStatusDefinesSharedContract(t *testing.T) {
+	for _, test := range []struct {
+		status string
+		code   int
+	}{
+		{status: "passed", code: 0},
+		{status: "failed", code: 1},
+		{status: "error", code: 2},
+	} {
+		t.Run(test.status, func(t *testing.T) {
+			code, err := ExitCodeForStatus(test.status)
+			if err != nil || code != test.code {
+				t.Fatalf("ExitCodeForStatus(%q) = %d, %v; want %d, nil", test.status, code, err, test.code)
+			}
+		})
+	}
+}
+
+func TestExitCodeForStatusRejectsUnknownStatus(t *testing.T) {
+	if _, err := ExitCodeForStatus("blocked"); err == nil || !strings.Contains(err.Error(), "unsupported status") {
+		t.Fatalf("ExitCodeForStatus(blocked) = %v, want unsupported-status error", err)
+	}
+}
+
 func TestArtifactRejectsStatusExitCodeMismatch(t *testing.T) {
 	artifact := Artifact{
 		Schema:      Schema,

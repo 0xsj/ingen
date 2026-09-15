@@ -47,6 +47,22 @@ type Artifact struct {
 	Error       string             `json:"error,omitempty"`
 }
 
+// ExitCodeForStatus is the shared CI decision mapping. Producers may retain
+// richer internal outcomes, but every envelope uses these three orchestration
+// states so coordinators do not need producer-specific rules.
+func ExitCodeForStatus(status string) (int, error) {
+	switch status {
+	case "passed":
+		return 0, nil
+	case "failed":
+		return 1, nil
+	case "error":
+		return 2, nil
+	default:
+		return 0, fmt.Errorf("CI result has unsupported status %q", status)
+	}
+}
+
 func (a Artifact) Validate() error {
 	if a.Schema != Schema {
 		return fmt.Errorf("CI result schema must be %s, got %q", Schema, a.Schema)
@@ -83,21 +99,15 @@ func (a Artifact) Validate() error {
 			return err
 		}
 	}
-	switch a.Status {
-	case "passed":
-		if a.ExitCode != 0 {
-			return fmt.Errorf("passed CI result must have exit_code 0")
-		}
-	case "failed":
-		if a.ExitCode != 1 {
-			return fmt.Errorf("failed CI result must have exit_code 1")
-		}
-	case "error":
-		if a.ExitCode != 2 || strings.TrimSpace(a.Error) == "" {
-			return fmt.Errorf("error CI results need exit_code 2 and an error")
-		}
-	default:
-		return fmt.Errorf("CI result has unsupported status %q", a.Status)
+	expectedExitCode, err := ExitCodeForStatus(a.Status)
+	if err != nil {
+		return err
+	}
+	if a.ExitCode != expectedExitCode {
+		return fmt.Errorf("%s CI result must have exit_code %d", a.Status, expectedExitCode)
+	}
+	if a.Status == "error" && strings.TrimSpace(a.Error) == "" {
+		return fmt.Errorf("error CI results need exit_code 2 and an error")
 	}
 	if a.Status != "error" {
 		if !validJSONValue(a.Report) || !validJSONValue(a.Explanation) {

@@ -69,12 +69,16 @@ func BuildMutationCampaignCIResult(result campaign.Result, campaignPath, sourceR
 	if err != nil {
 		return ciresult.Artifact{}, fmt.Errorf("encode mutation campaign explanation: %w", err)
 	}
+	exitCode, err := ciresult.ExitCodeForStatus(result.Status)
+	if err != nil {
+		return ciresult.Artifact{}, fmt.Errorf("map mutation campaign status: %w", err)
+	}
 	artifact := ciresult.Artifact{
 		Schema:    ciresult.Schema,
 		Tool:      "sorna",
 		Kind:      "mutation-campaign",
 		Status:    result.Status,
-		ExitCode:  mutationCampaignExitCode(result.Status),
+		ExitCode:  exitCode,
 		CreatedAt: result.FinishedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 		Source:    ciresult.Source{Root: sourceRoot},
 		Inputs: map[string]ciresult.FileRef{
@@ -171,16 +175,5 @@ func mutationFailureCategory(entry campaign.EntryResult) string {
 		return mutationFailureCategoryExecutionTimeout
 	default:
 		return mutationFailureCategoryCampaignFailure
-	}
-}
-
-func mutationCampaignExitCode(status string) int {
-	switch status {
-	case "passed":
-		return 0
-	case "failed":
-		return 1
-	default:
-		return 2
 	}
 }
