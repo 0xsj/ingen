@@ -37,8 +37,14 @@ func (d Document) Validate() error {
 	if d.Diff.Schema != policydiff.Schema {
 		return fmt.Errorf("policy review contains unsupported diff schema %q", d.Diff.Schema)
 	}
+	if err := d.Diff.Validate(); err != nil {
+		return fmt.Errorf("validate policy diff: %w", err)
+	}
 	if d.Diff.Tests == nil {
 		return fmt.Errorf("policy review requires policy test results")
+	}
+	if err := d.Diff.Tests.Validate(); err != nil {
+		return fmt.Errorf("validate policy test results: %w", err)
 	}
 	if d.Diff.Tests.Manifest.Path == "" || d.Diff.Tests.Manifest.SHA256 == "" {
 		return fmt.Errorf("policy review test manifest provenance is required")

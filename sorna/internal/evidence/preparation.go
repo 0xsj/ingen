@@ -46,6 +46,9 @@ func BuildMutationPreparationCIResult(summaryPath, providerPath, sourceRoot stri
 	if provider.PlanSHA256 != summary.PlanSHA256 {
 		return ciresult.Artifact{}, fmt.Errorf("preparation provider plan hash %q does not match summary %q", provider.PlanSHA256, summary.PlanSHA256)
 	}
+	if provider.PlanSemanticSHA256 != summary.PlanSemanticSHA256 {
+		return ciresult.Artifact{}, fmt.Errorf("preparation provider semantic plan hash %q does not match summary %q", provider.PlanSemanticSHA256, summary.PlanSemanticSHA256)
+	}
 	planPath := summary.PlanPath
 	if !filepath.IsAbs(planPath) && sourceRoot != "." {
 		planPath = filepath.Join(sourceRoot, planPath)
@@ -56,6 +59,19 @@ func BuildMutationPreparationCIResult(summaryPath, providerPath, sourceRoot stri
 	}
 	if planHash != summary.PlanSHA256 {
 		return ciresult.Artifact{}, fmt.Errorf("preparation plan hash %q does not match summary %q", planHash, summary.PlanSHA256)
+	}
+	if summary.PlanSemanticSHA256 != "" {
+		plan, err := campaign.LoadFile(planPath)
+		if err != nil {
+			return ciresult.Artifact{}, fmt.Errorf("load preparation plan for semantic identity: %w", err)
+		}
+		semanticHash, err := campaign.SemanticHash(plan)
+		if err != nil {
+			return ciresult.Artifact{}, fmt.Errorf("hash preparation semantic plan identity: %w", err)
+		}
+		if semanticHash != summary.PlanSemanticSHA256 {
+			return ciresult.Artifact{}, fmt.Errorf("preparation semantic plan hash %q does not match summary %q", semanticHash, summary.PlanSemanticSHA256)
+		}
 	}
 	if err := validatePreparationBinding(summary, provider); err != nil {
 		return ciresult.Artifact{}, err

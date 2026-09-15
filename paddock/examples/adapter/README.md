@@ -55,3 +55,15 @@ paddock graph /path/to/workspace \
 The fixture supports `rust` with `file` source units and declares the
 `import` edge kind. It intentionally checks capability negotiation and that
 adapter arguments preserve the workspace boundary.
+
+Run the adapter conformance check directly when developing an adapter:
+
+```sh
+paddock adapter validate /path/to/workspace \
+  --language rust \
+  --unit file \
+  --adapter python3 \
+  --adapter-arg paddock/examples/adapter/conformance-adapter.py \
+  --adapter-arg --workspace \
+  --adapter-arg /path/to/workspace
+```

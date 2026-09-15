@@ -74,6 +74,86 @@ type Options struct {
 	AdapterArgs       []string
 }
 
+func (d Document) Validate() error {
+	if d.Schema != DocumentSchema {
+		return fmt.Errorf("policy test result schema must be %s, got %q", DocumentSchema, d.Schema)
+	}
+	if d.Policy == "" {
+		return fmt.Errorf("policy test result policy is required")
+	}
+	if d.Manifest.Path == "" || !isSHA256(d.Manifest.SHA256) {
+		return fmt.Errorf("policy test result manifest must include a path and SHA-256 digest")
+	}
+	if d.Status != "PASS" && d.Status != "FAIL" {
+		return fmt.Errorf("policy test result has unsupported status %q", d.Status)
+	}
+	if d.Passed < 0 || d.Failed < 0 || d.Passed+d.Failed != len(d.Cases) || len(d.Cases) == 0 {
+		return fmt.Errorf("policy test result counts do not match cases")
+	}
+	if (d.Failed == 0 && d.Status != "PASS") || (d.Failed > 0 && d.Status != "FAIL") {
+		return fmt.Errorf("policy test result status does not match failed case count")
+	}
+	if d.Adapter != nil && d.Adapter.Executable == "" {
+		return fmt.Errorf("policy test result adapter executable is required")
+	}
+	for _, testCase := range d.Cases {
+		if testCase.Name == "" || testCase.Root == "" {
+			return fmt.Errorf("policy test result cases require name and root")
+		}
+		if !validCaseOutcome(testCase.Expected) || !validCaseOutcome(testCase.Actual) {
+			return fmt.Errorf("policy test result case %q has an unsupported outcome", testCase.Name)
+		}
+		if testCase.Status != "PASS" && testCase.Status != "FAIL" {
+			return fmt.Errorf("policy test result case %q has an unsupported status %q", testCase.Name, testCase.Status)
+		}
+		if testCase.Findings < 0 {
+			return fmt.Errorf("policy test result case %q has a negative finding count", testCase.Name)
+		}
+		wantPass := testCase.Expected == testCase.Actual && len(testCase.MissingRules) == 0
+		if (testCase.Status == "PASS") != wantPass {
+			return fmt.Errorf("policy test result case %q status does not match its outcome", testCase.Name)
+		}
+		if err := validateRuleIDs(testCase.Name, "finding_rules", testCase.FindingRules); err != nil {
+			return err
+		}
+		if err := validateRuleIDs(testCase.Name, "missing_rules", testCase.MissingRules); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validCaseOutcome(value string) bool {
+	switch value {
+	case "pass", "fail", "error":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateRuleIDs(caseName, field string, ruleIDs []string) error {
+	seen := make(map[string]struct{}, len(ruleIDs))
+	for _, ruleID := range ruleIDs {
+		if ruleID == "" {
+			return fmt.Errorf("policy test result case %q %s cannot contain empty values", caseName, field)
+		}
+		if _, ok := seen[ruleID]; ok {
+			return fmt.Errorf("policy test result case %q %s contains duplicate rule %q", caseName, field, ruleID)
+		}
+		seen[ruleID] = struct{}{}
+	}
+	return nil
+}
+
+func isSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
 func Load(path string) (Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -264,6 +344,9 @@ func Text(w io.Writer, document Document) error {
 }
 
 func JSON(w io.Writer, document Document) error {
+	if err := document.Validate(); err != nil {
+		return err
+	}
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(document)

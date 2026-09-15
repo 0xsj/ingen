@@ -105,6 +105,20 @@ func TestFileStoreRejectsEmptyPath(t *testing.T) {
 	}
 }
 
+func TestFileStoreRejectsUnsupportedSchemaVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "provenance.json")
+	if err := os.WriteFile(path, []byte(`{"version":99,"records":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(context.Background(), amber.ID("99999999-9999-4999-8999-999999999999")); !errors.Is(err, ErrUnsupportedSchemaVersion) {
+		t.Fatalf("expected unsupported schema version error, got %v", err)
+	}
+}
+
 type storageConformanceFixture struct {
 	Version            int                `json:"version"`
 	Value              json.RawMessage    `json:"value"`

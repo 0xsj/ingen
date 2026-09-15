@@ -55,3 +55,16 @@ func TestErrorArtifactIsValid(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestValidateUsesSharedCIEnvelopeRules(t *testing.T) {
+	result := &model.Result{
+		Schema:     "paddock.report/v1",
+		Root:       "/service",
+		ModulePath: "example.com/service",
+	}
+	ciArtifact := artifact.New(result, artifact.FileRef{Path: "paddock.yaml"}, nil, time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC))
+	ciArtifact.CreatedAt = "not-a-timestamp"
+	if err := ciArtifact.Validate(); err == nil || !strings.Contains(err.Error(), "RFC3339") {
+		t.Fatalf("invalid shared CI timestamp was accepted: %v", err)
+	}
+}

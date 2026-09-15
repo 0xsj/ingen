@@ -78,6 +78,9 @@ func buildProviderReviewExplanation(review campaign.ProviderReview) providerRevi
 	} else if review.RequirePlanBinding && review.Provider.PlanBinding == "unbound" {
 		explanation.BlockedChecks = append(explanation.BlockedChecks, "provider plan hash is required but was not declared")
 	}
+	if review.Provider.SemanticBinding == "mismatch" {
+		explanation.BlockedChecks = append(explanation.BlockedChecks, "provider semantic plan identity does not match the reviewed plan")
+	}
 	for _, mutation := range review.Mutations {
 		if mutation.Status != "supported" {
 			explanation.BlockedChecks = append(explanation.BlockedChecks, fmt.Sprintf("mutation %s: entry=%s capability=%s", mutation.MutationID, mutation.EntryStatus, mutation.CapabilityStatus))

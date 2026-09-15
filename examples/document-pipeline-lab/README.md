@@ -55,8 +55,8 @@ make sorna-defect-run
 The defect run is expected to be red, is labeled `status-200-create`, and
 reports the mutation as `killed` in its run record.
 
-The temporary fixture provider maps that defect binary to the mutation plan.
-The complete first campaign can be exercised with:
+The temporary fixture provider maps the three prebuilt defect binaries to the
+mutation plan. The complete fixture campaign can be exercised with:
 
 ```sh
 make mutation-campaign-run
@@ -72,6 +72,20 @@ with:
 make mutation-go-campaign-run
 ```
 
-It copies the subject source, applies the reviewed status or response-field
+It copies the subject source, applies the reviewed success-path or error-path
 mutation with the Go AST, and builds each variant without modifying the clean
-subject tree.
+subject tree. The current catalogue covers create-response status replacement,
+required-field removal, and the unsupported-document error status.
+
+The opt-in survivor diagnostic is now a regression for the contract gap that it
+previously exposed:
+
+```sh
+make mutation-go-survivor-ci-result-fresh
+```
+
+It adds an observable `debug: mutation` field to the create response. The
+contract now sets `additional_properties: false`, so the campaign should exit
+with a passing CI result and record the expected rule as `fail` in its
+diagnosis. Before that contract amendment, the same campaign produced a
+survivor with the expected rule recorded as `pass`.

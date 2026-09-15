@@ -170,6 +170,11 @@ Rules may express:
 - properties over generated values;
 - metamorphic relationships between executions.
 
+For an object response shape, `additional_properties: false` closes the shape:
+every returned key must appear in `required` or `properties`. When omitted,
+the shape is open and extra keys are accepted. This must be written
+deliberately; required-field checks alone do not prohibit undocumented output.
+
 Rules must identify observable subjects. A rule such as “uses a repository
 transaction” is not a contract rule unless the transaction is externally
 observable through a supported interface.
@@ -337,4 +342,3 @@ The first Sorna implementation should support:
 
 Property expressions, richer state models, and multiple adapters can build on
 this subset without changing the core contract identity or version rules.
-

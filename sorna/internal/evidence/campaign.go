@@ -25,12 +25,13 @@ const (
 // MutationCampaignFailure keeps the CI explanation useful without requiring
 // a consumer to understand the complete producer-owned campaign result.
 type MutationCampaignFailure struct {
-	Sequence   int    `json:"sequence"`
-	MutationID string `json:"mutation_id"`
-	Status     string `json:"status"`
-	Outcome    string `json:"outcome,omitempty"`
-	Category   string `json:"category"`
-	Reason     string `json:"reason,omitempty"`
+	Sequence   int                 `json:"sequence"`
+	MutationID string              `json:"mutation_id"`
+	Status     string              `json:"status"`
+	Outcome    string              `json:"outcome,omitempty"`
+	Category   string              `json:"category"`
+	Reason     string              `json:"reason,omitempty"`
+	Diagnosis  *campaign.Diagnosis `json:"diagnosis,omitempty"`
 }
 
 // MutationCampaignExplanation is the compact, coordinator-facing summary of
@@ -144,6 +145,7 @@ func buildMutationCampaignExplanation(result campaign.Result) MutationCampaignEx
 			Outcome:    entry.Outcome,
 			Category:   category,
 			Reason:     entry.Reason,
+			Diagnosis:  entry.Diagnosis,
 		})
 	}
 	if len(explanation.FailureCategories) == 0 {

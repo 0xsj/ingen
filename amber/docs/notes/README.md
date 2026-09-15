@@ -49,6 +49,21 @@ evolves, not as a replacement for the code or specification.
 | PostgreSQL storage adapter | Go provides an optional PostgreSQL implementation of the append-only Store contract with JSONB values and indexed work/causation/correlation queries | PostgreSQL adapter tests and the release gate pass without a live database |
 | PostgreSQL live integration | An opt-in transaction-isolated test validates the adapter against a real PostgreSQL server through pgx without making the default gate network-dependent | `AMBER_POSTGRES_DSN=... make postgres-integration` |
 | Generic Go storage backend seam | Go exposes a backend-neutral key-value seam so users can supply their own persistence while Amber retains serialization and storage invariants | Key-value store tests and the release gate pass |
+| Optional PostgreSQL package boundary | PostgreSQL is available through an explicit vendor-specific Go import path while the generic storage package remains the user extension point | External Go consumer imports the optional package successfully |
+| Shared Go storage contract suite | Memory, file, and generic key-value stores run the same semantic checks, while PostgreSQL history queries are required to preserve deterministic ordering | Contract tests pass and PostgreSQL queries order by Amber history fields |
+| Shared TypeScript storage contract suite | TypeScript memory and key-value stores run the same append-only and deterministic-history acceptance checks | `npm test` runs the compiled storage contract suite |
+| Storage schema version boundary | File and PostgreSQL persistence formats expose versions separate from Amber's provenance wire version and PostgreSQL rejects unsupported metadata versions | Storage version tests pass and `EnsureSchema` validates metadata |
+| Normative storage contract | The optional storage semantics are defined separately from the core wire contract and backed by shared fixtures and language-level suites | `spec/storage-v1.md` and both SDK contract suites remain aligned |
+| Generic storage concurrency | Go and TypeScript exercise concurrent duplicate writes and history reads through memory and key-value stores | Race coverage and TypeScript storage contract tests pass |
+| PostgreSQL public API boundary | The optional vendor package pins its documented Store contract, schema surface, readiness method, and error sentinel | External-package compatibility test passes |
+| PostgreSQL schema readiness command | Operators can verify a migrated PostgreSQL schema without creating tables or writing provenance | `AMBER_POSTGRES_DSN=... make postgres-schema-check` |
+| PostgreSQL CI integration | Pull requests run the live adapter contract against a pinned PostgreSQL service while the normal release gate remains offline | Dedicated GitHub Actions PostgreSQL job passes |
+| Release-readiness matrix | The project distinguishes local evidence, live-environment checks, deployment-owned decisions, and v1 non-goals before further expansion | `docs/release-readiness.md` and `make release-check` |
+| Go HTTP reference vertical | A real loopback `net/http` service composes inbound propagation, child derivation, injected storage, and response propagation | `make examples` runs the service flow |
+| PostgreSQL CI readiness check | The PostgreSQL service job also runs the read-only schema check after migrations are applied, covering the operator-facing readiness path | Dedicated GitHub Actions PostgreSQL job runs `make postgres-schema-check` |
+| Go HTTP reference vertical tests | The reference service boundary has focused accepted-input and malformed-input tests in addition to its runnable loopback example | `go test ./examples/service` passes |
+| TypeScript HTTP reference vertical | The Fetch-compatible service handler covers inbound, absent, and malformed provenance with application-owned storage and explicit child response propagation | `npm test` runs the reference service tests |
+| HTTP reference trust policy | Go and TypeScript reference handlers apply an application-owned validator before child derivation and storage | Reference service tests prove trusted acceptance and untrusted rejection |
 
 When a later change alters one of these results, update the relevant note and
 this milestone table in the same change.
@@ -91,6 +106,21 @@ this milestone table in the same change.
 34. [PostgreSQL should implement the existing storage contract without changing v1](034-postgres-storage-adapter.md)
 35. [PostgreSQL compatibility should be testable against a real database without entering the default gate](035-postgres-live-integration.md)
 36. [A generic storage backend should own persistence while Amber owns invariants](036-generic-storage-backend-seam.md)
+37. [Vendor-specific storage should have an explicit optional import path](037-optional-postgres-package-boundary.md)
+38. [Every Go storage adapter should prove the same semantic contract](038-shared-go-storage-contract-suite.md)
+39. [TypeScript storage backends should prove the same semantic contract](039-shared-typescript-storage-contract-suite.md)
+40. [Storage schema versions should be separate from the Amber wire version](040-storage-schema-version-boundary.md)
+41. [The storage contract should be normative but separate from the core wire contract](041-normative-storage-contract.md)
+42. [The generic storage seam should be exercised under concurrent callers](042-generic-storage-concurrency.md)
+43. [The optional PostgreSQL import path should have an explicit compatibility check](043-postgres-public-api-boundary.md)
+44. [The PostgreSQL schema readiness check should be runnable without writes](044-postgres-schema-check-example.md)
+45. [CI should run the live PostgreSQL contract without changing the offline gate](045-postgres-ci-integration-job.md)
+46. [Amber needs a release-readiness matrix before more generic expansion](046-release-readiness-matrix.md)
+47. [The first deployment vertical should prove a real Go HTTP service path](047-go-http-reference-vertical.md)
+48. [CI should verify PostgreSQL read-only schema readiness](048-postgres-ci-schema-readiness-check.md)
+49. [The Go HTTP reference vertical should have focused boundary tests](049-go-http-reference-vertical-tests.md)
+50. [The TypeScript HTTP reference vertical should match the Go boundary](050-typescript-http-reference-vertical.md)
+51. [The HTTP reference vertical should demonstrate application-owned trust policy](051-http-reference-trust-policy.md)
 
 ## Current open questions
 

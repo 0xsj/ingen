@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ingen/sorna/internal/mutation"
+	"ingen/sorna/internal/runner"
 )
 
 func TestBuildProviderReviewReportsBlockedMutationCapability(t *testing.T) {
@@ -81,9 +82,64 @@ func TestBuildProviderReviewBlocksUnboundProviderWhenBindingIsRequired(t *testin
 	}
 }
 
+func TestBuildProviderReviewReportsSemanticPlanIdentity(t *testing.T) {
+	plan := validReviewPlan()
+	semanticHash, err := SemanticHash(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	review := BuildProviderReview(ProviderReviewInput{
+		Plan:       plan,
+		PlanSHA256: strings.Repeat("e", 64),
+		Provider: ProviderManifest{
+			ID:                 "source-provider",
+			Version:            1,
+			PlanSemanticSHA256: semanticHash,
+			Capabilities:       []ProviderCapability{{Plane: "implementation", Operator: "test.operator", Target: "GET /"}},
+			Entries:            []ProviderEntry{{MutationID: "m1", Command: "subject"}},
+		},
+	})
+	if review.Status != "ready" || review.Plan.SemanticSHA256 != semanticHash || review.Provider.SemanticBinding != "matched" {
+		t.Fatalf("review = %+v, want matched semantic plan identity", review)
+	}
+}
+
+func TestBuildProviderReviewBlocksMismatchedSemanticPlanIdentity(t *testing.T) {
+	plan := validReviewPlan()
+	review := BuildProviderReview(ProviderReviewInput{
+		Plan:       plan,
+		PlanSHA256: strings.Repeat("e", 64),
+		Provider: ProviderManifest{
+			ID:                 "source-provider",
+			Version:            1,
+			PlanSemanticSHA256: strings.Repeat("f", 64),
+			Capabilities:       []ProviderCapability{{Plane: "implementation", Operator: "test.operator", Target: "GET /"}},
+			Entries:            []ProviderEntry{{MutationID: "m1", Command: "subject"}},
+		},
+	})
+	if review.Status != "blocked" || review.Provider.SemanticBinding != "mismatch" {
+		t.Fatalf("review = %+v, want blocked semantic identity review", review)
+	}
+}
+
 func reviewPlan() Plan {
 	return Plan{Mutations: []MutationEntry{
 		{Sequence: 1, Spec: mutation.Spec{ID: "status-200-create", Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents"}},
 		{Sequence: 2, Spec: mutation.Spec{ID: "remove-name-create", Plane: "implementation", Operator: "response.field.remove", Target: "POST /documents"}},
 	}}
+}
+
+func validReviewPlan() Plan {
+	contractHash := strings.Repeat("a", 64)
+	oracleReference := &runner.OracleReference{Schema: "ingen.oracle/v1", SHA256: strings.Repeat("b", 64)}
+	return Plan{
+		Schema:             Schema,
+		Status:             "ready",
+		Catalogue:          CatalogueReference{Path: "catalogue.yaml", ID: "catalogue", Version: 1, SHA256: strings.Repeat("c", 64)},
+		Contract:           runner.ContractReference{ID: "contract", Version: 1, SHA256: contractHash},
+		Oracle:             *oracleReference,
+		Baseline:           runner.BaselineReference{EvidencePath: "baseline", RunID: "run-baseline", Contract: runner.ContractReference{ID: "contract", Version: 1, SHA256: contractHash}, Oracle: oracleReference},
+		OraclePolicySHA256: strings.Repeat("d", 64),
+		Mutations:          []MutationEntry{{Sequence: 1, Spec: mutation.Spec{ID: "m1", Plane: "implementation", Operator: "test.operator", Target: "GET /", Description: "test mutation", Change: map[string]any{"from": 1, "to": 2}, ExpectedRuleIDs: []string{"rule-1"}, Status: "candidate"}}},
+	}
 }

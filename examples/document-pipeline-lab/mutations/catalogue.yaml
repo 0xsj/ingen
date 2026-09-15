@@ -3,7 +3,7 @@ mutation_catalogue:
   id: document-pipeline-mutations
   version: 1
   contract_id: document-pipeline
-  contract_version: 1
+  contract_version: 2
 
   mutations:
     - id: status-200-create
@@ -27,4 +27,17 @@ mutation_catalogue:
         field: name
       expected_rule_ids:
         - document.create.valid.accepted
+      status: candidate
+
+    - id: unsupported-type-500
+      plane: implementation
+      operator: response.error.status.replace
+      target: POST /documents
+      description: Return 500 instead of the contracted 400 for an unsupported document type.
+      change:
+        code: unsupported_document_type
+        from: 400
+        to: 500
+      expected_rule_ids:
+        - document.create.rejects-unsupported-type
       status: candidate

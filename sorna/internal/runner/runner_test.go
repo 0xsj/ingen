@@ -285,6 +285,31 @@ func TestExecuteMaterializesRepeatGeneratorAndReportsFailedAssertions(t *testing
 	}
 }
 
+func TestEvaluateShapeRejectsUndeclaredAdditionalProperties(t *testing.T) {
+	assertions := evaluateShape("body", map[string]any{
+		"id": "doc-1", "name": "welcome.md", "status": "queued", "debug": "mutation",
+	}, map[string]any{
+		"type":                  "object",
+		"additional_properties": false,
+		"required":              []any{"id", "name", "status"},
+		"properties": map[string]any{
+			"id":     map[string]any{"type": "string"},
+			"name":   map[string]any{"equals": "welcome.md"},
+			"status": map[string]any{"equals": "queued"},
+		},
+	})
+	var extra *Assertion
+	for index := range assertions {
+		if assertions[index].Path == "body.debug" {
+			extra = &assertions[index]
+			break
+		}
+	}
+	if extra == nil || extra.Status != "fail" || extra.Reason != "additional property is not allowed" {
+		t.Fatalf("assertions = %+v, want a failed additional-property assertion", assertions)
+	}
+}
+
 func TestExecuteOracleSendsMaterializedFrozenBody(t *testing.T) {
 	rule := map[string]any{
 		"id":       "document.create.oversize",
@@ -354,8 +379,9 @@ func validCreateRule() map[string]any {
 		"expect": map[string]any{
 			"status": int64(202),
 			"body": map[string]any{
-				"type":     "object",
-				"required": []any{"id", "name", "status"},
+				"type":                  "object",
+				"additional_properties": false,
+				"required":              []any{"id", "name", "status"},
 				"properties": map[string]any{
 					"id":     map[string]any{"type": "string", "non_empty": true},
 					"name":   map[string]any{"equals": "welcome.md"},

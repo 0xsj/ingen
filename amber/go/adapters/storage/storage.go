@@ -17,9 +17,15 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("amber provenance not found")
-	ErrConflict = errors.New("amber provenance storage conflict")
+	ErrNotFound                 = errors.New("amber provenance not found")
+	ErrConflict                 = errors.New("amber provenance storage conflict")
+	ErrUnsupportedSchemaVersion = errors.New("unsupported amber storage schema version")
 )
+
+// FileStoreSchemaVersion identifies the on-disk snapshot format. It is
+// deliberately separate from amber.Version, which identifies the provenance
+// wire value stored inside the snapshot.
+const FileStoreSchemaVersion = 1
 
 // Store persists immutable provenance values by execution ID.
 type Store interface {
@@ -46,8 +52,8 @@ type FileStore struct {
 }
 
 type fileSnapshot struct {
-	Version int                        `json:"version"`
-	Records map[string]json.RawMessage `json:"records"`
+	SchemaVersion int                        `json:"version"`
+	Records       map[string]json.RawMessage `json:"records"`
 }
 
 // NewFileStore creates a Store backed by path. The parent directory must
@@ -303,7 +309,7 @@ func sortHistory(history []amber.Provenance) {
 func (s *FileStore) readLocked() (fileSnapshot, error) {
 	data, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
-		return fileSnapshot{Version: amber.Version, Records: make(map[string]json.RawMessage)}, nil
+		return fileSnapshot{SchemaVersion: FileStoreSchemaVersion, Records: make(map[string]json.RawMessage)}, nil
 	}
 	if err != nil {
 		return fileSnapshot{}, fmt.Errorf("read amber file store: %w", err)
@@ -312,8 +318,8 @@ func (s *FileStore) readLocked() (fileSnapshot, error) {
 	if err := json.Unmarshal(data, &snapshot); err != nil {
 		return fileSnapshot{}, fmt.Errorf("decode amber file store: %w", err)
 	}
-	if snapshot.Version != amber.Version {
-		return fileSnapshot{}, fmt.Errorf("%w: unsupported file store version %d", amber.ErrInvalidProvenance, snapshot.Version)
+	if snapshot.SchemaVersion != FileStoreSchemaVersion {
+		return fileSnapshot{}, fmt.Errorf("%w: file store schema version %d, want %d", ErrUnsupportedSchemaVersion, snapshot.SchemaVersion, FileStoreSchemaVersion)
 	}
 	if snapshot.Records == nil {
 		snapshot.Records = make(map[string]json.RawMessage)

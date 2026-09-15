@@ -13,6 +13,9 @@ mutation_provider:
     - plane: implementation
       operator: response.field.remove
       target: POST /documents
+    - plane: implementation
+      operator: response.error.status.replace
+      target: POST /documents
   entries:
     - mutation_id: status-200-create
       command: .artifacts/document-pipeline-subject/document-pipeline-defect
@@ -29,3 +32,11 @@ mutation_provider:
         - "${SORA_ADDR}"
       subject_root: .
       variant: remove-name-create
+
+    - mutation_id: unsupported-type-500
+      command: .artifacts/document-pipeline-subject/document-pipeline-defect-unsupported-type
+      args:
+        - -addr
+        - "${SORA_ADDR}"
+      subject_root: .
+      variant: unsupported-type-500

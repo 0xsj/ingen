@@ -11,8 +11,9 @@ invariants; the missing piece was a concrete PostgreSQL implementation.
 
 ## What
 
-The Go storage adapter now provides `PostgresStore` over the small
-`database/sql` executor surface. `PostgresSchema` creates an execution-keyed
+The optional Go package at [`go/adapters/storage/postgres`](../../go/adapters/storage/postgres/)
+provides `PostgresStore` over the small `database/sql` executor surface.
+`PostgresSchema` creates an execution-keyed
 table with `JSONB` value storage, a monotonic sequence for deterministic query
 order, and indexes for work, causation, and correlation lookups.
 
@@ -31,7 +32,7 @@ while the existing `Store` interface keeps core semantics unchanged.
 ## Example
 
 ```go
-store, err := amberstorage.NewPostgresStore(db)
+store, err := amberpostgres.NewPostgresStore(db)
 if err != nil {
     return err
 }
@@ -48,7 +49,8 @@ if err := store.Put(ctx, provenance); err != nil {
 - The adapter uses PostgreSQL SQL syntax and requires the application to
   provide a compatible `database/sql` driver.
 - `EnsureSchema` is a convenient idempotent setup path; teams with migration
-  tooling can apply `PostgresSchema` themselves.
+  tooling can apply `PostgresSchema` themselves. It validates the
+  `PostgresSchemaVersion` metadata row and refuses an unsupported version.
 - The adapter stores the complete JSON value and duplicates query fields for
   indexes. Future schema migrations must preserve the stored v1 value and
   append-only execution identity.
@@ -63,6 +65,7 @@ if err := store.Put(ctx, provenance); err != nil {
 ## Used in
 
 - [`go/adapters/storage/postgres.go`](../../go/adapters/storage/postgres.go)
+- [`go/adapters/storage/postgres/postgres.go`](../../go/adapters/storage/postgres/postgres.go)
 - [`go/adapters/storage/postgres_test.go`](../../go/adapters/storage/postgres_test.go)
 - [`adapters/storage/README.md`](../../adapters/storage/README.md)
 - [`README.md`](../../README.md)

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/paddock.policy-review-v1.schema.json",
+  "title": "Paddock policy review",
+  "description": "Durable before/after policy evidence and its policy-test decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "diff"],
+  "properties": {
+    "schema": {"const": "paddock.policy-review/v1"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "diff": {
+      "allOf": [
+        {"$ref": "paddock.policy-diff-v1.schema.json"},
+        {
+          "type": "object",
+          "required": ["tests"],
+          "properties": {
+            "tests": {"$ref": "paddock.policy-test-result-v1.schema.json"}
+          }
+        }
+      ]
+    }
+  }
+}

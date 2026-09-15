@@ -44,6 +44,75 @@ type Change struct {
 	After  json.RawMessage `json:"after,omitempty"`
 }
 
+func (d Document) Validate() error {
+	if d.Schema != Schema {
+		return fmt.Errorf("policy diff schema must be %s, got %q", Schema, d.Schema)
+	}
+	if d.Status != "unchanged" && d.Status != "changed" {
+		return fmt.Errorf("policy diff has unsupported status %q", d.Status)
+	}
+	if d.Before.Path == "" || d.After.Path == "" {
+		return fmt.Errorf("policy diff before and after paths are required")
+	}
+	for name, input := range map[string]Input{"before": d.Before, "after": d.After} {
+		if input.SHA256 != "" && !isSHA256(input.SHA256) {
+			return fmt.Errorf("policy diff %s sha256 must be a hexadecimal SHA-256 digest", name)
+		}
+		if input.CanonicalSHA256 != "" && !isSHA256(input.CanonicalSHA256) {
+			return fmt.Errorf("policy diff %s canonical_sha256 must be a hexadecimal SHA-256 digest", name)
+		}
+	}
+	if d.Summary.Added < 0 || d.Summary.Removed < 0 || d.Summary.Changed < 0 || d.Summary.Total < 0 || d.Summary.Total != len(d.Changes) || d.Summary.Added+d.Summary.Removed+d.Summary.Changed != d.Summary.Total {
+		return fmt.Errorf("policy diff summary does not match changes")
+	}
+	wantStatus := "unchanged"
+	if d.Summary.Total > 0 {
+		wantStatus = "changed"
+	}
+	if d.Status != wantStatus {
+		return fmt.Errorf("policy diff status does not match change count")
+	}
+	for _, change := range d.Changes {
+		if change.Path == "" {
+			return fmt.Errorf("policy diff changes require a path")
+		}
+		switch change.Kind {
+		case "added":
+			if len(change.After) == 0 {
+				return fmt.Errorf("added policy diff change %q requires after", change.Path)
+			}
+		case "removed":
+			if len(change.Before) == 0 {
+				return fmt.Errorf("removed policy diff change %q requires before", change.Path)
+			}
+		case "changed":
+			if len(change.Before) == 0 || len(change.After) == 0 {
+				return fmt.Errorf("changed policy diff change %q requires before and after", change.Path)
+			}
+		default:
+			return fmt.Errorf("policy diff change %q has unsupported kind %q", change.Path, change.Kind)
+		}
+	}
+	if d.Tests != nil {
+		if err := d.Tests.Validate(); err != nil {
+			return fmt.Errorf("validate policy diff tests: %w", err)
+		}
+	}
+	return nil
+}
+
+func isSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, char := range value {
+		if !(char >= '0' && char <= '9') && !(char >= 'a' && char <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func Compare(before, after policy.Policy) Document {
 	before = normalized(before)
 	after = normalized(after)
@@ -179,6 +248,9 @@ func encodeValue(value any) json.RawMessage {
 }
 
 func Text(w io.Writer, document Document) error {
+	if err := document.Validate(); err != nil {
+		return err
+	}
 	if _, err := fmt.Fprintf(w, "POLICY-DIFF %s (%d changes)\n", document.Status, document.Summary.Total); err != nil {
 		return err
 	}

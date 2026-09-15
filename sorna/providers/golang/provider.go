@@ -79,6 +79,10 @@ func Build(request Request) (Result, error) {
 	if strings.TrimSpace(request.PlanSHA256) == "" {
 		return Result{}, fmt.Errorf("Go provider plan hash must not be empty")
 	}
+	planSemanticSHA256, err := campaign.SemanticHash(request.Plan)
+	if err != nil {
+		return Result{}, fmt.Errorf("hash Go provider semantic plan identity: %w", err)
+	}
 	if strings.HasPrefix(request.BuildPackage, "-") {
 		return Result{}, fmt.Errorf("Go provider build package must be a package path, not a flag")
 	}
@@ -162,13 +166,14 @@ func Build(request Request) (Result, error) {
 	}()
 
 	provider := campaign.ProviderManifest{
-		Schema:       campaign.ProviderSchema,
-		ID:           request.ProviderID,
-		Version:      1,
-		PlanSchema:   campaign.Schema,
-		PlanSHA256:   request.PlanSHA256,
-		Capabilities: append([]campaign.ProviderCapability(nil), request.Capabilities...),
-		Entries:      make([]campaign.ProviderEntry, 0, len(request.Plan.Mutations)),
+		Schema:             campaign.ProviderSchema,
+		ID:                 request.ProviderID,
+		Version:            1,
+		PlanSchema:         campaign.Schema,
+		PlanSHA256:         request.PlanSHA256,
+		PlanSemanticSHA256: planSemanticSHA256,
+		Capabilities:       append([]campaign.ProviderCapability(nil), request.Capabilities...),
+		Entries:            make([]campaign.ProviderEntry, 0, len(request.Plan.Mutations)),
 	}
 	variants := make([]Variant, 0, len(request.Plan.Mutations))
 	preparationVariants := make([]campaign.PreparationVariant, 0, len(request.Plan.Mutations))
@@ -273,11 +278,12 @@ func Build(request Request) (Result, error) {
 		Provider: provider,
 		Variants: variants,
 		Preparation: campaign.PreparationSummary{
-			Schema:     campaign.PreparationSummarySchema,
-			ProviderID: provider.ID,
-			PlanPath:   "",
-			PlanSHA256: provider.PlanSHA256,
-			Variants:   preparationVariants,
+			Schema:             campaign.PreparationSummarySchema,
+			ProviderID:         provider.ID,
+			PlanPath:           "",
+			PlanSHA256:         provider.PlanSHA256,
+			PlanSemanticSHA256: provider.PlanSemanticSHA256,
+			Variants:           preparationVariants,
 		},
 	}, nil
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -15,6 +16,26 @@ import (
 func TestNewPostgresStoreRejectsNilDatabase(t *testing.T) {
 	if _, err := NewPostgresStore(nil); !errors.Is(err, amber.ErrInvalidTransition) {
 		t.Fatalf("expected invalid database error, got %v", err)
+	}
+}
+
+func TestPostgresHistoryQueriesUseContractOrdering(t *testing.T) {
+	queries := map[string]string{
+		"work":        postgresWorkQuery,
+		"causation":   postgresCausationQuery,
+		"correlation": postgresCorrelationQuery,
+	}
+	fragments := []string{
+		"(value_json->>'depth')::NUMERIC ASC",
+		"(value_json->>'attempt')::NUMERIC ASC",
+		"execution_id ASC",
+	}
+	for name, query := range queries {
+		for _, fragment := range fragments {
+			if !strings.Contains(query, fragment) {
+				t.Errorf("%s query is missing deterministic ordering fragment %q", name, fragment)
+			}
+		}
 	}
 }
 
@@ -38,6 +59,9 @@ func TestPostgresStoreEnsuresSchemaAndReadsValues(t *testing.T) {
 	}
 
 	mock.ExpectExec(regexp.QuoteMeta(PostgresSchema)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(postgresSchemaVersionQuery)).
+		WithArgs(PostgresSchemaName).
+		WillReturnRows(sqlmock.NewRows([]string{"schema_version"}).AddRow(PostgresSchemaVersion))
 	if err := store.EnsureSchema(context.Background()); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
@@ -53,6 +77,49 @@ func TestPostgresStoreEnsuresSchemaAndReadsValues(t *testing.T) {
 	got, err := store.Get(context.Background(), root.ExecutionID())
 	if err != nil || got.ExecutionID() != root.ExecutionID() {
 		t.Fatalf("get root: execution=%s err=%v", got.ExecutionID(), err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPostgresStoreRejectsUnsupportedSchemaVersion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := NewPostgresStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec(regexp.QuoteMeta(PostgresSchema)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(postgresSchemaVersionQuery)).
+		WithArgs(PostgresSchemaName).
+		WillReturnRows(sqlmock.NewRows([]string{"schema_version"}).AddRow(PostgresSchemaVersion + 1))
+	if err := store.EnsureSchema(context.Background()); !errors.Is(err, ErrUnsupportedSchemaVersion) {
+		t.Fatalf("expected unsupported schema version error, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPostgresStoreChecksSchemaWithoutCreatingIt(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store, err := NewPostgresStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta(postgresSchemaVersionQuery)).
+		WithArgs(PostgresSchemaName).
+		WillReturnRows(sqlmock.NewRows([]string{"schema_version"}).AddRow(PostgresSchemaVersion))
+	if err := store.CheckSchema(context.Background()); err != nil {
+		t.Fatalf("check schema: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

@@ -104,7 +104,9 @@ contains:
 The plan is a deterministic handoff to a mutation provider. Creating it does
 not edit a working tree, apply an operator, or launch a subject process. The
 provider must consume the plan and preserve its identities in the resulting
-evidence.
+evidence. The exact plan-byte hash remains the run-bound binding. Sorna may
+also expose `semantic_sha256`, a stable plan identity calculated after
+normalizing only the generated baseline `run_id`.
 
 ## 4. Provider and execution boundary
 
@@ -129,6 +131,10 @@ every plan mutation has a prepared entry and declared capability. By default,
 an absent provider plan hash is reported as `unbound` but remains usable for
 local fixture workflows; `--require-plan-binding` turns that state into a
 blocked review. A mismatched declared hash is always blocked.
+The review may also report the plan's semantic identity and an optional
+provider semantic binding. Semantic identity is informative unless a future
+caller policy requires it; strict execution continues to require the exact
+plan-byte binding.
 
 `sorna mutation run` launches one fresh managed Sorna run per plan entry. Each
 entry receives its own address and evidence directory, and the campaign result
@@ -162,6 +168,8 @@ never an output target. This keeps Go build mechanics separate from the
 language-neutral campaign semantics without making the provider a second
 campaign executor. Generated providers may include `plan_sha256`; Sorna
 compares it with the exact plan bytes captured by the campaign before launch.
+They may also include `plan_semantic_sha256`, which identifies the stable
+reviewable plan meaning while ignoring only the generated baseline run ID.
 Source-level entries may also include `provenance` with a relative copied
 source directory, source-tree and binary SHA-256 digests, and human-readable
 `location`, `before`, and `after` edit descriptions. Sorna verifies those
@@ -174,9 +182,9 @@ targets, it should return the structured
 counts and apply nothing.
 
 The Go source provider also writes an `ingen.mutation-preparation/v1` summary
-(`preparation.json` by default). It binds the plan hash to each prepared
-variant, lists changed source files, records source and binary hashes, and
-retains the semantic provenance. A provider rejects a no-op mutation before
+(`preparation.json` by default). It binds the exact and semantic plan
+identities to each prepared variant, lists changed source files, records source
+and binary hashes, and retains the semantic provenance. A provider rejects a no-op mutation before
 building or publishing that variant.
 Sorna can expose the summary to a coordinator with:
 
@@ -189,6 +197,14 @@ sorna mutation provider preparation preparation.json \
 The resulting `mutation-preparation` envelope retains the summary and binds it
 to the provider manifest and plan without interpreting source-language details.
 
+Each classified entry in `ingen.mutation-campaign-result/v1` also preserves a
+compact diagnosis. `expected_rule_status` records `pass`, `fail`,
+`inconclusive`, `error`, `skipped`, or `unobserved` for every expected rule;
+the remaining lists preserve direct failures, setup cascades, unaffected rules,
+and unobserved expected rules. This is the actionable explanation for a
+survivor or inconclusive result. The full rule observations remain in the
+per-mutation evidence bundle.
+
 ## 5. Operator families
 
 The first HTTP/JSON implementation should support a small, deterministic set.
@@ -196,6 +212,7 @@ The first HTTP/JSON implementation should support a small, deterministic set.
 ### Response operators
 
 - replace status code;
+- replace the status for a named error code;
 - remove required field;
 - change field type;
 - change enum value;
@@ -382,6 +399,7 @@ Mutation execution must:
 The first Sorna slice should implement at least:
 
 - response status replacement;
+- named error-path status replacement;
 - required JSON field removal;
 - invalid-input acceptance;
 - persistence skip;

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -769,6 +770,48 @@ func evaluateShape(path string, actual any, spec map[string]any) []Assertion {
 				continue
 			}
 			assertions = append(assertions, evaluateValue(path+"."+field, value, exists, propertySpec)...)
+		}
+	}
+	if additional, present := spec["additional_properties"]; present {
+		allow, valid := additional.(bool)
+		if !valid {
+			assertions = append(assertions, Assertion{
+				Path:     path + ".additional_properties",
+				Expected: "boolean",
+				Actual:   jsonType(additional),
+				Status:   "fail",
+				Reason:   "additional_properties must be a boolean",
+			})
+		} else if !allow && isObject {
+			allowed := make(map[string]bool)
+			if required, present := spec["required"].([]any); present {
+				for _, rawField := range required {
+					if field, ok := rawField.(string); ok {
+						allowed[field] = true
+					}
+				}
+			}
+			if properties, present := spec["properties"].(map[string]any); present {
+				for field := range properties {
+					allowed[field] = true
+				}
+			}
+			fields := make([]string, 0, len(object))
+			for field := range object {
+				if !allowed[field] {
+					fields = append(fields, field)
+				}
+			}
+			sort.Strings(fields)
+			for _, field := range fields {
+				assertions = append(assertions, Assertion{
+					Path:     path + "." + field,
+					Expected: "not present",
+					Actual:   "present",
+					Status:   "fail",
+					Reason:   "additional property is not allowed",
+				})
+			}
 		}
 	}
 	return assertions

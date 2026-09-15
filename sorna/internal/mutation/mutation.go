@@ -21,15 +21,24 @@ type RuleObservation struct {
 	Status string
 }
 
+// ExpectedRuleObservation records what happened to a rule that the mutation
+// declared as its expected observable. It distinguishes an absent observation
+// from an observed pass or failure.
+type ExpectedRuleObservation struct {
+	RuleID string `json:"rule_id"`
+	Status string `json:"status"`
+}
+
 // Result keeps direct sensitivity separate from setup fallout.
 type Result struct {
-	Spec                  Spec     `json:"spec"`
-	Outcome               string   `json:"outcome"`
-	DirectlyFailedRules   []string `json:"directly_failed_rules,omitempty"`
-	CascadingInconclusive []string `json:"cascading_inconclusive,omitempty"`
-	UnaffectedRules       []string `json:"unaffected_rules,omitempty"`
-	UnobservedExpected    []string `json:"unobserved_expected,omitempty"`
-	Reason                string   `json:"reason,omitempty"`
+	Spec                  Spec                      `json:"spec"`
+	Outcome               string                    `json:"outcome"`
+	ExpectedObservations  []ExpectedRuleObservation `json:"expected_observations,omitempty"`
+	DirectlyFailedRules   []string                  `json:"directly_failed_rules,omitempty"`
+	CascadingInconclusive []string                  `json:"cascading_inconclusive,omitempty"`
+	UnaffectedRules       []string                  `json:"unaffected_rules,omitempty"`
+	UnobservedExpected    []string                  `json:"unobserved_expected,omitempty"`
+	Reason                string                    `json:"reason,omitempty"`
 }
 
 // Classify determines whether the declared target rule observed the mutation.
@@ -58,8 +67,9 @@ func Classify(spec Spec, observations []RuleObservation) Result {
 		status, observed := byRule[ruleID]
 		if !observed {
 			result.UnobservedExpected = append(result.UnobservedExpected, ruleID)
-			continue
+			status = "unobserved"
 		}
+		result.ExpectedObservations = append(result.ExpectedObservations, ExpectedRuleObservation{RuleID: ruleID, Status: status})
 		if status == "fail" {
 			targetFailed = true
 		}
@@ -80,7 +90,11 @@ func Classify(spec Spec, observations []RuleObservation) Result {
 
 func hasExpectedInconclusive(expected []string, statuses map[string]string) bool {
 	for _, ruleID := range expected {
-		if statuses[ruleID] == "inconclusive" || statuses[ruleID] == "skipped" || statuses[ruleID] == "error" {
+		switch statuses[ruleID] {
+		case "inconclusive", "skipped", "error":
+			return true
+		case "pass", "fail":
+		default:
 			return true
 		}
 	}

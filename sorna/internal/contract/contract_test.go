@@ -153,6 +153,23 @@ func TestValidationRequiresSetupForStatefulRule(t *testing.T) {
 	}
 }
 
+func TestValidationRequiresBooleanAdditionalProperties(t *testing.T) {
+	document := minimalDocument()
+	document.Contract["rules"] = []any{map[string]any{
+		"id":       "closed-response",
+		"strength": "must",
+		"subject":  "POST /documents",
+		"expect": map[string]any{
+			"body": map[string]any{"additional_properties": "false"},
+		},
+	}}
+
+	problems := Validate(document)
+	if !containsProblem(problems, "additional_properties must be a boolean") {
+		t.Fatalf("problems = %v, want boolean additional_properties error", problems)
+	}
+}
+
 func TestMaterializeExpandsNestedRepeatValuesWithoutMutatingInput(t *testing.T) {
 	input := map[string]any{
 		"name": "large.txt",

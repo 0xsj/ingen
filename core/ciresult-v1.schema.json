@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.ci-result-v1.schema.json",
+  "title": "InGen CI result envelope",
+  "description": "Language-neutral CI result envelope with producer-owned evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "tool", "kind", "status", "exit_code", "created_at", "source"],
+  "properties": {
+    "schema": {"const": "ingen.ci-result/v1"},
+    "tool": {"type": "string", "minLength": 1},
+    "kind": {"type": "string", "minLength": 1},
+    "status": {"enum": ["passed", "failed", "error"]},
+    "exit_code": {"enum": [0, 1, 2]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "source": {"$ref": "#/$defs/source"},
+    "policy": {"$ref": "#/$defs/file-ref"},
+    "policy_lock": {"$ref": "#/$defs/file-ref"},
+    "graph": {"$ref": "#/$defs/file-ref"},
+    "baseline": {"$ref": "#/$defs/file-ref"},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/file-ref"}
+    },
+    "report": {"type": "object"},
+    "explanation": {"type": "object"},
+    "error": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "passed"}}},
+      "then": {
+        "required": ["report", "explanation"],
+        "properties": {"exit_code": {"const": 0}}
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "failed"}}},
+      "then": {
+        "required": ["report", "explanation"],
+        "properties": {"exit_code": {"const": 1}}
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "error"}}},
+      "then": {
+        "required": ["error"],
+        "properties": {"exit_code": {"const": 2}}
+      }
+    }
+  ],
+  "$defs": {
+    "file-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root"],
+      "properties": {
+        "root": {"type": "string", "minLength": 1},
+        "module_path": {"type": "string"}
+      }
+    }
+  }
+}

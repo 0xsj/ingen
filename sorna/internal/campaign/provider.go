@@ -24,15 +24,17 @@ const (
 // ProviderManifest maps plan mutation IDs to prepared subject commands. A
 // provider may be backed by a compiler, source mutator, container builder, or
 // prebuilt fixture; the campaign runner only consumes this boundary. A
-// generated provider may also bind itself to the exact plan hash it consumed.
+// generated provider may also bind itself to the exact plan hash it consumed
+// and report the stable semantic identity of that plan.
 type ProviderManifest struct {
-	Schema       string               `json:"schema" yaml:"schema"`
-	ID           string               `json:"id" yaml:"id"`
-	Version      int64                `json:"version" yaml:"version"`
-	PlanSchema   string               `json:"plan_schema" yaml:"plan_schema"`
-	PlanSHA256   string               `json:"plan_sha256,omitempty" yaml:"plan_sha256,omitempty"`
-	Capabilities []ProviderCapability `json:"capabilities" yaml:"capabilities"`
-	Entries      []ProviderEntry      `json:"entries" yaml:"entries"`
+	Schema             string               `json:"schema" yaml:"schema"`
+	ID                 string               `json:"id" yaml:"id"`
+	Version            int64                `json:"version" yaml:"version"`
+	PlanSchema         string               `json:"plan_schema" yaml:"plan_schema"`
+	PlanSHA256         string               `json:"plan_sha256,omitempty" yaml:"plan_sha256,omitempty"`
+	PlanSemanticSHA256 string               `json:"plan_semantic_sha256,omitempty" yaml:"plan_semantic_sha256,omitempty"`
+	Capabilities       []ProviderCapability `json:"capabilities" yaml:"capabilities"`
+	Entries            []ProviderEntry      `json:"entries" yaml:"entries"`
 }
 
 // ProviderCapability declares a mutation shape that the provider knows how
@@ -184,6 +186,9 @@ func ValidateProvider(provider ProviderManifest) []string {
 	}
 	if strings.TrimSpace(provider.PlanSHA256) != "" && !digestPattern.MatchString(provider.PlanSHA256) {
 		problems = append(problems, "mutation_provider.plan_sha256 must be a lowercase SHA-256 digest when present")
+	}
+	if strings.TrimSpace(provider.PlanSemanticSHA256) != "" && !digestPattern.MatchString(provider.PlanSemanticSHA256) {
+		problems = append(problems, "mutation_provider.plan_semantic_sha256 must be a lowercase SHA-256 digest when present")
 	}
 	if len(provider.Capabilities) == 0 {
 		problems = append(problems, "mutation_provider.capabilities must contain at least one capability")

@@ -13,10 +13,11 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Sorna loads, validates, canonicalizes, and seals contract and oracle inputs.
 - Baseline preconditions, subject policies, process isolation, access/executable telemetry, and evidence bundles are implemented.
 - Mutation plans and provider manifests have explicit schemas and are bound to concrete prepared subjects.
-- The document-pipeline example has two meaningful mutations:
+- The document-pipeline example has three meaningful mutations:
   - changing the accepted create response from `202` to `200`;
   - removing the required `name` field from the create response.
-- Both mutations have been killed by contract-driven checks. This demonstrates that the contract can detect defects; it is not, by itself, proof that the contract is complete.
+  - changing the unsupported-document response from `400` to `500`.
+- All three mutations have been killed by contract-driven checks. This demonstrates that the contract can detect defects; it is not, by itself, proof that the contract is complete.
 - A reusable Go source provider can copy a subject, apply AST mutations, build isolated variants, record source/binary hashes, and publish a provider manifest only after successful preparation.
 - Provider capabilities are declared explicitly and reviewed before execution. The review is no-execution and can be emitted as the shared `ingen.ci-result/v1` envelope.
 - Plan binding is now an explicit caller policy: unbound fixture providers remain usable for local demonstrations, while `--require-plan-binding` blocks them. The generated Go provider passes the strict matched-binding review.
@@ -24,13 +25,19 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - The default Nublar document workflow now uses the strict Go provider and strict Go mutation campaign; the unbound fixture remains local-only.
 - Verified mutation campaign results can now be emitted as the shared `ingen.ci-result/v1` envelope, preserving the complete campaign report and exposing survivors or integrity failures to Nublar.
 - Mutation campaign CI explanations now classify failed entries as contract-insensitive, insufficient-observation, invalid, equivalent, timeout, execution-error, or unclassified campaign failures, with aggregate category counts.
+- Campaign results now preserve expected-rule statuses and a compact per-entry diagnosis, so survivors and inconclusive outcomes remain actionable at the CI boundary.
+- The former extra-field survivor is now killed by contract v2's explicit closed response shapes (`additional_properties: false`), demonstrating a diagnosed contract gap being closed without changing mutation classification.
 - Source-provider provenance now records target-resolution counts, and ambiguous or missing Go AST targets return a typed `ingen.mutation-target-resolution-error/v1` preparation error without writing the source copy.
 - Go provider preparation now emits an `ingen.mutation-preparation/v1` summary with changed source files, hashes, and provenance, and rejects no-op mutations before build/publication.
 - Provider preparation now has a `mutation-preparation` CI envelope that binds the summary to the provider manifest and plan, and the default Nublar workflow retains it as a required check.
 - The current Sorna/Nublar alpha boundary is now named in [ALPHA-INTERFACES.md](ALPHA-INTERFACES.md), including stable cross-tool invariants and deliberately unfrozen areas.
 - Campaign provenance, source/binary integrity checks, evidence verification, and campaign-result verification are in place.
-- Nublar can aggregate provider preflight, behavioral verification, and mutation campaign results. The fresh document-pipeline aggregate passed all three checks.
+- Nublar can aggregate provider preflight, behavioral verification, mutation preparation, and mutation campaign results. The fresh document-pipeline aggregate passed all four required checks.
 - All generated outputs now derive from `ARTIFACT_ROOT`, and `make nublar-aggregate-fresh` snapshots the current source tree into a new temporary workspace before running the full document workflow.
+- The fresh-workspace reproducibility checkpoint is recorded in [sorna-reproducibility-checkpoint.md](notes/modules/sorna-reproducibility-checkpoint.md): stable contract/oracle/policy and binary identities matched, while the exact mutation-plan hash changed only with the regenerated baseline run ID.
+- Campaign plans now expose a stable semantic identity alongside the exact run-bound plan hash; strict provider execution continues to bind to exact plan bytes.
+- Campaign verification now recomputes both the exact plan-byte hash and the optional semantic identity before accepting a campaign result.
+- Alpha-boundary tests now reject exact plan tampering, semantic plan drift, and mismatched provider semantic identities before accepting the handoff.
 - `sorna-ci-result` now includes the clean baseline run, so the fresh workflow no longer depends on a pre-existing run bundle.
 - Notes, module explanations, Make targets, and example documentation have been kept alongside the implementation.
 
@@ -73,7 +80,7 @@ These are candidate directions, not an artificial checklist to complete all at o
 
 ### Reproducibility checkpoint
 
-- Re-run the complete Sorna slice from a clean checkout and record the exact artifact set.
+- Re-run the complete Sorna slice from a committed clean checkout and compare both exact and semantic plan identities.
 - Review whether the strict Go-provider workflow is the right alpha default before adding other language providers.
 - Freeze the Sorna alpha boundary before adding more mutation operators.
 
@@ -106,8 +113,8 @@ These are candidate directions, not an artificial checklist to complete all at o
 ## Recommended next step
 
 The alpha interface checkpoint is now documented and executable. The next
-choice is between deeper contract/mutation semantics (especially surviving
-mutation diagnosis) and broader workflow execution, with new providers or
-Sentinel work kept behind the named boundaries.
+checkpoint is to rerun from a committed clean checkout and compare the exact
+run-bound hash with the new stable semantic plan identity. New providers or
+Sentinel work stay behind the named boundaries.
 
 This file is a project checkpoint, not a requirement to implement every avenue listed above immediately.

@@ -177,6 +177,9 @@ func Validate(document Document) []string {
 					}
 				}
 			}
+			if expect, present := rule["expect"]; present {
+				validateExpectationShape(expect, path+".expect", &problems)
+			}
 			validateGeneratedValues(rule, path, &problems)
 		}
 	}
@@ -503,8 +506,10 @@ func validateSetup(value any, path string, problems *[]string) {
 				*problems = append(*problems, stepPath+".request.path must start with /")
 			}
 		}
-		if _, validExpect := step["expect"].(map[string]any); !validExpect {
+		if expect, validExpect := step["expect"].(map[string]any); !validExpect {
 			*problems = append(*problems, stepPath+".expect must be an object")
+		} else {
+			validateExpectationShape(expect, stepPath+".expect", problems)
 		}
 		if capture, present := step["capture"]; present {
 			captures, validCaptures := capture.(map[string]any)
@@ -522,6 +527,36 @@ func validateSetup(value any, path string, problems *[]string) {
 				}
 			}
 		}
+	}
+}
+
+func validateExpectationShape(value any, path string, problems *[]string) {
+	expect, ok := value.(map[string]any)
+	if !ok {
+		*problems = append(*problems, path+" must be an object")
+		return
+	}
+	if body, present := expect["body"]; present {
+		validateShapeSpec(body, path+".body", problems)
+	}
+}
+
+func validateShapeSpec(value any, path string, problems *[]string) {
+	spec, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	if additional, present := spec["additional_properties"]; present {
+		if _, ok := additional.(bool); !ok {
+			*problems = append(*problems, path+".additional_properties must be a boolean")
+		}
+	}
+	properties, ok := spec["properties"].(map[string]any)
+	if !ok {
+		return
+	}
+	for field, child := range properties {
+		validateShapeSpec(child, path+".properties."+field, problems)
 	}
 }
 

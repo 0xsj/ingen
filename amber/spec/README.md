@@ -14,6 +14,8 @@ changing the core semantics.
 ## Documents
 
 - [`v1.md`](v1.md) — core concepts, invariants, transitions, and JSON shape
+- [`storage-v1.md`](storage-v1.md) — optional immutable storage contract,
+  history queries, backend seams, and schema migration boundaries
 - [`trust-v1.md`](trust-v1.md) — structural validity, trust validation, and the
   unsigned-by-default boundary
 

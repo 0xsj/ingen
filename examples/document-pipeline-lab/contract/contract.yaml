@@ -1,7 +1,7 @@
 contract:
   schema: ingen.contract/v1
   id: document-pipeline
-  version: 1
+  version: 2
   status: draft
   title: Deterministic document processing boundary
 
@@ -33,6 +33,7 @@ contract:
         status: 202
         body:
           type: object
+          additional_properties: false
           required: [id, name, status]
           properties:
             id: {type: string, non_empty: true}
@@ -91,6 +92,7 @@ contract:
       expect:
         status: 200
         body:
+          additional_properties: false
           required: [id, name, status]
           properties:
             status: {equals: queued}
@@ -119,6 +121,7 @@ contract:
       expect:
         status: 200
         body:
+          additional_properties: false
           required: [id, status]
           properties:
             status: {equals: completed}
@@ -151,6 +154,7 @@ contract:
             expect:
               status: 200
               body:
+                additional_properties: false
                 required: [id, status]
                 properties:
                   status: {equals: completed}
@@ -158,6 +162,7 @@ contract:
         status: 200
         body:
           type: object
+          additional_properties: false
           required: [document_id, content_sha256, word_count]
           properties:
             document_id: {type: string, non_empty: true}

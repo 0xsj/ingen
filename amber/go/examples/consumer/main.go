@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -11,6 +12,7 @@ import (
 	ambermessaging "github.com/0xsj/ingen/amber/adapters/messaging"
 	amberotel "github.com/0xsj/ingen/amber/adapters/otel"
 	amberstorage "github.com/0xsj/ingen/amber/adapters/storage"
+	amberpostgres "github.com/0xsj/ingen/amber/adapters/storage/postgres"
 	ambertracing "github.com/0xsj/ingen/amber/adapters/tracing"
 	ambertransport "github.com/0xsj/ingen/amber/adapters/transport"
 )
@@ -78,6 +80,9 @@ func main() {
 	keyValueStored, err := keyValueStore.Get(context.Background(), child.ExecutionID())
 	if err != nil || keyValueStored.ExecutionID() != child.ExecutionID() {
 		panic("generic storage public API failed")
+	}
+	if _, err := amberpostgres.NewPostgresStore(nil); !errors.Is(err, amber.ErrInvalidTransition) {
+		panic("optional PostgreSQL package public API failed")
 	}
 	fmt.Printf("consumer header present: %t\n", outgoing.Header.Get(amberhttp.HeaderName) != "")
 	fmt.Println("consumer public adapters present: true")

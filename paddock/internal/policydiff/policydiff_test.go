@@ -60,3 +60,16 @@ func TestTextIncludesInputsAndChangeSummary(t *testing.T) {
 		t.Fatalf("text diff is incomplete:\n%s", output.String())
 	}
 }
+
+func TestValidateRejectsInconsistentSummary(t *testing.T) {
+	document := policydiff.Compare(
+		policy.Policy{Project: "before"},
+		policy.Policy{Project: "after"},
+	)
+	document.Before.Path = "before.yaml"
+	document.After.Path = "after.yaml"
+	document.Summary.Total = 2
+	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "summary does not match") {
+		t.Fatalf("inconsistent policy diff was accepted: %v", err)
+	}
+}

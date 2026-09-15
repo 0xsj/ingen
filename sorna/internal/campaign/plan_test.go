@@ -76,7 +76,8 @@ func TestBuildWritesAndReloadsCanonicalPlan(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "plan.json")
-	if _, err := WriteFile(path, plan); err != nil {
+	exactHash, err := WriteFile(path, plan)
+	if err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := LoadFile(path)
@@ -88,6 +89,46 @@ func TestBuildWritesAndReloadsCanonicalPlan(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
+	}
+	if got, err := HashFile(path); err != nil || got != exactHash {
+		t.Fatalf("exact plan hash = %q, write hash = %q, err = %v", got, exactHash, err)
+	}
+}
+
+func TestSemanticHashIgnoresBaselineRunIDButExactHashDoesNot(t *testing.T) {
+	contractHash := strings.Repeat("a", 64)
+	plan := Plan{
+		Schema:             Schema,
+		Status:             "ready",
+		Catalogue:          CatalogueReference{Path: "catalogue.yaml", ID: "catalogue", Version: 1, SHA256: strings.Repeat("b", 64)},
+		Contract:           runner.ContractReference{ID: "contract", Version: 1, SHA256: contractHash},
+		Oracle:             runner.OracleReference{Schema: oracle.Schema, SHA256: strings.Repeat("c", 64)},
+		Baseline:           runner.BaselineReference{EvidencePath: "baseline", RunID: "run-one", Contract: runner.ContractReference{ID: "contract", Version: 1, SHA256: contractHash}, Oracle: &runner.OracleReference{Schema: oracle.Schema, SHA256: strings.Repeat("c", 64)}},
+		OraclePolicySHA256: strings.Repeat("d", 64),
+		Mutations:          []MutationEntry{{Sequence: 1, Spec: mutation.Spec{ID: "m1", Plane: "implementation", Operator: "test.operator", Target: "GET /", Description: "test mutation", Change: map[string]any{"from": 1, "to": 2}, ExpectedRuleIDs: []string{"rule-1"}, Status: "candidate"}}},
+	}
+	firstSemantic, err := SemanticHash(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBytes, err := CanonicalJSON(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Baseline.RunID = "run-two"
+	secondSemantic, err := SemanticHash(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBytes, err := CanonicalJSON(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstSemantic != secondSemantic {
+		t.Fatalf("semantic hashes differ: %s != %s", firstSemantic, secondSemantic)
+	}
+	if HashBytes(firstBytes) == HashBytes(secondBytes) {
+		t.Fatal("exact plan hashes match despite different baseline run IDs")
 	}
 }
 

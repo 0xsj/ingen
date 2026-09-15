@@ -98,6 +98,22 @@ The gate always writes an `ingen.ci-result/v1` artifact when evaluation starts,
 including failed architecture checks. Its exit code is `0` for a pass, `1` for
 blocking findings, and `2` for an evaluation error.
 
+The envelope is language-neutral. A coordinator can load Paddock's result with
+the shared InGen CI-result contract and preserve `report` and `explanation` as
+opaque producer-owned JSON. See [`../../../core/ciresult/testdata/`](../../../core/ciresult/testdata/)
+for examples of the same contract carrying a non-Go architecture report.
+
+Paddock can validate a persisted envelope without rerunning the source check:
+
+```sh
+paddock ci validate --input paddock-ci-result.json
+paddock ci validate --input external-ci-result.json --format json
+```
+
+This is an envelope-integrity check. It returns `0` for a valid passed or
+failed artifact and `2` for malformed or unreadable input; it does not turn a
+recorded `failed` status into a second analysis decision.
+
 The `seal` phase should not run automatically in ordinary CI. A policy edit
 must remain visible as a diff and require human approval before the replacement
 lock is committed.

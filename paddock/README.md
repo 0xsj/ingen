@@ -172,6 +172,8 @@ Use `--format json` for machine-readable findings. A violating subject exits
 with status 1; an invalid policy, unreadable source, or incompatible baseline
 exits with status 2. Baselines retain accepted findings in the report, mark
 them as non-blocking, and report entries that have become stale.
+The report contract is defined in
+[`spec/paddock.report-v1.schema.json`](spec/paddock.report-v1.schema.json).
 
 `policy validate` performs policy-only validation and prints a concise summary
 in text mode. JSON mode emits the normalized, deterministically ordered
@@ -211,6 +213,22 @@ edge counts, and grouped external or unresolved dependencies. It is an
 inspection aid only and never changes the policy verdict; use `--format json`
 when an agent or another tool needs the structured map.
 
+`adapter validate` exercises an external adapter and validates its graph
+response without evaluating a policy. It is useful as a language-adapter
+conformance check during development; valid responses exit `0`, while process,
+schema, language, or capability errors exit `2`.
+
+`adapter test` runs a versioned `paddock.adapter-tests/v1` manifest with
+multiple roots or adapter modes and emits `paddock.adapter-test-result/v1`
+evidence. Use `adapter test validate` for manifest-only preflight.
+
+`ci validate --input <path>` validates an existing `ingen.ci-result/v1`
+artifact without rerunning analysis. It validates the shared envelope and
+preserves producer-owned `report` and `explanation` JSON, so the same command
+can inspect Paddock results or artifacts emitted by another language. A valid
+artifact exits `0` regardless of whether its recorded status is `passed` or
+`failed`; malformed artifacts exit `2`.
+
 `init` creates a deterministic draft policy from the current graph. It groups
 source units by directory, applies conservative template role guesses, and
 writes all generated rules as warnings. The output is intentionally not an
@@ -226,6 +244,8 @@ review boundary for agent-proposed policy edits; it does not apply or approve
 the proposal. Add `--cases <manifest.yaml>` to evaluate the proposed `--after`
 policy against a `paddock.policy-tests/v1` manifest. The test results are
 embedded in the diff, and a mismatched case exits `1`.
+The diff contract is defined in
+[`spec/paddock.policy-diff-v1.schema.json`](spec/paddock.policy-diff-v1.schema.json).
 
 `policy test` runs a policy against a versioned case manifest using the same
 checker as `check` and `ci`. The `paddock.policy-tests/v1` manifest accepts
@@ -240,6 +260,8 @@ The result contract is defined in
 [`spec/paddock.policy-test-result-v1.schema.json`](spec/paddock.policy-test-result-v1.schema.json).
 The manifest contract is defined in
 [`spec/paddock.policy-tests-v1.schema.json`](spec/paddock.policy-tests-v1.schema.json).
+Use `paddock policy test validate --cases <manifest.yaml>` for a manifest-only
+preflight that does not load a policy or inspect source code.
 
 `policy review` writes a durable `paddock.policy-review/v1` JSON artifact that
 bundles the before/after policy diff and the proposed policy's test results.
@@ -247,6 +269,8 @@ The artifact is suitable for pull-request or agent evidence; a failed case
 returns exit code `1`. Validate a saved artifact with
 `paddock policy review verify --input paddock-policy-review.json`; add `--files`
 to verify the recorded policy and manifest hashes against the current files.
+The review artifact contract is defined in
+[`spec/paddock.policy-review-v1.schema.json`](spec/paddock.policy-review-v1.schema.json).
 
 `policy seal` writes a `paddock.policy-lock/v1` artifact containing the exact
 policy-file SHA-256, canonical semantic SHA-256, and canonical policy payload.
@@ -257,6 +281,8 @@ that file. The exact-file binding is intentional: even a comment or formatting
 change requires a new seal. When `--policy-lock` is used without `--policy`,
 Paddock evaluates the canonical policy embedded in the lock; the original
 policy file is not required to be present.
+The lock contract is defined in
+[`spec/paddock.policy-lock-v1.schema.json`](spec/paddock.policy-lock-v1.schema.json).
 
 ```sh
 go run ./paddock/cmd/paddock init \
@@ -277,6 +303,8 @@ go run ./paddock/cmd/paddock init \
 deterministic report, explanation, policy hash, optional policy-lock hash,
 optional graph hash, source identity, and the same exit code that the CI gate
 receives.
+The shared envelope schema is
+[`core/ciresult-v1.schema.json`](../core/ciresult-v1.schema.json).
 
 The CI verdict must be deterministic. An LLM may propose policies, explain
 findings, and suggest migrations, but it must not decide whether a build passes.
@@ -314,6 +342,8 @@ baseline is tied to the source module and canonical policy SHA-256, uses stable
 finding identities, and does not hide new findings. Formatting-only changes do
 not require regeneration; semantic policy changes do. Stale entries are
 reported so the snapshot can be cleaned up as the architecture improves.
+The baseline contract is defined in
+[`spec/paddock.baseline-v1.schema.json`](spec/paddock.baseline-v1.schema.json).
 Baseline generation also accepts `--graph` or `--adapter`, so external-language
 projects can adopt the same “no new violations” workflow.
 

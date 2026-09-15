@@ -31,11 +31,12 @@ type PreparationVariant struct {
 // executable provider manifest. It records what a provider prepared without
 // asking the campaign executor or Nublar to understand source-language ASTs.
 type PreparationSummary struct {
-	Schema     string               `json:"schema"`
-	ProviderID string               `json:"provider_id"`
-	PlanPath   string               `json:"plan_path"`
-	PlanSHA256 string               `json:"plan_sha256"`
-	Variants   []PreparationVariant `json:"variants"`
+	Schema             string               `json:"schema"`
+	ProviderID         string               `json:"provider_id"`
+	PlanPath           string               `json:"plan_path"`
+	PlanSHA256         string               `json:"plan_sha256"`
+	PlanSemanticSHA256 string               `json:"plan_semantic_sha256,omitempty"`
+	Variants           []PreparationVariant `json:"variants"`
 }
 
 // ValidatePreparationSummary returns structural errors in a provider
@@ -54,6 +55,9 @@ func ValidatePreparationSummary(summary PreparationSummary) []string {
 	}
 	if !digestPattern.MatchString(summary.PlanSHA256) {
 		problems = append(problems, "preparation.plan_sha256 must be a lowercase SHA-256 digest")
+	}
+	if strings.TrimSpace(summary.PlanSemanticSHA256) != "" && !digestPattern.MatchString(summary.PlanSemanticSHA256) {
+		problems = append(problems, "preparation.plan_semantic_sha256 must be a lowercase SHA-256 digest when present")
 	}
 	if len(summary.Variants) == 0 {
 		problems = append(problems, "preparation.variants must contain at least one variant")

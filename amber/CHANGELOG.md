@@ -35,6 +35,36 @@ All notable changes to Amber are documented here.
   transaction; the default release gate remains offline.
 - Added a generic Go key-value storage seam so applications can provide their
   own backend while Amber retains serialization and append-only invariants.
+- Added an explicit optional Go PostgreSQL package import path for the
+  vendor-specific storage integration.
+- Added a shared Go storage contract suite and aligned PostgreSQL history
+  queries with deterministic Amber ordering.
+- Added a TypeScript storage contract suite for memory and key-value stores.
+- Added explicit file and PostgreSQL storage schema versions separate from the
+  Amber provenance wire version, including PostgreSQL mismatch detection.
+- Added a read-only PostgreSQL `CheckSchema` readiness check and a shared
+  unsupported-schema-version error sentinel.
+- Added a separate normative `storage-v1` contract for immutable writes,
+  deterministic history queries, backend seams, and migration boundaries.
+- Added concurrent duplicate-write and history-read coverage for the generic
+  Go and TypeScript storage seams.
+- Added an external-package compatibility check for the optional PostgreSQL
+  API boundary and schema readiness surface.
+- Added an opt-in read-only PostgreSQL schema-check example and Make target.
+- Added a separate GitHub Actions PostgreSQL service job for live adapter
+  integration without changing the offline release gate.
+- Extended the PostgreSQL service job to verify the read-only schema readiness
+  command after the live integration check.
+- Added a release-readiness matrix separating local evidence, live checks,
+  deployment decisions, and explicit v1 non-goals.
+- Added a runnable Go `net/http` reference service that composes inbound
+  propagation, storage injection, and response propagation.
+- Added focused accepted-input and malformed-input tests for the Go HTTP
+  reference service boundary.
+- Added a TypeScript Fetch-compatible reference service handler and aligned
+  explicit child response headers with the Go HTTP boundary behavior.
+- Added application-owned trust-validator coverage to both HTTP reference
+  handlers, proving trusted acceptance and untrusted rejection before storage.
 
 Before publishing a release, move the completed entries into a versioned
 section and record any compatibility or wire-format changes explicitly.

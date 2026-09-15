@@ -6,6 +6,8 @@ Status: working contract
 other CI surfaces consume deterministic tool results without reimplementing the
 tool's verification semantics.
 
+The machine-readable envelope schema is [`ciresult-v1.schema.json`](ciresult-v1.schema.json).
+
 The producer owns the nested report and explanation schemas. The envelope owns
 run identity, status, exit-code semantics, source identity, and input hashes.
 The `policy` field is optional for producers that do not use a policy file;
@@ -135,14 +137,20 @@ sorna mutation verify campaign-result.json \
 
 This uses `kind: "mutation-campaign"`. The complete
 `ingen.mutation-campaign-result/v1` value remains in `report`; `inputs` binds
-the campaign result and its plan by SHA-256. A campaign with only killed
+the campaign result and its exact plan bytes by SHA-256. The report may also
+carry the plan's stable semantic identity. A campaign with only killed
 mutations maps to `passed`; surviving or inconclusive mutations map to
 `failed`; result or evidence integrity failures map to `error`.
 
 The producer-owned explanation uses `sorna.mutation-campaign-explanation/v1`.
 Each failed entry includes a stable `category`, and `failure_categories`
 counts those categories for collectors that do not want to inspect every
-entry. The initial categories are:
+entry. Classified entries also carry a compact `diagnosis` with the status of
+each expected rule plus directly failed, cascading inconclusive, unaffected,
+and unobserved rule IDs. This lets a CI consumer distinguish “the target
+passed” from “the target was never observed” without reimplementing Sorna's
+classifier. The complete rule observations remain in the evidence bundle.
+The initial categories are:
 
 | Category | Meaning |
 | --- | --- |
@@ -168,8 +176,9 @@ sorna mutation provider preparation preparation.json \
 This uses `kind: "mutation-preparation"`. The complete
 `ingen.mutation-preparation/v1` summary remains in `report`; `inputs` binds the
 preparation summary, provider manifest, and plan by exact SHA-256 references.
-Sorna validates that the summary and provider agree on provider ID, plan hash,
-variant paths, and prepared identities before emitting a passing envelope.
+Sorna validates that the summary and provider agree on provider ID, exact plan
+hash, optional semantic plan identity, variant paths, and prepared identities
+before emitting a passing envelope.
 Nublar may retain this artifact as preparation evidence without interpreting
 the source-language details.
 

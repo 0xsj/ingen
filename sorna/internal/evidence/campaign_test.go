@@ -23,6 +23,7 @@ func TestBuildMutationCampaignCIResultPreservesResultAndInputs(t *testing.T) {
 		Summary:    campaign.Summary{Total: 1, Killed: 1},
 		Entries: []campaign.EntryResult{{
 			Sequence: 1, MutationID: "status-200-create", EvidencePath: "evidence", Evidence: &campaign.EvidenceReference{ManifestSHA256: strings.Repeat("c", 64), ChecksumsSHA256: strings.Repeat("d", 64)}, Status: "passed", Outcome: "killed", ExitCode: 0,
+			Diagnosis: &campaign.Diagnosis{ExpectedRuleStatus: map[string]string{"document.create.valid.accepted": "fail"}, DirectlyFailedRules: []string{"document.create.valid.accepted"}},
 		}},
 	}
 	if _, err := campaign.WriteResult(resultPath, result); err != nil {
@@ -59,6 +60,7 @@ func TestBuildMutationCampaignCIResultExplainsSurvivors(t *testing.T) {
 		Summary:    campaign.Summary{Total: 1, Survived: 1},
 		Entries: []campaign.EntryResult{{
 			Sequence: 1, MutationID: "remove-name-create", EvidencePath: "evidence", Evidence: &campaign.EvidenceReference{ManifestSHA256: strings.Repeat("e", 64), ChecksumsSHA256: strings.Repeat("f", 64)}, Status: "failed", Outcome: "survived", ExitCode: 1, Reason: "contract did not detect the mutation",
+			Diagnosis: &campaign.Diagnosis{ExpectedRuleStatus: map[string]string{"document.create.valid.accepted": "pass"}, UnaffectedRules: []string{"document.create.valid.accepted"}},
 		}},
 	}
 	if _, err := campaign.WriteResult(resultPath, result); err != nil {
@@ -85,6 +87,9 @@ func TestBuildMutationCampaignCIResultExplainsSurvivors(t *testing.T) {
 	if got := explanation.FailureCategories[mutationFailureCategoryContractInsensitive]; got != 1 {
 		t.Fatalf("failure categories = %+v, want one contract-insensitive failure", explanation.FailureCategories)
 	}
+	if got := explanation.Failures[0].Diagnosis.ExpectedRuleStatus["document.create.valid.accepted"]; got != "pass" {
+		t.Fatalf("survivor diagnosis = %+v, want passing target status", explanation.Failures[0].Diagnosis)
+	}
 }
 
 func TestBuildMutationCampaignCIResultClassifiesObservationAndExecutionFailures(t *testing.T) {
@@ -97,7 +102,7 @@ func TestBuildMutationCampaignCIResultClassifiesObservationAndExecutionFailures(
 		FinishedAt: time.Date(2026, 9, 15, 10, 0, 1, 0, time.UTC),
 		Summary:    campaign.Summary{Total: 2, Inconclusive: 1, Errors: 1},
 		Entries: []campaign.EntryResult{
-			{Sequence: 1, MutationID: "inconclusive", EvidencePath: "evidence-1", Evidence: &campaign.EvidenceReference{ManifestSHA256: strings.Repeat("e", 64), ChecksumsSHA256: strings.Repeat("f", 64)}, Status: "failed", Outcome: "inconclusive", ExitCode: 1},
+			{Sequence: 1, MutationID: "inconclusive", EvidencePath: "evidence-1", Evidence: &campaign.EvidenceReference{ManifestSHA256: strings.Repeat("e", 64), ChecksumsSHA256: strings.Repeat("f", 64)}, Status: "failed", Outcome: "inconclusive", ExitCode: 1, Diagnosis: &campaign.Diagnosis{ExpectedRuleStatus: map[string]string{"target": "inconclusive"}}},
 			{Sequence: 2, MutationID: "provider-error", EvidencePath: "evidence-2", Status: "error", ExitCode: 2, Reason: "provider failed"},
 		},
 	}

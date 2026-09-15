@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"ingen/core/ciresult"
 	"ingen/paddock/internal/explain"
 	"ingen/paddock/internal/model"
 )
@@ -171,7 +172,7 @@ func (a Artifact) Validate() error {
 		if a.ExitCode != 2 || a.Error == "" {
 			return fmt.Errorf("error CI artifacts need exit_code 2 and an error")
 		}
-		return nil
+		return validateSharedEnvelope(a)
 	}
 	if a.Report == nil || a.Explanation == nil {
 		return fmt.Errorf("successful CI artifacts need a report and explanation")
@@ -186,7 +187,56 @@ func (a Artifact) Validate() error {
 	if a.Status != wantStatus || a.ExitCode != wantCode {
 		return fmt.Errorf("CI artifact status does not match report verdict")
 	}
+	return validateSharedEnvelope(a)
+}
+
+func validateSharedEnvelope(a Artifact) error {
+	shared := ciresult.Artifact{
+		Schema:    a.Schema,
+		Tool:      a.Tool,
+		Kind:      a.Kind,
+		Status:    a.Status,
+		ExitCode:  a.ExitCode,
+		CreatedAt: a.CreatedAt,
+		Source: ciresult.Source{
+			Root:       a.Source.Root,
+			ModulePath: a.Source.ModulePath,
+		},
+		Policy:     sharedFileRef(a.Policy),
+		PolicyLock: sharedFileRefPtr(a.PolicyLock),
+		Graph:      sharedFileRefPtr(a.Graph),
+		Baseline:   sharedFileRefPtr(a.Baseline),
+		Error:      a.Error,
+	}
+	if a.Report != nil {
+		data, err := json.Marshal(a.Report)
+		if err != nil {
+			return fmt.Errorf("encode CI report for shared validation: %w", err)
+		}
+		shared.Report = data
+	}
+	if a.Explanation != nil {
+		data, err := json.Marshal(a.Explanation)
+		if err != nil {
+			return fmt.Errorf("encode CI explanation for shared validation: %w", err)
+		}
+		shared.Explanation = data
+	}
+	if err := shared.Validate(); err != nil {
+		return fmt.Errorf("shared CI result validation failed: %w", err)
+	}
 	return nil
+}
+
+func sharedFileRef(ref FileRef) *ciresult.FileRef {
+	return &ciresult.FileRef{Path: ref.Path, SHA256: ref.SHA256}
+}
+
+func sharedFileRefPtr(ref *FileRef) *ciresult.FileRef {
+	if ref == nil {
+		return nil
+	}
+	return sharedFileRef(*ref)
 }
 
 func WriteJSON(w io.Writer, artifact Artifact) error {

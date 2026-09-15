@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"ingen/core/ciresult"
+	paddockadaptertest "ingen/paddock/internal/adaptertest"
 	paddockartifact "ingen/paddock/internal/artifact"
 	paddockbaseline "ingen/paddock/internal/baseline"
 	"ingen/paddock/internal/checker"
@@ -78,6 +80,13 @@ func main() {
 			os.Exit(2)
 		}
 	case "ci":
+		if len(os.Args) > 2 && os.Args[2] == "validate" {
+			if err := validateCIArtifact(os.Args[3:]); err != nil {
+				fmt.Fprintln(os.Stderr, "paddock:", err)
+				os.Exit(2)
+			}
+			break
+		}
 		exitCode, err := createCIArtifact(os.Args[2:])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "paddock:", err)
@@ -85,6 +94,30 @@ func main() {
 		}
 		if exitCode != 0 {
 			os.Exit(exitCode)
+		}
+	case "adapter":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "paddock: adapter requires validate or test subcommand")
+			os.Exit(2)
+		}
+		switch os.Args[2] {
+		case "validate":
+			if err := validateAdapter(os.Args[3:]); err != nil {
+				fmt.Fprintln(os.Stderr, "paddock:", err)
+				os.Exit(2)
+			}
+		case "test":
+			exitCode, err := adapterTestCommand(os.Args[3:])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "paddock:", err)
+				os.Exit(2)
+			}
+			if exitCode != 0 {
+				os.Exit(exitCode)
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "paddock: unsupported adapter subcommand %q\n", os.Args[2])
+			os.Exit(2)
 		}
 	case "explain":
 		if err := explainReport(os.Args[2:]); err != nil {
@@ -749,7 +782,7 @@ func detectLanguage(root string) string {
 
 func policyCommand(args []string) (int, error) {
 	if len(args) == 0 {
-		return 0, fmt.Errorf("policy requires diff, seal, verify, or test subcommand")
+		return 0, fmt.Errorf("policy requires validate, diff, seal, verify, test, or review subcommand")
 	}
 	switch args[0] {
 	case "validate":
@@ -761,6 +794,9 @@ func policyCommand(args []string) (int, error) {
 	case "verify":
 		return 0, verifyPolicy(args[1:])
 	case "test":
+		if len(args) > 1 && args[1] == "validate" {
+			return 0, validatePolicyTests(args[2:])
+		}
 		return testPolicy(args[1:])
 	case "review":
 		if len(args) > 1 && args[1] == "verify" {
@@ -769,6 +805,56 @@ func policyCommand(args []string) (int, error) {
 		return reviewPolicy(args[1:])
 	default:
 		return 0, fmt.Errorf("unsupported policy subcommand %q", args[0])
+	}
+}
+
+func validatePolicyTests(args []string) error {
+	casesPath := ""
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--cases", "-c":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a test manifest path", args[index])
+			}
+			index++
+			casesPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			return fmt.Errorf("unknown option %q", args[index])
+		}
+	}
+	if casesPath == "" {
+		return fmt.Errorf("policy test validate requires --cases <manifest.yaml>")
+	}
+	manifest, err := paddockpolicytest.Load(casesPath)
+	if err != nil {
+		return err
+	}
+	switch format {
+	case "text":
+		fmt.Fprintln(os.Stdout, "POLICY-TEST-MANIFEST VALID")
+		fmt.Fprintf(os.Stdout, "manifest: %s\n", casesPath)
+		fmt.Fprintf(os.Stdout, "cases: %d\n", len(manifest.Cases))
+		for _, testCase := range manifest.Cases {
+			detail := fmt.Sprintf("expected %s, root %s", testCase.Expect, testCase.Root)
+			if len(testCase.RequireRules) > 0 {
+				detail += ", requires " + strings.Join(testCase.RequireRules, ", ")
+			}
+			fmt.Fprintf(os.Stdout, "  %s (%s)\n", testCase.Name, detail)
+		}
+		return nil
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(manifest)
+	default:
+		return fmt.Errorf("unsupported format %q; use text or json", format)
 	}
 }
 
@@ -996,6 +1082,9 @@ func diffPolicies(args []string) (int, error) {
 	case "text":
 		err = paddockpolicydiff.Text(os.Stdout, document)
 	case "json":
+		if err := document.Validate(); err != nil {
+			return 0, err
+		}
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
 		err = encoder.Encode(document)
@@ -1676,6 +1765,233 @@ func createCIArtifact(args []string) (int, error) {
 	return ciArtifact.ExitCode, nil
 }
 
+func validateCIArtifact(args []string) error {
+	inputPath := ""
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--input", "-i":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a CI result path", args[index])
+			}
+			index++
+			inputPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			return fmt.Errorf("unknown option %q", args[index])
+		}
+	}
+	if inputPath == "" {
+		return fmt.Errorf("ci validate requires --input <ci-result.json>")
+	}
+	artifact, err := ciresult.LoadFile(inputPath)
+	if err != nil {
+		return err
+	}
+
+	switch format {
+	case "text":
+		fmt.Fprintln(os.Stdout, "CI-RESULT VALID")
+		fmt.Fprintf(os.Stdout, "artifact: %s\n", inputPath)
+		fmt.Fprintf(os.Stdout, "tool: %s\n", artifact.Tool)
+		fmt.Fprintf(os.Stdout, "kind: %s\n", artifact.Kind)
+		fmt.Fprintf(os.Stdout, "status: %s\n", artifact.Status)
+		fmt.Fprintf(os.Stdout, "exit_code: %d\n", artifact.ExitCode)
+		return nil
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(artifact)
+	default:
+		return fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+}
+
+func validateAdapter(args []string) error {
+	root := "."
+	language := ""
+	unit := ""
+	adapterExecutable := ""
+	adapterArgs := []string(nil)
+	format := "text"
+	rootSet := false
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--language", "-l":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a language", args[index])
+			}
+			index++
+			language = args[index]
+		case "--unit", "--source-unit":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a source unit", args[index])
+			}
+			index++
+			unit = args[index]
+		case "--adapter":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an executable path", args[index])
+			}
+			index++
+			adapterExecutable = args[index]
+		case "--adapter-arg":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an argument", args[index])
+			}
+			index++
+			adapterArgs = append(adapterArgs, args[index])
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			if strings.HasPrefix(args[index], "-") {
+				return fmt.Errorf("unknown option %q", args[index])
+			}
+			if rootSet {
+				return fmt.Errorf("unexpected argument %q", args[index])
+			}
+			root = args[index]
+			rootSet = true
+		}
+	}
+	if language == "" {
+		return fmt.Errorf("adapter validate requires --language <language>")
+	}
+	if adapterExecutable == "" {
+		return fmt.Errorf("adapter validate requires --adapter <program>")
+	}
+	_, document, err := loadExternalGraphRequest(root, language, unit, nil, adapterExecutable, adapterArgs)
+	if err != nil {
+		return err
+	}
+
+	switch format {
+	case "text":
+		fmt.Fprintln(os.Stdout, "ADAPTER VALID")
+		fmt.Fprintf(os.Stdout, "language: %s\n", document.Language)
+		fmt.Fprintf(os.Stdout, "source_unit: %s\n", document.Unit)
+		fmt.Fprintf(os.Stdout, "root: %s\n", document.Root)
+		fmt.Fprintf(os.Stdout, "packages: %d\n", document.PackageCount)
+		fmt.Fprintf(os.Stdout, "edges: %d\n", document.EdgeCount)
+		return nil
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	default:
+		return fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+}
+
+func adapterTestCommand(args []string) (int, error) {
+	if len(args) > 0 && args[0] == "validate" {
+		return 0, validateAdapterTests(args[1:])
+	}
+	manifestPath := ""
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--cases", "-c":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires an adapter test manifest path", args[index])
+			}
+			index++
+			manifestPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			return 0, fmt.Errorf("unknown option %q", args[index])
+		}
+	}
+	if manifestPath == "" {
+		return 0, fmt.Errorf("adapter test requires --cases <manifest.yaml>")
+	}
+	document, err := paddockadaptertest.Run(manifestPath)
+	if err != nil {
+		return 0, err
+	}
+	switch format {
+	case "text":
+		if err := paddockadaptertest.Text(os.Stdout, document); err != nil {
+			return 0, err
+		}
+	case "json":
+		if err := paddockadaptertest.JSON(os.Stdout, document); err != nil {
+			return 0, err
+		}
+	default:
+		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+	if document.Status == "FAIL" {
+		return 1, nil
+	}
+	return 0, nil
+}
+
+func validateAdapterTests(args []string) error {
+	manifestPath := ""
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--cases", "-c":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires an adapter test manifest path", args[index])
+			}
+			index++
+			manifestPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			return fmt.Errorf("unknown option %q", args[index])
+		}
+	}
+	if manifestPath == "" {
+		return fmt.Errorf("adapter test validate requires --cases <manifest.yaml>")
+	}
+	manifest, err := paddockadaptertest.Load(manifestPath)
+	if err != nil {
+		return err
+	}
+	switch format {
+	case "text":
+		fmt.Fprintln(os.Stdout, "ADAPTER-TEST-MANIFEST VALID")
+		fmt.Fprintf(os.Stdout, "manifest: %s\n", manifestPath)
+		fmt.Fprintf(os.Stdout, "adapter: %s\n", manifest.Adapter.Executable)
+		fmt.Fprintf(os.Stdout, "cases: %d\n", len(manifest.Cases))
+		for _, testCase := range manifest.Cases {
+			unit := testCase.SourceUnit
+			if unit == "" {
+				unit = "any"
+			}
+			fmt.Fprintf(os.Stdout, "  %s (%s/%s, expected %s)\n", testCase.Name, testCase.Language, unit, testCase.Expect)
+		}
+		return nil
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(manifest)
+	default:
+		return fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+}
+
 func saveCIError(outputPath, root string, policy paddockartifact.FileRef, baseline *paddockartifact.FileRef, cause error, createdAt time.Time) (int, error) {
 	return saveCIErrorWithPolicyLock(outputPath, root, policy, nil, baseline, cause, createdAt)
 }
@@ -1892,10 +2208,15 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       paddock policy review verify --input <review.json> [--files] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy seal --input <policy.yaml> --output <policy.lock.json> [--force]")
 	fmt.Fprintln(os.Stderr, "       paddock policy verify --policy <policy.yaml> --lock <policy.lock.json>")
+	fmt.Fprintln(os.Stderr, "       paddock policy test validate --cases <manifest.yaml> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy test --policy <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock release verify --manifest <release-manifest.json> [--directory <dir>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock baseline <source-root> --policy <policy.yaml> [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] --output <baseline.json>")
 	fmt.Fprintln(os.Stderr, "       paddock ci <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] --graph-output <graph.json>] [--baseline <file>] --output <ci-result.json>")
+	fmt.Fprintln(os.Stderr, "       paddock ci validate --input <ci-result.json> [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock adapter validate <source-root> --language <language> [--unit package|file] --adapter <program> [--adapter-arg <arg>...] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock adapter test --cases <manifest.yaml> [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock adapter test validate --cases <manifest.yaml> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock explain <paddock-report.json|paddock-ci-result.json> [--format text|json] [--rule <id>] [--status all|active|blocking|advisory|waived|baselined|expired-waiver]")
 	fmt.Fprintln(os.Stderr, "       paddock version [--format text|json]")
 }

@@ -106,6 +106,57 @@ internal edge targets, edge kinds, and declared capabilities before policy
 evaluation. The response language and source unit cannot contradict the
 request.
 
+## Adapter conformance check
+
+Adapter authors can exercise this protocol without running a policy:
+
+```sh
+paddock adapter validate /workspace/service \
+  --language rust \
+  --unit file \
+  --adapter ./tools/paddock-rust-adapter \
+  --format json
+```
+
+The command sends a request, validates the returned graph, and prints either a
+compact text summary or the normalized `paddock.graph/v1` document. A valid
+adapter exits `0`; a process failure, malformed graph, language mismatch, or
+capability mismatch exits `2`.
+
+For repeatable coverage, define an adapter-test manifest:
+
+```yaml
+schema: paddock.adapter-tests/v1
+adapter:
+  executable: python3
+  args: [./tools/paddock-adapter, --workspace, "{{root}}"]
+cases:
+  - name: rust-files
+    root: fixtures/rust-service
+    language: rust
+    source_unit: file
+    required_edge_kinds: [import]
+    expect: pass
+    package_count: 12
+  - name: unsupported-mode
+    root: fixtures/rust-service
+    language: go
+    source_unit: file
+    expect: error
+    error_contains: unsupported language
+```
+
+Run or preflight the cases with:
+
+```sh
+paddock adapter test validate --cases adapter-tests.yaml
+paddock adapter test --cases adapter-tests.yaml --format json
+```
+
+Case roots are resolved relative to the manifest. `{{root}}` and
+`{{manifest_dir}}` may be used in adapter arguments. A case can expect a valid
+graph or an adapter error and can assert package/edge counts.
+
 This protocol is intentionally graph-oriented rather than language-oriented.
 Adding a language means implementing its adapter outside the Paddock rule
 engine; it does not require changing policy evaluation. The graph document is

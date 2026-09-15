@@ -53,6 +53,8 @@ project without changing Overwatch or publishing anything:
 - TypeScript/JavaScript file graph adapter.
 - Python file graph adapter.
 - External adapter protocol with capability negotiation.
+- Adapter conformance validation without policy evaluation.
+- Versioned adapter-test manifests and deterministic conformance evidence.
 - Component classification and language-neutral policy format.
 - Layer direction, allow/deny dependency, cross-context, cycle, coverage,
   required-dependency, and unresolved-import rules.
@@ -65,12 +67,21 @@ project without changing Overwatch or publishing anything:
 - Machine-readable policy-test evidence with deterministic finding rule IDs.
 - Standalone JSON Schema for `paddock.policy-test-result/v1`.
 - Standalone JSON Schema for `paddock.policy-tests/v1` manifests.
+- Manifest-only policy-test preflight for agent authoring workflows.
 - Policy diff and durable policy review artifacts.
 - Policy sealing and lock verification.
 - Policy-only validation with normalized JSON output for agent and CI preflight.
 - CI result artifacts using `ingen.ci-result/v1`.
+- Read-only CI artifact validation for Paddock and external producers.
 - Agent-facing text and JSON explanations.
 - Standalone JSON Schema for `paddock.explanation/v1` agent handoff artifacts.
+- Standalone JSON Schema for `paddock.policy-diff/v1` review evidence.
+- Standalone JSON Schema for `paddock.policy-review/v1` durable decisions.
+- Standalone JSON Schema for `paddock.policy-lock/v1` sealed policy authority.
+- Shared JSON Schema for `ingen.ci-result/v1` CI handoff artifacts.
+- Paddock CI artifacts validated against the shared `core/ciresult` envelope.
+- Standalone JSON Schema for `paddock.report/v1` dependency findings.
+- Standalone JSON Schema for `paddock.baseline/v1` accepted finding identities.
 - Agent-facing component dependency maps with grouped internal, external, and
   unresolved edges.
 - Portable CI gate support for invoking an external adapter and persisting its

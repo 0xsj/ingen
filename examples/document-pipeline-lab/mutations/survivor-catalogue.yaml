@@ -1,0 +1,21 @@
+mutation_catalogue:
+  schema: ingen.mutation-catalogue/v1
+  id: document-pipeline-survivor-diagnostics
+  version: 1
+  contract_id: document-pipeline
+  contract_version: 2
+
+  # This catalogue is intentionally opt-in. It preserves the former survivor
+  # as a regression: the revised contract now forbids this extra field.
+  mutations:
+    - id: add-undocumented-debug-field
+      plane: implementation
+      operator: response.field.add
+      target: POST /documents
+      description: Add an undocumented debug field to a valid document creation response.
+      change:
+        field: debug
+        value: mutation
+      expected_rule_ids:
+        - document.create.valid.accepted
+      status: candidate

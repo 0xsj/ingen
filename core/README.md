@@ -17,3 +17,7 @@ verification engine.
 
 The Go representation lives in [`ciresult/`](ciresult/). It validates only the
 shared envelope and intentionally keeps producer reports as raw JSON.
+
+The JSON fixtures in [`ciresult/testdata/`](ciresult/testdata/) demonstrate the
+interoperability boundary: a non-Go producer can use its own report and
+explanation schemas while consumers rely only on the shared envelope.

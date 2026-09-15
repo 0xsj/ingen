@@ -11,10 +11,18 @@ The machine-readable contracts live in [`spec/`](spec/):
 - `paddock.architecture/v1` — policy input;
 - `paddock.graph/v1` — language adapter graph output;
 - `paddock.graph-request/v1` — external adapter request;
+- `paddock.adapter-tests/v1` — external adapter conformance manifest;
+- `paddock.adapter-test-result/v1` — adapter conformance evidence;
 - `paddock.component-map/v1` — classified component dependency summary;
 - `paddock.policy-tests/v1` — policy test manifest input;
 - `paddock.policy-test-result/v1` — policy case outcomes and finding rule IDs;
 - `paddock.explanation/v1` — agent-facing findings, triage, and remediation;
+- `paddock.policy-diff/v1` — normalized policy change evidence;
+- `paddock.policy-review/v1` — durable policy change and test decision;
+- `paddock.policy-lock/v1` — sealed policy hashes and canonical policy;
+- `ingen.ci-result/v1` — shared CI status, provenance, and evidence envelope;
+- `paddock.report/v1` — dependency-policy findings and rule summaries;
+- `paddock.baseline/v1` — policy-bound accepted finding identities;
 - `paddock.release/v1` — published release manifest;
 - `paddock.release-verification/v1` — release integrity result.
 

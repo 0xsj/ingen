@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/paddock.policy-lock-v1.schema.json",
+  "title": "Paddock sealed policy lock",
+  "description": "Exact and canonical hashes for the policy authoritative to CI.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "policy_path", "source_sha256", "canonical_sha256", "policy"],
+  "properties": {
+    "schema": {"const": "paddock.policy-lock/v1"},
+    "policy_path": {"type": "string", "minLength": 1},
+    "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "canonical_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "policy": {"$ref": "paddock.architecture-v1.schema.json"}
+  }
+}

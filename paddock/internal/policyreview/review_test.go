@@ -40,10 +40,22 @@ func TestTextRequiresValidReview(t *testing.T) {
 func TestSaveAndLoadValidatesReview(t *testing.T) {
 	document := policyreview.New(policydiff.Document{
 		Schema: policydiff.Schema,
+		Status: "unchanged",
+		Before: policydiff.Input{Path: "before.yaml", SHA256: strings.Repeat("a", 64)},
+		After:  policydiff.Input{Path: "after.yaml", SHA256: strings.Repeat("b", 64)},
 		Tests: &policytest.Document{
 			Schema:   policytest.DocumentSchema,
+			Policy:   "policy.yaml",
 			Status:   "PASS",
 			Manifest: policytest.FileRef{Path: "tests.yaml", SHA256: strings.Repeat("a", 64)},
+			Passed:   1,
+			Cases: []policytest.CaseResult{{
+				Name:     "good",
+				Root:     "/service",
+				Expected: "pass",
+				Actual:   "pass",
+				Status:   "PASS",
+			}},
 		},
 	})
 	path := filepath.Join(t.TempDir(), "review.json")

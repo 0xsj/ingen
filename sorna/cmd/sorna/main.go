@@ -1011,6 +1011,11 @@ func runMutationCampaign(args []string) int {
 		return 1
 	}
 	planHash := campaign.HashBytes(planBytes)
+	planSemanticHash, err := campaign.SemanticHash(plan)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	providerBytes, err := os.ReadFile(*providerPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -1205,6 +1210,7 @@ func runMutationCampaign(args []string) int {
 				entryResult.RunID = record.RunID
 				entryResult.Outcome = record.Mutation.Outcome
 				entryResult.Reason = record.Mutation.Reason
+				entryResult.Diagnosis = campaignDiagnosis(*record.Mutation)
 				if record.Mutation.Outcome == "killed" {
 					entryResult.Status = "passed"
 				} else {
@@ -1218,7 +1224,7 @@ func runMutationCampaign(args []string) int {
 		}
 		entries = append(entries, entryResult)
 	}
-	result := buildCampaignResult(planPath, planHash, startedAt, entries)
+	result := buildCampaignResult(planPath, planHash, planSemanticHash, startedAt, entries)
 	resultHash, err := campaign.WriteResult(resultPath, result)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -1248,6 +1254,16 @@ func verifyMutationCampaign(args []string) int {
 	campaignPath := args[0]
 	result, err := campaign.LoadResult(campaignPath)
 	if err != nil {
+		if *format == "ci-result" {
+			artifact, artifactErr := evidence.BuildMutationCampaignCIErrorResult(campaignPath, *sourceRoot, err)
+			if artifactErr == nil {
+				return emitMutationCampaignCIResult(artifact, *outputPath)
+			}
+		}
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := verifyCampaignPlanReference(result.Plan, *sourceRoot); err != nil {
 		if *format == "ci-result" {
 			artifact, artifactErr := evidence.BuildMutationCampaignCIErrorResult(campaignPath, *sourceRoot, err)
 			if artifactErr == nil {
@@ -1305,6 +1321,34 @@ func verifyMutationCampaign(args []string) int {
 	}
 	fmt.Printf("verified: %s (%d evidence entries)\n", campaignPath, verified)
 	return 0
+}
+
+func verifyCampaignPlanReference(reference campaign.PlanReference, sourceRoot string) error {
+	planPath := reference.Path
+	if !filepath.IsAbs(planPath) && sourceRoot != "." {
+		planPath = filepath.Join(sourceRoot, planPath)
+	}
+	planBytes, err := os.ReadFile(planPath)
+	if err != nil {
+		return fmt.Errorf("read campaign plan %s: %w", planPath, err)
+	}
+	if actual := campaign.HashBytes(planBytes); actual != reference.SHA256 {
+		return fmt.Errorf("campaign plan %s exact hash %q does not match result %q", planPath, actual, reference.SHA256)
+	}
+	plan, err := campaign.LoadBytes(planPath, planBytes)
+	if err != nil {
+		return fmt.Errorf("validate campaign plan %s: %w", planPath, err)
+	}
+	if reference.SemanticSHA256 != "" {
+		semanticHash, err := campaign.SemanticHash(plan)
+		if err != nil {
+			return fmt.Errorf("hash campaign semantic plan identity: %w", err)
+		}
+		if semanticHash != reference.SemanticSHA256 {
+			return fmt.Errorf("campaign plan %s semantic hash %q does not match result %q", planPath, semanticHash, reference.SemanticSHA256)
+		}
+	}
+	return nil
 }
 
 func emitMutationCampaignCIResult(artifact ciresult.Artifact, outputPath string) int {
@@ -1401,11 +1445,25 @@ func readRunRecord(outputDir string) (runner.RunRecord, error) {
 	return record, nil
 }
 
-func buildCampaignResult(planPath, planHash string, startedAt time.Time, entries []campaign.EntryResult) campaign.Result {
+func campaignDiagnosis(result mutation.Result) *campaign.Diagnosis {
+	expected := make(map[string]string, len(result.ExpectedObservations))
+	for _, observation := range result.ExpectedObservations {
+		expected[observation.RuleID] = observation.Status
+	}
+	return &campaign.Diagnosis{
+		ExpectedRuleStatus:    expected,
+		DirectlyFailedRules:   append([]string(nil), result.DirectlyFailedRules...),
+		CascadingInconclusive: append([]string(nil), result.CascadingInconclusive...),
+		UnaffectedRules:       append([]string(nil), result.UnaffectedRules...),
+		UnobservedExpected:    append([]string(nil), result.UnobservedExpected...),
+	}
+}
+
+func buildCampaignResult(planPath, planHash, planSemanticHash string, startedAt time.Time, entries []campaign.EntryResult) campaign.Result {
 	result := campaign.Result{
 		Schema:     campaign.ResultSchema,
 		Status:     "passed",
-		Plan:       campaign.PlanReference{Path: planPath, SHA256: planHash},
+		Plan:       campaign.PlanReference{Path: planPath, SHA256: planHash, SemanticSHA256: planSemanticHash},
 		StartedAt:  startedAt,
 		FinishedAt: time.Now().UTC(),
 		Summary:    campaign.Summary{Total: len(entries)},
@@ -1554,8 +1612,14 @@ func planMutationCampaign(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	semanticHash, err := campaign.SemanticHash(plan)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	fmt.Println("plan:", *outputPath)
 	fmt.Println("hash:", planHash)
+	fmt.Println("semantic hash:", semanticHash)
 	fmt.Println("mutations:", len(plan.Mutations))
 	return 0
 }

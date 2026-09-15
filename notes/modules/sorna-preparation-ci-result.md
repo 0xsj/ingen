@@ -16,8 +16,9 @@ sorna mutation provider preparation preparation.json \
   --output mutation-preparation-ci-result.json
 ```
 
-Sorna checks that the summary and provider agree on provider ID, plan hash,
-variant command paths, source hashes, and binary hashes. This makes the
+Sorna checks that the summary and provider agree on provider ID, exact plan
+hash, optional semantic plan identity, variant command paths, source hashes,
+and binary hashes. This makes the
 preparation stage visible to Nublar without making Nublar understand Go ASTs or
 any future provider language.
 

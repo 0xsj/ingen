@@ -45,6 +45,7 @@ These are starting points, not a second architecture document.
 - [A mutation campaign can cross the CI boundary without losing its semantics](modules/sorna-campaign-ci-result.md)
 - [Provider preparation can cross the CI boundary before execution](modules/sorna-preparation-ci-result.md)
 - [The alpha boundary should be named before it is expanded](modules/sorna-alpha-interface-checkpoint.md)
+- [Alpha drift guards reject changed campaign inputs](modules/sorna-alpha-drift-guards.md)
 - [Mutation results separate target sensitivity from setup fallout](modules/sorna-mutation-result-model.md)
 - [A live process check adds lifecycle evidence without upgrading isolation assurance](modules/sorna-live-process-check.md)
 - [A managed subject lifecycle improves reproducibility without proving isolation](modules/sorna-managed-subject-lifecycle.md)

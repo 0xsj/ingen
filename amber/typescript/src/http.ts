@@ -171,7 +171,8 @@ export function defaultIncomingErrorResponse(): Response {
 /**
  * Build a Fetch-compatible handler that owns the Amber HTTP boundary. The
  * handler receives a derived context and the response carries that same
- * provenance when one is present.
+ * provenance when one is present, unless the handler explicitly sets a
+ * response provenance header for a child value.
  */
 export function httpMiddleware(
   next: HTTPHandler,
@@ -201,7 +202,10 @@ export function httpMiddlewareWithValidator(
     }
 
     const response = await next(incoming.request, incoming.context);
-    if (incoming.context.provenance === undefined) {
+    if (
+      incoming.context.provenance === undefined ||
+      response.headers.has(AMBER_PROVENANCE_HEADER)
+    ) {
       return response;
     }
     return withOutgoingResponse(response, incoming.context.provenance);

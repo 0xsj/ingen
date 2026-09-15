@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/paddock.report-v1.schema.json",
+  "title": "Paddock architecture report",
+  "description": "Deterministic dependency-policy findings produced by Paddock.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "policy", "root", "module_path", "package_count", "edge_count", "source_unit", "findings"],
+  "properties": {
+    "schema": {"const": "paddock.report/v1"},
+    "policy": {"type": "string"},
+    "root": {"type": "string", "minLength": 1},
+    "module_path": {"type": "string"},
+    "package_count": {"type": "integer", "minimum": 0},
+    "edge_count": {"type": "integer", "minimum": 0},
+    "source_unit": {"enum": ["package", "file"]},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "rules": {"type": "array", "items": {"$ref": "#/$defs/rule-summary"}},
+    "baseline": {"$ref": "#/$defs/baseline-summary"},
+    "waivers": {"type": "array", "items": {"$ref": "#/$defs/waiver-summary"}}
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "kind", "severity", "message"],
+      "properties": {
+        "rule_id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["error", "warning", "info"]},
+        "from": {"type": "string"},
+        "from_component": {"type": "string"},
+        "from_labels": {"type": "object", "additionalProperties": {"type": "string"}},
+        "to": {"type": "string"},
+        "to_component": {"type": "string"},
+        "to_labels": {"type": "object", "additionalProperties": {"type": "string"}},
+        "file": {"type": "string"},
+        "line": {"type": "integer", "minimum": 0},
+        "message": {"type": "string", "minLength": 1},
+        "waived": {"type": "boolean"},
+        "waiver_reason": {"type": "string"},
+        "waiver_owner": {"type": "string"},
+        "waiver_expires": {"type": "string"},
+        "waiver_status": {"type": "string"},
+        "baselined": {"type": "boolean"},
+        "baseline_fingerprint": {"type": "string"}
+      }
+    },
+    "rule-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "severity"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["error", "warning", "info"]},
+        "from": {"type": "array", "items": {"type": "object", "additionalProperties": {"type": "string"}}},
+        "to": {"type": "array", "items": {"type": "object", "additionalProperties": {"type": "string"}}},
+        "allow": {"type": "array", "items": {"type": "string"}},
+        "deny": {"type": "array", "items": {"type": "string"}},
+        "allow_to": {"type": "array", "items": {"type": "string"}},
+        "transitive": {"type": "boolean"},
+        "direction": {"type": "string"},
+        "context_label": {"type": "string"},
+        "message": {"type": "string"}
+      }
+    },
+    "baseline-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "entries", "matched"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "entries": {"type": "integer", "minimum": 0},
+        "matched": {"type": "integer", "minimum": 0},
+        "stale": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "waiver-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "from", "owner", "expires", "status"],
+      "properties": {
+        "rule_id": {"type": "string", "minLength": 1},
+        "from": {"type": "string", "minLength": 1},
+        "to": {"type": "string"},
+        "owner": {"type": "string", "minLength": 1},
+        "expires": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "status": {"enum": ["applied", "expired", "unused", "unused-expired"]}
+      }
+    }
+  }
+}

@@ -74,3 +74,27 @@ func TestLoadFileValidatesTheSharedEnvelope(t *testing.T) {
 		t.Fatalf("loaded artifact = %+v, want shared error result", artifact)
 	}
 }
+
+func TestLoadExternalProducerFixtures(t *testing.T) {
+	fixtures := []struct {
+		name   string
+		file   string
+		status string
+		code   int
+	}{
+		{name: "failed architecture", file: "failed-architecture-result.json", status: "failed", code: 1},
+		{name: "error architecture", file: "error-architecture-result.json", status: "error", code: 2},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			path := filepath.Join("testdata", fixture.file)
+			artifact, err := LoadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if artifact.Tool != "example-python-architecture" || artifact.Status != fixture.status || artifact.ExitCode != fixture.code {
+				t.Fatalf("loaded external artifact = %+v, want tool/status/code %s/%s/%d", artifact, "example-python-architecture", fixture.status, fixture.code)
+			}
+		})
+	}
+}

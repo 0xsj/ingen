@@ -8,7 +8,9 @@ whether the provider is ready.
 
 The report uses `ingen.mutation-provider-review/v1`. It records:
 
-- the plan and provider paths and hashes;
+- the plan and provider paths and exact hashes;
+- the stable semantic plan identity and, when declared, the provider's
+  semantic identity binding;
 - whether an optional provider `plan_sha256` is matched, mismatched, or
   unbound;
 - the complete declared capability list; and
@@ -43,7 +45,8 @@ sorna mutation provider inspect plan.json \
 In this mode, an unbound provider is `blocked`, just like a mismatched provider.
 The same flag is available on `sorna mutation run`, so a campaign executor can
 enforce the policy even if a separate preflight was skipped. The generated Go
-provider is the first example that produces a matched plan binding.
+provider is the first example that produces a matched exact plan binding. The
+semantic identity is reported alongside it but is not required by this flag.
 
 For CI collection, `--format ci-result` wraps the same report as
 `ingen.ci-result/v1` with `kind: mutation-provider-review`. A ready report is

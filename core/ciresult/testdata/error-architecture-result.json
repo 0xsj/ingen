@@ -1,0 +1,15 @@
+{
+  "schema": "ingen.ci-result/v1",
+  "tool": "example-python-architecture",
+  "kind": "architecture",
+  "status": "error",
+  "exit_code": 2,
+  "created_at": "2026-09-14T12:00:00Z",
+  "source": {
+    "root": "fixtures/python-service"
+  },
+  "policy": {
+    "path": "architecture.yaml"
+  },
+  "error": "the source graph could not be parsed"
+}

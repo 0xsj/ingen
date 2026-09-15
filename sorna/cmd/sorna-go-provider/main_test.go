@@ -95,6 +95,80 @@ func createDocument(w http.ResponseWriter) {
 	}
 }
 
+func TestMutateDocumentPipelineAddsOnlyNamedResponseField(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package documentpipeline
+
+import "net/http"
+
+func createDocument(w http.ResponseWriter) {
+	writeJSON(w, http.StatusAccepted, map[string]string{"id": "doc-1", "name": "welcome.md", "status": "queued"})
+}
+`
+	if err := os.WriteFile(filepath.Join(path, "server.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := mutateDocumentPipeline(root, mutation.Spec{
+		ID: "add-debug-create", Plane: "implementation", Operator: "response.field.add", Target: "POST /documents",
+		Change: map[string]any{"field": "debug", "value": "mutation"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.TargetResolution == nil || provenance.TargetResolution.CandidateCount != 1 || provenance.TargetResolution.AppliedCount != 1 {
+		t.Fatalf("target resolution = %+v, want exactly one candidate and applied target", provenance.TargetResolution)
+	}
+	contents, err := os.ReadFile(filepath.Join(path, "server.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), `"debug": "mutation"`) || !strings.Contains(string(contents), `"name": "welcome.md"`) {
+		t.Fatalf("mutated source = %s, want debug field added without removing name", contents)
+	}
+}
+
+func TestMutateDocumentPipelineChangesOnlyNamedErrorStatus(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package documentpipeline
+
+import "net/http"
+
+func createDocument(w http.ResponseWriter) {
+	writeError(w, http.StatusBadRequest, "invalid_json")
+	writeError(w, http.StatusBadRequest, "unsupported_document_type")
+}
+`
+	if err := os.WriteFile(filepath.Join(path, "server.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := mutateDocumentPipeline(root, mutation.Spec{
+		ID: "unsupported-type-500", Plane: "implementation", Operator: "response.error.status.replace", Target: "POST /documents",
+		Change: map[string]any{"code": "unsupported_document_type", "from": 400, "to": 500},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.TargetResolution == nil || provenance.TargetResolution.CandidateCount != 1 || provenance.TargetResolution.AppliedCount != 1 {
+		t.Fatalf("target resolution = %+v, want exactly one candidate and applied target", provenance.TargetResolution)
+	}
+	contents, err := os.ReadFile(filepath.Join(path, "server.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := string(contents)
+	if !strings.Contains(mutated, `writeError(w, http.StatusBadRequest, "invalid_json")`) || !strings.Contains(mutated, `writeError(w, http.StatusInternalServerError, "unsupported_document_type")`) {
+		t.Fatalf("mutated source = %s, want only named error status replaced", contents)
+	}
+}
+
 func TestMutateDocumentPipelineRejectsAmbiguousStatusTarget(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")

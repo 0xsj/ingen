@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/paddock.baseline-v1.schema.json",
+  "title": "Paddock baseline snapshot",
+  "description": "Policy-bound accepted findings used to prevent new architecture debt.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "module_path", "policy_sha256", "entries"],
+  "properties": {
+    "schema": {"const": "paddock.baseline/v1"},
+    "module_path": {"type": "string"},
+    "policy": {"type": "string"},
+    "policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "entries": {"type": "array", "items": {"$ref": "#/$defs/entry"}}
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingerprint", "rule_id", "kind", "severity"],
+      "properties": {
+        "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "rule_id": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["error", "warning", "info"]},
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "file": {"type": "string"},
+        "message": {"type": "string"}
+      }
+    }
+  }
+}

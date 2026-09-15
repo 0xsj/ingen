@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.adapter-test-result-v1.schema.json",
+  "title": "Paddock adapter test result",
+  "description": "Deterministic external adapter conformance evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "manifest", "adapter", "status", "passed", "failed", "cases"],
+  "properties": {
+    "schema": {"const": "paddock.adapter-test-result/v1"},
+    "manifest": {"$ref": "#/$defs/file-ref"},
+    "adapter": {"$ref": "#/$defs/adapter"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "passed": {"type": "integer", "minimum": 0},
+    "failed": {"type": "integer", "minimum": 0},
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/case-result"}
+    }
+  },
+  "$defs": {
+    "file-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable"],
+      "properties": {
+        "executable": {"type": "string", "minLength": 1},
+        "args": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "case-result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "root", "language", "expected", "actual", "status", "assertions_passed"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "root": {"type": "string", "minLength": 1},
+        "language": {"type": "string", "minLength": 1},
+        "source_unit": {"type": "string", "minLength": 1},
+        "expected": {"enum": ["pass", "error"]},
+        "actual": {"enum": ["pass", "error"]},
+        "status": {"enum": ["PASS", "FAIL"]},
+        "assertions_passed": {"type": "boolean"},
+        "package_count": {"type": "integer", "minimum": 0},
+        "edge_count": {"type": "integer", "minimum": 0},
+        "error": {"type": "string"}
+      }
+    }
+  }
+}

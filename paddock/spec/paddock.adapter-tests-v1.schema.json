@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.adapter-tests-v1.schema.json",
+  "title": "Paddock adapter test manifest",
+  "description": "Versioned conformance cases for an external Paddock graph adapter.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "adapter", "cases"],
+  "properties": {
+    "schema": {"const": "paddock.adapter-tests/v1"},
+    "adapter": {"$ref": "#/$defs/adapter"},
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable"],
+      "properties": {
+        "executable": {"type": "string", "minLength": 1},
+        "args": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "root", "language", "expect"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "root": {"type": "string", "minLength": 1},
+        "language": {"type": "string", "minLength": 1},
+        "source_unit": {"type": "string", "minLength": 1},
+        "roots": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "required_edge_kinds": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "args": {"type": "array", "items": {"type": "string"}},
+        "expect": {"enum": ["pass", "error"]},
+        "error_contains": {"type": "string"},
+        "package_count": {"type": "integer", "minimum": 0},
+        "edge_count": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

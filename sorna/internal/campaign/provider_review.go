@@ -28,17 +28,20 @@ type ProviderReview struct {
 }
 
 type ProviderReviewPlan struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Path           string `json:"path"`
+	SHA256         string `json:"sha256"`
+	SemanticSHA256 string `json:"semantic_sha256,omitempty"`
 }
 
 type ProviderReviewProvider struct {
-	Path        string `json:"path"`
-	SHA256      string `json:"sha256"`
-	ID          string `json:"id"`
-	Version     int64  `json:"version"`
-	PlanSHA256  string `json:"plan_sha256,omitempty"`
-	PlanBinding string `json:"plan_binding"`
+	Path               string `json:"path"`
+	SHA256             string `json:"sha256"`
+	ID                 string `json:"id"`
+	Version            int64  `json:"version"`
+	PlanSHA256         string `json:"plan_sha256,omitempty"`
+	PlanSemanticSHA256 string `json:"plan_semantic_sha256,omitempty"`
+	PlanBinding        string `json:"plan_binding"`
+	SemanticBinding    string `json:"semantic_binding,omitempty"`
 }
 
 type ProviderMutationReview struct {
@@ -55,21 +58,25 @@ type ProviderMutationReview struct {
 // BuildProviderReview compares the provider's declared capabilities and
 // prepared entries with a plan. It does not inspect or execute subject code.
 func BuildProviderReview(input ProviderReviewInput) ProviderReview {
+	semanticHash, _ := SemanticHash(input.Plan)
 	review := ProviderReview{
 		Schema:             ProviderReviewSchema,
 		Status:             "ready",
 		RequirePlanBinding: input.RequirePlanBinding,
 		Plan: ProviderReviewPlan{
-			Path:   input.PlanPath,
-			SHA256: input.PlanSHA256,
+			Path:           input.PlanPath,
+			SHA256:         input.PlanSHA256,
+			SemanticSHA256: semanticHash,
 		},
 		Provider: ProviderReviewProvider{
-			Path:        input.ProviderPath,
-			SHA256:      input.ProviderSHA256,
-			ID:          input.Provider.ID,
-			Version:     input.Provider.Version,
-			PlanSHA256:  input.Provider.PlanSHA256,
-			PlanBinding: "unbound",
+			Path:               input.ProviderPath,
+			SHA256:             input.ProviderSHA256,
+			ID:                 input.Provider.ID,
+			Version:            input.Provider.Version,
+			PlanSHA256:         input.Provider.PlanSHA256,
+			PlanSemanticSHA256: input.Provider.PlanSemanticSHA256,
+			PlanBinding:        "unbound",
+			SemanticBinding:    "unbound",
 		},
 		Capabilities: append([]ProviderCapability(nil), input.Provider.Capabilities...),
 		Mutations:    make([]ProviderMutationReview, 0, len(input.Plan.Mutations)),
@@ -83,6 +90,14 @@ func BuildProviderReview(input ProviderReviewInput) ProviderReview {
 		}
 	} else if input.RequirePlanBinding {
 		review.Status = "blocked"
+	}
+	if semanticHash != "" && input.Provider.PlanSemanticSHA256 != "" {
+		if input.Provider.PlanSemanticSHA256 == semanticHash {
+			review.Provider.SemanticBinding = "matched"
+		} else {
+			review.Provider.SemanticBinding = "mismatch"
+			review.Status = "blocked"
+		}
 	}
 
 	entries := make(map[string]bool, len(input.Provider.Entries))

@@ -1,4 +1,4 @@
-.PHONY: test check release-check lint fuzz race package-check module-check postgres-integration examples example-go example-typescript example-otel-go example-otel-typescript test-go test-typescript lint-go lint-typescript build-typescript
+.PHONY: test check release-check lint fuzz race package-check module-check postgres-integration postgres-schema-check examples example-go example-go-service example-typescript example-otel-go example-otel-typescript test-go test-typescript lint-go lint-typescript build-typescript
 
 test: test-go test-typescript
 
@@ -51,10 +51,17 @@ postgres-integration:
 	@test -n "$$AMBER_POSTGRES_DSN" || (echo "AMBER_POSTGRES_DSN must be set" && exit 1)
 	cd go && go test ./adapters/storage -run '^TestPostgresStoreLive$$' -count=1
 
-examples: example-go example-typescript example-otel-go example-otel-typescript
+postgres-schema-check:
+	@test -n "$$AMBER_POSTGRES_DSN" || (echo "AMBER_POSTGRES_DSN must be set" && exit 1)
+	cd go && go run ./examples/postgres
+
+examples: example-go example-go-service example-typescript example-otel-go example-otel-typescript
 
 example-go:
 	cd go && go run ./examples/compose
+
+example-go-service:
+	cd go && go run ./examples/service
 
 example-typescript:
 	cd typescript && npm run example

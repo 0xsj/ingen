@@ -71,6 +71,8 @@ func run(args []string) int {
 		Capabilities: []campaign.ProviderCapability{
 			{Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents"},
 			{Plane: "implementation", Operator: "response.field.remove", Target: "POST /documents"},
+			{Plane: "implementation", Operator: "response.field.add", Target: "POST /documents"},
+			{Plane: "implementation", Operator: "response.error.status.replace", Target: "POST /documents"},
 		},
 		SubjectArgs: []string{"-addr", "${SORA_ADDR}"},
 		Mutate:      mutateDocumentPipeline,
@@ -115,6 +117,8 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 	operator := spec.Operator
 	var provenance campaign.ProviderProvenance
 	var fieldToRemove string
+	var fieldToAdd string
+	var valueToAdd string
 	switch operator {
 	case "response.status.replace":
 		from, err := changeInteger(spec, "from")
@@ -147,6 +151,46 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 			Before:   "name: name",
 			After:    "name field removed",
 		}
+	case "response.field.add":
+		field, err := changeString(spec, "field")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		value, err := changeString(spec, "value")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		if field != "debug" || value != "mutation" {
+			return campaign.ProviderProvenance{}, fmt.Errorf("document provider supports only adding debug=mutation, got %s=%s", field, value)
+		}
+		fieldToAdd = field
+		valueToAdd = value
+		provenance = campaign.ProviderProvenance{
+			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:writeJSON.body",
+			Before:   "id, name, status",
+			After:    "id, name, status, debug=mutation",
+		}
+	case "response.error.status.replace":
+		code, err := changeString(spec, "code")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		from, err := changeInteger(spec, "from")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		to, err := changeInteger(spec, "to")
+		if err != nil {
+			return campaign.ProviderProvenance{}, err
+		}
+		if code != "unsupported_document_type" || from != 400 || to != 500 {
+			return campaign.ProviderProvenance{}, fmt.Errorf("document provider supports only unsupported_document_type status 400 -> 500, got %s %d -> %d", code, from, to)
+		}
+		provenance = campaign.ProviderProvenance{
+			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:writeError.unsupported_document_type.status",
+			Before:   "http.StatusBadRequest",
+			After:    "http.StatusInternalServerError",
+		}
 	default:
 		return campaign.ProviderProvenance{}, fmt.Errorf("unsupported document mutation %q at %q", spec.Operator, spec.Target)
 	}
@@ -162,11 +206,13 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 		return campaign.ProviderProvenance{}, fmt.Errorf("parse document subject source: %w", err)
 	}
 	var statusTargets []*ast.SelectorExpr
+	var errorStatusTargets []*ast.SelectorExpr
 	type fieldTarget struct {
 		body  *ast.CompositeLit
 		index int
 	}
 	var fieldTargets []fieldTarget
+	var bodyTargets []*ast.CompositeLit
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		if !ok || function.Name.Name != "createDocument" || function.Body == nil {
@@ -178,7 +224,33 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 				return true
 			}
 			callee, ok := call.Fun.(*ast.Ident)
-			if !ok || callee.Name != "writeJSON" {
+			if !ok {
+				return true
+			}
+			if operator == "response.error.status.replace" {
+				if callee.Name != "writeError" || len(call.Args) < 3 {
+					return true
+				}
+				status, ok := call.Args[1].(*ast.SelectorExpr)
+				if !ok || status.Sel.Name != "StatusBadRequest" {
+					return true
+				}
+				packageName, ok := status.X.(*ast.Ident)
+				if !ok || packageName.Name != "http" {
+					return true
+				}
+				code, ok := call.Args[2].(*ast.BasicLit)
+				if !ok || code.Kind != token.STRING {
+					return true
+				}
+				value, err := strconv.Unquote(code.Value)
+				if err != nil || value != "unsupported_document_type" {
+					return true
+				}
+				errorStatusTargets = append(errorStatusTargets, status)
+				return true
+			}
+			if callee.Name != "writeJSON" {
 				return true
 			}
 			if operator == "response.status.replace" {
@@ -211,6 +283,24 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 			if _, ok := body.Type.(*ast.MapType); !ok {
 				return true
 			}
+			if operator == "response.field.add" {
+				for _, element := range body.Elts {
+					keyValue, ok := element.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					key, ok := keyValue.Key.(*ast.BasicLit)
+					if !ok || key.Kind != token.STRING {
+						continue
+					}
+					name, err := strconv.Unquote(key.Value)
+					if err == nil && name == fieldToAdd {
+						return true
+					}
+				}
+				bodyTargets = append(bodyTargets, body)
+				return true
+			}
 			for index, element := range body.Elts {
 				keyValue, ok := element.(*ast.KeyValueExpr)
 				if !ok {
@@ -232,15 +322,27 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 	candidateCount := len(statusTargets)
 	if operator == "response.field.remove" {
 		candidateCount = len(fieldTargets)
+	} else if operator == "response.field.add" {
+		candidateCount = len(bodyTargets)
+	} else if operator == "response.error.status.replace" {
+		candidateCount = len(errorStatusTargets)
 	}
 	if candidateCount != 1 {
 		return campaign.ProviderProvenance{}, campaign.NewTargetResolutionError(spec, provenance.Location, candidateCount)
 	}
 	if operator == "response.status.replace" {
 		statusTargets[0].Sel.Name = "StatusOK"
-	} else {
+	} else if operator == "response.field.remove" {
 		target := fieldTargets[0]
 		target.body.Elts = append(target.body.Elts[:target.index], target.body.Elts[target.index+1:]...)
+	} else if operator == "response.field.add" {
+		target := bodyTargets[0]
+		target.Elts = append(target.Elts, &ast.KeyValueExpr{
+			Key:   &ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(fieldToAdd)},
+			Value: &ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(valueToAdd)},
+		})
+	} else {
+		errorStatusTargets[0].Sel.Name = "StatusInternalServerError"
 	}
 	provenance.TargetResolution = &campaign.TargetResolution{
 		Selector:       provenance.Location,

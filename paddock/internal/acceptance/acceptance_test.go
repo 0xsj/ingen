@@ -2,6 +2,7 @@ package acceptance_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"ingen/core/ciresult"
+	"ingen/paddock/internal/adaptertest"
 	"ingen/paddock/internal/artifact"
 	"ingen/paddock/internal/baseline"
 	"ingen/paddock/internal/componentmap"
@@ -162,6 +165,38 @@ func TestCLIPolicyTestManifest(t *testing.T) {
 	}
 	if document.Schema != policytest.DocumentSchema || document.Status != "PASS" || document.Passed != 2 || document.Failed != 0 {
 		t.Fatalf("unexpected policy test document: %#v", document)
+	}
+}
+
+func TestCLIPolicyTestManifestValidate(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "modular-monolith.policy-tests.yaml")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "policy", "test", "validate", "--cases", manifestPath)
+	if exitCode != 0 || !strings.Contains(output, "POLICY-TEST-MANIFEST VALID") || !strings.Contains(output, "cases: 2") || !strings.Contains(output, "cross-context-internal-access") {
+		t.Fatalf("policy test manifest validation failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "test", "validate", "--cases", manifestPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("JSON policy test manifest validation exit code = %d; output:\n%s", exitCode, output)
+	}
+	var manifest policytest.Manifest
+	if err := json.Unmarshal([]byte(output), &manifest); err != nil {
+		t.Fatalf("decode validated policy test manifest: %v\n%s", err, output)
+	}
+	if manifest.Schema != policytest.ManifestSchema || len(manifest.Cases) != 2 || manifest.Cases[1].Expect != "fail" || len(manifest.Cases[1].RequireRules) != 2 {
+		t.Fatalf("unexpected validated policy test manifest: %#v", manifest)
+	}
+
+	invalidPath := filepath.Join(t.TempDir(), "invalid-policy-tests.yaml")
+	if err := os.WriteFile(invalidPath, []byte("schema: paddock.policy-tests/v1\ncases:\n  - name: broken\n    root: service\n    expect: maybe\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "test", "validate", "--cases", invalidPath)
+	if exitCode != 2 || !strings.Contains(output, "expect must be pass, fail, or error") {
+		t.Fatalf("invalid policy test manifest returned exit=%d output:\n%s", exitCode, output)
 	}
 }
 
@@ -334,12 +369,80 @@ func TestPolicyTestManifestSchemaContract(t *testing.T) {
 	)
 }
 
+func TestAdapterTestSchemasContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-tests-v1.schema.json"),
+		"adapter-test manifest",
+		[]string{"schema", "adapter", "cases"},
+	)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-test-result-v1.schema.json"),
+		"adapter-test result",
+		[]string{"schema", "manifest", "adapter", "status", "passed", "failed", "cases"},
+	)
+}
+
 func TestExplanationSchemaContract(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	assertSchemaContract(t,
 		filepath.Join(repoRoot, "paddock", "spec", "paddock.explanation-v1.schema.json"),
 		"explanation",
 		[]string{"schema", "source_schema", "status", "root", "module_path", "package_count", "edge_count", "triage", "summary", "findings"},
+	)
+}
+
+func TestPolicyDiffSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.policy-diff-v1.schema.json"),
+		"policy diff",
+		[]string{"schema", "status", "before", "after", "summary", "changes"},
+	)
+}
+
+func TestPolicyReviewSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.policy-review-v1.schema.json"),
+		"policy review",
+		[]string{"schema", "status", "diff"},
+	)
+}
+
+func TestPolicyLockSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.policy-lock-v1.schema.json"),
+		"policy lock",
+		[]string{"schema", "policy_path", "source_sha256", "canonical_sha256", "policy"},
+	)
+}
+
+func TestCIResultSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "core", "ciresult-v1.schema.json"),
+		"CI result",
+		[]string{"schema", "tool", "kind", "status", "exit_code", "created_at", "source"},
+	)
+}
+
+func TestReportSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.report-v1.schema.json"),
+		"report",
+		[]string{"schema", "policy", "root", "module_path", "package_count", "edge_count", "source_unit", "findings"},
+	)
+}
+
+func TestBaselineSchemaContract(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.baseline-v1.schema.json"),
+		"baseline",
+		[]string{"schema", "module_path", "policy_sha256", "entries"},
 	)
 }
 
@@ -680,6 +783,110 @@ func TestCLIInitWithExternalAdapter(t *testing.T) {
 	}
 	if loaded.Source.Language != "rust" || loaded.Source.Unit != "package" || len(loaded.Components) == 0 {
 		t.Fatalf("external starter policy is incomplete: %#v", loaded)
+	}
+}
+
+func TestCLIAdapterValidate(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	sourceRoot := filepath.Join(t.TempDir(), "workspace")
+	if err := os.Mkdir(sourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	adapter := filepath.Join(repoRoot, "paddock", "examples", "adapter", "conformance-adapter.py")
+	adapterArgs := []string{
+		"adapter", "validate", sourceRoot,
+		"--language", "rust",
+		"--unit", "file",
+		"--adapter", "python3",
+		"--adapter-arg", adapter,
+		"--adapter-arg", "--workspace",
+		"--adapter-arg", sourceRoot,
+	}
+
+	output, exitCode := runCLI(t, cli, repoRoot, adapterArgs...)
+	if exitCode != 0 || !strings.Contains(output, "ADAPTER VALID") || !strings.Contains(output, "packages: 2") || !strings.Contains(output, "edges: 1") {
+		t.Fatalf("adapter validation failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	jsonArgs := append([]string{}, adapterArgs...)
+	jsonArgs = append(jsonArgs, "--format", "json")
+	output, exitCode = runCLI(t, cli, repoRoot, jsonArgs...)
+	if exitCode != 0 {
+		t.Fatalf("JSON adapter validation exit code = %d; output:\n%s", exitCode, output)
+	}
+	var document graph.Document
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode validated adapter graph: %v\n%s", err, output)
+	}
+	if document.Schema != graph.DocumentSchema || document.Language != "rust" || document.Unit != "file" || document.PackageCount != 2 || document.EdgeCount != 1 {
+		t.Fatalf("validated adapter graph is incomplete: %#v", document)
+	}
+
+	badArgs := append([]string{}, adapterArgs...)
+	badArgs[4] = "go"
+	output, exitCode = runCLI(t, cli, repoRoot, badArgs...)
+	if exitCode != 2 || !strings.Contains(output, "expects language rust") {
+		t.Fatalf("incompatible adapter validation returned exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIAdapterTestManifest(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	directory := t.TempDir()
+	if err := os.Mkdir(filepath.Join(directory, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	adapter := filepath.Join(repoRoot, "paddock", "examples", "adapter", "conformance-adapter.py")
+	manifestPath := filepath.Join(directory, "adapter-tests.yaml")
+	contents := fmt.Sprintf(`schema: paddock.adapter-tests/v1
+adapter:
+  executable: python3
+  args:
+    - %s
+    - --workspace
+    - "{{root}}"
+cases:
+  - name: rust-file
+    root: workspace
+    language: rust
+    source_unit: file
+    required_edge_kinds: [import]
+    expect: pass
+    package_count: 2
+    edge_count: 1
+  - name: unsupported-language
+    root: workspace
+    language: go
+    source_unit: file
+    expect: error
+    error_contains: expects language rust
+`, adapter)
+	if err := os.WriteFile(manifestPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	output, exitCode := runCLI(t, cli, repoRoot, "adapter", "test", "validate", "--cases", manifestPath)
+	if exitCode != 0 || !strings.Contains(output, "ADAPTER-TEST-MANIFEST VALID") || !strings.Contains(output, "cases: 2") {
+		t.Fatalf("adapter test manifest validation failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "adapter", "test", "--cases", manifestPath)
+	if exitCode != 0 || !strings.Contains(output, "ADAPTER-TEST PASS") || !strings.Contains(output, "rust-file") || !strings.Contains(output, "unsupported-language") {
+		t.Fatalf("adapter test manifest execution failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "adapter", "test", "--cases", manifestPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("JSON adapter test manifest exit code = %d; output:\n%s", exitCode, output)
+	}
+	var document adaptertest.Document
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode adapter test result: %v\n%s", err, output)
+	}
+	if document.Schema != adaptertest.DocumentSchema || document.Status != "PASS" || document.Passed != 2 || document.Failed != 0 || len(document.Cases) != 2 {
+		t.Fatalf("unexpected adapter test result: %#v", document)
 	}
 }
 
@@ -1614,6 +1821,13 @@ func TestCLICIArtifact(t *testing.T) {
 	if failedArtifact.Policy.SHA256 == "" || !strings.Contains(output, "CI-RESULT") {
 		t.Fatalf("CI artifact output is incomplete: %s", output)
 	}
+	sharedFailed, err := ciresult.LoadFile(failedPath)
+	if err != nil {
+		t.Fatalf("shared loader rejected Paddock failed artifact: %v", err)
+	}
+	if sharedFailed.Tool != "paddock" || sharedFailed.Status != "failed" || len(sharedFailed.Report) == 0 || len(sharedFailed.Explanation) == 0 {
+		t.Fatalf("shared Paddock failed artifact is incomplete: %+v", sharedFailed)
+	}
 
 	output, exitCode = runCLI(t, cli, repoRoot, "explain", failedPath, "--format", "json")
 	if exitCode != 0 {
@@ -1640,6 +1854,46 @@ func TestCLICIArtifact(t *testing.T) {
 	}
 	if passedArtifact.Status != "passed" || passedArtifact.Report == nil || !passedArtifact.Report.OK() {
 		t.Fatalf("passed CI artifact is incomplete: %#v", passedArtifact)
+	}
+	sharedPassed, err := ciresult.LoadFile(passedPath)
+	if err != nil {
+		t.Fatalf("shared loader rejected Paddock passed artifact: %v", err)
+	}
+	if sharedPassed.Status != "passed" || sharedPassed.ExitCode != 0 {
+		t.Fatalf("shared Paddock passed artifact has incorrect verdict: %+v", sharedPassed)
+	}
+}
+
+func TestCLICIArtifactValidate(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	externalPath := filepath.Join(repoRoot, "core", "ciresult", "testdata", "failed-architecture-result.json")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "ci", "validate", "--input", externalPath)
+	if exitCode != 0 || !strings.Contains(output, "CI-RESULT VALID") || !strings.Contains(output, "example-python-architecture") || !strings.Contains(output, "status: failed") {
+		t.Fatalf("external CI artifact validation failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "ci", "validate", "--input", externalPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("JSON external CI artifact validation exit code = %d; output:\n%s", exitCode, output)
+	}
+	var validated ciresult.Artifact
+	if err := json.Unmarshal([]byte(output), &validated); err != nil {
+		t.Fatalf("decode validated external CI artifact: %v\n%s", err, output)
+	}
+	if validated.Tool != "example-python-architecture" || validated.Status != "failed" || len(validated.Report) == 0 || len(validated.Explanation) == 0 {
+		t.Fatalf("validated external CI artifact lost opaque evidence: %+v", validated)
+	}
+
+	invalidPath := filepath.Join(t.TempDir(), "invalid-ci-result.json")
+	invalid := `{"schema":"ingen.ci-result/v1","tool":"external","kind":"architecture","status":"failed","exit_code":0,"created_at":"2026-09-14T12:00:00Z","source":{"root":"."},"report":{},"explanation":{}}`
+	if err := os.WriteFile(invalidPath, []byte(invalid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "ci", "validate", "--input", invalidPath)
+	if exitCode != 2 || !strings.Contains(output, "exit_code 1") {
+		t.Fatalf("invalid CI artifact returned exit=%d output:\n%s", exitCode, output)
 	}
 }
 

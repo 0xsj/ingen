@@ -41,7 +41,7 @@
     "example": "npm run build && node dist/example.js",
     "example-otel": "npm run build && node dist/otel-example.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node test/public-api.mjs && node dist/provenance.test.js && node dist/incoming.test.js && node dist/http.test.js && node dist/messaging.test.js && node dist/logging.test.js && node dist/tracing.test.js && node dist/otel.test.js && node dist/otel.integration.test.js && node dist/storage.test.js && node test/conformance.test.mjs"
+    "test": "npm run build && node test/public-api.mjs && node dist/provenance.test.js && node dist/incoming.test.js && node dist/http.test.js && node dist/reference-service.test.js && node dist/messaging.test.js && node dist/logging.test.js && node dist/tracing.test.js && node dist/otel.test.js && node dist/otel.integration.test.js && node dist/storage.test.js && node dist/storage.contract.test.js && node test/conformance.test.mjs"
   },
   "keywords": [
     "provenance",

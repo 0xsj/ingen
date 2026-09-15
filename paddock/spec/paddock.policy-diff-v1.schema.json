@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/paddock.policy-diff-v1.schema.json",
+  "title": "Paddock policy diff",
+  "description": "Normalized semantic changes between two Paddock policies.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "before", "after", "summary", "changes"],
+  "properties": {
+    "schema": {"const": "paddock.policy-diff/v1"},
+    "status": {"enum": ["unchanged", "changed"]},
+    "before": {"$ref": "#/$defs/input"},
+    "after": {"$ref": "#/$defs/input"},
+    "summary": {"$ref": "#/$defs/summary"},
+    "changes": {"type": "array", "items": {"$ref": "#/$defs/change"}},
+    "tests": {"$ref": "paddock.policy-test-result-v1.schema.json"}
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "canonical_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["added", "removed", "changed", "total"],
+      "properties": {
+        "added": {"type": "integer", "minimum": 0},
+        "removed": {"type": "integer", "minimum": 0},
+        "changed": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 0}
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "kind"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["added", "removed", "changed"]},
+        "before": {},
+        "after": {}
+      }
+    }
+  }
+}

@@ -41,3 +41,41 @@ jobs:
 
       - name: Run composition examples
         run: make examples
+
+  postgres:
+    name: Verify PostgreSQL adapter
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: amber
+          POSTGRES_PASSWORD: amber
+          POSTGRES_USER: amber
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U amber -d amber"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+
+      - name: Run live PostgreSQL integration
+        run: make postgres-integration
+        env:
+          AMBER_POSTGRES_DSN: postgres://amber:amber@localhost:5432/amber?sslmode=disable
+
+      - name: Run PostgreSQL schema readiness check
+        run: make postgres-schema-check
+        env:
+          AMBER_POSTGRES_DSN: postgres://amber:amber@localhost:5432/amber?sslmode=disable

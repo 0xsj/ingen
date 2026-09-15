@@ -13,9 +13,10 @@ an automated repository check.
 
 The GitHub Actions workflow checks out the repository, installs the Go version
 declared by `go/go.mod`, installs Node.js and the locked TypeScript
-dependencies, then runs `make check`, `make race`, and `make examples`. It
-triggers on pushes to `main` and on pull requests, with read-only repository
-permissions.
+dependencies, then runs `make check`, `make race`, and `make examples`. A
+separate job provisions a PostgreSQL 16 service and runs the opt-in live
+integration test. It triggers on pushes to `main` and on pull requests, with
+read-only repository permissions.
 
 ## Why
 
@@ -38,8 +39,9 @@ fixtures plus end-to-end examples remain executable as the adapters evolve.
   `package.json` must be accompanied by a lockfile update.
 - The workflow follows the Go version in `go/go.mod`; changing that directive
   changes the CI toolchain.
-- CI validates the framework-neutral examples and Go race safety but does not provision a broker,
-  database service, or production tracing backend.
+- CI validates the framework-neutral examples and Go race safety. Its separate
+  PostgreSQL job provisions only the database needed by the live adapter test;
+  it does not provision a broker or production tracing backend.
 - GitHub Actions availability and hosted-runner behavior remain external to
   Amber's code-level guarantees.
 

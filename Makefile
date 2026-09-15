@@ -25,6 +25,7 @@ DEFECT_READY_PATH ?= /healthz
 DEFECT_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-defect-status-200
 DEFECT_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect
 DEFECT_REMOVE_NAME_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-remove-name
+DEFECT_UNSUPPORTED_TYPE_BINARY ?= $(SUBJECT_BINARY_DIR)/document-pipeline-defect-unsupported-type
 SANDBOX_ROOT ?= .
 SANDBOX_PROBE_PATH ?= examples/document-pipeline-lab/contract/contract.yaml
 ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-oracle
@@ -47,13 +48,24 @@ MUTATION_GO_PREPARATION_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-g
 MUTATION_GO_CAMPAIGN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-go-campaign
 MUTATION_GO_CAMPAIGN_RESULT_OUTPUT ?= $(MUTATION_GO_CAMPAIGN_OUTPUT_DIR)/campaign-result.json
 MUTATION_GO_CAMPAIGN_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-go-campaign-ci-result.json
+MUTATION_SURVIVOR_CATALOGUE ?= examples/document-pipeline-lab/mutations/survivor-catalogue.yaml
+MUTATION_SURVIVOR_PLAN_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-survivor-mutation-plan.json
+MUTATION_SURVIVOR_PROVIDER_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-survivor-go-provider
+MUTATION_SURVIVOR_PROVIDER_BINARY_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-subject/survivor-go-mutations
+MUTATION_SURVIVOR_PROVIDER ?= $(MUTATION_SURVIVOR_PROVIDER_OUTPUT_DIR)/provider.yaml
+MUTATION_SURVIVOR_PROVIDER_SUMMARY ?= $(MUTATION_SURVIVOR_PROVIDER_OUTPUT_DIR)/preparation.json
+MUTATION_SURVIVOR_PROVIDER_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-survivor-go-provider-ci-result.json
+MUTATION_SURVIVOR_PREPARATION_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-survivor-go-preparation-ci-result.json
+MUTATION_SURVIVOR_CAMPAIGN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-survivor-go-campaign
+MUTATION_SURVIVOR_CAMPAIGN_RESULT_OUTPUT ?= $(MUTATION_SURVIVOR_CAMPAIGN_OUTPUT_DIR)/campaign-result.json
+MUTATION_SURVIVOR_CAMPAIGN_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-survivor-go-campaign-ci-result.json
 
 .DEFAULT_GOAL := help
 
 .PHONY: help build test test-race vet check alpha-interface-check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
 	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-aggregate-fresh sorna-oracle-freeze \
-	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result sandbox-contract-read defect-remove-name-build
+	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -106,6 +118,10 @@ defect-build: ## Build the controlled status-200-create defect binary
 defect-remove-name-build: ## Build the controlled remove-name-create defect binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
 	$(GO_CMD) build -o "$(DEFECT_REMOVE_NAME_BINARY)" ./examples/document-pipeline-lab/defects/remove-name-create/cmd/document-pipeline-defect
+
+defect-unsupported-type-build: ## Build the controlled unsupported-type-500 defect binary
+	mkdir -p "$(SUBJECT_BINARY_DIR)"
+	$(GO_CMD) build -o "$(DEFECT_UNSUPPORTED_TYPE_BINARY)" ./examples/document-pipeline-lab/defects/unsupported-type-500/cmd/document-pipeline-defect
 
 sorna-run: sorna-oracle-freeze subject-build ## Freeze the oracle, launch the isolated clean subject, run Sorna, and tear it down
 	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --subject-root "$(SUBJECT_ROOT)" --base-url "$(SUBJECT_URL)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant clean-baseline --output-dir "$(RUN_OUTPUT_DIR)"
@@ -160,7 +176,7 @@ mutation-provider-inspect: mutation-plan mutation-provider-validate ## Review pr
 mutation-provider-ci-result: mutation-plan mutation-provider-validate ## Write the provider preflight as a shared CI result envelope
 	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_PROVIDER)" $(MUTATION_PROVIDER_BINDING_FLAG) --format ci-result --output "$(MUTATION_PROVIDER_CI_RESULT_OUTPUT)"
 
-mutation-campaign-run: mutation-plan defect-build defect-remove-name-build mutation-provider-validate ## Execute every planned document-pipeline mutation in an isolated fresh subject
+mutation-campaign-run: mutation-plan defect-build defect-remove-name-build defect-unsupported-type-build mutation-provider-validate ## Execute every planned document-pipeline mutation in an isolated fresh subject
 	$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_PROVIDER)" $(MUTATION_PROVIDER_BINDING_FLAG) --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --base-address "$(DEFECT_ADDR)" --output-dir "$(MUTATION_CAMPAIGN_OUTPUT_DIR)" --output "$(MUTATION_CAMPAIGN_RESULT_OUTPUT)"
 
 mutation-campaign-verify: ## Verify campaign entries against their recorded evidence hashes
@@ -190,6 +206,25 @@ mutation-go-campaign-ci-result: mutation-go-provider-ci-result ## Verify the str
 
 mutation-go-campaign-verify: ## Verify the source-level Go campaign result and evidence bindings
 	$(GO_CMD) run ./sorna/cmd/sorna mutation verify "$(MUTATION_GO_CAMPAIGN_RESULT_OUTPUT)"
+
+mutation-go-survivor-run: sorna-run ## Re-run the former survivor diagnostic and require it to be killed
+	$(GO_CMD) run ./sorna/cmd/sorna mutation validate "$(MUTATION_SURVIVOR_CATALOGUE)" --contract "$(CONTRACT)"
+	mkdir -p "$(dir $(MUTATION_SURVIVOR_PLAN_OUTPUT))"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation plan "$(MUTATION_SURVIVOR_CATALOGUE)" --contract "$(CONTRACT)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --baseline-evidence "$(RUN_OUTPUT_DIR)" --subject-policy "$(SUBJECT_POLICY)" --output "$(MUTATION_SURVIVOR_PLAN_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna-go-provider --plan "$(MUTATION_SURVIVOR_PLAN_OUTPUT)" --source-root . --output-dir "$(MUTATION_SURVIVOR_PROVIDER_OUTPUT_DIR)" --binary-dir "$(MUTATION_SURVIVOR_PROVIDER_BINARY_DIR)" --provider "$(MUTATION_SURVIVOR_PROVIDER)" --summary-output "$(MUTATION_SURVIVOR_PROVIDER_SUMMARY)"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(MUTATION_SURVIVOR_PLAN_OUTPUT)" --provider "$(MUTATION_SURVIVOR_PROVIDER)" --require-plan-binding --format ci-result --output "$(MUTATION_SURVIVOR_PROVIDER_CI_RESULT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider preparation "$(MUTATION_SURVIVOR_PROVIDER_SUMMARY)" --provider "$(MUTATION_SURVIVOR_PROVIDER)" --source-root . --format ci-result --output "$(MUTATION_SURVIVOR_PREPARATION_CI_RESULT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation run "$(MUTATION_SURVIVOR_PLAN_OUTPUT)" --provider "$(MUTATION_SURVIVOR_PROVIDER)" --require-plan-binding --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(POLICY)" --subject-policy "$(SUBJECT_POLICY)" --base-address "$(DEFECT_ADDR)" --output-dir "$(MUTATION_SURVIVOR_CAMPAIGN_OUTPUT_DIR)" --output "$(MUTATION_SURVIVOR_CAMPAIGN_RESULT_OUTPUT)"
+
+mutation-go-survivor-ci-result: mutation-go-survivor-run ## Emit the former survivor diagnostic as a passing CI result
+	$(GO_CMD) run ./sorna/cmd/sorna mutation verify "$(MUTATION_SURVIVOR_CAMPAIGN_RESULT_OUTPUT)" --format ci-result --source-root . --output "$(MUTATION_SURVIVOR_CAMPAIGN_CI_RESULT_OUTPUT)"
+
+mutation-go-survivor-ci-result-fresh: ## Run the survivor diagnostic in a fresh workspace
+	workspace=$$(mktemp -d /private/tmp/ingen-survivor-workspace.XXXXXX); \
+	trap 'printf "workspace: %s\\nartifact root: %s\\n" "$$workspace" "$$workspace/.artifacts"' EXIT; \
+	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
+	$(MAKE) -C "$$workspace" mutation-go-survivor-ci-result; status=$$?; \
+	exit $$status
 
 subject-defect-run: ## Run the status-200-create defect subject on DEFECT_ADDR
 	$(GO_CMD) run ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect -addr "$(DEFECT_ADDR)"

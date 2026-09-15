@@ -59,4 +59,27 @@ func TestRunRecordsExpectedFixtureOutcomes(t *testing.T) {
 	if len(document.Cases[0].FindingRules) != 0 || len(document.Cases[1].FindingRules) != 1 || document.Cases[1].FindingRules[0] != "domain-is-pure" {
 		t.Fatalf("unexpected finding rule IDs: %#v", document.Cases)
 	}
+	if err := document.Validate(); err != nil {
+		t.Fatalf("valid policy test result rejected: %v", err)
+	}
+}
+
+func TestDocumentValidateRejectsInconsistentEvidence(t *testing.T) {
+	document := policytest.Document{
+		Schema:   policytest.DocumentSchema,
+		Policy:   "policy.yaml",
+		Manifest: policytest.FileRef{Path: "tests.yaml", SHA256: strings.Repeat("a", 64)},
+		Status:   "PASS",
+		Passed:   0,
+		Cases: []policytest.CaseResult{{
+			Name:     "broken",
+			Root:     "/service",
+			Expected: "pass",
+			Actual:   "fail",
+			Status:   "PASS",
+		}},
+	}
+	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "counts do not match") {
+		t.Fatalf("inconsistent policy test result was accepted: %v", err)
+	}
 }

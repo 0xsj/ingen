@@ -57,6 +57,13 @@ func TestBuildCopiesMutatesAndBuildsFreshGoVariant(t *testing.T) {
 	if result.Provider.PlanSHA256 != strings.Repeat("e", 64) || len(result.Provider.Capabilities) != 1 || len(result.Provider.Entries) != 1 || len(result.Variants) != 1 {
 		t.Fatalf("result = %+v, want one provider capability, entry, and variant", result)
 	}
+	semanticHash, err := campaign.SemanticHash(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Provider.PlanSemanticSHA256 != semanticHash || result.Preparation.PlanSemanticSHA256 != semanticHash {
+		t.Fatalf("semantic plan identity provider=%q preparation=%q want %q", result.Provider.PlanSemanticSHA256, result.Preparation.PlanSemanticSHA256, semanticHash)
+	}
 	if result.Preparation.Schema != campaign.PreparationSummarySchema || len(result.Preparation.Variants) != 1 || len(result.Preparation.Variants[0].ChangedFiles) != 1 || result.Preparation.Variants[0].ChangedFiles[0] != "cmd/subject/mutation.marker" {
 		t.Fatalf("preparation = %+v, want one reviewable changed file", result.Preparation)
 	}

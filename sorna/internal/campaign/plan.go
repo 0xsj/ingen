@@ -221,7 +221,9 @@ func Validate(plan Plan) []string {
 	return problems
 }
 
-// WriteFile writes a canonical plan and returns its SHA-256 hash.
+// WriteFile writes a canonical plan and returns the exact SHA-256 hash of the
+// bytes written. Use SemanticHash when comparing plan meaning across baseline
+// executions.
 func WriteFile(path string, plan Plan) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("campaign plan output path must not be empty")
@@ -234,6 +236,23 @@ func WriteFile(path string, plan Plan) (string, error) {
 		return "", err
 	}
 	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		return "", err
+	}
+	return HashBytes(contents), nil
+}
+
+// SemanticHash returns the stable identity of a plan's reviewable meaning.
+// The selected baseline run ID is intentionally excluded because it is
+// generated for each execution. The exact plan hash still includes that ID,
+// and the serialized plan retains it for run-bound provenance.
+func SemanticHash(plan Plan) (string, error) {
+	if problems := Validate(plan); len(problems) > 0 {
+		return "", fmt.Errorf("invalid campaign plan: %s", strings.Join(problems, "; "))
+	}
+	semantic := plan
+	semantic.Baseline.RunID = ""
+	contents, err := encodeCanonicalJSON(semantic)
+	if err != nil {
 		return "", err
 	}
 	return HashBytes(contents), nil
@@ -282,6 +301,10 @@ func CanonicalJSON(plan Plan) ([]byte, error) {
 	if problems := Validate(plan); len(problems) > 0 {
 		return nil, fmt.Errorf("invalid campaign plan: %s", strings.Join(problems, "; "))
 	}
+	return encodeCanonicalJSON(plan)
+}
+
+func encodeCanonicalJSON(plan Plan) ([]byte, error) {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(false)
