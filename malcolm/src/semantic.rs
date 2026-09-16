@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::ast::{RequestClause, Specification};
+use crate::ast::{BodyField, Literal, RequestClause, Specification};
 
 /// Validate the meaning and completeness of a parsed specification.
 ///
@@ -210,9 +210,13 @@ fn validate_request(request: &RequestClause, path: &str, errors: &mut Vec<Valida
         ));
     }
 
+    validate_fields(&request.body, &format!("{path}.body"), errors);
+}
+
+fn validate_fields(fields: &[BodyField], path: &str, errors: &mut Vec<ValidationError>) {
     let mut field_names = HashSet::new();
-    for (field_index, field) in request.body.iter().enumerate() {
-        let field_path = format!("{path}.body[{field_index}]");
+    for (field_index, field) in fields.iter().enumerate() {
+        let field_path = format!("{path}[{field_index}]");
         if field.name.trim().is_empty() {
             errors.push(ValidationError::new(
                 format!("{field_path}.name"),
@@ -224,6 +228,19 @@ fn validate_request(request: &RequestClause, path: &str, errors: &mut Vec<Valida
                 format!("request body field {} is duplicated", field.name),
             ));
         }
+        validate_literal(&field.value, &format!("{field_path}.value"), errors);
+    }
+}
+
+fn validate_literal(literal: &Literal, path: &str, errors: &mut Vec<ValidationError>) {
+    match literal {
+        Literal::Object(fields) => validate_fields(fields, &format!("{path}.object"), errors),
+        Literal::Array(values) => {
+            for (index, value) in values.iter().enumerate() {
+                validate_literal(value, &format!("{path}.array[{index}]"), errors);
+            }
+        }
+        Literal::String(_) | Literal::Integer(_) | Literal::Boolean(_) => {}
     }
 }
 
@@ -253,7 +270,10 @@ impl std::error::Error for ValidationError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{parse, Requirement, RequirementKind, Scenario, Specification, WhenClause};
+    use crate::{
+        parse, BodyField, Literal, RequestClause, Requirement, RequirementKind, Scenario,
+        Specification, WhenClause,
+    };
 
     #[test]
     fn accepts_a_complete_parsed_specification() {
@@ -347,5 +367,49 @@ mod tests {
 
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].path, "scenarios");
+    }
+
+    #[test]
+    fn rejects_duplicate_nested_request_fields() {
+        let specification = Specification {
+            name: "demo".into(),
+            version: Some("v1".into()),
+            subject: None,
+            scenarios: vec![Scenario {
+                name: "create".into(),
+                given: Vec::new(),
+                state: None,
+                request: Some(RequestClause {
+                    body: vec![BodyField {
+                        name: "metadata".into(),
+                        value: Literal::Object(vec![
+                            BodyField {
+                                name: "source".into(),
+                                value: Literal::String("import".into()),
+                            },
+                            BodyField {
+                                name: "source".into(),
+                                value: Literal::String("duplicate".into()),
+                            },
+                        ]),
+                    }],
+                }),
+                when: Some(WhenClause {
+                    method: "POST".into(),
+                    path: "/documents".into(),
+                }),
+                setups: Vec::new(),
+                requirements: vec![Requirement {
+                    kind: RequirementKind::Must,
+                    expression: "response.status == 202".into(),
+                }],
+            }],
+        };
+
+        let errors = validate(&specification).expect_err("nested duplicate should fail");
+
+        assert!(errors
+            .iter()
+            .any(|error| error.path == "scenarios[0].request.body[0].value.object[1].name"));
     }
 }

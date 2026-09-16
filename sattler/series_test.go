@@ -28,7 +28,7 @@ func TestCompareSeriesManifestAggregatesOrderedBundles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(series.Entries) != 2 || series.Entries[0].ID != "one" || series.Entries[1].Label != "second attempt" {
+	if len(series.Entries) != 2 || series.Entries[0].ID != "one" || series.Entries[0].Latest || series.Entries[1].Label != "second attempt" || !series.Entries[1].Latest {
 		t.Fatalf("series entries = %+v, want ordered entries", series.Entries)
 	}
 	if series.Summary.Entries != 2 || series.Summary.Compatible != 2 || series.Summary.Incompatible != 0 {
@@ -42,7 +42,7 @@ func TestCompareSeriesManifestAggregatesOrderedBundles(t *testing.T) {
 	if err := WriteSeriesText(&output, series); err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{"Sattler comparison series", "changes by ID:", "verdict.status: 2", "transitions by subsystem:", "nublar_run: unchanged=0, changed=2, incompatible=0", "first attempt", "second attempt"} {
+	for _, fragment := range []string{"Sattler comparison series", "changes by ID:", "verdict.status: 2", "transitions by subsystem:", "nublar_run: unchanged=0, changed=2, incompatible=0", "first attempt", "two (second attempt) [latest]"} {
 		if !strings.Contains(output.String(), fragment) {
 			t.Fatalf("series text = %q, missing %q", output.String(), fragment)
 		}
@@ -67,6 +67,18 @@ func TestCompareSeriesManifestAggregatesTransitionsBySubsystem(t *testing.T) {
 	}
 	if transitions["nublar_run"].Unchanged != 1 || transitions["nublar_run"].Changed != 1 || transitions["nublar_run"].Incompatible != 0 {
 		t.Fatalf("Nublar transitions = %+v, want unchanged=1 and changed=1", transitions["nublar_run"])
+	}
+}
+
+func TestCompareSeriesManifestAggregatesWarningsByMessage(t *testing.T) {
+	points := []SeriesPoint{
+		{Summary: BundleSummary{Warnings: []string{"report unavailable", "report unavailable"}}},
+		{Summary: BundleSummary{Warnings: []string{"report unavailable", "another warning"}}},
+	}
+
+	warnings := summarizeSeriesWarnings(points)
+	if warnings["report unavailable"] != 3 || warnings["another warning"] != 1 {
+		t.Fatalf("warnings by message = %+v, want report=3 and another=1", warnings)
 	}
 }
 
@@ -213,6 +225,50 @@ func TestWriteSeriesSummaryOmitsPointEntries(t *testing.T) {
 	}
 	if strings.Contains(textOutput.String(), "  points:") || !strings.Contains(textOutput.String(), "Sattler comparison series summary") {
 		t.Fatalf("summary text = %q, want summary heading without points", textOutput.String())
+	}
+}
+
+func TestWriteSeriesLatestProjectsFinalPoint(t *testing.T) {
+	series := ComparisonSeries{
+		Manifest:       "series.json",
+		ChangeIDFilter: []string{"verdict.status"},
+		Entries: []SeriesPoint{
+			{ID: "one", Summary: BundleSummary{Compatible: true}},
+			{ID: "two", Label: "current", Latest: true, Summary: BundleSummary{
+				Compatible:    false,
+				ChangeSummary: ChangeSummary{Total: 1},
+			}},
+		},
+	}
+
+	point, ok := LatestSeriesPoint(series)
+	if !ok || point.ID != "two" || point.Label != "current" {
+		t.Fatalf("latest point = %+v, ok=%t, want final point", point, ok)
+	}
+
+	var jsonOutput bytes.Buffer
+	if err := WriteSeriesLatestJSON(&jsonOutput, series); err != nil {
+		t.Fatal(err)
+	}
+	var document SeriesLatestReport
+	if err := json.Unmarshal(jsonOutput.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Schema != comparisonSeriesLatestSchema || document.Point.ID != "two" || len(document.ChangeIDFilter) != 1 {
+		t.Fatalf("latest document = %+v, want final point projection", document)
+	}
+	if strings.Contains(jsonOutput.String(), `"entries": [`) {
+		t.Fatalf("latest JSON = %q, unexpectedly contains series entries", jsonOutput.String())
+	}
+
+	var textOutput bytes.Buffer
+	if err := WriteSeriesLatestText(&textOutput, series); err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{"Sattler latest comparison point", "id: two", "label: current", "change ID filter: verdict.status"} {
+		if !strings.Contains(textOutput.String(), fragment) {
+			t.Fatalf("latest text = %q, missing %q", textOutput.String(), fragment)
+		}
 	}
 }
 

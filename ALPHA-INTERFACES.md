@@ -122,6 +122,10 @@ These are the important guarantees of the current slice:
     manifest from that rooted namespace, and records its path relative to that
     root; the caller's working directory cannot substitute the receipt's
     workspace bytes.
+24. Sentinel artifact registration accepts the same supplied project root and
+    hashes the referenced file from that namespace before publishing the
+    receipt update; an artifact path is never implicitly resolved from the
+    caller's working directory.
 
 ## What is deliberately not frozen
 

@@ -303,6 +303,7 @@ func seriesCompareCommand(args []string) int {
 	format := flags.String("format", "text", "output format: text or json")
 	output := flags.String("output", "", "output path; stdout when empty")
 	summaryOnly := flags.Bool("summary-only", false, "emit aggregate series summary without points")
+	latestOnly := flags.Bool("latest-only", false, "emit only the final ordered series point")
 	var changeIDs stringListFlag
 	flags.Var(&changeIDs, "change-id", "include only this stable change ID; repeatable or comma-separated")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -314,6 +315,10 @@ func seriesCompareCommand(args []string) int {
 	}
 	if *format != "text" && *format != "json" {
 		fmt.Fprintln(os.Stderr, "--format must be text or json")
+		return 2
+	}
+	if *summaryOnly && *latestOnly {
+		fmt.Fprintln(os.Stderr, "--summary-only and --latest-only cannot be used together")
 		return 2
 	}
 
@@ -333,7 +338,11 @@ func seriesCompareCommand(args []string) int {
 		writer = file
 	}
 
-	if *summaryOnly && *format == "json" {
+	if *latestOnly && *format == "json" {
+		err = sattler.WriteSeriesLatestJSON(writer, series)
+	} else if *latestOnly {
+		err = sattler.WriteSeriesLatestText(writer, series)
+	} else if *summaryOnly && *format == "json" {
 		err = sattler.WriteSeriesSummaryJSON(writer, series)
 	} else if *summaryOnly {
 		err = sattler.WriteSeriesSummaryText(writer, series)
@@ -381,5 +390,5 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       sattler custody compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
 	fmt.Fprintln(os.Stderr, "       sattler provenance compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
 	fmt.Fprintln(os.Stderr, "       sattler bundle compare [--format text|json] [--summary-only] [--change-id id] [--output path] MANIFEST")
-	fmt.Fprintln(os.Stderr, "       sattler series compare [--format text|json] [--summary-only] [--change-id id] [--output path] MANIFEST")
+	fmt.Fprintln(os.Stderr, "       sattler series compare [--format text|json] [--summary-only|--latest-only] [--change-id id] [--output path] MANIFEST")
 }

@@ -32,8 +32,9 @@ or summarizing their meaning.
 - Workspace bootstrap and file-artifact registration reject symlink-resolved
   paths outside the supplied project root. Bootstrap accepts `--root` and
   records the workspace manifest path relative to that root; later rooted
-  audits recheck the references before terminal emission. The CLI registration
-  path preserves the receipt bytes when this check rejects an update.
+  audits recheck the references before terminal emission. The artifact CLI also
+  accepts `--root`, and its locked registration path preserves the receipt
+  bytes when a rooted check rejects an update.
 - Sorna completion artifacts discovered by the verifier adapter are stored as
   paths relative to the supplied project root and hashed by a rooted read;
   this remains correct when the caller supplies an absolute root outside its
@@ -54,6 +55,15 @@ make sentinel-run-bootstrap
 
 This produces `.artifacts/sentinel-webhook-run.json`, a validated
 `ingen.sentinel-run/v1` receipt with the workspace manifest's exact SHA-256.
+
+The artifact command uses the same root when registering a produced file:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel run artifact \
+  --receipt /path/to/project/.artifacts/sentinel-webhook-run.json \
+  --root /path/to/project --id verifier-run --role verifier --kind sorna-run \
+  --path .artifacts/sentinel-webhook-verifier/run.json
+```
 
 For a project outside the caller's working directory, use the same root
 namespace as the later adapter handoff:

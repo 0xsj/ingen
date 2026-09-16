@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"ingen/paddock/internal/adapterprofile"
 	"ingen/paddock/internal/graph"
 )
 
@@ -28,6 +29,7 @@ type Manifest struct {
 }
 
 type Adapter struct {
+	Profile    string   `yaml:"profile,omitempty" json:"profile,omitempty"`
 	Executable string   `yaml:"executable" json:"executable"`
 	Args       []string `yaml:"args,omitempty" json:"args,omitempty"`
 }
@@ -55,6 +57,7 @@ type Document struct {
 	Schema   string       `json:"schema"`
 	Manifest FileRef      `json:"manifest"`
 	Adapter  Adapter      `json:"adapter"`
+	Profile  *FileRef     `json:"profile,omitempty"`
 	Status   string       `json:"status"`
 	Passed   int          `json:"passed"`
 	Failed   int          `json:"failed"`
@@ -119,8 +122,13 @@ func (m Manifest) Validate() error {
 	if m.Schema != ManifestSchema {
 		return fmt.Errorf("adapter test manifest schema must be %s, got %q", ManifestSchema, m.Schema)
 	}
-	if strings.TrimSpace(m.Adapter.Executable) == "" {
-		return fmt.Errorf("adapter test manifest adapter executable is required")
+	hasProfile := strings.TrimSpace(m.Adapter.Profile) != ""
+	hasExecutable := strings.TrimSpace(m.Adapter.Executable) != ""
+	if hasProfile == hasExecutable {
+		return fmt.Errorf("adapter test manifest adapter requires exactly one of profile or executable")
+	}
+	if hasProfile && len(m.Adapter.Args) > 0 {
+		return fmt.Errorf("adapter test manifest adapter args cannot be combined with a profile")
 	}
 	if len(m.Cases) == 0 {
 		return fmt.Errorf("adapter test manifest cases must not be empty")
@@ -147,6 +155,9 @@ func (m Manifest) Validate() error {
 		}
 		if testCase.ErrorContains != "" && testCase.Expect != "error" {
 			return fmt.Errorf("adapter test case %q error_contains requires expect error", testCase.Name)
+		}
+		if hasProfile && len(testCase.Args) > 0 {
+			return fmt.Errorf("adapter test case %q args cannot be combined with an adapter profile", testCase.Name)
 		}
 		if err := validateStringList(testCase.Name, "roots", testCase.Roots); err != nil {
 			return err
@@ -192,10 +203,37 @@ func Run(manifestPath string) (Document, error) {
 		return Document{}, err
 	}
 	base := filepath.Dir(absoluteManifestPath)
+	var loadedProfile adapterprofile.Profile
+	var profileRef *FileRef
+	if manifest.Adapter.Profile != "" {
+		profilePath := manifest.Adapter.Profile
+		if !filepath.IsAbs(profilePath) {
+			profilePath = filepath.Join(base, profilePath)
+		}
+		profilePath, err = filepath.Abs(profilePath)
+		if err != nil {
+			return Document{}, fmt.Errorf("resolve adapter test profile: %w", err)
+		}
+		loadedProfile, err = adapterprofile.Load(profilePath)
+		if err != nil {
+			return Document{}, err
+		}
+		ref, refErr := fileRef(profilePath)
+		if refErr != nil {
+			return Document{}, refErr
+		}
+		profileRef = &ref
+	}
+	resultAdapter := manifest.Adapter
+	if profileRef != nil {
+		resultAdapter.Executable = loadedProfile.Executable
+		resultAdapter.Args = append([]string(nil), loadedProfile.Args...)
+	}
 	document := Document{
 		Schema:   DocumentSchema,
 		Manifest: manifestRef,
-		Adapter:  manifest.Adapter,
+		Adapter:  resultAdapter,
+		Profile:  profileRef,
 		Status:   "PASS",
 		Cases:    make([]CaseResult, 0, len(manifest.Cases)),
 	}
@@ -208,12 +246,21 @@ func Run(manifestPath string) (Document, error) {
 		if err != nil {
 			return Document{}, fmt.Errorf("resolve adapter test case %q root: %w", testCase.Name, err)
 		}
-		args := manifest.Adapter.Args
-		if len(testCase.Args) > 0 {
-			args = testCase.Args
+		var executable string
+		var args []string
+		if profileRef != nil {
+			executable, args, err = loadedProfile.Resolve(root)
+			if err != nil {
+				return Document{}, fmt.Errorf("resolve adapter test case %q profile: %w", testCase.Name, err)
+			}
+		} else {
+			args = manifest.Adapter.Args
+			if len(testCase.Args) > 0 {
+				args = testCase.Args
+			}
+			args = expandArgs(args, root, base)
+			executable = resolveExecutable(manifest.Adapter.Executable, base)
 		}
-		args = expandArgs(args, root, base)
-		executable := resolveExecutable(manifest.Adapter.Executable, base)
 		requiredCapabilities := graph.Capabilities{
 			EdgeKinds: append([]string(nil), testCase.RequiredEdgeKinds...),
 		}
@@ -361,8 +408,14 @@ func (d Document) Validate() error {
 	if d.Manifest.Path == "" || !isSHA256(d.Manifest.SHA256) {
 		return fmt.Errorf("adapter test result manifest must include a path and SHA-256 digest")
 	}
+	if d.Profile != nil && (d.Profile.Path == "" || !isSHA256(d.Profile.SHA256)) {
+		return fmt.Errorf("adapter test result profile must include a path and SHA-256 digest")
+	}
 	if strings.TrimSpace(d.Adapter.Executable) == "" {
 		return fmt.Errorf("adapter test result adapter executable is required")
+	}
+	if d.Adapter.Profile != "" && d.Profile == nil {
+		return fmt.Errorf("adapter test result profile reference is required when adapter profile is set")
 	}
 	if d.Status != "PASS" && d.Status != "FAIL" {
 		return fmt.Errorf("adapter test result has unsupported status %q", d.Status)

@@ -1030,7 +1030,7 @@ func TestCLIExternalRustUseAdapter(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &adapterResult); err != nil {
 		t.Fatalf("decode Rust use adapter test result: %v\n%s", err, output)
 	}
-	if adapterResult.Status != "PASS" || adapterResult.Passed != 3 || adapterResult.Failed != 0 || len(adapterResult.Cases) != 3 || adapterResult.Cases[2].ErrorCode != "process-failure" {
+	if adapterResult.Status != "PASS" || adapterResult.Passed != 3 || adapterResult.Failed != 0 || len(adapterResult.Cases) != 3 || adapterResult.Cases[2].ErrorCode != "process-failure" || adapterResult.Adapter.Profile != "rust-use-adapter.yaml" || adapterResult.Profile == nil || adapterResult.Profile.Path != profilePath || adapterResult.Profile.SHA256 == "" {
 		t.Fatalf("unexpected Rust use adapter test result: %#v", adapterResult)
 	}
 
@@ -2703,7 +2703,7 @@ func TestPortableCIWorkflowWithRustAdapter(t *testing.T) {
 		t.Fatalf("Rust adapter conformance result is invalid: err=%v document=%#v", err, adapterTestDocument)
 	}
 	adapterCIResult, err := ciresult.LoadFile(adapterCIResultPath)
-	if err != nil || adapterCIResult.Kind != "adapter-conformance" || adapterCIResult.Status != "passed" {
+	if err != nil || adapterCIResult.Kind != "adapter-conformance" || adapterCIResult.Status != "passed" || adapterCIResult.Inputs["adapter_profile"].Path != profilePath || adapterCIResult.Inputs["adapter_profile"].SHA256 == "" {
 		t.Fatalf("Rust adapter conformance CI result is invalid: err=%v artifact=%#v", err, adapterCIResult)
 	}
 

@@ -74,7 +74,7 @@ func (s *FileMembershipVersionStore) Accept(snapshot governance.MembershipSnapsh
 	defer unlock()
 
 	path := s.pathFor(snapshot.Reference.ID)
-	current, err := s.read(path)
+	current, err := s.read(path, snapshot.Reference.ID)
 	if err != nil && !errors.Is(err, ErrMembershipVersionNotFound) {
 		return err
 	}
@@ -104,7 +104,7 @@ func (s *FileMembershipVersionStore) Current(id string) (governance.MembershipRe
 		return governance.MembershipReference{}, err
 	}
 	defer unlock()
-	return s.read(s.pathFor(id))
+	return s.read(s.pathFor(id), id)
 }
 
 func (s *FileMembershipVersionStore) pathFor(id string) string {
@@ -112,7 +112,7 @@ func (s *FileMembershipVersionStore) pathFor(id string) string {
 	return filepath.Join(s.root, hex.EncodeToString(digest[:])+".json")
 }
 
-func (s *FileMembershipVersionStore) read(path string) (governance.MembershipReference, error) {
+func (s *FileMembershipVersionStore) read(path, expectedID string) (governance.MembershipReference, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -135,6 +135,9 @@ func (s *FileMembershipVersionStore) read(path string) (governance.MembershipRef
 	}
 	if err := validateMembershipVersionDocument(document); err != nil {
 		return governance.MembershipReference{}, err
+	}
+	if document.ID != expectedID {
+		return governance.MembershipReference{}, fmt.Errorf("Hammond membership version id does not match its ledger path")
 	}
 	return governance.MembershipReference{
 		ID:       document.ID,

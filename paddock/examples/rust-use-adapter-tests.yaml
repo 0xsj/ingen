@@ -1,11 +1,7 @@
 schema: paddock.adapter-tests/v1
 
 adapter:
-  executable: python3
-  args:
-    - "{{manifest_dir}}/adapter/rust-use-adapter.py"
-    - --workspace
-    - "{{root}}"
+  profile: rust-use-adapter.yaml
 
 cases:
   - name: rust-hexagonal-good

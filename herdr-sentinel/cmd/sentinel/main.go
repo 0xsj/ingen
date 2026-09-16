@@ -653,6 +653,7 @@ func artifactRunCommand(args []string) int {
 	flags := flag.NewFlagSet("sentinel run artifact", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	receiptPath := flags.String("receipt", "", "path to the Sentinel lifecycle receipt")
+	root := flags.String("root", ".", "project root containing the artifact file")
 	id := flags.String("id", "", "stable artifact ID")
 	role := flags.String("role", "", "role that produced the artifact")
 	kind := flags.String("kind", "", "producer-owned artifact kind")
@@ -667,7 +668,7 @@ func artifactRunCommand(args []string) int {
 	}
 	if *outputPath == "" {
 		changed, err := sentinelrun.UpdateFile(*receiptPath, func(receipt *sentinelrun.Receipt) (bool, error) {
-			return receipt.RegisterFileArtifact(*id, *role, *kind, *artifactPath)
+			return receipt.RegisterFileArtifactUnderRoot(*id, *role, *kind, *root, *artifactPath)
 		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -682,7 +683,7 @@ func artifactRunCommand(args []string) int {
 	}
 	if samePath(*receiptPath, *outputPath) {
 		changed, err := sentinelrun.UpdateFile(*receiptPath, func(receipt *sentinelrun.Receipt) (bool, error) {
-			return receipt.RegisterFileArtifact(*id, *role, *kind, *artifactPath)
+			return receipt.RegisterFileArtifactUnderRoot(*id, *role, *kind, *root, *artifactPath)
 		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -700,7 +701,7 @@ func artifactRunCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	changed, err := receipt.RegisterFileArtifact(*id, *role, *kind, *artifactPath)
+	changed, err := receipt.RegisterFileArtifactUnderRoot(*id, *role, *kind, *root, *artifactPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -866,6 +867,6 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       sentinel run bootstrap --workspace <path> [--root <dir>] --output <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel run ci-result --receipt <path> [--source-root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel run audit --receipt <path> [--root <dir>] [--output <path>]")
-	fmt.Fprintln(os.Stderr, "       sentinel run artifact --receipt <path> --id <id> --role <role> --kind <kind> --path <path> [--output <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel run artifact --receipt <path> [--root <dir>] --id <id> --role <role> --kind <kind> --path <path> [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel run report --receipt <path> [--root <dir>] [--output <path>]")
 }

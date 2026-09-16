@@ -98,6 +98,17 @@ func TestSeriesCompareCommandSummaryOnly(t *testing.T) {
 	if document.Schema != "ingen.sattler-comparison-series-summary/v0" || document.Summary.Entries != 1 || strings.Contains(stdout, `"entries": [`) {
 		t.Fatalf("summary document = %+v, want one point-free series summary", document)
 	}
+
+	stdout = captureStdout(t, func() int {
+		return seriesCompareCommand([]string{"compare", "--latest-only", "--format", "json", seriesPath})
+	})
+	var latest sattler.SeriesLatestReport
+	if err := json.Unmarshal([]byte(stdout), &latest); err != nil {
+		t.Fatalf("latest stdout = %q, decode error = %v", stdout, err)
+	}
+	if latest.Schema != "ingen.sattler-comparison-series-latest/v0" || latest.Point.ID != "one" {
+		t.Fatalf("latest document = %+v, want final point projection", latest)
+	}
 }
 
 func captureStderr(t *testing.T, run func() int) string {

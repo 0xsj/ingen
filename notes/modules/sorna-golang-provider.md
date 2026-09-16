@@ -24,8 +24,8 @@ For the document lab, the operators are deliberately narrow:
   callback finds the `createDocument` function and changes the
   `http.StatusAccepted` selector to `http.StatusOK` using `go/ast`.
 - `response.field.remove` at `POST /documents`, removing the `name` key from
-  the successful response map. The callback resolves the exact `writeJSON`
-  response literal and removes one matching key.
+  the successful response map. The callback resolves the exact `writeJSON` or
+  `writeJSONWithEvents` response literal and removes one matching key.
 
 Both operators require exactly one matching AST target. An ambiguous or
 missing source shape is a preparation error instead of silently producing an

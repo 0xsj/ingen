@@ -16,6 +16,7 @@ const ComparisonSeriesManifestSchema = "ingen.sattler-comparison-series-input/v0
 
 const comparisonSeriesSchema = "ingen.sattler-comparison-series/v0"
 const comparisonSeriesSummarySchema = "ingen.sattler-comparison-series-summary/v0"
+const comparisonSeriesLatestSchema = "ingen.sattler-comparison-series-latest/v0"
 
 // ComparisonSeriesEntry names one bundle comparison in a series.
 type ComparisonSeriesEntry struct {
@@ -34,6 +35,7 @@ type ComparisonSeriesManifest struct {
 type SeriesPoint struct {
 	ID                string              `json:"id"`
 	Label             string              `json:"label,omitempty"`
+	Latest            bool                `json:"latest,omitempty"`
 	Manifest          string              `json:"manifest"`
 	Summary           BundleSummary       `json:"summary"`
 	Correlations      []BundleCorrelation `json:"correlations,omitempty"`
@@ -68,6 +70,7 @@ type SeriesSummary struct {
 	MutationChangesByID    map[string]int                    `json:"mutation_changes_by_id,omitempty"`
 	CorrelationSummary     SeriesCorrelationSummary          `json:"correlations"`
 	TransitionsBySubsystem map[string]SeriesTransitionCounts `json:"transitions_by_subsystem,omitempty"`
+	WarningsByMessage      map[string]int                    `json:"warnings_by_message,omitempty"`
 }
 
 // ComparisonSeries is a deterministic history projection over bundle
@@ -88,6 +91,14 @@ type SeriesSummaryReport struct {
 	Summary        SeriesSummary `json:"summary"`
 }
 
+// SeriesLatestReport is the compact projection of the final ordered point.
+type SeriesLatestReport struct {
+	Schema         string      `json:"schema"`
+	Manifest       string      `json:"manifest,omitempty"`
+	ChangeIDFilter []string    `json:"change_id_filter,omitempty"`
+	Point          SeriesPoint `json:"point"`
+}
+
 // NewSeriesSummaryReport projects a full series without its ordered points.
 func NewSeriesSummaryReport(series ComparisonSeries) SeriesSummaryReport {
 	return SeriesSummaryReport{
@@ -96,6 +107,29 @@ func NewSeriesSummaryReport(series ComparisonSeries) SeriesSummaryReport {
 		ChangeIDFilter: append([]string(nil), series.ChangeIDFilter...),
 		Summary:        series.Summary,
 	}
+}
+
+// LatestSeriesPoint returns the final point in the ordered history.
+func LatestSeriesPoint(series ComparisonSeries) (SeriesPoint, bool) {
+	if len(series.Entries) == 0 {
+		return SeriesPoint{}, false
+	}
+	return series.Entries[len(series.Entries)-1], true
+}
+
+// NewSeriesLatestReport projects the final point without the other history
+// entries.
+func NewSeriesLatestReport(series ComparisonSeries) (SeriesLatestReport, error) {
+	point, ok := LatestSeriesPoint(series)
+	if !ok {
+		return SeriesLatestReport{}, fmt.Errorf("comparison series has no points")
+	}
+	return SeriesLatestReport{
+		Schema:         comparisonSeriesLatestSchema,
+		Manifest:       series.Manifest,
+		ChangeIDFilter: append([]string(nil), series.ChangeIDFilter...),
+		Point:          point,
+	}, nil
 }
 
 // CompareSeriesManifestFile loads and aggregates the ordered bundle
@@ -131,6 +165,7 @@ func CompareSeriesManifestFileWithChanges(seriesPath string, ids []string) (Comp
 		point := SeriesPoint{
 			ID:                entry.ID,
 			Label:             entry.Label,
+			Latest:            len(series.Entries) == len(manifest.Entries)-1,
 			Manifest:          bundlePath,
 			Summary:           bundle.Summary,
 			Correlations:      append([]BundleCorrelation(nil), bundle.Correlations...),
@@ -159,6 +194,7 @@ func CompareSeriesManifestFileWithChanges(seriesPath string, ids []string) (Comp
 	}
 	series.Summary.CorrelationSummary = summarizeSeriesCorrelations(series.Entries)
 	series.Summary.TransitionsBySubsystem = summarizeSeriesTransitions(series.Entries)
+	series.Summary.WarningsByMessage = summarizeSeriesWarnings(series.Entries)
 	return series, nil
 }
 
@@ -175,6 +211,17 @@ func WriteSeriesSummaryJSON(w io.Writer, series ComparisonSeries) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(NewSeriesSummaryReport(series))
+}
+
+// WriteSeriesLatestJSON writes the machine-readable final-point projection.
+func WriteSeriesLatestJSON(w io.Writer, series ComparisonSeries) error {
+	report, err := NewSeriesLatestReport(series)
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(report)
 }
 
 // WriteSeriesText writes a compact operator-oriented history projection.
@@ -197,6 +244,9 @@ func WriteSeriesText(w io.Writer, series ComparisonSeries) error {
 		label := point.ID
 		if point.Label != "" {
 			label += " (" + point.Label + ")"
+		}
+		if point.Latest {
+			label += " [latest]"
 		}
 		mutationChanges := ""
 		if len(point.MutationChangeIDs) > 0 {
@@ -231,6 +281,44 @@ func WriteSeriesSummaryText(w io.Writer, series ComparisonSeries) error {
 		}
 	}
 	return writeSeriesSummaryDetails(w, series.Summary)
+}
+
+// WriteSeriesLatestText writes the compact operator-oriented final-point
+// projection.
+func WriteSeriesLatestText(w io.Writer, series ComparisonSeries) error {
+	report, err := NewSeriesLatestReport(series)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "Sattler latest comparison point\n  manifest: %s\n  id: %s\n  compatible: %t\n  changes: %s\n", report.Manifest, report.Point.ID, report.Point.Summary.Compatible, report.Point.Summary.ChangeSummary); err != nil {
+		return err
+	}
+	if report.Point.Label != "" {
+		if _, err := fmt.Fprintf(w, "  label: %s\n", report.Point.Label); err != nil {
+			return err
+		}
+	}
+	if len(report.ChangeIDFilter) > 0 {
+		if _, err := fmt.Fprintf(w, "  change ID filter: %s\n", strings.Join(report.ChangeIDFilter, ", ")); err != nil {
+			return err
+		}
+	}
+	if len(report.Point.MutationChangeIDs) > 0 {
+		if _, err := fmt.Fprintf(w, "  mutation changes: %s\n", strings.Join(report.Point.MutationChangeIDs, ",")); err != nil {
+			return err
+		}
+	}
+	if len(report.Point.Correlations) > 0 {
+		if _, err := fmt.Fprintln(w, "  correlations:"); err != nil {
+			return err
+		}
+		for _, correlation := range report.Point.Correlations {
+			if err := writeBundleCorrelationTextIndented(w, "    ", correlation); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func writeSeriesSummaryDetails(w io.Writer, summary SeriesSummary) error {
@@ -286,6 +374,16 @@ func writeSeriesSummaryDetails(w io.Writer, summary SeriesSummary) error {
 		for _, subsystem := range sortedTransitionSubsystems(summary.TransitionsBySubsystem) {
 			counts := summary.TransitionsBySubsystem[subsystem]
 			if _, err := fmt.Fprintf(w, "    - %s: unchanged=%d, changed=%d, incompatible=%d\n", subsystem, counts.Unchanged, counts.Changed, counts.Incompatible); err != nil {
+				return err
+			}
+		}
+	}
+	if len(summary.WarningsByMessage) > 0 {
+		if _, err := fmt.Fprintln(w, "  warnings by message:"); err != nil {
+			return err
+		}
+		for _, warning := range sortedCounts(summary.WarningsByMessage) {
+			if _, err := fmt.Fprintf(w, "    - %s: %d\n", warning, summary.WarningsByMessage[warning]); err != nil {
 				return err
 			}
 		}
@@ -354,6 +452,21 @@ func summarizeSeriesTransitions(points []SeriesPoint) map[string]SeriesTransitio
 		return nil
 	}
 	return transitions
+}
+
+func summarizeSeriesWarnings(points []SeriesPoint) map[string]int {
+	warnings := make(map[string]int)
+	for _, point := range points {
+		for _, warning := range point.Summary.Warnings {
+			if strings.TrimSpace(warning) != "" {
+				warnings[warning]++
+			}
+		}
+	}
+	if len(warnings) == 0 {
+		return nil
+	}
+	return warnings
 }
 
 func loadComparisonSeriesManifest(path string) (ComparisonSeriesManifest, error) {

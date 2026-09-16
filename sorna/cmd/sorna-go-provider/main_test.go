@@ -49,6 +49,47 @@ func createDocument(w http.ResponseWriter) {
 	}
 }
 
+func TestMutateDocumentPipelineSupportsEventAwareCreateResponse(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "examples", "document-pipeline-lab", "subject")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := `package documentpipeline
+
+import "net/http"
+
+func createDocument(w http.ResponseWriter) {
+	writeJSONWithEvents(w, http.StatusAccepted, map[string]string{"id": "doc-1", "name": "welcome.md", "status": "queued"}, "document.accepted")
+}
+`
+	if err := os.WriteFile(filepath.Join(path, "server.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	statusProvenance, err := mutateDocumentPipeline(root, mutation.Spec{
+		ID: "status-200-create", Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents",
+		Change: map[string]any{"from": 202, "to": 200},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statusProvenance.TargetResolution == nil || statusProvenance.TargetResolution.CandidateCount != 1 || statusProvenance.TargetResolution.AppliedCount != 1 {
+		t.Fatalf("status target resolution = %+v, want exactly one candidate and applied target", statusProvenance.TargetResolution)
+	}
+	if !strings.Contains(statusProvenance.Location, "writeJSONWithEvents.status") {
+		t.Fatalf("status provenance location = %q, want event-aware writer", statusProvenance.Location)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(path, "server.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "writeJSONWithEvents(w, http.StatusOK") || strings.Contains(string(contents), "http.StatusAccepted") {
+		t.Fatalf("mutated event-aware source = %s, want accepted status replaced", contents)
+	}
+}
+
 func TestMutateDocumentPipelineRejectsUnsupportedChange(t *testing.T) {
 	_, err := mutateDocumentPipeline(t.TempDir(), mutation.Spec{
 		ID: "unsupported", Plane: "implementation", Operator: "response.status.replace", Target: "POST /documents",

@@ -229,6 +229,31 @@ func validateRequest(request *Request, path string, problems *[]string) {
 		if strings.TrimSpace(name) == "" {
 			*problems = append(*problems, path+".body field names must be non-empty")
 		}
+		validateBodyValue(request.Body[name], path+".body."+name, problems)
+	}
+}
+
+func validateBodyValue(value any, path string, problems *[]string) {
+	switch value := value.(type) {
+	case string, bool, int, int64:
+		return
+	case json.Number:
+		if _, err := strconv.ParseInt(string(value), 10, 64); err != nil {
+			*problems = append(*problems, path+" must be an integer")
+		}
+	case map[string]any:
+		for name, child := range value {
+			if strings.TrimSpace(name) == "" {
+				*problems = append(*problems, path+" field names must be non-empty")
+			}
+			validateBodyValue(child, path+"."+name, problems)
+		}
+	case []any:
+		for index, child := range value {
+			validateBodyValue(child, fmt.Sprintf("%s[%d]", path, index), problems)
+		}
+	default:
+		*problems = append(*problems, path+" must be a string, integer, boolean, object, or array")
 	}
 }
 

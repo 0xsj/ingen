@@ -61,7 +61,7 @@ lockwood/
 
 ```text
 lockwood/
-├── cmd/lockwood/                 # put, imports/provenance intake, signed handling events/provenance, provenance discovery, get, inspect, lineage-status, handling events/status/guard, redaction status/registration/promotion, verify, find, recover, reconcile
+├── cmd/lockwood/                 # put, imports/provenance intake, signed handling events/provenance, provenance discovery/inspection, get, inspect, lineage-status, handling events/status/guard, redaction status/registration/promotion, verify, find, recover, reconcile
 ├── internal/
 │   ├── artifact/                 # SHA-256 references
 │   ├── store/                    # filesystem and in-memory blobs, inventories, reference manifests

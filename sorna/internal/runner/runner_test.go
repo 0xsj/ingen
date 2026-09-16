@@ -242,6 +242,51 @@ func TestExecuteUsesOnlyTheHTTPBoundaryAndExecutesStateSetup(t *testing.T) {
 	}
 }
 
+func TestExecuteSendsNestedRequestBodyValues(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		metadata := body["metadata"].(map[string]any)
+		if metadata["source"] != "malcolm" || metadata["priority"] != float64(2) || metadata["reviewed"] != true {
+			t.Fatalf("metadata = %#v", metadata)
+		}
+		tags := body["tags"].([]any)
+		if len(tags) != 2 || tags[0] != "docs" || tags[1] != "contract" {
+			t.Fatalf("tags = %#v", tags)
+		}
+		return responseFor(r, 202, "{\"status\":\"queued\"}"), nil
+	})}
+
+	sealed := sealForTest(t, []any{map[string]any{
+		"id":       "document.create.nested",
+		"strength": "must",
+		"subject":  "POST /documents",
+		"given": map[string]any{
+			"body": map[string]any{
+				"metadata": map[string]any{
+					"source":   "malcolm",
+					"priority": int64(2),
+					"reviewed": true,
+				},
+				"tags": []any{"docs", "contract"},
+			},
+		},
+		"expect": map[string]any{"status": int64(202)},
+	}})
+	record, err := Execute(context.Background(), sealed, Config{
+		BaseURL: "http://subject.invalid",
+		Client:  client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Summary.Passed != 1 || record.Rules[0].Status != "pass" {
+		t.Fatalf("record = %+v, want one passing nested-body rule", record)
+	}
+}
+
 func TestExecuteTreatsNegativeSetupExpectationAsPrecondition(t *testing.T) {
 	tests := []struct {
 		name          string

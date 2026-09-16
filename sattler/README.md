@@ -127,6 +127,7 @@ go run ./sattler/cmd/sattler bundle compare --summary-only --format json compari
 go run ./sattler/cmd/sattler bundle compare --change-id verdict.status comparison.json
 go run ./sattler/cmd/sattler series compare series.json
 go run ./sattler/cmd/sattler series compare --summary-only --format json series.json
+go run ./sattler/cmd/sattler series compare --latest-only series.json
 go run ./sattler/cmd/sattler series compare --change-id verdict.status series.json
 ```
 
@@ -221,6 +222,8 @@ An ordered history can aggregate existing bundle manifests:
 `ingen.sattler-comparison-series/v0` with compatible/incompatible counts,
 aggregate change totals, and `changes_by_id` frequencies. It does not infer a
 trend direction or causation.
+The final ordered point is marked `latest: true` in JSON and `[latest]` in text
+so consumers can identify the current endpoint without reinterpreting order.
 For Sorna mutation campaigns, each point also exposes the changed mutation IDs
 and the series aggregates them as `mutation_changes_by_id`; these are kept
 separate from boundary `changes_by_id` because they remain producer-owned
@@ -232,12 +235,18 @@ by correlation kind and relation; `unknown` remains an explicit observation.
 It also aggregates adapter transition classifications under
 `transitions_by_subsystem`, preserving the neutral `unchanged`, `changed`, and
 `incompatible` states.
+Recurring non-fatal detail gaps are counted under `warnings_by_message`; these
+warnings remain evidence-completeness observations, not verdict changes.
 Series filters use the same stable IDs and are recorded in
 `change_id_filter`.
 
 Use `series compare --summary-only` to emit the compact
 `ingen.sattler-comparison-series-summary/v0` projection containing aggregate
 history counts without the ordered point entries.
+Use `series compare --latest-only` to emit the final ordered point as
+`ingen.sattler-comparison-series-latest/v0`; this is a retrieval projection,
+not a new verdict or trend classification. The two projection flags are
+mutually exclusive.
 
 Manifests are validated before any artifact is opened. Wrong schemas,
 incomplete pairs, and empty manifests produce stable issue codes such as

@@ -20,6 +20,8 @@ spec document_flow v2 {
       given body {
         name = "welcome.md"
         content = "Read the contract."
+        metadata = {"source": "malcolm", "priority": 2, "reviewed": true}
+        tags = ["docs", "contract"]
       }
       when POST "/documents"
       must response.status == 202

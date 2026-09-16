@@ -278,8 +278,14 @@ fn write_setup(json: &mut String, setup: &SetupIr) {
 }
 
 fn write_request(json: &mut String, request: &RequestIr) {
-    json.push_str("{\"body\":{");
-    for (index, field) in request.body.iter().enumerate() {
+    json.push_str("{\"body\":");
+    write_ir_object(json, &request.body);
+    json.push('}');
+}
+
+fn write_ir_object(json: &mut String, fields: &[BodyFieldIr]) {
+    json.push('{');
+    for (index, field) in fields.iter().enumerate() {
         if index > 0 {
             json.push(',');
         }
@@ -287,7 +293,20 @@ fn write_request(json: &mut String, request: &RequestIr) {
         json.push(':');
         write_literal(json, &field.value);
     }
-    json.push_str("}}");
+    json.push('}');
+}
+
+fn write_ast_object(json: &mut String, fields: &[crate::ast::BodyField]) {
+    json.push('{');
+    for (index, field) in fields.iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        write_json_string(json, &field.name);
+        json.push(':');
+        write_literal(json, &field.value);
+    }
+    json.push('}');
 }
 
 fn write_literal(json: &mut String, value: &Literal) {
@@ -295,6 +314,17 @@ fn write_literal(json: &mut String, value: &Literal) {
         Literal::String(value) => write_json_string(json, value),
         Literal::Integer(value) => json.push_str(&value.to_string()),
         Literal::Boolean(value) => json.push_str(if *value { "true" } else { "false" }),
+        Literal::Object(fields) => write_ast_object(json, fields),
+        Literal::Array(values) => {
+            json.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    json.push(',');
+                }
+                write_literal(json, value);
+            }
+            json.push(']');
+        }
     }
 }
 
@@ -446,6 +476,33 @@ mod tests {
             json,
             r#"{"schema":"malcolm.ir/v1","specification":{"name":"document_flow","version":"v2","subject":null,"scenarios":[{"name":"read_document","given":[],"state":"document_accepted","request":{"body":{"name":"welcome.md","count":3,"published":true}},"when":{"method":"GET","path":"/documents/{document_id}"},"setups":[{"name":"accept_document","request":{"body":{"name":"welcome.md"}},"when":{"method":"POST","path":"/documents"},"requirements":[{"kind":"must","expression":"response.status == 202"}],"captures":[{"name":"document_id","selector":"body.id"}]}],"requirements":[{"kind":"must","expression":"response.status == 200"}]}]}}"#
         );
+    }
+
+    #[test]
+    fn emits_nested_request_values_as_json() {
+        let specification = parse(
+            r#"
+                spec document_api v1 {
+                  scenario create_document {
+                    given body {
+                      metadata = {"source": "import", "priority": 2, "reviewed": true}
+                      tags = ["docs", "contract"]
+                    }
+                    when POST "/documents"
+                    must response.status == 202
+                  }
+                }
+            "#,
+        )
+        .expect("nested request source should parse");
+
+        let json = compile(&specification)
+            .expect("nested request source should validate")
+            .to_json();
+
+        assert!(json.contains(
+            r#""metadata":{"source":"import","priority":2,"reviewed":true},"tags":["docs","contract"]"#
+        ));
     }
 
     #[test]

@@ -104,6 +104,7 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Verifier completion now registers Sorna's `run.json` relative to the supplied project root and hashes it through that root, so absolute-root invocations cannot silently omit the completion artifact; the guarantee is frozen as alpha invariant 21.
 - Capability-plan loading now resolves the workspace manifest and policy references under the supplied `--root` for the capabilities, oracle, and verifier CLI paths; the guarantee is frozen as alpha invariant 22.
 - Bootstrap now accepts the supplied `--root` and records a root-relative workspace reference from bytes loaded in that namespace; the guarantee is frozen as alpha invariant 23.
+- The `sentinel run artifact` CLI now accepts the supplied `--root` and hashes registration inputs from that namespace before the locked receipt update; the guarantee is frozen as alpha invariant 24.
 - The latest host-enabled fresh positive and expected-failure proofs passed after the root-aware bootstrap change, in `/private/tmp/ingen-sentinel-workspace.ezgUfA` and `/private/tmp/ingen-sentinel-failure-workspace.n9eDRZ`.
 
 ## Useful entry points

@@ -18,6 +18,9 @@ The losing alternatives were strict duplicate rejection for every call and repla
 
 - A same-path retry is not enough: the digest and producer metadata must also match.
 - A changed file at the same path conflicts with the recorded artifact instead of updating it.
+- The `run artifact` CLI accepts `--root` and resolves the artifact path there;
+  callers working outside the project root cannot accidentally hash a
+  same-named file from their own directory.
 - Idempotent registration does not make a surrounding lifecycle event idempotent; event identity remains a separate concern.
 
 ## Used in

@@ -142,6 +142,43 @@ func TestArtifactCommandRegistersHashedArtifact(t *testing.T) {
 	}
 }
 
+func TestArtifactCommandUsesSuppliedRoot(t *testing.T) {
+	root := t.TempDir()
+	caller := t.TempDir()
+	t.Chdir(caller)
+	receiptPath := filepath.Join(caller, "receipt.json")
+	outputPath := filepath.Join(caller, "updated-receipt.json")
+	if err := os.WriteFile(filepath.Join(root, "result.json"), []byte("root result"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	receipt := sentinelrun.Receipt{
+		Schema: sentinelrun.Schema,
+		RunID:  "run-artifact-root-cli-test",
+		Workspace: sentinelrun.WorkspaceRef{
+			ID:      "webhook-validation",
+			Version: 1,
+			File:    ciresult.FileRef{Path: "workspace.yaml", SHA256: strings.Repeat("a", 64)},
+		},
+		Status:    "created",
+		CreatedAt: "2026-01-02T03:04:05Z",
+		UpdatedAt: "2026-01-02T03:04:05Z",
+		Events:    []sentinelrun.Event{{Sequence: 1, Type: "workspace-created", At: "2026-01-02T03:04:05Z"}},
+	}
+	if err := sentinelrun.SaveFile(receiptPath, receipt); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"run", "artifact", "--receipt", receiptPath, "--root", root, "--id", "result", "--role", "verifier", "--kind", "sorna-run", "--path", "result.json", "--output", outputPath}); code != 0 {
+		t.Fatalf("rooted artifact command exit code = %d, want 0", code)
+	}
+	loaded, err := sentinelrun.LoadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Artifacts) != 1 || loaded.Artifacts[0].Ref.Path != "result.json" || loaded.Artifacts[0].Ref.SHA256 != digestBytes([]byte("root result")) {
+		t.Fatalf("artifacts = %+v, want root-relative hash", loaded.Artifacts)
+	}
+}
+
 func TestArtifactCommandUpdatesReceiptInPlace(t *testing.T) {
 	t.Chdir(t.TempDir())
 	receiptPath := filepath.Join(".artifacts", "receipt.json")

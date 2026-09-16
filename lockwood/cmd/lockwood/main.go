@@ -65,6 +65,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runInspectAttestation(args[1:], stdout, stderr)
 	case "inspect-attestation-link":
 		return runInspectAttestationLink(args[1:], stdout, stderr)
+	case "inspect-redaction-provenance":
+		return runInspectRedactionProvenance(args[1:], stdout, stderr)
+	case "inspect-redaction-provenance-link":
+		return runInspectRedactionProvenanceLink(args[1:], stdout, stderr)
 	case "record-digest":
 		return runRecordDigest(args[1:], stdout, stderr)
 	case "find-attestation":
@@ -834,6 +838,80 @@ func runInspectAttestationLink(args []string, stdout, stderr io.Writer) int {
 	link, err := attestation.InspectLink(record, flags.Arg(0), artifacts)
 	if err != nil {
 		fmt.Fprintf(stderr, "inspect-attestation-link: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, link); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runInspectRedactionProvenance(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood inspect-redaction-provenance", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" {
+		fmt.Fprintln(stderr, "inspect-redaction-provenance requires --root and exactly one provenance digest")
+		return 2
+	}
+	artifacts, _, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	inspection, err := attestation.InspectRedactionProvenance(artifacts, flags.Arg(0))
+	if err != nil {
+		fmt.Fprintf(stderr, "inspect-redaction-provenance: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, inspection); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runInspectRedactionProvenanceLink(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood inspect-redaction-provenance-link", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	sourceID := flags.String("source-id", "", "source custody record ID")
+	eventID := flags.String("event-id", "", "redaction event ID")
+	promotedID := flags.String("promoted-id", "", "promoted result custody record ID")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" || *sourceID == "" || *eventID == "" || *promotedID == "" {
+		fmt.Fprintln(stderr, "inspect-redaction-provenance-link requires --root, --source-id, --event-id, --promoted-id, and exactly one provenance digest")
+		return 2
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	source, err := custody.VerifyRecord(records, artifacts, *sourceID)
+	if err != nil {
+		fmt.Fprintf(stderr, "inspect-redaction-provenance-link: verify source custody record: %v\n", err)
+		return 1
+	}
+	event, err := records.GetEvent(*sourceID, *eventID)
+	if err != nil {
+		fmt.Fprintf(stderr, "inspect-redaction-provenance-link: read redaction event: %v\n", err)
+		return 1
+	}
+	promoted, err := custody.VerifyRecord(records, artifacts, *promotedID)
+	if err != nil {
+		fmt.Fprintf(stderr, "inspect-redaction-provenance-link: verify promoted custody record: %v\n", err)
+		return 1
+	}
+	link, err := attestation.InspectRedactionProvenanceLink(source, event, promoted, flags.Arg(0), records, artifacts)
+	if err != nil {
+		fmt.Fprintf(stderr, "inspect-redaction-provenance-link: %v\n", err)
 		return 1
 	}
 	if err := writeJSON(stdout, link); err != nil {
@@ -2078,6 +2156,8 @@ func usage(writer io.Writer) {
 	fmt.Fprintln(writer, "  inspect <id>       print one custody record")
 	fmt.Fprintln(writer, "  inspect-attestation inspect a published detached attestation")
 	fmt.Fprintln(writer, "  inspect-attestation-link show its typed custody-record link")
+	fmt.Fprintln(writer, "  inspect-redaction-provenance inspect detached redaction provenance")
+	fmt.Fprintln(writer, "  inspect-redaction-provenance-link show its typed source-event-result link")
 	fmt.Fprintln(writer, "  lineage-status     report reachable lineage resolution")
 	fmt.Fprintln(writer, "  append-event       append an immutable handling event to a custody record")
 	fmt.Fprintln(writer, "  list-events        list immutable handling events for a custody record")

@@ -30,7 +30,7 @@ diagnosis attached to the aggregate outcome.
 
 Malcolm can hand its JSON IR slice to Sorna through the small `sorna-malcolm`
 adapter. The adapter intentionally accepts only meaning it can lower without
-loss: typed top-level request bodies, stateful setup requests with positive
+loss: typed request bodies with recursive objects and arrays, stateful setup requests with positive
 and negative status/body assertions, top-level response field
 equality/presence, captures of top-level response fields, and explicit
 `X-InGen-Event` event signals. The repeatable repository example is:

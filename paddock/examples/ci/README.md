@@ -143,7 +143,9 @@ paddock ci validate --input "$PADDOCK_RESULT"
 ```
 
 The conformance phase validates the adapter independently, including its
-rejection of a non-Rust request. The gate phase then evaluates the sealed
+rejection of a non-Rust request. If the manifest uses `adapter.profile`, the
+same profile is hashed into the conformance result's `inputs.adapter_profile`.
+The gate phase then evaluates the sealed
 hexagonal policy, persists the adapter-produced graph, and records its hash in
 the shared CI artifact.
 

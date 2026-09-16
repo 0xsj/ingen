@@ -215,6 +215,51 @@ func TestTranslateLowersRequestBodyAndStatefulSetup(t *testing.T) {
 	}
 }
 
+func TestTranslateLowersNestedRequestBodyValues(t *testing.T) {
+	ir := validIR(func(s *Scenario) {
+		s.Request = &Request{Body: map[string]any{
+			"metadata": map[string]any{
+				"source":   "import",
+				"priority": int64(2),
+				"reviewed": true,
+			},
+			"tags": []any{"docs", "contract"},
+		}}
+	})
+	document, err := Translate(ir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := contract.Validate(document); len(problems) > 0 {
+		t.Fatalf("translated nested contract is invalid: %v", problems)
+	}
+	rule := document.Contract["rules"].([]any)[0].(map[string]any)
+	body := rule["given"].(map[string]any)["body"].(map[string]any)
+	metadata := body["metadata"].(map[string]any)
+	if metadata["source"] != "import" || metadata["priority"] != int64(2) || metadata["reviewed"] != true {
+		t.Fatalf("nested metadata = %#v", metadata)
+	}
+	tags := body["tags"].([]any)
+	if len(tags) != 2 || tags[0] != "docs" || tags[1] != "contract" {
+		t.Fatalf("nested tags = %#v", tags)
+	}
+}
+
+func TestTranslateRejectsNonIntegerNestedBodyNumbers(t *testing.T) {
+	ir := validIR(func(s *Scenario) {
+		s.Request = &Request{Body: map[string]any{
+			"metadata": map[string]any{
+				"ratio": json.Number("1.5"),
+			},
+		}}
+	})
+
+	_, err := Translate(ir)
+	if err == nil || !strings.Contains(err.Error(), "must be an integer") {
+		t.Fatalf("error = %v, want nested integer validation error", err)
+	}
+}
+
 func TestTranslateRejectsMeaningItCannotLower(t *testing.T) {
 	tests := []struct {
 		name string

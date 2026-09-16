@@ -107,6 +107,7 @@ These are starting points, not a second architecture document.
 - [A campaign plan freezes mutation inputs before execution](modules/sorna-campaign-plan.md)
 - [A campaign executor must preserve one clean comparison per mutation](modules/sorna-campaign-execution.md)
 - [A Go provider mutates a copy and hands off a prepared binary](modules/sorna-golang-provider.md)
+- [A source provider should resolve the contract target, not a stale helper name](modules/sorna-go-provider-semantic-targets.md)
 - [A provider capability review should happen before execution](modules/sorna-provider-review.md)
 - [A mutation campaign can cross the CI boundary without losing its semantics](modules/sorna-campaign-ci-result.md)
 - [Contract-mutation inspection must stay separate from subject campaigns](modules/sorna-contract-mutation-inspection.md)

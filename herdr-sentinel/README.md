@@ -140,6 +140,7 @@ Register a produced file before sending an event that references it:
 ```sh
 go run ./herdr-sentinel/cmd/sentinel run artifact \
   --receipt .artifacts/sentinel-webhook-run.json \
+  --root . \
   --id verifier-run --role verifier --kind sorna-run \
   --path .artifacts/sentinel-webhook-verifier/run.json
 ```

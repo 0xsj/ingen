@@ -49,6 +49,11 @@ promoted-record relationship, and stores the detached artifact without
 verifying the signature. Signature verification and signer trust remain
 separate read-only operations.
 
+Known provenance artifacts can be inspected by digest without trust. The
+relationship inspection additionally verifies the named records, event,
+payload references, and promoted lineage while keeping envelope, record,
+event, and payload digests distinct.
+
 ## Why
 
 Separate events preserve the custody record's canonical representation and

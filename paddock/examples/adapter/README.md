@@ -158,6 +158,19 @@ paddock adapter test \
 It checks both fixture graph shapes and confirms that a non-Rust request is
 rejected before Paddock evaluates any architecture policy.
 
+An adapter-test manifest may use the same reusable profile as the architecture
+gate:
+
+```yaml
+schema: paddock.adapter-tests/v1
+adapter:
+  profile: rust-use-adapter.yaml
+```
+
+The profile path is resolved relative to the manifest. A manifest must choose
+either `adapter.profile` or `adapter.executable`; profile-backed results retain
+the exact profile file reference.
+
 Run the adapter conformance check directly when developing an adapter:
 
 ```sh

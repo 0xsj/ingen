@@ -37,19 +37,21 @@ pub mod ast {
         pub body: Vec<BodyField>,
     }
 
-    /// One top-level JSON body field in the first Malcolm request slice.
+    /// One JSON object field in a request body.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct BodyField {
         pub name: String,
         pub value: Literal,
     }
 
-    /// Literal values supported by Malcolm's first executable request body.
+    /// Typed JSON values supported by Malcolm request bodies.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum Literal {
         String(String),
         Integer(i64),
         Boolean(bool),
+        Object(Vec<BodyField>),
+        Array(Vec<Literal>),
     }
 
     /// A request/assertion sequence that establishes state before the target.

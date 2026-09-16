@@ -10,6 +10,7 @@
     "schema": {"const": "paddock.adapter-test-result/v1"},
     "manifest": {"$ref": "#/$defs/file-ref"},
     "adapter": {"$ref": "#/$defs/adapter"},
+    "profile": {"$ref": "#/$defs/file-ref"},
     "status": {"enum": ["PASS", "FAIL"]},
     "passed": {"type": "integer", "minimum": 0},
     "failed": {"type": "integer", "minimum": 0},
@@ -34,6 +35,7 @@
       "additionalProperties": false,
       "required": ["executable"],
       "properties": {
+        "profile": {"type": "string", "minLength": 1},
         "executable": {"type": "string", "minLength": 1},
         "args": {"type": "array", "items": {"type": "string"}}
       }

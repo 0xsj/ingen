@@ -41,6 +41,8 @@ semantics. Native Herdr host binding should remain a separate future boundary.
   changes cannot substitute plan input bytes.
 - Bootstrap accepts the same supplied `--root`, loads the workspace manifest
   from that namespace, and records a root-relative workspace reference.
+- Artifact registration accepts the same supplied `--root` and hashes the
+  referenced file from that namespace before publishing a receipt update.
 - This rooted reference rule is now an explicit cross-boundary alpha invariant
   in ALPHA-INTERFACES.md.
 

@@ -31,12 +31,22 @@ scenario read_document {
 }
 ~~~
 
-The Rust AST represents body fields as ordered names plus a `Literal` enum.
-The IR preserves the body and setup structure. The Go adapter lowers the
+Nested values use inline JSON-like literals:
+
+~~~text
+given body {
+  metadata = {"source": "malcolm", "reviewed": true}
+  tags = ["docs", "contract"]
+}
+~~~
+
+The Rust AST represents object fields as ordered names plus a recursive
+`Literal` enum. Inline objects and arrays retain their typed tree through the
+IR. The Go adapter lowers the
 scenario request to `given.body`, the setup sequence to `given.setup`, the
 state label to `given.state`, and capture selectors to Sorna's
 `body.FIELD` form. Setup requirements are merged into one executable setup
-expectation.
+expectation; negative setup requirements remain independent `expect_not` items.
 
 ## Why
 
@@ -61,15 +71,16 @@ document.
 
 ## Gotchas
 
-- The current body grammar supports only non-empty, top-level fields whose
-  values are strings, signed 64-bit integers, or booleans.
-- Nested objects, arrays, generated values, and capture interpolation in body
-  values are not source features yet.
+- The current body grammar supports non-empty top-level fields whose values
+  are strings, signed 64-bit integers, booleans, inline objects, or arrays.
+- Nested objects and arrays may contain the same scalar values recursively.
+  Generated values and capture interpolation in body values are not source
+  features yet.
 - A `state` label requires at least one setup; otherwise it would be metadata
   with no executable way to establish the state.
-- Each setup needs a request, at least one positive lowerable requirement, and
-  unique capture names. Target-rule must_not is now supported for the same
-  lowerable expressions; negative setup requirements remain rejected.
+- Each setup needs a request, at least one lowerable requirement, and unique
+  capture names. Target-rule `must_not` and negative setup requirements are
+  supported for the same lowerable expressions.
 - Sorna runs setup once per generated rule case. Repeating a setup for separate
   requirements is deliberate because each rule remains an independent oracle
   case.

@@ -266,7 +266,10 @@ to validate it later. Use `--ci-result <path>` to also emit a shared
 `ingen.ci-result/v1` envelope; `adapter test validate` performs manifest-only
 preflight. Each failed case records an optional stable `error_code`, such as
 `language-mismatch`, `invalid-graph`, or `process-failure`, alongside the
-human-readable error.
+human-readable error. The manifest adapter may reference a reusable profile
+instead of declaring an executable and arguments; profile-backed results retain
+the profile file hash and the conformance CI envelope records it as
+`inputs.adapter_profile`.
 
 The `component-owns` rule adds a package-level ownership assertion. It checks
 that selected source units belong to one of the component names or label

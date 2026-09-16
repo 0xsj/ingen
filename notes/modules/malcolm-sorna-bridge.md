@@ -14,7 +14,8 @@ Sorna's verifier logic into the Rust compiler.
 The Go adapter in sorna/internal/malcolm loads malcolm.ir/v1, validates the
 fields it needs, and translates the supported subset into a draft
 ingen.contract/v1 document. Each Malcolm requirement becomes a stable Sorna
-rule ID under its scenario. The adapter lowers typed top-level request bodies,
+rule ID under its scenario. The adapter lowers typed request bodies, including
+recursive objects and arrays,
 stateful setup requests with positive status/body assertions, top-level
 response-field presence/equality, and top-level response-field captures.
 
@@ -58,8 +59,8 @@ The intermediate files default to .artifacts/malcolm-healthz.ir.json and
   because the adapter explicitly requires the vN form.
 - Free-form given text is not request JSON. It must not be guessed into a
   request body; use a typed given body block.
-- Request bodies currently contain only non-empty top-level string, integer,
-  and boolean fields.
+- Request bodies contain non-empty top-level fields with recursively typed
+  string, integer, boolean, object, or array values.
 - Stateful setup expectations are merged before lowering so status and body
   assertions are checked by one setup step. Positive requirements go under
   `expect`; each negative requirement becomes one item under `expect_not`.

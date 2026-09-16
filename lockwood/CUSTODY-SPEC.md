@@ -362,6 +362,8 @@ The first implementation should support these conceptual operations:
 | `sign-attestation` | Verify a custody record, sign its canonical digest with an explicit local key, and publish a detached envelope. |
 | `import-attestation` | Validate and publish a canonical detached envelope against an explicit custody record without asserting signer trust. |
 | `import-redaction-provenance` | Validate and publish a canonical provenance envelope against explicit source, event, and promoted records without asserting signer trust. |
+| `inspect-redaction-provenance` | Load a known provenance envelope by digest without asserting signature trust. |
+| `inspect-redaction-provenance-link` | Check a known provenance envelope against explicit records, event, artifacts, and lineage without asserting signature trust. |
 | `verify-attestation` | Verify a published detached envelope with an explicit public key. |
 | `verify-attestation-trusted` | Verify a published detached envelope through an explicit trust-registry snapshot. |
 | `verify` | Recompute a blob digest, or verify a custody record's blob digest and declared size. |

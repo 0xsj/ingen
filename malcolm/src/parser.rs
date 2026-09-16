@@ -375,28 +375,176 @@ fn parse_capture(value: &str, line_number: usize) -> Result<CaptureClause, Parse
 }
 
 fn parse_literal(value: &str, line_number: usize) -> Result<Literal, ParseError> {
-    match value {
-        "true" => return Ok(Literal::Boolean(true)),
-        "false" => return Ok(Literal::Boolean(false)),
-        _ => {}
-    }
-
-    if value.starts_with('"') {
-        return Ok(Literal::String(parse_quoted(
-            value,
-            line_number,
-            "request body string",
-        )?));
-    }
-
-    if let Ok(integer) = value.parse::<i64>() {
-        return Ok(Literal::Integer(integer));
-    }
-
-    Err(ParseError::new(
+    let mut parser = LiteralParser {
+        input: value,
+        position: 0,
         line_number,
-        "request body value must be true, false, an integer, or a quoted string",
-    ))
+    };
+    let literal = parser.parse_value()?;
+    parser.skip_whitespace();
+    if !parser.at_end() {
+        return Err(ParseError::new(
+            line_number,
+            "request body value contains trailing characters",
+        ));
+    }
+    Ok(literal)
+}
+
+struct LiteralParser<'a> {
+    input: &'a str,
+    position: usize,
+    line_number: usize,
+}
+
+impl<'a> LiteralParser<'a> {
+    fn parse_value(&mut self) -> Result<Literal, ParseError> {
+        self.skip_whitespace();
+        match self.peek() {
+            Some('"') => Ok(Literal::String(self.parse_string()?)),
+            Some('[') => self.parse_array(),
+            Some('{') => self.parse_object(),
+            Some(_) => self.parse_scalar(),
+            None => Err(self.error("request body value cannot be empty")),
+        }
+    }
+
+    fn parse_array(&mut self) -> Result<Literal, ParseError> {
+        self.consume('[')?;
+        let mut values = Vec::new();
+        self.skip_whitespace();
+        if self.consume_if(']') {
+            return Ok(Literal::Array(values));
+        }
+
+        loop {
+            values.push(self.parse_value()?);
+            self.skip_whitespace();
+            if self.consume_if(']') {
+                break;
+            }
+            self.consume(',')?;
+        }
+        Ok(Literal::Array(values))
+    }
+
+    fn parse_object(&mut self) -> Result<Literal, ParseError> {
+        self.consume('{')?;
+        let mut fields = Vec::new();
+        self.skip_whitespace();
+        if self.consume_if('}') {
+            return Ok(Literal::Object(fields));
+        }
+
+        loop {
+            let name = self.parse_object_key()?;
+            self.skip_whitespace();
+            self.consume(':')?;
+            let value = self.parse_value()?;
+            if fields.iter().any(|field: &BodyField| field.name == name) {
+                return Err(self.error(format!("nested request body field {name} is duplicated")));
+            }
+            fields.push(BodyField { name, value });
+            self.skip_whitespace();
+            if self.consume_if('}') {
+                break;
+            }
+            self.consume(',')?;
+        }
+        Ok(Literal::Object(fields))
+    }
+
+    fn parse_object_key(&mut self) -> Result<String, ParseError> {
+        self.skip_whitespace();
+        let key = if self.peek() == Some('"') {
+            self.parse_string()?
+        } else {
+            let start = self.position;
+            while matches!(self.peek(), Some(character) if character == '_' || character.is_ascii_alphanumeric())
+            {
+                self.advance();
+            }
+            self.input[start..self.position].to_owned()
+        };
+        if !is_identifier(&key) {
+            return Err(self.error("nested request body field name must be an identifier"));
+        }
+        Ok(key)
+    }
+
+    fn parse_scalar(&mut self) -> Result<Literal, ParseError> {
+        let start = self.position;
+        while matches!(self.peek(), Some(character) if !character.is_whitespace() && !matches!(character, ',' | ']' | '}'))
+        {
+            self.advance();
+        }
+        let value = &self.input[start..self.position];
+        match value {
+            "true" => Ok(Literal::Boolean(true)),
+            "false" => Ok(Literal::Boolean(false)),
+            _ => value.parse::<i64>().map(Literal::Integer).map_err(|_| {
+                self.error("request body value must be true, false, an integer, a quoted string, an object, or an array")
+            }),
+        }
+    }
+
+    fn parse_string(&mut self) -> Result<String, ParseError> {
+        self.consume('"')?;
+        let start = self.position;
+        while let Some(character) = self.peek() {
+            if character == '"' {
+                let value = self.input[start..self.position].to_owned();
+                self.advance();
+                return Ok(value);
+            }
+            if character.is_control() {
+                return Err(self.error("request body string contains a control character"));
+            }
+            self.advance();
+        }
+        Err(self.error("request body string is missing a closing quote"))
+    }
+
+    fn consume(&mut self, expected: char) -> Result<(), ParseError> {
+        if self.consume_if(expected) {
+            Ok(())
+        } else {
+            Err(self.error(format!("request body value expected {expected}")))
+        }
+    }
+
+    fn consume_if(&mut self, expected: char) -> bool {
+        if self.peek() == Some(expected) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while matches!(self.peek(), Some(character) if character.is_whitespace()) {
+            self.advance();
+        }
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.input[self.position..].chars().next()
+    }
+
+    fn advance(&mut self) -> Option<char> {
+        let character = self.peek()?;
+        self.position += character.len_utf8();
+        Some(character)
+    }
+
+    fn at_end(&self) -> bool {
+        self.position == self.input.len()
+    }
+
+    fn error(&self, message: impl Into<String>) -> ParseError {
+        ParseError::new(self.line_number, message)
+    }
 }
 
 fn parse_identifier(value: &str, line_number: usize, field: &str) -> Result<String, ParseError> {
@@ -610,6 +758,60 @@ mod tests {
                 name: "document_id".into(),
                 selector: "body.id".into(),
             }]
+        );
+    }
+
+    #[test]
+    fn parses_nested_object_and_array_literals() {
+        let source = r#"
+            spec document_api v1 {
+              scenario create_document {
+                given body {
+                  metadata = {"source": "import", "priority": 2, "reviewed": true}
+                  tags = ["docs", "contract"]
+                }
+                when POST "/documents"
+                must response.status == 202
+              }
+            }
+        "#;
+
+        let specification = parse(source).expect("nested request source should parse");
+        let body = &specification.scenarios[0]
+            .request
+            .as_ref()
+            .expect("request body")
+            .body;
+
+        assert_eq!(
+            body[0],
+            BodyField {
+                name: "metadata".into(),
+                value: Literal::Object(vec![
+                    BodyField {
+                        name: "source".into(),
+                        value: Literal::String("import".into()),
+                    },
+                    BodyField {
+                        name: "priority".into(),
+                        value: Literal::Integer(2),
+                    },
+                    BodyField {
+                        name: "reviewed".into(),
+                        value: Literal::Boolean(true),
+                    },
+                ]),
+            }
+        );
+        assert_eq!(
+            body[1],
+            BodyField {
+                name: "tags".into(),
+                value: Literal::Array(vec![
+                    Literal::String("docs".into()),
+                    Literal::String("contract".into()),
+                ]),
+            }
         );
     }
 

@@ -528,6 +528,35 @@ func TestCLIRegisterRedactionPreservesOriginal(t *testing.T) {
 	if importedProvenance.Artifact.Digest != provenancePublication.Artifact.Digest || importedProvenance.SourceCustodyID != custodyID || importedProvenance.PromotedCustodyID != promotedID {
 		t.Fatalf("imported redaction provenance publication = %+v", importedProvenance)
 	}
+	var provenanceInspectionOutput bytes.Buffer
+	if code := run([]string{"inspect-redaction-provenance", "--root", root, provenancePublication.Artifact.Digest}, strings.NewReader(""), &provenanceInspectionOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("inspect-redaction-provenance exit code = %d", code)
+	}
+	var provenanceInspection attestation.RedactionProvenanceInspection
+	if err := json.Unmarshal(provenanceInspectionOutput.Bytes(), &provenanceInspection); err != nil {
+		t.Fatalf("decode redaction provenance inspection: %v", err)
+	}
+	if provenanceInspection.AttestationDigest != provenancePublication.Artifact.Digest || provenanceInspection.Envelope.Target != provenancePublication.Envelope.Target {
+		t.Fatalf("redaction provenance inspection = %+v", provenanceInspection)
+	}
+	var provenanceLinkOutput bytes.Buffer
+	if code := run([]string{
+		"inspect-redaction-provenance-link",
+		"--root", root,
+		"--source-id", custodyID,
+		"--event-id", eventID,
+		"--promoted-id", promotedID,
+		provenancePublication.Artifact.Digest,
+	}, strings.NewReader(""), &provenanceLinkOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("inspect-redaction-provenance-link exit code = %d", code)
+	}
+	var provenanceLink attestation.RedactionProvenanceLinkInspection
+	if err := json.Unmarshal(provenanceLinkOutput.Bytes(), &provenanceLink); err != nil {
+		t.Fatalf("decode redaction provenance link inspection: %v", err)
+	}
+	if provenanceLink.Relation != attestation.RedactionProvenanceLinkRelation || provenanceLink.AttestationDigest != provenancePublication.Artifact.Digest || provenanceLink.SourceCustodyID != custodyID || provenanceLink.EventID != eventID || provenanceLink.PromotedCustodyID != promotedID {
+		t.Fatalf("redaction provenance link inspection = %+v", provenanceLink)
+	}
 	publicKeyPath := filepath.Join(t.TempDir(), "provenance.pub")
 	if err := os.WriteFile(publicKeyPath, []byte(base64.StdEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey))+"\n"), 0o600); err != nil {
 		t.Fatal(err)

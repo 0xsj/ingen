@@ -118,6 +118,8 @@ scenario create_document {
     name = "welcome.md"
     published = true
     retries = 2
+    metadata = {"source": "malcolm", "reviewed": true}
+    tags = ["docs", "contract"]
   }
   when POST "/documents"
   must response.status == 202

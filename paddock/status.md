@@ -149,6 +149,8 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 - `graph --format json` reuses adapter diagnostics for explicit external adapter
   failures.
 - Versioned adapter-test manifests and deterministic conformance evidence.
+- Adapter-test manifests can reuse a profile, with profile hashes retained in
+  conformance results and their shared CI envelopes.
 - Adapter-test case results retain stable adapter/assertion error codes.
 - Persisted adapter-test results with manifest hash verification.
 - Standalone schemas for adapter-test manifests, results, and explanations.

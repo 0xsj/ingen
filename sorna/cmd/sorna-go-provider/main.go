@@ -197,7 +197,7 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 			return campaign.ProviderProvenance{}, fmt.Errorf("document provider supports only status 202 -> 200, got %d -> %d", from, to)
 		}
 		provenance = campaign.ProviderProvenance{
-			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:writeJSON.status",
+			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:response.status",
 			Before:   "http.StatusAccepted",
 			After:    "http.StatusOK",
 		}
@@ -211,7 +211,7 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 		}
 		fieldToRemove = field
 		provenance = campaign.ProviderProvenance{
-			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:writeJSON.body.name",
+			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:response.body.name",
 			Before:   "name: name",
 			After:    "name field removed",
 		}
@@ -230,7 +230,7 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 		fieldToAdd = field
 		valueToAdd = value
 		provenance = campaign.ProviderProvenance{
-			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:writeJSON.body",
+			Location: "examples/document-pipeline-lab/subject/server.go:createDocument:response.body",
 			Before:   "id, name, status",
 			After:    "id, name, status, debug=mutation",
 		}
@@ -322,16 +322,22 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 		return campaign.ProviderProvenance{}, fmt.Errorf("parse document subject source: %w", err)
 	}
 	var statusTargets []*ast.SelectorExpr
+	var statusWriters []string
 	var errorStatusTargets []*ast.SelectorExpr
 	var transitionTargets []*ast.BasicLit
 	var persistenceTargets []*ast.IndexExpr
 	var validationTargets []*ast.BinaryExpr
 	type fieldTarget struct {
-		body  *ast.CompositeLit
-		index int
+		body   *ast.CompositeLit
+		index  int
+		writer string
 	}
 	var fieldTargets []fieldTarget
-	var bodyTargets []*ast.CompositeLit
+	type bodyTarget struct {
+		body   *ast.CompositeLit
+		writer string
+	}
+	var bodyTargets []bodyTarget
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
 		functionName := "createDocument"
@@ -458,7 +464,7 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 				errorStatusTargets = append(errorStatusTargets, status)
 				return true
 			}
-			if callee.Name != "writeJSON" {
+			if !isDocumentJSONWriter(callee.Name) {
 				return true
 			}
 			if operator == "response.status.replace" {
@@ -471,6 +477,7 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 					return true
 				}
 				statusTargets = append(statusTargets, status)
+				statusWriters = append(statusWriters, callee.Name)
 				return true
 			}
 			if len(call.Args) < 3 {
@@ -506,7 +513,7 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 						return true
 					}
 				}
-				bodyTargets = append(bodyTargets, body)
+				bodyTargets = append(bodyTargets, bodyTarget{body: body, writer: callee.Name})
 				return true
 			}
 			for index, element := range body.Elts {
@@ -522,7 +529,7 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 				if err != nil || name != fieldToRemove {
 					continue
 				}
-				fieldTargets = append(fieldTargets, fieldTarget{body: body, index: index})
+				fieldTargets = append(fieldTargets, fieldTarget{body: body, index: index, writer: callee.Name})
 			}
 			return true
 		})
@@ -545,13 +552,16 @@ func mutateDocumentPipeline(variantRoot string, spec mutation.Spec) (campaign.Pr
 		return campaign.ProviderProvenance{}, campaign.NewTargetResolutionError(spec, provenance.Location, candidateCount)
 	}
 	if operator == "response.status.replace" {
+		provenance.Location = fmt.Sprintf("examples/document-pipeline-lab/subject/server.go:createDocument:%s.status", statusWriters[0])
 		statusTargets[0].Sel.Name = "StatusOK"
 	} else if operator == "response.field.remove" {
 		target := fieldTargets[0]
+		provenance.Location = fmt.Sprintf("examples/document-pipeline-lab/subject/server.go:createDocument:%s.body.%s", target.writer, fieldToRemove)
 		target.body.Elts = append(target.body.Elts[:target.index], target.body.Elts[target.index+1:]...)
 	} else if operator == "response.field.add" {
 		target := bodyTargets[0]
-		target.Elts = append(target.Elts, &ast.KeyValueExpr{
+		provenance.Location = fmt.Sprintf("examples/document-pipeline-lab/subject/server.go:createDocument:%s.body", target.writer)
+		target.body.Elts = append(target.body.Elts, &ast.KeyValueExpr{
 			Key:   &ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(fieldToAdd)},
 			Value: &ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(valueToAdd)},
 		})
@@ -669,6 +679,10 @@ func mutateWebhookValidation(variantRoot string, spec mutation.Spec) (campaign.P
 		return campaign.ProviderProvenance{}, fmt.Errorf("write mutated webhook subject source: %w", err)
 	}
 	return provenance, nil
+}
+
+func isDocumentJSONWriter(name string) bool {
+	return name == "writeJSON" || name == "writeJSONWithEvents"
 }
 
 func changeString(spec mutation.Spec, key string) (string, error) {

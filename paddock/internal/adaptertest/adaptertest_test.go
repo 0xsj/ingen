@@ -99,6 +99,55 @@ cases:
 	}
 }
 
+func TestRunUsesAdapterProfile(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "../../.."))
+	directory := t.TempDir()
+	if err := os.Mkdir(filepath.Join(directory, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profilePath := filepath.Join(directory, "profile.yaml")
+	adapter := filepath.Join(repoRoot, "paddock", "examples", "adapter", "conformance-adapter.py")
+	profile := fmt.Sprintf(`schema: paddock.adapter-profile/v1
+name: conformance
+executable: python3
+args:
+  - %s
+  - --workspace
+  - "{{root}}"
+`, adapter)
+	if err := os.WriteFile(profilePath, []byte(profile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(directory, "adapter-tests.yaml")
+	manifest := `schema: paddock.adapter-tests/v1
+adapter:
+  profile: profile.yaml
+cases:
+  - name: rust-file
+    root: workspace
+    language: rust
+    source_unit: file
+    required_edge_kinds: [import]
+    expect: pass
+    package_count: 2
+    edge_count: 1
+`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	document, err := adaptertest.Run(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Status != "PASS" || document.Adapter.Profile != "profile.yaml" || document.Adapter.Executable != "python3" || document.Profile == nil || document.Profile.Path != profilePath || document.Cases[0].Status != "PASS" {
+		t.Fatalf("profile-backed adapter test result is incomplete: %#v", document)
+	}
+}
+
 func TestDocumentValidateRejectsInconsistentEvidence(t *testing.T) {
 	document := adaptertest.Document{
 		Schema:   adaptertest.DocumentSchema,

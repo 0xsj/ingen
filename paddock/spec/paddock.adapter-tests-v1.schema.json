@@ -19,11 +19,15 @@
     "adapter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["executable"],
       "properties": {
+        "profile": {"type": "string", "minLength": 1},
         "executable": {"type": "string", "minLength": 1},
         "args": {"type": "array", "items": {"type": "string"}}
-      }
+      },
+      "oneOf": [
+        {"required": ["profile"], "not": {"required": ["executable"]}},
+        {"required": ["executable"], "not": {"required": ["profile"]}}
+      ]
     },
     "case": {
       "type": "object",

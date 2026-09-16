@@ -152,6 +152,14 @@ event. This separates structural provenance intake from caller-controlled
 signer trust; use `verify-redaction-provenance` or its trusted variant for
 cryptographic verification.
 
+The read-only `inspect-redaction-provenance` command loads a known envelope by
+artifact digest and reports canonical metadata without verifying the signature.
+The `inspect-redaction-provenance-link` command additionally checks the target
+against explicitly named source, event, and promoted records, verifies their
+direct payload references, and verifies promoted lineage when the record store
+is available. Neither command establishes signer trust; use the direct or
+trusted verification commands for that decision.
+
 The read-only `inspect-attestation` CLI loads a known envelope by artifact
 digest and reports its canonical metadata. It does not verify the signature;
 use `verify-attestation` when cryptographic verification is required.

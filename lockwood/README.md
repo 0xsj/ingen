@@ -38,6 +38,7 @@ this records provenance only and does not fetch or attest remote objects.
 The initial local CLI exposes `put`, `import-sorna`, `import-ci-result`,
 `import-attestation`, `import-redaction-provenance`, `get`, `inspect`, `lineage-status`, `append-event`,
 `list-events`, `handling-status`, `redaction-status`, `check-handling-guard`, `register-redaction`, `promote-redaction`, `inspect-attestation`, `inspect-attestation-link`,
+`inspect-redaction-provenance`, `inspect-redaction-provenance-link`,
 `find-attestation`, `find-redaction-provenance`, `record-digest`, `sign-attestation`,
 `sign-handling-event`, `sign-redaction-provenance`,
 `verify-attestation`, `verify-attestation-trusted`, `find-trusted-attestation`,
@@ -183,6 +184,12 @@ envelope file, checks its content digest and relationship against explicitly
 named source, event, and promoted custody records, and publishes the detached
 artifact. It performs no signature verification; use the direct or trusted
 provenance verification commands for that step.
+
+`inspect-redaction-provenance` loads a known provenance envelope by artifact
+digest and reports its canonical metadata without verifying the signature.
+`inspect-redaction-provenance-link` additionally checks the envelope against
+explicit source, event, and promoted records, including their payloads and
+promoted lineage, but still does not establish signer trust.
 
 The read-only `inspect-attestation` command loads a known envelope by its
 artifact digest and reports its canonical envelope metadata. It does not verify

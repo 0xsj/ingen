@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -82,6 +83,46 @@ func TestFileMembershipVersionStoreRejectsMissingCurrent(t *testing.T) {
 	}
 	if _, err := versionStore.Current("directory-reviewers"); err == nil || !errors.Is(err, ErrMembershipVersionNotFound) {
 		t.Fatalf("missing current error = %v, want ErrMembershipVersionNotFound", err)
+	}
+}
+
+func TestFileMembershipVersionStoreFailsClosedOnCorruptLedger(t *testing.T) {
+	corruptions := []string{
+		`{"schema":"ingen.hammond-membership-version/v1","id":"directory-reviewers","version":1,"membership_schema":"ingen.hammond-membership/v1","artifact":{"uri":"membership.json","sha256":"not-a-digest"}}`,
+		`{"schema":"wrong","id":"directory-reviewers","version":1,"membership_schema":"ingen.hammond-membership/v1","artifact":{"uri":"membership.json","sha256":"` + strings.Repeat("a", 64) + `"}}`,
+		`{"schema":"ingen.hammond-membership-version/v1","id":"directory-reviewers"} trailing`,
+	}
+	for _, corruption := range corruptions {
+		versionStore, err := NewFileMembershipVersionStore(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := versionStore.pathFor("directory-reviewers")
+		if err := os.WriteFile(path, []byte(corruption), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := versionStore.Current("directory-reviewers"); err == nil || errors.Is(err, ErrMembershipVersionNotFound) {
+			t.Fatalf("corruption %q returned error = %v, want structural failure", corruption, err)
+		}
+	}
+}
+
+func TestFileMembershipVersionStoreBindsIdentityToLedgerPath(t *testing.T) {
+	versionStore, err := NewFileMembershipVersionStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := versionStore.pathFor("directory-reviewers")
+	if err := versionStore.write(path, testMembershipSnapshot(1, strings.Repeat("a", 64)).Reference); err != nil {
+		t.Fatal(err)
+	}
+	other := testMembershipSnapshot(1, strings.Repeat("b", 64)).Reference
+	other.ID = "different-membership"
+	if err := versionStore.write(path, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := versionStore.Current("directory-reviewers"); err == nil || !strings.Contains(err.Error(), "does not match its ledger path") {
+		t.Fatalf("wrong ledger identity error = %v, want identity binding failure", err)
 	}
 }
 

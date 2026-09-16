@@ -2594,6 +2594,12 @@ func saveAdapterTestCIResult(path string, document paddockadaptertest.Document) 
 		Report:      report,
 		Explanation: explanation,
 	}
+	if document.Profile != nil {
+		shared.Inputs["adapter_profile"] = ciresult.FileRef{
+			Path:   document.Profile.Path,
+			SHA256: document.Profile.SHA256,
+		}
+	}
 	if err := ciresult.SaveFile(path, shared); err != nil {
 		return err
 	}
@@ -2632,7 +2638,11 @@ func validateAdapterTests(args []string) error {
 	case "text":
 		fmt.Fprintln(os.Stdout, "ADAPTER-TEST-MANIFEST VALID")
 		fmt.Fprintf(os.Stdout, "manifest: %s\n", manifestPath)
-		fmt.Fprintf(os.Stdout, "adapter: %s\n", manifest.Adapter.Executable)
+		if manifest.Adapter.Profile != "" {
+			fmt.Fprintf(os.Stdout, "profile: %s\n", manifest.Adapter.Profile)
+		} else {
+			fmt.Fprintf(os.Stdout, "adapter: %s\n", manifest.Adapter.Executable)
+		}
 		fmt.Fprintf(os.Stdout, "cases: %d\n", len(manifest.Cases))
 		for _, testCase := range manifest.Cases {
 			unit := testCase.SourceUnit

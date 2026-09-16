@@ -14,7 +14,8 @@ returned snapshot before policy evaluation.
 `FileMembershipVersionStore` can persist the latest accepted reference across
 processes. It stores only the reference, uses an exclusive file lock for the
 read-compare-write step, accepts equal references idempotently, and rejects
-lower or same-version different-digest references.
+lower or same-version different-digest references. It also binds the stored
+membership ID to the deterministic ledger path.
 
 ## Why
 
@@ -32,6 +33,9 @@ the current one.
   primitive and does not verify signatures.
 - A valid signature authenticates the snapshot bytes and issuer key, not the
   provider's completeness or group-to-role mapping.
+- The local ledger validates its own reference structure but is not
+  cryptographically authenticated; protect its directory from unauthorized
+  filesystem writers.
 
 ## Used in
 
