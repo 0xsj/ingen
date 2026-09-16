@@ -163,6 +163,30 @@ func TestCLIPutRemoteV2Source(t *testing.T) {
 	}
 }
 
+func TestCLIPutRejectsOversizedInput(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(t.TempDir(), "oversized.txt")
+	if err := os.WriteFile(input, []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if code := run([]string{
+		"put",
+		"--root", root,
+		"--id", "lockwood-cli-oversized",
+		"--media-type", "text/plain",
+		"--producer", "example",
+		"--kind", "fixture",
+		"--max-bytes", "3",
+		input,
+	}, strings.NewReader(""), &bytes.Buffer{}, &stderr); code == 0 {
+		t.Fatal("put accepted an oversized input")
+	}
+	if !strings.Contains(stderr.String(), "exceeds maximum size") {
+		t.Fatalf("stderr = %q, want maximum-size rejection", stderr.String())
+	}
+}
+
 func TestCLIImportSorna(t *testing.T) {
 	root := t.TempDir()
 	bundle := filepath.Join(t.TempDir(), "sorna-run")
@@ -196,5 +220,84 @@ func TestCLIImportSorna(t *testing.T) {
 	}
 	if record["producer"].(map[string]any)["kind"] != "evidence-bundle" {
 		t.Fatalf("producer = %+v", record["producer"])
+	}
+}
+
+func TestCLIImportCIResult(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(t.TempDir(), "ci-result.json")
+	contents := []byte(`{"schema":"ingen.ci-result/v1","tool":"paddock","kind":"architecture","status":"passed","exit_code":0,"created_at":"2026-09-15T12:00:00Z","source":{"root":"/workspace/service"},"report":{},"explanation":{}}`)
+	if err := os.WriteFile(input, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if code := run([]string{"import-ci-result", "--root", root, "--id", "lockwood-cli-ci-result-0001", input}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("import-ci-result exit code = %d", code)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["status"] != "accepted" || record["producer"].(map[string]any)["tool"] != "paddock" {
+		t.Fatalf("imported custody record = %+v", record)
+	}
+	if record["artifact"].(map[string]any)["media_type"] != "application/vnd.ingen.ci-result+json" {
+		t.Fatalf("imported media type = %+v", record["artifact"])
+	}
+}
+
+func TestCLIRecover(t *testing.T) {
+	root := t.TempDir()
+	seedPath := filepath.Join(t.TempDir(), "seed.txt")
+	orphanPath := filepath.Join(t.TempDir(), "orphan.txt")
+	if err := os.WriteFile(seedPath, []byte("seed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(orphanPath, []byte("orphan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const custodyID = "lockwood-cli-recover-0001"
+	if code := run([]string{
+		"put",
+		"--root", root,
+		"--id", custodyID,
+		"--media-type", "text/plain",
+		"--producer", "example",
+		"--kind", "seed",
+		seedPath,
+	}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("seed put exit code = %d", code)
+	}
+
+	pendingPath := filepath.Join(t.TempDir(), "pending.json")
+	var putStderr bytes.Buffer
+	if code := run([]string{
+		"put",
+		"--root", root,
+		"--id", custodyID,
+		"--media-type", "text/plain",
+		"--producer", "example",
+		"--kind", "recovered",
+		"--pending-record", pendingPath,
+		orphanPath,
+	}, strings.NewReader(""), &bytes.Buffer{}, &putStderr); code == 0 {
+		t.Fatal("conflicting put unexpectedly succeeded")
+	}
+	if !strings.Contains(putStderr.String(), "pending record") {
+		t.Fatalf("put stderr = %q, want pending-record confirmation", putStderr.String())
+	}
+	if err := os.Remove(filepath.Join(root, "records", custodyID+".json")); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if code := run([]string{"recover", "--root", root, pendingPath}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("recover exit code = %d", code)
+	}
+	if !strings.Contains(output.String(), `"custody_id": "`+custodyID+`"`) {
+		t.Fatalf("recover output = %s", output.String())
+	}
+	if code := run([]string{"verify", "--root", root, "--id", custodyID}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("recovered custody record failed verification")
 	}
 }

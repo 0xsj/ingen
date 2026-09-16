@@ -28,6 +28,7 @@ type ImportRequest struct {
 	CustodyID      string
 	ExpectedDigest string
 	LogicalName    string
+	MaxBytes       int64
 	ReceivedAt     time.Time
 	RetentionClass string
 	Redaction      string
@@ -45,11 +46,11 @@ func NewImporter(ingestor *custody.Ingestor) (*Importer, error) {
 }
 
 func (i *Importer) Import(directory string, request ImportRequest) (custody.Record, error) {
-	snapshot, err := readSnapshot(directory)
+	snapshot, err := readSnapshotWithLimit(directory, request.MaxBytes)
 	if err != nil {
 		return custody.Record{}, err
 	}
-	archive, err := deterministicTar(snapshot.Files)
+	archive, err := deterministicTarWithLimit(snapshot.Files, request.MaxBytes)
 	if err != nil {
 		return custody.Record{}, fmt.Errorf("create deterministic Sorna archive: %w", err)
 	}
@@ -67,6 +68,7 @@ func (i *Importer) Import(directory string, request ImportRequest) (custody.Reco
 		ExpectedDigest: request.ExpectedDigest,
 		MediaType:      snapshot.MediaType,
 		LogicalName:    request.LogicalName,
+		MaxBytes:       request.MaxBytes,
 		ReceivedAt:     request.ReceivedAt,
 		Producer:       custody.Producer{Tool: "sorna", Kind: snapshot.Kind},
 		Source:         custody.Source{RunID: snapshot.RunID, Path: filepath.Clean(directory)},
@@ -91,8 +93,15 @@ type snapshotFile struct {
 }
 
 func readSnapshot(directory string) (snapshot, error) {
+	return readSnapshotWithLimit(directory, 0)
+}
+
+func readSnapshotWithLimit(directory string, maxBytes int64) (snapshot, error) {
 	if strings.TrimSpace(directory) == "" {
 		return snapshot{}, fmt.Errorf("Sorna bundle directory is required")
+	}
+	if maxBytes < 0 {
+		return snapshot{}, fmt.Errorf("maximum artifact size cannot be negative")
 	}
 	rootInfo, err := os.Stat(directory)
 	if err != nil {
@@ -103,6 +112,16 @@ func readSnapshot(directory string) (snapshot, error) {
 	}
 
 	checksumPath := filepath.Join(directory, "checksums.sha256")
+	checksumInfo, err := os.Lstat(checksumPath)
+	if err != nil {
+		return snapshot{}, fmt.Errorf("inspect Sorna checksums: %w", err)
+	}
+	if !checksumInfo.Mode().IsRegular() {
+		return snapshot{}, fmt.Errorf("Sorna checksums path is not a regular file")
+	}
+	if maxBytes > 0 && checksumInfo.Size() > maxBytes {
+		return snapshot{}, fmt.Errorf("Sorna bundle input exceeds maximum size of %d bytes", maxBytes)
+	}
 	checksumBytes, err := os.ReadFile(checksumPath)
 	if err != nil {
 		return snapshot{}, fmt.Errorf("read Sorna checksums: %w", err)
@@ -111,6 +130,7 @@ func readSnapshot(directory string) (snapshot, error) {
 	if err != nil {
 		return snapshot{}, err
 	}
+	totalBytes := int64(len(checksumBytes))
 	files := make(map[string][]byte, len(checksums)+1)
 	for name, expected := range checksums {
 		filePath, err := safeBundlePath(directory, name)
@@ -124,6 +144,9 @@ func readSnapshot(directory string) (snapshot, error) {
 		if !info.Mode().IsRegular() {
 			return snapshot{}, fmt.Errorf("checksummed path %s is not a regular file", name)
 		}
+		if maxBytes > 0 && (info.Size() > maxBytes-totalBytes || totalBytes > maxBytes) {
+			return snapshot{}, fmt.Errorf("Sorna bundle input exceeds maximum size of %d bytes", maxBytes)
+		}
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			return snapshot{}, fmt.Errorf("read checksummed file %s: %w", name, err)
@@ -133,6 +156,7 @@ func readSnapshot(directory string) (snapshot, error) {
 			return snapshot{}, fmt.Errorf("checksum mismatch for %s", name)
 		}
 		files[name] = data
+		totalBytes += int64(len(data))
 	}
 	manifest, ok := files["manifest.json"]
 	if !ok {
@@ -252,6 +276,13 @@ func safeBundlePath(root, name string) (string, error) {
 }
 
 func deterministicTar(files []snapshotFile) ([]byte, error) {
+	return deterministicTarWithLimit(files, 0)
+}
+
+func deterministicTarWithLimit(files []snapshotFile, maxBytes int64) ([]byte, error) {
+	if maxBytes < 0 {
+		return nil, fmt.Errorf("maximum artifact size cannot be negative")
+	}
 	var buffer bytes.Buffer
 	writer := tar.NewWriter(&buffer)
 	for _, file := range files {
@@ -268,9 +299,15 @@ func deterministicTar(files []snapshotFile) ([]byte, error) {
 		if _, err := writer.Write(file.Data); err != nil {
 			return nil, err
 		}
+		if maxBytes > 0 && int64(buffer.Len()) > maxBytes {
+			return nil, fmt.Errorf("Sorna archive exceeds maximum size of %d bytes", maxBytes)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		return nil, err
+	}
+	if maxBytes > 0 && int64(buffer.Len()) > maxBytes {
+		return nil, fmt.Errorf("Sorna archive exceeds maximum size of %d bytes", maxBytes)
 	}
 	return buffer.Bytes(), nil
 }

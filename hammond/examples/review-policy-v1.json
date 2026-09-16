@@ -1,0 +1,10 @@
+{
+  "schema": "ingen.hammond-review-policy/v1",
+  "id": "single-approval",
+  "version": 1,
+  "minimum_approvals": 1,
+  "actor_roles": {
+    "reviewer": ["product-reviewer"],
+    "reviewer@example.test": ["product-reviewer"]
+  }
+}

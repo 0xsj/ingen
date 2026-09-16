@@ -2,14 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"ingen/nublar/internal/aggregate"
 	nublardelivery "ingen/nublar/internal/delivery"
+	nublarwebhook "ingen/nublar/internal/delivery/webhook"
 	nublaroutput "ingen/nublar/internal/output"
 	nublarrun "ingen/nublar/internal/run"
 	nublarstore "ingen/nublar/internal/storage/filesystem"
@@ -105,6 +108,8 @@ func runCommand(args []string) int {
 		return listCommand(args[1:])
 	case "decision":
 		return decisionCommand(args[1:])
+	case "deliver":
+		return deliverCommand(args[1:])
 	default:
 		usage()
 		return 2
@@ -266,6 +271,67 @@ func decisionCommand(args []string) int {
 	return 0
 }
 
+func deliverCommand(args []string) int {
+	flags := flag.NewFlagSet("run deliver", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	storeRoot := flags.String("store", "", "filesystem store root")
+	runID := flags.String("run-id", "", "Nublar run ID")
+	endpoint := flags.String("webhook", "", "HTTP(S) webhook endpoint")
+	timeout := flags.Duration("timeout", 30*time.Second, "maximum time for one webhook delivery")
+	secretEnv := flags.String("secret-env", "", "environment variable containing optional webhook HMAC secret")
+	receiptPath := flags.String("receipt", "", "path for the delivery receipt; no receipt file when empty")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *storeRoot == "" || *runID == "" || *endpoint == "" || *timeout <= 0 || len(flags.Args()) > 0 {
+		fmt.Fprintln(os.Stderr, "run deliver requires --store, --run-id, --webhook, and a positive --timeout")
+		return 2
+	}
+	store, err := nublarstore.New(*storeRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	record, err := store.Load(*runID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	decision, err := nublardelivery.Project(record)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	var secret []byte
+	if *secretEnv != "" {
+		value, ok := os.LookupEnv(*secretEnv)
+		if !ok || value == "" {
+			fmt.Fprintf(os.Stderr, "webhook secret environment variable %q is missing or empty\n", *secretEnv)
+			return 2
+		}
+		secret = []byte(value)
+	}
+	publisher, err := nublarwebhook.NewWithSecret(*endpoint, nil, secret)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	receipt, publishErr := publisher.Publish(ctx, decision)
+	if *receiptPath != "" {
+		if err := saveReceipt(*receiptPath, receipt); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+	}
+	if publishErr != nil {
+		fmt.Fprintln(os.Stderr, publishErr)
+		return 2
+	}
+	return 0
+}
+
 func saveDecision(path string, decision nublardelivery.Decision) error {
 	buffer := new(bytes.Buffer)
 	if err := nublardelivery.WriteJSON(buffer, decision); err != nil {
@@ -273,6 +339,17 @@ func saveDecision(path string, decision nublardelivery.Decision) error {
 	}
 	if err := nublaroutput.WriteFile(path, buffer.Bytes()); err != nil {
 		return fmt.Errorf("write Nublar decision %s: %w", path, err)
+	}
+	return nil
+}
+
+func saveReceipt(path string, receipt nublardelivery.Receipt) error {
+	buffer := new(bytes.Buffer)
+	if err := nublardelivery.WriteReceiptJSON(buffer, receipt); err != nil {
+		return fmt.Errorf("encode Nublar delivery receipt: %w", err)
+	}
+	if err := nublaroutput.WriteFile(path, buffer.Bytes()); err != nil {
+		return fmt.Errorf("write Nublar delivery receipt %s: %w", path, err)
 	}
 	return nil
 }
@@ -300,5 +377,6 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  nublar run show --store <dir> --run-id <id> [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run list --store <dir> [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run decision --store <dir> --run-id <id> [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  nublar run deliver --store <dir> --run-id <id> --webhook <url> [--timeout <duration>] [--secret-env <name>] [--receipt <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar aggregate [--workflow <path> --root <dir>] [--output <path>] <ci-result> [<ci-result> ...]")
 }

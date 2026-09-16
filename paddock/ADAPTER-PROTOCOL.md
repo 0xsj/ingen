@@ -58,6 +58,8 @@ The request has this shape:
   "source_unit": "file",
   "root": "/workspace/service",
   "roots": ["src"],
+  "include": ["src/**/*.rs"],
+  "exclude": ["src/generated/**"],
   "required_capabilities": {
     "source_units": ["file"],
     "edge_kinds": []
@@ -68,10 +70,13 @@ The request has this shape:
 The machine-readable request contract is
 [`spec/paddock.graph-request-v1.schema.json`](spec/paddock.graph-request-v1.schema.json).
 
-`root` and `language` are required. `source_unit` and `roots` come from the
-policy when a policy is supplied. `required_capabilities` is the negotiation
-surface; Paddock currently requires a matching source unit when the policy
-declares one and leaves edge-kind selection open for future rule vocabulary.
+`root` and `language` are required. `source_unit`, `roots`, `include`, and
+`exclude` come from the policy when a policy is supplied. Include and exclude
+patterns are relative slash-separated paths; adapters should use them to limit
+discovery, and Paddock applies the same boundary to the returned graph as a
+safety measure. `required_capabilities` is the negotiation surface; Paddock
+currently requires a matching source unit when the policy declares one and
+leaves edge-kind selection open for future rule vocabulary.
 
 ## Response
 
@@ -174,3 +179,25 @@ Adding a language means implementing its adapter outside the Paddock rule
 engine; it does not require changing policy evaluation. The graph document is
 also hashed into the `ingen.ci-result/v1` artifact when supplied through
 `--graph`, preserving the exact external input used by CI.
+
+## Policy proposals with an external adapter
+
+The same executable can participate in a policy proposal review. `policy diff`
+compares policy semantics without graph analysis; `policy review` runs the
+proposal's policy-test cases with the adapter arguments and records the result:
+
+```sh
+paddock policy review \
+  --before paddock-before.yaml \
+  --after paddock-proposal.yaml \
+  --cases paddock-policy-tests.yaml \
+  --adapter python3 \
+  --adapter-arg ./tools/rust-graph-adapter.py \
+  --adapter-arg --workspace \
+  --adapter-arg . \
+  --output paddock-policy-review.json \
+  --format json
+```
+
+This keeps parsing and resolution outside Paddock while using the same
+language-neutral diff, test, review, verification, and sealing workflow.

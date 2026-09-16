@@ -41,6 +41,10 @@ artifact contract. They follow the same versioning rules below.
   interpreting it as an older contract.
 - Additive fields may be introduced only when existing consumers can safely
   ignore them; required-field or semantic changes require a new schema version.
+- The optional `source.include`/`source.exclude` policy fields and matching
+  graph-request fields are additive v1 scope controls. Older adapters may
+  ignore unknown request fields, but Paddock still applies the requested scope
+  to returned graph evidence.
 - A changed meaning, field type, identifier, exit-code contract, or capability
   interpretation requires a new version.
 - Graph adapters own language analysis, not policy semantics. New edge kinds or

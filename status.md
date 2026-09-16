@@ -55,6 +55,12 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - The webhook vertical now has a Nublar workflow declaration and fresh aggregate/run-collection targets; Nublar consumes four opaque Sorna envelopes without adding webhook-specific semantics.
 - Sentinel now has a versioned webhook contract-workspace manifest and structural validator; it assembles role capabilities and Sorna/Nublar references without duplicating behavioral verification.
 - Sentinel now has a versioned lifecycle receipt that hashes the workspace manifest and records ordered, artifact-linked orchestration events without reinterpreting Sorna or Nublar results.
+- Sentinel now compiles a versioned declaration-only capability plan, rejects allow/deny overlap, and checks that the oracle writer denies every implementation root.
+- Sentinel now binds the capability plan to exact oracle and subject policy bytes and delegates the oracle-writer execution handoff to Sorna's existing CLI/Seatbelt boundary.
+- Sentinel now has a separate verifier handoff that binds a frozen oracle plus distinct oracle and subject-policy snapshots and composes Sorna's managed `run` command.
+- The Sentinel oracle adapter's read-only contract probe reached macOS Seatbelt successfully with host permission; without that permission, `sandbox-exec` returns an explicit `Operation not permitted` failure rather than a false pass.
+- The adapter now uses a temporary read-only policy snapshot and can persist `policy-applied`, `sorna-started`, and `sorna-completed` events into the Sentinel receipt; this reduces ordinary drift risk but is not external attestation.
+- The verifier handoff can attach Sorna's opaque `run.json` to the Sentinel receipt; Sentinel records provenance and lifecycle only, while Sorna retains behavioral verdict semantics.
 
 ## Useful entry points
 
@@ -70,6 +76,9 @@ make webhook-go-mutation-alpha
 make nublar-webhook-aggregate-fresh
 make sentinel-workspace-validate
 make sentinel-run-bootstrap
+make sentinel-capability-plan
+make sentinel-adapter-oracle-probe
+make sentinel-adapter-verifier-probe
 make nublar-aggregate
 ```
 
@@ -135,13 +144,10 @@ These are candidate directions, not an artificial checklist to complete all at o
 
 The Sorna alpha interface and committed-checkout reproducibility checkpoints
 now pass. The webhook validation lab is the first post-alpha surface and now
-has one campaign-level proof. The next deliberate choice is whether its
-fixture provider has earned a source-level webhook provider, or whether the
-source-provider path should be expanded with another meaningful webhook
-mutation, or whether this Nublar workflow should become the input to a
-Sentinel contract workspace design. The first workspace manifest now exists;
-the first lifecycle receipt now exists; the next choice is whether to add a
-real Herdr event adapter or enforce the declared role capabilities in a host
-execution boundary.
+has one campaign-level proof. The Sentinel workspace now reaches both the
+oracle-writer and verifier handoffs; the next deliberate boundary is to bind
+the verifier receipt into the Nublar workflow, then decide where a real Herdr
+event adapter belongs. Mutation-runner delegation remains separate until its
+policy and artifact lineage are explicit.
 
 This file is a project checkpoint, not a requirement to implement every avenue listed above immediately.

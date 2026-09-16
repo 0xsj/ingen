@@ -17,6 +17,7 @@ writeFileSync(
   smokeFile,
   `const expectedPublicApi = ${JSON.stringify(expectedPublicApi)};
 const installedApi = await import("@0xsj/amber");
+const installedTestingApi = await import("@0xsj/amber/testing");
 if (JSON.stringify(Object.keys(installedApi).sort()) !== JSON.stringify(expectedPublicApi)) {
   throw new Error("installed package public API does not match the manifest");
 }
@@ -43,6 +44,10 @@ setProvenanceAttributes({ setAttributes: (value) => Object.assign(attributes, va
 if (attributes["amber.execution_id"] !== root.execution_id) {
   throw new Error("installed package did not expose its OpenTelemetry adapter");
 }
+if (typeof installedTestingApi.runProvenanceStoreContract !== "function") {
+  throw new Error("installed package did not expose its testing subpath");
+}
+await installedTestingApi.runProvenanceStoreContract(new installedApi.MemoryStore());
 console.log("TypeScript package smoke test passed");
 `,
 );

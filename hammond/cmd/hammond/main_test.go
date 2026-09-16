@@ -60,6 +60,7 @@ func registeredRecord(recordID string, version int, digest string) governance.Re
 	return governance.Record{
 		Schema:   governance.Schema,
 		RecordID: recordID,
+		Policy:   governance.DefaultReviewPolicy().Reference,
 		Contract: governance.ContractReference{
 			ProjectID: "document-pipeline",
 			ID:        "document-pipeline",

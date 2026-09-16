@@ -13,12 +13,17 @@ can be exported from a stored run with:
 
 ```sh
 nublar run decision --store <dir> --run-id <id> --output decision.json
+nublar run deliver --store <dir> --run-id <id> \
+  --webhook https://example.test/nublar --timeout 30s \
+  --receipt delivery-receipt.json
 ```
 
 The first reference publisher is a generic HTTP webhook in
 `internal/delivery/webhook`. It POSTs the decision as JSON and sends the
-`run_id` as the `Idempotency-Key` header. It is covered with local HTTP test
-servers only; no live endpoint is configured by Nublar.
+`run_id` as the `Idempotency-Key` header. An optional HMAC-SHA256 signature is
+sent as `X-InGen-Signature-256`; the CLI reads its secret from `--secret-env`
+so secrets do not appear in shell arguments. It is covered with in-memory HTTP
+transports only; no live endpoint is configured by Nublar.
 
 The projection contains:
 
@@ -37,6 +42,19 @@ destination that needs detailed evidence. The projection is implemented by
 returns `0` when the projection is successfully read and written; the run's
 decision remains in the projection's `status` and `exit_code` fields.
 
+## Delivery receipt
+
+`run deliver --receipt <path>` optionally exports one versioned
+`ingen.nublar-delivery-receipt/v1` record for the attempt. Its structural schema
+is [`spec/receipt-v1.schema.json`](spec/receipt-v1.schema.json). The receipt
+contains the run ID, transport, attempt timestamp, accepted/failed status, and
+the HTTP status or error detail observed by the publisher. A failed webhook
+attempt is written as a `failed` receipt before the command returns exit code
+`2`, when the publisher was reached; configuration and projection failures
+occur before a receipt exists. The receipt does not modify the stored run or
+decision, and repeated deliveries produce separate exported receipts when
+requested.
+
 ## Adapter rules
 
 Future adapters may translate the projection into a provider's status,
@@ -45,13 +63,16 @@ Sorna, Paddock, or another producer's report. `run_id` is the idempotency key
 for delivering one local run to one destination; a rerun has a new run ID.
 
 Delivery retries belong to the adapter. They must not create a new Nublar run
-or change the stored decision. A delivery failure is separate from the run's
-`status` and should be reported by the adapter rather than written back as a
-producer or coordinator result.
+or change the stored decision. The `run deliver` command returns `0` when the
+webhook accepts the projection and `2` for configuration, timeout, transport,
+or non-2xx failures. A delivery failure is separate from the run's `status`
+and should be reported through the optional receipt or adapter rather than
+written back as a producer or coordinator result.
 
 ## Deliberately deferred
 
 No hosted provider, authentication model, annotation vocabulary, or delivery
 retry store is selected yet. The generic webhook establishes transport shape
-only; the first concrete consumer should establish those details behind this
+and optional signing only; the first concrete consumer should establish key
+rotation, authentication policy, and destination-specific details behind this
 projection.

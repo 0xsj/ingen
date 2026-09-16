@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.hammond-review-policy-v1.schema.json",
+  "title": "Hammond review policy",
+  "description": "A versioned policy artifact that determines when a review cycle is approved.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "minimum_approvals"],
+  "properties": {
+    "schema": {"const": "ingen.hammond-review-policy/v1"},
+    "id": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1},
+    "minimum_approvals": {"type": "integer", "minimum": 1},
+    "required_roles": {
+      "description": "Roles that must appear on approvals in the active review cycle.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "actor_roles": {
+      "description": "Explicit actor-to-role grants used by local policy evaluation.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

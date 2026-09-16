@@ -111,6 +111,7 @@ nublar run collect --workflow <path> --root <artifact-root> --output <path>
 nublar run show --store <dir> --run-id <id>
 nublar run list --store <dir>
 nublar run decision --store <dir> --run-id <id>
+nublar run deliver --store <dir> --run-id <id> --webhook <url> [--receipt <path>]
 ```
 
 It emits and can persist the `ingen.nublar-run/v1` record. `aggregate` remains

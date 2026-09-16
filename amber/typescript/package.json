@@ -18,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
     }
   },
   "files": [
@@ -42,7 +46,9 @@
     "dist/tracing.d.ts",
     "dist/tracing.js",
     "dist/transport.d.ts",
-    "dist/transport.js"
+    "dist/transport.js",
+    "dist/testing.d.ts",
+    "dist/testing.js"
   ],
   "sideEffects": false,
   "scripts": {
@@ -50,9 +56,11 @@
     "example": "npm run build && node dist/example.js",
     "example-messaging": "npm run build && node dist/messaging-example.js",
     "example-getting-started": "npm run build && node dist/getting-started-example.js",
+    "example-custom-backend": "npm run build && node dist/custom-backend-example.js",
+    "example-worker": "npm run build && node dist/worker-example.js",
     "example-otel": "npm run build && node dist/otel-example.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node test/version.mjs && node test/public-api.mjs && node dist/provenance.test.js && node dist/incoming.test.js && node dist/http.test.js && node dist/reference-service.test.js && node dist/messaging.test.js && node dist/reference-messaging.test.js && node dist/logging.test.js && node dist/tracing.test.js && node dist/otel.test.js && node dist/otel.integration.test.js && node dist/storage.test.js && node dist/storage.contract.test.js && node test/conformance.test.mjs"
+    "test": "npm run build && node test/version.mjs && node test/public-api.mjs && node dist/provenance.test.js && node dist/incoming.test.js && node dist/http.test.js && node dist/reference-service.test.js && node dist/messaging.test.js && node dist/reference-messaging.test.js && node dist/logging.test.js && node dist/tracing.test.js && node dist/otel.test.js && node dist/otel.integration.test.js && node dist/storage.test.js && node dist/storage.contract.test.js && node dist/custom-backend.test.js && node dist/worker.test.js && node dist/testing.test.js && node test/conformance.test.mjs"
   },
   "keywords": [
     "provenance",

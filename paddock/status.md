@@ -52,6 +52,36 @@ project without changing Overwatch or publishing anything:
 - The TypeScript monorepo now exercises the same proposal loop: adding
   `shared-is-independent` remains a one-rule diff, keeps the good workspace
   passing, and attributes the violating path-alias import to that rule alone.
+- The Python adapter now exercises the same loop: adding `domain-is-pure`
+  remains a one-rule diff, keeps the good service passing, and attributes a
+  domain-to-adapter import without conflating it with cycle detection.
+- The external-adapter authoring loop now asserts the machine-readable path:
+  an external Rust graph is inspected and mapped, a two-rule proposal is
+  reviewed as JSON, the saved review verifies, and the resulting lock-backed
+  check passes. This validates the protocol seam without adding Rust logic to
+  Paddock.
+- A negative external-graph case now proves enforcement as well as plumbing:
+  the synthetic adapter can emit a deliberate domain-to-application edge, and
+  a one-rule proposal rejects it while its expected-failure review passes.
+- A read-only real-world TypeScript/Svelte dogfood run against Heyrian exposed
+  and closed two adapter gaps: inherited SvelteKit `$lib` aliases now resolve
+  relative to the config that declares them, and `.svelte` files are graph
+  source units. Common `.vercel` and `.output` trees are skipped. The resulting
+  graph contained 2,876 source units and 8,573 edges; the remaining 1,009
+  unresolved edges are concentrated in generated `./$types` imports and
+  intentional `?raw` lesson assets, so scan-pattern expressiveness remains an
+  ergonomics question rather than another rule kind.
+- Heyrian's existing dependency-cruiser check still provides a useful
+  comparison boundary: it applies 13 rules to its deliberately scoped 1,956
+  modules and 7,924 dependencies with zero violations. The unscoped Paddock
+  run scanned more mixed-content source files by design, which confirms that
+  adapter discovery scope and policy rule scope need to remain separate and
+  explicit.
+- The first scan-scope contract is now implemented: optional
+  `source.include`/`source.exclude` patterns are validated, included in policy
+  diffs and locks, passed to external adapters, and applied to built-in and
+  persisted graphs. Replaying Heyrian with a dependency-cruiser-shaped scope
+  reduced the Paddock graph to 1,864 source units and 6,980 edges.
 
 The Overwatch backend result is intentional review feedback, not a Paddock
 failure. Its policy is not yet an approved compliance gate for that codebase.
@@ -62,6 +92,13 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 
 - Go package graph adapter.
 - TypeScript/JavaScript file graph adapter.
+- TypeScript adapter support for `.svelte` source files and imports from
+  Svelte component scripts.
+- TypeScript config resolution relative to each config file in an `extends`
+  chain, including generated SvelteKit configs.
+- TypeScript exclusion of common `.vercel` and `.output` build trees.
+- Adapter-neutral `source.include`/`source.exclude` discovery filters, with
+  deterministic path-pattern validation and external-adapter propagation.
 - Python file graph adapter.
 - External adapter protocol with capability negotiation.
 - Adapter conformance validation without policy evaluation.
@@ -175,11 +212,13 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 
 1. Use the development decision log to keep unresolved policy choices explicit
    and prevent premature expansion of the rule language.
-2. Run another real dogfood cycle against one target and record adapter,
-   path-resolution, performance, false-positive, and policy-authoring friction.
-3. Incorporate the resulting evidence into the smallest useful implementation
-   batch. Overwatch architecture-owner decisions remain valuable input, but are
-   not required for Paddock development to continue.
+2. Re-run the Heyrian comparison with a real translated policy and record
+   path-resolution, performance, false-positive, and policy-authoring friction
+   now that discovery scope is explicit.
+3. Use that evidence to decide whether the next work is policy vocabulary,
+   adapter resolution, or documentation. Overwatch architecture-owner decisions
+   remain valuable input, but are not required for Paddock development to
+   continue.
 
 ### Likely near-term work
 
@@ -202,11 +241,11 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 
 ## Recommended development checkpoint
 
-This checkpoint has now been reached: the draft-to-seal loop and one external
-adapter have been exercised. The next stopping point should be after one
-usage-driven hardening cycle has converted observed friction into either a
-small fix, a documented limitation, or a deliberately deferred decision.
-Release publication remains deferred while development continues.
+This checkpoint has now been reached: the draft-to-seal loop, one external
+adapter, one real TypeScript/Svelte repository, and an explicit discovery-scope
+contract have been exercised. The next stopping point should be after the
+scoped repository has been evaluated with a translated real policy. Release
+publication remains deferred while development continues.
 
 ## Useful resume commands
 

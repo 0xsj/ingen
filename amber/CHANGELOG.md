@@ -91,6 +91,20 @@ All notable changes to Amber are documented here.
   `0.1.0` release identity without creating tags or publishing artifacts.
 - Established `VERSION` as the release-version source and added a TypeScript
   consistency check for the `0.1.0` package and lockfile metadata.
+- Added adapter-authoring guidance for user-defined backends and boundary
+  integrations without changing the v1 protocol or runtime APIs.
+- Added runnable Go and TypeScript custom-backend examples with focused
+  atomicity and storage-semantic checks.
+- Added deployment-agnostic Go and TypeScript worker examples covering child,
+  retry, persistence, and deterministic work history.
+- Added reusable Go and TypeScript storage contract-test helpers for
+  application-owned backends.
+- Extended package smoke coverage to verify the installed TypeScript testing
+  subpath.
+- Extended the external Go consumer smoke test to import and run the public
+  storage contract-test helper.
+- Added a backlog separating deferred release operations from
+  consumer-driven implementation work.
 
 Before publishing a release, move the completed entries into a versioned
 section and record any compatibility or wire-format changes explicitly.

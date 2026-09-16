@@ -20,17 +20,18 @@ func CollectWorkflowFile(workflowPath, root, runID string) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	return CollectWorkflow(document, workflowRef, root, runID), nil
+	return CollectWorkflow(document, workflowRef, root, runID)
 }
 
 // CollectWorkflow resolves checks under root. Collection failures are recorded
 // in the returned run so CI consumers receive a reviewable error artifact.
-func CollectWorkflow(document workflow.Document, workflowRef ciresult.FileRef, root, runID string) Run {
+func CollectWorkflow(document workflow.Document, workflowRef ciresult.FileRef, root, runID string) (Run, error) {
 	if runID == "" {
 		generated, err := NewID()
-		if err == nil {
-			runID = generated
+		if err != nil {
+			return Run{}, err
 		}
+		runID = generated
 	}
 	createdAt := time.Now().UTC()
 	r := Run{
@@ -105,7 +106,7 @@ func CollectWorkflow(document workflow.Document, workflowRef ciresult.FileRef, r
 	r.Status = decision(r)
 	r.ExitCode, _ = ciresult.ExitCodeForStatus(r.Status)
 	r.CompletedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	return r
+	return r, nil
 }
 
 func decision(r Run) string {

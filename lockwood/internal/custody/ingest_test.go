@@ -120,3 +120,71 @@ func TestIngestorReportsOrphanWhenRecordPublicationFails(t *testing.T) {
 		t.Fatal("IntakeError did not preserve orphan artifact reference")
 	}
 }
+
+func TestIngestorPreflightsMetadataBeforeBlobPublication(t *testing.T) {
+	root := t.TempDir()
+	artifacts, err := store.NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ingestor, err := NewIngestor(artifacts, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ingestor.Accept(strings.NewReader("invalid metadata must not publish"), IntakeRequest{
+		CustodyID: "lockwood-intake-invalid-metadata",
+		MediaType: "text/plain",
+		Producer:  Producer{Tool: "example", Kind: "fixture"},
+		Source:    Source{Path: "invalid.txt"},
+		Handling:  Handling{Redaction: "unsupported", RetentionClass: "default"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid redaction status") {
+		t.Fatalf("Accept error = %v, want preflight metadata error", err)
+	}
+	blobs, err := artifacts.ListBlobs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blobs) != 0 {
+		t.Fatalf("published blobs = %+v, want none", blobs)
+	}
+}
+
+func TestIngestorRejectsOversizedArtifactBeforeBlobPublication(t *testing.T) {
+	root := t.TempDir()
+	artifacts, err := store.NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ingestor, err := NewIngestor(artifacts, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ingestor.Accept(strings.NewReader("1234"), IntakeRequest{
+		CustodyID: "lockwood-intake-oversized",
+		MediaType: "text/plain",
+		Producer:  Producer{Tool: "example", Kind: "fixture"},
+		Source:    Source{Path: "oversized.txt"},
+		Handling:  Handling{Redaction: "none", RetentionClass: "default"},
+		MaxBytes:  3,
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("Accept error = %v, want maximum-size rejection", err)
+	}
+	blobs, err := artifacts.ListBlobs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blobs) != 0 {
+		t.Fatalf("published blobs = %+v, want none", blobs)
+	}
+}

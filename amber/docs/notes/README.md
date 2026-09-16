@@ -77,6 +77,12 @@ evolves, not as a replacement for the code or specification.
 | Runnable getting-started examples | The minimal Go and TypeScript adoption snippets compile and run as part of the examples gate | `make example-go-getting-started`, `make example-typescript-getting-started`, and `make examples` |
 | Versioning decision point | Current package/module facts and the approved `0.1.0` synchronized release identity are recorded separately from the not-yet-created monorepo tag and package publication | `VERSIONING.md` and `RELEASE.md` |
 | Release version consistency | A repository version file and TypeScript test keep the package and lockfile aligned at the approved `0.1.0` release identity | `npm test` reports release version metadata passed |
+| User-defined adapter authoring | Applications have one guide for choosing generic seams, preserving storage invariants, and testing custom adapters without expanding v1 | `docs/adapter-authoring.md` and existing storage contract suites |
+| Custom backend examples | Go and TypeScript provide copyable application-owned key-value backends that exercise atomic insertion, conflict protection, and deterministic history | `make examples` and custom-backend tests pass |
+| Background worker vertical | Go and TypeScript show a broker-free worker deriving incoming child work, recording a retry, and reading deterministic logical-work history | `make examples` and worker tests pass |
+| Reusable adapter contract tests | Custom Go and TypeScript storage implementations can run the portable semantic contract without copying the full suite | Go contracttest package and `@0xsj/amber/testing` helper pass |
+| External contract-helper boundary | A temporary external Go module imports and runs the public storage contract helper, matching TypeScript installed-subpath coverage | `make module-check` passes the external test and consumer |
+| Development backlog boundary | Deferred deployment actions and future consumer-driven implementation work are recorded separately from the verified local checkpoint | `BACKLOG.md` and release-readiness documents |
 
 When a later change alters one of these results, update the relevant note and
 this milestone table in the same change.
@@ -147,6 +153,12 @@ this milestone table in the same change.
 62. [Getting-started snippets should be executable so the first-use path cannot drift](062-getting-started-examples.md)
 63. [Release identity should be decided separately from wire and storage versions](063-versioning-decision.md)
 64. [Release metadata should have one checked version source](064-release-version-consistency.md)
+65. [User-defined adapters should reuse Amber's invariant-owning seams](065-user-defined-adapter-authoring.md)
+66. [Custom backend examples should make the generic seam copyable](066-custom-backend-examples.md)
+67. [A background worker should make child and retry semantics concrete](067-background-worker-reference-vertical.md)
+68. [Custom storage adapters should have reusable contract-test helpers](068-reusable-storage-contract-helpers.md)
+69. [Public contract-test helpers should pass an external consumer check](069-external-contract-helper-consumer.md)
+70. [Deferred deployment should be separated from consumer-driven development](070-development-backlog-boundary.md)
 
 ## Current open questions
 

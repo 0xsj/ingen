@@ -32,6 +32,16 @@ func TestLoadRejectsInvalidPolicies(t *testing.T) {
 			wantErr: "source.roots must not be empty",
 		},
 		{
+			name:    "empty scan pattern",
+			change:  "include: ['']",
+			wantErr: "source.include[0] must not be empty",
+		},
+		{
+			name:    "path traversal scan pattern",
+			change:  "exclude: ['../generated/**']",
+			wantErr: "source.exclude[0] must be a relative path pattern",
+		},
+		{
 			name:    "missing components",
 			change:  "components: {}",
 			wantErr: "components must not be empty",
@@ -68,6 +78,10 @@ func TestLoadRejectsInvalidPolicies(t *testing.T) {
 				contents = strings.Replace(contents, "  language: go", "  language: ''", 1)
 			case "roots: []":
 				contents = strings.Replace(contents, "  roots: [internal]", "  roots: []", 1)
+			case "include: ['']":
+				contents = strings.Replace(contents, "  roots: [internal]", "  roots: [internal]\n  include: ['']", 1)
+			case "exclude: ['../generated/**']":
+				contents = strings.Replace(contents, "  roots: [internal]", "  roots: [internal]\n  exclude: ['../generated/**']", 1)
 			case "components: {}":
 				contents = strings.Replace(contents, "components:\n  source:\n    match: internal/**", "components: {}", 1)
 			default:

@@ -55,6 +55,8 @@ paddock graph /path/to/workspace \
 The fixture supports `rust` with `file` source units and declares the
 `import` edge kind. It intentionally checks capability negotiation and that
 adapter arguments preserve the workspace boundary.
+Pass `--violate` after the workspace argument to emit a deliberate
+domain-to-application edge for negative policy-enforcement tests.
 
 Run the adapter conformance check directly when developing an adapter:
 

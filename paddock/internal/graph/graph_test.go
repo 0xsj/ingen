@@ -62,6 +62,42 @@ func TestStableCopySortsGraphWithoutMutatingInput(t *testing.T) {
 	}
 }
 
+func TestFilterGraphAppliesIncludeExcludeScope(t *testing.T) {
+	input := &model.Graph{
+		ModulePath: "example",
+		Packages: []*model.Package{
+			{ImportPath: "example/app", RelPath: "src/app/main.ts"},
+			{ImportPath: "example/domain", RelPath: "src/domain/order.ts"},
+			{ImportPath: "example/example", RelPath: "src/lessons/examples/sample.ts"},
+			{ImportPath: "example/tool", RelPath: "tools/check.ts"},
+		},
+		Edges: []*model.Edge{
+			{FromImportPath: "example/app", ToImportPath: "example/domain", TargetKind: "internal", Kind: "import"},
+			{FromImportPath: "example/app", ToImportPath: "example/example", TargetKind: "internal", Kind: "import"},
+			{FromImportPath: "example/domain", ToImportPath: "net/http", TargetKind: "external", Kind: "import"},
+			{FromImportPath: "example/tool", ToImportPath: "example/domain", TargetKind: "internal", Kind: "import"},
+		},
+	}
+
+	filtered, err := graph.FilterGraph(input, []string{"src/**/*.ts"}, []string{"src/**/examples/**"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered.Packages) != 2 || !hasPackage(filtered, "src/app/main.ts") || !hasPackage(filtered, "src/domain/order.ts") {
+		t.Fatalf("unexpected scoped packages: %#v", filtered.Packages)
+	}
+	if len(filtered.Edges) != 2 || !hasGraphEdge(filtered, "example/app", "example/domain") || !hasGraphEdge(filtered, "example/domain", "net/http") {
+		t.Fatalf("unexpected scoped edges: %#v", filtered.Edges)
+	}
+}
+
+func TestFilterGraphRejectsEmptyScope(t *testing.T) {
+	input := &model.Graph{ModulePath: "example", Packages: []*model.Package{{ImportPath: "example/app", RelPath: "src/app.ts"}}}
+	if _, err := graph.FilterGraph(input, []string{"missing/**"}, nil); err == nil || !strings.Contains(err.Error(), "selected no source units") {
+		t.Fatalf("scope error = %v, want no source units", err)
+	}
+}
+
 func TestLoadGoKeepsToolDiagnosticsOutOfJSONStream(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example/service\n\ngo 1.23\n"), 0o600); err != nil {
@@ -132,6 +168,8 @@ func TestLoadExternalAdapterNegotiatesRequestAndResponse(t *testing.T) {
 		Language: "rust",
 		Unit:     "file",
 		Root:     root,
+		Include:  []string{"src/**"},
+		Exclude:  []string{"src/generated/**"},
 		RequiredCapabilities: graph.Capabilities{
 			SourceUnits: []string{"file"},
 		},
@@ -150,7 +188,7 @@ func TestLoadExternalAdapterNegotiatesRequestAndResponse(t *testing.T) {
 	if err := json.Unmarshal(requestData, &receivedRequest); err != nil {
 		t.Fatal(err)
 	}
-	if receivedRequest.Schema != graph.RequestSchema || receivedRequest.Root != root || receivedRequest.RequiredCapabilities.SourceUnits[0] != "file" || receivedRequest.RequiredCapabilities.EdgeKinds == nil {
+	if receivedRequest.Schema != graph.RequestSchema || receivedRequest.Root != root || receivedRequest.RequiredCapabilities.SourceUnits[0] != "file" || receivedRequest.RequiredCapabilities.EdgeKinds == nil || len(receivedRequest.Include) != 1 || receivedRequest.Include[0] != "src/**" || len(receivedRequest.Exclude) != 1 || receivedRequest.Exclude[0] != "src/generated/**" {
 		t.Fatalf("unexpected adapter request: %#v", receivedRequest)
 	}
 }
@@ -200,6 +238,15 @@ func TestCapabilitiesRejectMissingRequiredValues(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `required source unit "package"`) {
 		t.Fatalf("capability error = %v, want missing source unit", err)
 	}
+}
+
+func hasGraphEdge(input *model.Graph, from, to string) bool {
+	for _, edge := range input.Edges {
+		if edge.FromImportPath == from && edge.ToImportPath == to {
+			return true
+		}
+	}
+	return false
 }
 
 type testAdapter struct {

@@ -28,15 +28,15 @@ hammond/
 │       └── main.go
 │
 ├── internal/
-	│   ├── governance/
-	│   │   ├── types.go          # contract refs, reviews, approvals, amendments
-	│   │   ├── policy.go         # explicit approval policy and quorum counting
-	│   │   ├── validate.go       # structural and governance invariants
-	│   │   ├── lifecycle.go      # draft/review/approved/superseded transitions
-	│   │   ├── lineage.go        # parent, successor, and amendment relationships
-	│   │   ├── amendment.go      # policy-aware amendment and supersession events
-	│   │   ├── codec.go          # strict JSON record and event decoding
-	│   │   └── governance_test.go
+│   ├── governance/
+│   │   ├── types.go          # contract refs, reviews, approvals, amendments
+│   │   ├── policy.go         # explicit approval policy and quorum counting
+│   │   ├── validate.go       # structural and governance invariants
+│   │   ├── lifecycle.go      # draft/review/approved/superseded transitions
+│   │   ├── lineage.go        # parent, successor, and amendment relationships
+│   │   ├── amendment.go      # policy-aware amendment and supersession events
+│   │   ├── codec.go          # strict record/event/policy decoding and hashing
+│   │   └── governance_test.go
 │   │
 │   └── store/
 │       ├── store.go          # persistence interface
@@ -44,9 +44,11 @@ hammond/
 │       └── filesystem_test.go
 │
 ├── spec/
-│   └── ingen.hammond-governance-v1.schema.json
+│   ├── ingen.hammond-governance-v1.schema.json
+│   └── ingen.hammond-review-policy-v1.schema.json
 │
 ├── examples/
+│   ├── review-policy-v1.json
 │   └── document-pipeline/
 │       ├── record-v2.json
 │       ├── event-review-opened.json
@@ -97,6 +99,7 @@ go run ./hammond/cmd/hammond lineage --store "$STORE"
 ```
 
 The store and CLI use the explicit v1 default policy: one approval from one
-distinct actor in the active review cycle. Library callers that need a higher
-threshold can use the policy-aware governance and lineage methods; policy
-configuration and role authorization are not persisted yet.
+distinct actor in the active review cycle. Library callers can also require
+named approval roles or a higher threshold; role authorization outside the
+verified policy artifact and organization-level policy rules are not modeled
+yet.

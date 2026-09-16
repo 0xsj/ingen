@@ -100,6 +100,42 @@ func TestServiceFixtures(t *testing.T) {
 	}
 }
 
+func TestCheckPolicyAppliesSourceDiscoveryScope(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	policyPath := filepath.Join(t.TempDir(), "scoped.yaml")
+	contents := `schema: paddock.architecture/v1
+project: scoped-typescript
+source:
+  language: typescript
+  unit: file
+  roots: [src]
+  include: [src/entities/**]
+  exclude: [src/entities/**/*.spec.ts]
+components:
+  entity:
+    match: src/entities/**
+    labels:
+      role: entity
+rules:
+  - id: complete-classification
+    kind: coverage
+`
+	if err := os.WriteFile(policyPath, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := checker.Check(
+		filepath.Join(repoRoot, "paddock", "examples", "services", "feature-sliced-ts", "good"),
+		policyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK() || result.PackageCount != 1 || result.EdgeCount != 0 {
+		t.Fatalf("source discovery scope was not applied: %#v", result)
+	}
+}
+
 func TestCoverageRejectsUnmatchedAndAmbiguousPackages(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	tests := []struct {

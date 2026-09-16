@@ -95,6 +95,29 @@ func TestFilesystemPutChecksExpectedDigestBeforePublish(t *testing.T) {
 	}
 }
 
+func TestFilesystemPutRejectsOversizedArtifactBeforePublish(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = store.Put(strings.NewReader("1234"), PutOptions{
+		MediaType: "text/plain",
+		MaxBytes:  3,
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("Put error = %v, want maximum-size rejection", err)
+	}
+	blobs, err := store.ListBlobs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blobs) != 0 {
+		t.Fatalf("published blobs = %+v, want none", blobs)
+	}
+}
+
 func TestFilesystemRejectsUnsafeDigest(t *testing.T) {
 	store, err := NewFilesystem(t.TempDir())
 	if err != nil {

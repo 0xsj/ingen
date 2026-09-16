@@ -179,9 +179,11 @@ func (d Document) Validate() error {
 }
 
 type LoadRequest struct {
-	Root  string
-	Unit  string
-	Roots []string
+	Root    string
+	Unit    string
+	Roots   []string
+	Include []string
+	Exclude []string
 }
 
 // Request is sent as JSON on stdin to an external graph adapter. The adapter
@@ -192,6 +194,8 @@ type Request struct {
 	Unit                 string       `json:"source_unit,omitempty"`
 	Root                 string       `json:"root"`
 	Roots                []string     `json:"roots,omitempty"`
+	Include              []string     `json:"include,omitempty"`
+	Exclude              []string     `json:"exclude,omitempty"`
 	RequiredCapabilities Capabilities `json:"required_capabilities"`
 }
 
@@ -204,6 +208,12 @@ func (r Request) Validate() error {
 	}
 	if r.Root == "" {
 		return fmt.Errorf("graph adapter request root is required")
+	}
+	if err := validateScopePatterns("include", r.Include); err != nil {
+		return err
+	}
+	if err := validateScopePatterns("exclude", r.Exclude); err != nil {
+		return err
 	}
 	if err := r.RequiredCapabilities.validate(false); err != nil {
 		return fmt.Errorf("graph adapter request capabilities: %w", err)
@@ -333,6 +343,14 @@ func LoadExternal(ctx context.Context, executable string, args []string, request
 	if err := document.Capabilities.Supports(request.RequiredCapabilities); err != nil {
 		return nil, Document{}, fmt.Errorf("external graph adapter capability negotiation failed: %w", err)
 	}
+	loaded, err = FilterGraph(loaded, request.Include, request.Exclude)
+	if err != nil {
+		return nil, Document{}, fmt.Errorf("apply graph scan scope: %w", err)
+	}
+	document.Packages = loaded.Packages
+	document.Edges = loaded.Edges
+	document.PackageCount = len(loaded.Packages)
+	document.EdgeCount = len(loaded.Edges)
 	return loaded, document, nil
 }
 
@@ -394,7 +412,11 @@ func (r *Registry) Load(language string, request LoadRequest) (*model.Graph, err
 	if request.Root == "" {
 		return nil, fmt.Errorf("graph load root is required")
 	}
-	return adapter.Load(request)
+	loaded, err := adapter.Load(request)
+	if err != nil {
+		return nil, err
+	}
+	return FilterGraph(loaded, request.Include, request.Exclude)
 }
 
 func Load(root, language string) (*model.Graph, error) {

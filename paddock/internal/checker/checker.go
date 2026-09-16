@@ -22,9 +22,11 @@ func Check(root, policyPath string) (*model.Result, error) {
 
 func CheckPolicy(root, policyPath string, config policy.Policy) (*model.Result, error) {
 	dependencyGraph, err := graph.LoadWithRequest(graph.LoadRequest{
-		Root:  root,
-		Unit:  config.Source.Unit,
-		Roots: append([]string(nil), config.Source.Roots...),
+		Root:    root,
+		Unit:    config.Source.Unit,
+		Roots:   append([]string(nil), config.Source.Roots...),
+		Include: append([]string(nil), config.Source.Include...),
+		Exclude: append([]string(nil), config.Source.Exclude...),
 	}, config.Source.Language)
 	if err != nil {
 		return nil, err

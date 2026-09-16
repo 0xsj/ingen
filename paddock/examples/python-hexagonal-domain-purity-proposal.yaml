@@ -1,0 +1,52 @@
+# REVIEW REQUIRED: focused Python domain-purity proposal.
+
+schema: paddock.architecture/v1
+project: python-hexagonal
+
+source:
+  language: python
+  unit: file
+  roots: [app]
+
+components:
+  composition:
+    match: app/__init__.py
+    labels:
+      role: composition
+
+  domain:
+    match: app/domain/**
+    labels:
+      role: domain
+
+  port:
+    match: app/ports/**
+    labels:
+      role: port
+
+  adapter:
+    match: app/adapters/**
+    labels:
+      role: adapter
+
+rules:
+  - id: no-cycles
+    kind: no-cycles
+    message: Python architecture must remain acyclic
+
+  - id: no-unresolved-imports
+    kind: unresolved
+    message: Python project imports must resolve to a source module
+
+  - id: complete-classification
+    kind: coverage
+    message: every Python source file must belong to a declared component
+
+  - id: domain-is-pure
+    kind: allow-dependencies
+    from: {role: domain}
+    allow:
+      - standard-library:dataclasses
+      - {role: domain}
+      - {role: port}
+    message: Python domain code depends on stable abstractions, not adapters

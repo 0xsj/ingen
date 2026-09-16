@@ -1,4 +1,4 @@
-.PHONY: test check release-check lint fuzz race package-check module-check postgres-migration-check postgres-apply-migration postgres-integration postgres-schema-check examples example-go example-go-service example-go-messaging example-go-getting-started example-typescript example-typescript-messaging example-typescript-getting-started example-otel-go example-otel-typescript test-go test-typescript lint-go lint-typescript build-typescript
+.PHONY: test check release-check lint fuzz race package-check module-check postgres-migration-check postgres-apply-migration postgres-integration postgres-schema-check examples example-go example-go-service example-go-messaging example-go-getting-started example-go-custom-backend example-go-worker example-typescript example-typescript-messaging example-typescript-getting-started example-typescript-custom-backend example-typescript-worker example-otel-go example-otel-typescript test-go test-typescript lint-go lint-typescript build-typescript
 
 test: test-go test-typescript
 
@@ -41,10 +41,12 @@ module-check:
 	amber_dir=$$(pwd)/go && temp_dir=$$(mktemp -d) && \
 		trap 'rm -rf "$$temp_dir"' EXIT && \
 		cp go/examples/consumer/main.go "$$temp_dir/main.go" && \
+		cp go/examples/consumer/contract_test.go "$$temp_dir/contract_test.go" && \
 		cd "$$temp_dir" && \
 		go mod init example.com/amber-consumer && \
 		go mod edit -replace github.com/0xsj/ingen/amber="$$amber_dir" && \
 		go mod tidy && \
+		go test . && \
 		go run .
 
 postgres-migration-check:
@@ -62,7 +64,7 @@ postgres-schema-check:
 	@test -n "$$AMBER_POSTGRES_DSN" || (echo "AMBER_POSTGRES_DSN must be set" && exit 1)
 	cd go && go run ./examples/postgres
 
-examples: example-go example-go-service example-go-messaging example-go-getting-started example-typescript example-typescript-messaging example-typescript-getting-started example-otel-go example-otel-typescript
+examples: example-go example-go-service example-go-messaging example-go-getting-started example-go-custom-backend example-go-worker example-typescript example-typescript-messaging example-typescript-getting-started example-typescript-custom-backend example-typescript-worker example-otel-go example-otel-typescript
 
 example-go:
 	cd go && go run ./examples/compose
@@ -76,6 +78,12 @@ example-go-messaging:
 example-go-getting-started:
 	cd go && go run ./examples/getting-started
 
+example-go-custom-backend:
+	cd go && go run ./examples/custom-backend
+
+example-go-worker:
+	cd go && go run ./examples/worker
+
 example-typescript:
 	cd typescript && npm run example
 
@@ -84,6 +92,12 @@ example-typescript-messaging:
 
 example-typescript-getting-started:
 	cd typescript && npm run example-getting-started
+
+example-typescript-custom-backend:
+	cd typescript && npm run example-custom-backend
+
+example-typescript-worker:
+	cd typescript && npm run example-worker
 
 example-otel-go:
 	cd go && go run ./examples/otel

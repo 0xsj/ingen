@@ -163,7 +163,10 @@ func TestCollectWorkflowRecordsMissingOptionalAndMalformedRequiredResults(t *tes
 	if err := os.WriteFile(filepath.Join(root, "malformed.json"), []byte("not-json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	r := CollectWorkflow(document, fileRef("workflow.yaml"), root, "run-01")
+	r, err := CollectWorkflow(document, fileRef("workflow.yaml"), root, "run-01")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if r.Status != "error" || r.ExitCode != 2 || len(r.Checks) != 3 || len(r.Warnings) != 1 || len(r.Errors) != 1 {
 		t.Fatalf("collected run = %+v, want one warning and one error", r)
 	}

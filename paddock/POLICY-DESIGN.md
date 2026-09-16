@@ -103,7 +103,27 @@ TypeScript/JavaScript and Python use `file`. Policies may omit it for backward
 compatibility, in which case the adapter default is selected from the language.
 The TypeScript adapter also honors `compilerOptions.baseUrl` and `paths` from
 `tsconfig.json`, including local `extends` chains. It accepts the comments and
-trailing commas commonly used in JSONC TypeScript configuration files.
+trailing commas commonly used in JSONC TypeScript configuration files, and it
+models `.svelte` files and their component-script imports. Common generated
+output directories are skipped by the built-in TypeScript adapter.
+
+Source discovery can be narrowed without changing the policy evaluation roots:
+
+```yaml
+source:
+  language: typescript
+  unit: file
+  roots: [src]
+  include: [src/**/*.ts, src/**/*.svelte]
+  exclude: [src/lib/content/lessons/**/examples/**]
+```
+
+`include` and `exclude` use relative slash-separated path patterns. `*` matches
+one path segment, `**` matches any number of segments, and a plain directory
+pattern includes or excludes its descendants. The resulting graph is filtered
+after adapter resolution; out-of-scope internal edges are omitted, while
+external and unresolved edges remain visible. The same scope is included in
+external adapter requests and applied by Paddock as a safety boundary.
 The Python adapter treats `.py` files as source units, resolves absolute and
 relative project modules without executing code, and reports project imports
 that cannot be resolved as `unresolved` edges.

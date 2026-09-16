@@ -24,6 +24,7 @@ schema identities and meanings stable until an intentional interface review:
 | Nublar workflow | `ingen.nublar-workflow/v1` | Nublar | Required/optional CI result paths resolved under an artifact root. |
 | Nublar aggregate | `ingen.nublar-result/v1` | Nublar | Preserved input envelopes plus severity composition. |
 | Nublar decision | `ingen.nublar-decision/v1` | Nublar | Provider-neutral delivery projection without producer reports. |
+| Nublar delivery receipt | `ingen.nublar-delivery-receipt/v1` | Nublar | One delivery attempt outcome, separate from the run decision. |
 
 The `v1` labels are alpha interfaces, not a claim that every field is already
 ideal. A breaking field or semantic change must be deliberate, documented, and
@@ -90,11 +91,13 @@ Run the complete clean document workflow with:
 
 ```sh
 make nublar-aggregate-fresh
+make nublar-run-collect-fresh
 ```
 
-The latter is the executable proof for the current slice: it prepares the
-strict Go provider, emits provider-review and preparation CI results, executes
-the campaign, and aggregates four required checks in a temporary workspace.
+These targets are the executable proofs for the current slice: they prepare
+the strict Go provider, emit provider-review and preparation CI results,
+execute the campaign, and aggregate or persist four required checks in a
+temporary workspace.
 
 The full repository check remains separate because unrelated pre-existing
 Paddock compile errors currently prevent `go test ./...`; the focused command
@@ -105,4 +108,6 @@ covers the alpha surfaces named here.
 - [CI result envelope](core/CI-RESULT-SPEC.md)
 - [Sorna mutation specification](sorna/MUTATION-SPEC.md)
 - [Nublar README](nublar/README.md)
+- [Nublar run artifact](nublar/RUN-ARTIFACT.md)
+- [Nublar delivery boundary](nublar/DELIVERY-BOUNDARY.md)
 - [Project status](status.md)

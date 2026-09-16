@@ -35,8 +35,14 @@ func TestCompareReportsSemanticPolicyChanges(t *testing.T) {
 }
 
 func TestCompareIgnoresRootOrdering(t *testing.T) {
-	before := policy.Policy{Project: "demo", Source: policy.Source{Language: "go", Roots: []string{"cmd", "internal"}}}
-	after := policy.Policy{Project: "demo", Source: policy.Source{Language: "go", Roots: []string{"internal", "cmd"}}}
+	before := policy.Policy{Project: "demo", Source: policy.Source{
+		Language: "go", Roots: []string{"cmd", "internal"},
+		Include: []string{"src/**/*.ts", "src/**/*.svelte"}, Exclude: []string{"src/generated/**", "src/examples/**"},
+	}}
+	after := policy.Policy{Project: "demo", Source: policy.Source{
+		Language: "go", Roots: []string{"internal", "cmd"},
+		Include: []string{"src/**/*.svelte", "src/**/*.ts"}, Exclude: []string{"src/examples/**", "src/generated/**"},
+	}}
 	document := policydiff.Compare(before, after)
 	if document.Status != "unchanged" || len(document.Changes) != 0 {
 		t.Fatalf("root ordering created a semantic diff: %#v", document)

@@ -288,6 +288,7 @@ func registeredRecord(digest string) governance.Record {
 	return governance.Record{
 		Schema:   governance.Schema,
 		RecordID: "document-pipeline-v1",
+		Policy:   governance.DefaultReviewPolicy().Reference,
 		Contract: governance.ContractReference{
 			ProjectID: "document-pipeline",
 			ID:        "document-pipeline",

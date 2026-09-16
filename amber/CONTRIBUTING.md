@@ -77,4 +77,5 @@ git diff --check
 ```
 
 Do not include unrelated workspace changes in an Amber change. The release
-procedure is documented in [`RELEASE.md`](RELEASE.md).
+procedure is documented in [`RELEASE.md`](RELEASE.md), and deferred release or
+future consumer-driven work is tracked in [`BACKLOG.md`](BACKLOG.md).

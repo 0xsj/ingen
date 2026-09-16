@@ -19,6 +19,15 @@ The Go example uses a temporary file store and removes that file when it exits.
 The TypeScript example uses the in-memory key-value backend to keep the example
 portable across Node and browser-oriented runtimes.
 
+The custom-backend examples show the smallest application-owned
+`KeyValueBackend` implementation in Go and TypeScript. They demonstrate that
+Amber retains serialization, conflict protection, and history-query semantics
+while the application owns the backend storage mechanism.
+
+The worker examples show a deployment-agnostic background job deriving an
+incoming child execution, recording a retry, and querying the resulting logical
+work history without requiring a broker or network service.
+
 The examples use `httptest`/`Request` objects rather than opening a network
 port, so they demonstrate adapter composition without external services.
 
@@ -37,5 +46,9 @@ recorders. They do not require a collector or network destination.
 
 - Go: [`go/examples/compose`](../go/examples/compose/)
 - TypeScript: [`typescript/src/example.ts`](../typescript/src/example.ts)
+- Go custom backend: [`go/examples/custom-backend`](../go/examples/custom-backend/)
+- TypeScript custom backend: [`typescript/src/custom-backend-example.ts`](../typescript/src/custom-backend-example.ts)
+- Go worker: [`go/examples/worker`](../go/examples/worker/)
+- TypeScript worker: [`typescript/src/worker-example.ts`](../typescript/src/worker-example.ts)
 - Go OpenTelemetry: [`go/examples/otel`](../go/examples/otel/)
 - TypeScript OpenTelemetry: [`typescript/src/otel-example.ts`](../typescript/src/otel-example.ts)

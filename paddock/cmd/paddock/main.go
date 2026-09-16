@@ -273,6 +273,7 @@ func graphCommand(args []string) error {
 	adapterArgs := []string(nil)
 	format := "text"
 	rootSet := false
+	var scopeInclude, scopeExclude []string
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		switch arg {
@@ -365,6 +366,8 @@ func graphCommand(args []string) error {
 			if document.Unit != "" && document.Unit != config.Source.Unit {
 				return fmt.Errorf("graph input source unit %q does not match policy source unit %q", document.Unit, config.Source.Unit)
 			}
+			scopeInclude = append([]string(nil), config.Source.Include...)
+			scopeExclude = append([]string(nil), config.Source.Exclude...)
 		}
 	} else {
 		request := paddockgraph.LoadRequest{Root: root}
@@ -379,6 +382,8 @@ func graphCommand(args []string) error {
 			language = config.Source.Language
 			request.Unit = config.Source.Unit
 			request.Roots = append([]string(nil), config.Source.Roots...)
+			request.Include = append([]string(nil), config.Source.Include...)
+			request.Exclude = append([]string(nil), config.Source.Exclude...)
 		}
 		if language == "" {
 			return fmt.Errorf("graph requires --language <language>, --policy <path>, or --input <graph.json>")
@@ -394,6 +399,8 @@ func graphCommand(args []string) error {
 				Unit:                 request.Unit,
 				Root:                 absRoot,
 				Roots:                append([]string(nil), request.Roots...),
+				Include:              append([]string(nil), request.Include...),
+				Exclude:              append([]string(nil), request.Exclude...),
 				RequiredCapabilities: requiredCapabilities,
 			}
 			var document paddockgraph.Document
@@ -419,6 +426,12 @@ func graphCommand(args []string) error {
 			roots = request.Roots
 			modulePath = loaded.ModulePath
 			capabilities = adapter.Capabilities()
+		}
+	}
+	if len(scopeInclude) > 0 || len(scopeExclude) > 0 {
+		loaded, err = paddockgraph.FilterGraph(loaded, scopeInclude, scopeExclude)
+		if err != nil {
+			return err
 		}
 	}
 	loaded = paddockgraph.StableCopy(loaded)
@@ -578,9 +591,11 @@ func componentMapCommand(args []string) error {
 		loaded, err = loadExternalGraph(root, evaluation.Config, adapterExecutable, adapterArgs)
 	} else {
 		loaded, err = paddockgraph.LoadWithRequest(paddockgraph.LoadRequest{
-			Root:  root,
-			Unit:  evaluation.Config.Source.Unit,
-			Roots: append([]string(nil), evaluation.Config.Source.Roots...),
+			Root:    root,
+			Unit:    evaluation.Config.Source.Unit,
+			Roots:   append([]string(nil), evaluation.Config.Source.Roots...),
+			Include: append([]string(nil), evaluation.Config.Source.Include...),
+			Exclude: append([]string(nil), evaluation.Config.Source.Exclude...),
 		}, evaluation.Config.Source.Language)
 	}
 	if err != nil {
@@ -718,7 +733,7 @@ func initCommand(args []string) error {
 		}
 		var document paddockgraph.Document
 		var err error
-		loaded, document, err = loadExternalGraphRequest(root, language, unit, nil, adapterExecutable, adapterArgs)
+		loaded, document, err = loadExternalGraphRequest(root, language, unit, nil, nil, nil, adapterExecutable, adapterArgs)
 		if err != nil {
 			return err
 		}
@@ -1493,7 +1508,7 @@ func loadGraphInput(path string, config paddockpolicy.Policy) (*model.Graph, err
 	if document.Unit != "" && document.Unit != config.Source.Unit {
 		return nil, fmt.Errorf("graph input source unit %q does not match policy source unit %q", document.Unit, config.Source.Unit)
 	}
-	return loaded, nil
+	return paddockgraph.FilterGraph(loaded, config.Source.Include, config.Source.Exclude)
 }
 
 func loadExternalGraph(root string, config paddockpolicy.Policy, executable string, args []string) (*model.Graph, error) {
@@ -1502,10 +1517,10 @@ func loadExternalGraph(root string, config paddockpolicy.Policy, executable stri
 }
 
 func loadExternalGraphDocument(root string, config paddockpolicy.Policy, executable string, args []string) (*model.Graph, paddockgraph.Document, error) {
-	return loadExternalGraphRequest(root, config.Source.Language, config.Source.Unit, config.Source.Roots, executable, args)
+	return loadExternalGraphRequest(root, config.Source.Language, config.Source.Unit, config.Source.Roots, config.Source.Include, config.Source.Exclude, executable, args)
 }
 
-func loadExternalGraphRequest(root, language, unit string, roots []string, executable string, args []string) (*model.Graph, paddockgraph.Document, error) {
+func loadExternalGraphRequest(root, language, unit string, roots, include, exclude []string, executable string, args []string) (*model.Graph, paddockgraph.Document, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, paddockgraph.Document{}, fmt.Errorf("resolve source root: %w", err)
@@ -1520,6 +1535,8 @@ func loadExternalGraphRequest(root, language, unit string, roots []string, execu
 		Unit:                 unit,
 		Root:                 absRoot,
 		Roots:                append([]string(nil), roots...),
+		Include:              append([]string(nil), include...),
+		Exclude:              append([]string(nil), exclude...),
 		RequiredCapabilities: requiredCapabilities,
 	})
 }
@@ -1998,7 +2015,7 @@ func validateAdapter(args []string) (int, error) {
 	if format != "text" && format != "json" {
 		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
 	}
-	_, document, err := loadExternalGraphRequest(root, language, unit, nil, adapterExecutable, adapterArgs)
+	_, document, err := loadExternalGraphRequest(root, language, unit, nil, nil, nil, adapterExecutable, adapterArgs)
 	if err != nil {
 		if format != "json" {
 			return 0, err

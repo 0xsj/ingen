@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ingen/core/ciresult"
+	nublardelivery "ingen/nublar/internal/delivery"
 	nublarrun "ingen/nublar/internal/run"
 	nublarstore "ingen/nublar/internal/storage/filesystem"
 )
@@ -154,6 +155,47 @@ func TestRunDecisionExportsCompactVersionedProjection(t *testing.T) {
 	}
 	if _, ok := decision["artifact"]; ok || string(contents) == "" {
 		t.Fatalf("decision = %s, want compact projection without producer artifact", contents)
+	}
+}
+
+func TestRunDeliverRejectsInvalidWebhookConfiguration(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(cliTestRun("cli-deliver-01")); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"run", "deliver", "--store", storeRoot, "--run-id", "cli-deliver-01", "--webhook", "file:///tmp/nublar", "--timeout", "1s"}
+	if exitCode := run(args); exitCode != 2 {
+		t.Fatalf("run(%v) = %d, want invalid-webhook configuration error", args, exitCode)
+	}
+}
+
+func TestSaveReceiptWritesVersionedReceipt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "delivery-receipt.json")
+	receipt := nublardelivery.Receipt{
+		Schema:      nublardelivery.ReceiptSchema,
+		RunID:       "cli-receipt-01",
+		Transport:   "http-webhook",
+		Status:      "accepted",
+		HTTPStatus:  204,
+		AttemptedAt: "2026-09-15T12:00:02Z",
+	}
+	if err := saveReceipt(path, receipt); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded nublardelivery.Receipt
+	if err := json.Unmarshal(contents, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if loaded != receipt {
+		t.Fatalf("loaded receipt = %+v, want %+v", loaded, receipt)
 	}
 }
 

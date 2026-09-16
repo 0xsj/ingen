@@ -121,6 +121,8 @@ func Compare(before, after policy.Policy) Document {
 	addScalarChanges(&document, before.Source.Language, after.Source.Language, "source.language")
 	addScalarChanges(&document, before.Source.Unit, after.Source.Unit, "source.unit")
 	addValueChange(&document, "source.roots", before.Source.Roots, after.Source.Roots)
+	addValueChange(&document, "source.include", before.Source.Include, after.Source.Include)
+	addValueChange(&document, "source.exclude", before.Source.Exclude, after.Source.Exclude)
 	compareComponents(&document, before.Components, after.Components)
 	compareRules(&document, before.Rules, after.Rules)
 	compareWaivers(&document, before.Waivers, after.Waivers)
@@ -144,6 +146,10 @@ func Compare(before, after policy.Policy) Document {
 func normalized(input policy.Policy) policy.Policy {
 	input.Source.Roots = append([]string(nil), input.Source.Roots...)
 	sort.Strings(input.Source.Roots)
+	input.Source.Include = append([]string(nil), input.Source.Include...)
+	sort.Strings(input.Source.Include)
+	input.Source.Exclude = append([]string(nil), input.Source.Exclude...)
+	sort.Strings(input.Source.Exclude)
 	return input
 }
 

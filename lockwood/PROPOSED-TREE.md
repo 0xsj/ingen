@@ -6,6 +6,11 @@ commitment.
 The first Lockwood slice should stay narrow and center on three
 responsibilities: artifact identity, custody metadata, and storage.
 
+The original proposal remains preserved below. The implemented slice has
+grown to include local recovery, reconciliation, versioned source metadata,
+and producer adapters; the inventory below keeps the planning tree from being
+mistaken for an exact filesystem listing.
+
 ```text
 lockwood/
 ├── README.md
@@ -44,6 +49,26 @@ lockwood/
 │   └── custody-record.json
 └── testdata/
 ```
+
+## Current implemented slice
+
+```text
+lockwood/
+├── cmd/lockwood/                 # put, imports, get, inspect, verify, find, recover, reconcile
+├── internal/
+│   ├── artifact/                 # SHA-256 references
+│   ├── store/                    # filesystem blobs, inventory, reference checks
+│   ├── custody/                  # records, lineage, recovery, serialization, verification
+│   ├── catalog/                  # deterministic metadata queries
+│   └── adapters/
+│       ├── ciresult/             # validated ingen.ci-result/v1 intake
+│       └── sorna/                # deterministic verified Sorna bundle intake
+├── spec/                         # artifact-v1, custody-v1, custody-v2
+└── testdata/                     # valid and invalid contract fixtures
+```
+
+The proposed `integrity`, in-memory store, `examples`, and remote/object-store
+areas remain future work rather than missing implementation files.
 
 ## Proposed custody root
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -99,6 +100,8 @@ type Source struct {
 	Language string   `yaml:"language" json:"language"`
 	Roots    []string `yaml:"roots" json:"roots"`
 	Unit     string   `yaml:"unit" json:"unit"`
+	Include  []string `yaml:"include,omitempty" json:"include,omitempty"`
+	Exclude  []string `yaml:"exclude,omitempty" json:"exclude,omitempty"`
 }
 
 type Component struct {
@@ -270,6 +273,10 @@ func ParseJSON(data []byte) (Policy, error) {
 func CanonicalJSON(input Policy) ([]byte, error) {
 	input.Source.Roots = append([]string(nil), input.Source.Roots...)
 	sort.Strings(input.Source.Roots)
+	input.Source.Include = append([]string(nil), input.Source.Include...)
+	sort.Strings(input.Source.Include)
+	input.Source.Exclude = append([]string(nil), input.Source.Exclude...)
+	sort.Strings(input.Source.Exclude)
 	input.Rules = append([]Rule(nil), input.Rules...)
 	sort.SliceStable(input.Rules, func(i, j int) bool {
 		return input.Rules[i].ID < input.Rules[j].ID
@@ -340,6 +347,8 @@ func (p Policy) ValidationIssues() []ValidationIssue {
 	if len(p.Source.Roots) == 0 {
 		add("source-roots", "source.roots", "source.roots must not be empty")
 	}
+	validateSourcePatterns(&issues, "include", p.Source.Include)
+	validateSourcePatterns(&issues, "exclude", p.Source.Exclude)
 	if len(p.Components) == 0 {
 		add("components", "components", "components must not be empty")
 	}
@@ -396,6 +405,30 @@ func (p Policy) ValidationIssues() []ValidationIssue {
 		}
 	}
 	return issues
+}
+
+func validateSourcePatterns(issues *[]ValidationIssue, kind string, patterns []string) {
+	for index, pattern := range patterns {
+		field := fmt.Sprintf("source.%s[%d]", kind, index)
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			*issues = append(*issues, ValidationIssue{Code: "source-scan-pattern", Path: field, Message: fmt.Sprintf("%s must not be empty", field)})
+			continue
+		}
+		if strings.HasPrefix(pattern, "/") || pattern == ".." || strings.HasPrefix(pattern, "../") || strings.Contains(pattern, "/../") {
+			*issues = append(*issues, ValidationIssue{Code: "source-scan-pattern", Path: field, Message: fmt.Sprintf("%s must be a relative path pattern", field)})
+			continue
+		}
+		for _, segment := range strings.Split(strings.Trim(pattern, "/"), "/") {
+			if segment == "" || segment == "**" {
+				continue
+			}
+			if _, err := path.Match(segment, ""); err != nil {
+				*issues = append(*issues, ValidationIssue{Code: "source-scan-pattern", Path: field, Message: fmt.Sprintf("%s has invalid pattern %q: %v", field, pattern, err)})
+				break
+			}
+		}
+	}
 }
 
 type ruleField struct {

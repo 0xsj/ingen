@@ -125,6 +125,23 @@ func TestImporterRejectsSymlinksAndUnsupportedManifestSchemas(t *testing.T) {
 	}
 }
 
+func TestDeterministicTarRejectsOversizedArchive(t *testing.T) {
+	_, err := deterministicTarWithLimit([]snapshotFile{{Name: "run.json", Data: []byte("data")}}, 600)
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("deterministicTarWithLimit error = %v, want maximum-size rejection", err)
+	}
+}
+
+func TestReadSnapshotRejectsOversizedInputBeforeReadingFiles(t *testing.T) {
+	bundle := filepath.Join(t.TempDir(), "run-bundle")
+	writeSornaFixture(t, bundle, EvidenceSchema, "run-0003", map[string][]byte{
+		"run.json": []byte(`{"schema":"ingen.run/v1","run_id":"run-0003"}`),
+	})
+	if _, err := readSnapshotWithLimit(bundle, 1); err == nil || !strings.Contains(err.Error(), "input exceeds maximum size") {
+		t.Fatalf("readSnapshotWithLimit error = %v, want input maximum-size rejection", err)
+	}
+}
+
 func writeSornaFixture(t *testing.T, directory, schema, runID string, files map[string][]byte) {
 	t.Helper()
 	if err := os.MkdirAll(directory, 0o755); err != nil {

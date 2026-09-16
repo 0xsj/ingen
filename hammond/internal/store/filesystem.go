@@ -288,7 +288,11 @@ func readRecord(path string) (governance.Record, error) {
 }
 
 func validateRegistration(record governance.Record) error {
-	if err := record.Validate(); err != nil {
+	policy, err := governance.LoadReviewPolicy(record.Policy)
+	if err != nil {
+		return fmt.Errorf("load registration policy: %w", err)
+	}
+	if err := record.ValidateWithPolicy(policy); err != nil {
 		return err
 	}
 	if record.State != governance.StateRegistered || len(record.Events) != 1 || record.Events[0].Type != governance.EventRegistered {

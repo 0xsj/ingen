@@ -14,6 +14,8 @@ import (
 
 const Schema = "ingen.nublar-decision/v1"
 
+const ReceiptSchema = "ingen.nublar-delivery-receipt/v1"
+
 // Decision is the small, provider-neutral projection that a delivery adapter
 // can publish. It intentionally excludes producer-owned reports; an adapter
 // can use RunID to retrieve the complete run record when a destination needs
@@ -160,4 +162,48 @@ func WriteJSON(w io.Writer, decision Decision) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(decision)
+}
+
+// Receipt records one delivery attempt without changing the run decision.
+// A receipt is local delivery evidence, not a producer or Nublar run result.
+type Receipt struct {
+	Schema      string `json:"schema"`
+	RunID       string `json:"run_id"`
+	Transport   string `json:"transport"`
+	Status      string `json:"status"`
+	HTTPStatus  int    `json:"http_status,omitempty"`
+	AttemptedAt string `json:"attempted_at"`
+	Error       string `json:"error,omitempty"`
+}
+
+func (r Receipt) Validate() error {
+	if r.Schema != ReceiptSchema {
+		return fmt.Errorf("Nublar delivery receipt schema must be %s, got %q", ReceiptSchema, r.Schema)
+	}
+	if strings.TrimSpace(r.RunID) == "" || strings.TrimSpace(r.Transport) == "" {
+		return fmt.Errorf("Nublar delivery receipt run_id and transport are required")
+	}
+	if r.Status != "accepted" && r.Status != "failed" {
+		return fmt.Errorf("Nublar delivery receipt has unsupported status %q", r.Status)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, r.AttemptedAt); err != nil {
+		return fmt.Errorf("Nublar delivery receipt attempted_at must be RFC3339: %w", err)
+	}
+	if r.Status == "accepted" && (r.HTTPStatus < 200 || r.HTTPStatus >= 300) {
+		return fmt.Errorf("accepted Nublar delivery receipt needs a 2xx http_status")
+	}
+	if r.Status == "failed" && strings.TrimSpace(r.Error) == "" {
+		return fmt.Errorf("failed Nublar delivery receipt needs an error")
+	}
+	return nil
+}
+
+// WriteReceiptJSON writes a validated delivery receipt to w.
+func WriteReceiptJSON(w io.Writer, receipt Receipt) error {
+	if err := receipt.Validate(); err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(receipt)
 }

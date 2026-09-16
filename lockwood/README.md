@@ -32,5 +32,10 @@ The draft machine-readable contracts are in
 Custody v2 can preserve credential-free remote source URI/version metadata;
 this records provenance only and does not fetch or attest remote objects.
 
-The initial local CLI exposes `put`, `import-sorna`, `get`, `inspect`, `verify`,
-`find`, and read-only `reconcile` reporting for orphaned or damaged storage.
+The initial local CLI exposes `put`, `import-sorna`, `import-ci-result`, `get`,
+`inspect`, `verify`, `find`, `recover`, and read-only `reconcile` reporting for
+orphaned or damaged storage. `recover` accepts a saved pending custody record,
+re-verifies its existing blob, and retries record publication. Intake commands
+accept `--max-bytes`; zero means unlimited and a positive value rejects
+oversized input before custody publication. Use `--pending-record <path>` to
+save a recoverable record when publication fails.

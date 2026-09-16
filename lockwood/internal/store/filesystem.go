@@ -38,6 +38,9 @@ func (s *Filesystem) Put(reader io.Reader, options PutOptions) (artifact.Referen
 	if options.MediaType == "" {
 		return artifact.Reference{}, fmt.Errorf("media type is required")
 	}
+	if options.MaxBytes < 0 {
+		return artifact.Reference{}, fmt.Errorf("maximum artifact size cannot be negative")
+	}
 	if options.ExpectedDigest != "" {
 		if err := artifact.ValidateDigest(options.ExpectedDigest); err != nil {
 			return artifact.Reference{}, err
@@ -54,7 +57,11 @@ func (s *Filesystem) Put(reader io.Reader, options PutOptions) (artifact.Referen
 	}()
 
 	hasher := sha256.New()
-	size, err := io.Copy(io.MultiWriter(temp, hasher), reader)
+	input := reader
+	if options.MaxBytes > 0 {
+		input = io.LimitReader(reader, options.MaxBytes)
+	}
+	size, err := io.Copy(io.MultiWriter(temp, hasher), input)
 	if err != nil {
 		_ = temp.Close()
 		return artifact.Reference{}, fmt.Errorf("write temporary artifact: %w", err)
@@ -65,6 +72,16 @@ func (s *Filesystem) Put(reader io.Reader, options PutOptions) (artifact.Referen
 	}
 	if err := temp.Close(); err != nil {
 		return artifact.Reference{}, fmt.Errorf("close temporary artifact: %w", err)
+	}
+	if options.MaxBytes > 0 && size == options.MaxBytes {
+		var extra [1]byte
+		n, readErr := io.ReadFull(reader, extra[:])
+		if n > 0 {
+			return artifact.Reference{}, fmt.Errorf("artifact exceeds maximum size of %d bytes", options.MaxBytes)
+		}
+		if readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+			return artifact.Reference{}, fmt.Errorf("check artifact size: %w", readErr)
+		}
 	}
 
 	digest := artifact.SHA256Algorithm + ":" + hex.EncodeToString(hasher.Sum(nil))

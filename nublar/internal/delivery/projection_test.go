@@ -36,6 +36,31 @@ func TestProjectRejectsInvalidRun(t *testing.T) {
 	}
 }
 
+func TestReceiptValidation(t *testing.T) {
+	accepted := Receipt{
+		Schema:      ReceiptSchema,
+		RunID:       "run-receipt-01",
+		Transport:   "http-webhook",
+		Status:      "accepted",
+		HTTPStatus:  204,
+		AttemptedAt: "2026-09-15T12:00:02Z",
+	}
+	if err := accepted.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	failed := accepted
+	failed.Status = "failed"
+	failed.HTTPStatus = 502
+	failed.Error = "Nublar webhook returned HTTP 502 Bad Gateway"
+	if err := failed.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	failed.Error = ""
+	if err := failed.Validate(); err == nil {
+		t.Fatal("failed receipt validated without an error")
+	}
+}
+
 func deliveryTestRun() run.Run {
 	return run.Run{
 		Schema:      run.Schema,

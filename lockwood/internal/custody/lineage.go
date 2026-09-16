@@ -21,6 +21,16 @@ type Lineage struct {
 }
 
 func (lineage Lineage) validate(childDigest string) error {
+	if err := lineage.validateSyntax(); err != nil {
+		return err
+	}
+	if lineage.Digest == childDigest {
+		return fmt.Errorf("lineage cannot point an artifact at itself")
+	}
+	return nil
+}
+
+func (lineage Lineage) validateSyntax() error {
 	switch lineage.Relation {
 	case References, DerivedFrom, Contains, Verifies:
 	default:
@@ -28,9 +38,6 @@ func (lineage Lineage) validate(childDigest string) error {
 	}
 	if err := artifact.ValidateDigest(lineage.Digest); err != nil {
 		return fmt.Errorf("invalid lineage digest: %w", err)
-	}
-	if lineage.Digest == childDigest {
-		return fmt.Errorf("lineage cannot point an artifact at itself")
 	}
 	return nil
 }

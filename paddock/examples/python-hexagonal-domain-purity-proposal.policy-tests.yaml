@@ -1,0 +1,11 @@
+schema: paddock.policy-tests/v1
+cases:
+  - name: Python-domain-uses-port
+    root: services/python-hexagonal/good
+    expect: pass
+
+  - name: Python-domain-imports-adapter
+    root: services/python-hexagonal/domain-boundary-violating
+    expect: fail
+    require_rules:
+      - domain-is-pure

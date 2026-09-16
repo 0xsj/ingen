@@ -17,8 +17,11 @@ def fail(message):
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] != "--workspace":
-        return fail("usage: conformance-adapter.py --workspace <root>")
+    if len(sys.argv) not in (3, 4) or sys.argv[1] != "--workspace":
+        return fail("usage: conformance-adapter.py --workspace <root> [--violate]")
+    if len(sys.argv) == 4 and sys.argv[3] != "--violate":
+        return fail("unsupported mode")
+    violate = len(sys.argv) == 4
 
     try:
         request = json.load(sys.stdin)
@@ -39,6 +42,16 @@ def main():
     if not requested_root or requested_root != workspace:
         return fail("--workspace does not match the requested root")
 
+    edge = {
+        "from": "example/conformance/domain" if violate else "example/conformance/app",
+        "from_path": "src/domain/order.rs" if violate else "src/app/main.rs",
+        "to": "example/conformance/app" if violate else "example/conformance/domain",
+        "to_path": "src/app/main.rs" if violate else "src/domain/order.rs",
+        "kind": "import",
+        "target_kind": "internal",
+        "file": "src/domain/order.rs" if violate else "src/app/main.rs",
+        "line": 1,
+    }
     graph = {
         "schema": "paddock.graph/v1",
         "language": "rust",
@@ -64,18 +77,7 @@ def main():
                 "labels": {"role": "domain", "context": "orders"},
             },
         ],
-        "edges": [
-            {
-                "from": "example/conformance/app",
-                "from_path": "src/app/main.rs",
-                "to": "example/conformance/domain",
-                "to_path": "src/domain/order.rs",
-                "kind": "import",
-                "target_kind": "internal",
-                "file": "src/app/main.rs",
-                "line": 1,
-            }
-        ],
+        "edges": [edge],
     }
     json.dump(graph, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")

@@ -15,7 +15,7 @@ deliberate structural defect:
 | `architecture-boundaries-go` | the good variant uses an approved shared-kernel value; the violating variant imports storage from the domain and infrastructure from the application |
 | `feature-sliced-ts` | shared code imports a feature and features cross-import |
 | `monorepo-ts` | a shared workspace package imports an orders domain package |
-| `python-hexagonal` | the domain imports a concrete adapter |
+| `python-hexagonal` | the domain imports a concrete adapter; its focused proposal variant isolates that boundary without a cycle |
 
 The fixtures should remain small enough that a reviewer can hold the whole
 graph in their head. The cyclic subject intentionally does not compile as a Go
@@ -143,6 +143,23 @@ paddock policy review \
 
 The proposal must remain a one-rule diff, with the good workspace passing and
 the violating alias import attributed to `shared-is-independent`.
+
+The Python fixture completes the focused proposal matrix. Its before-policy
+checks graph integrity and classification; the proposal adds only
+`domain-is-pure`, while a deliberately small Python subject imports an adapter
+from its domain through a relative import without introducing a cycle:
+
+```sh
+paddock policy review \
+  --before paddock/examples/python-hexagonal-before-domain-purity.yaml \
+  --after paddock/examples/python-hexagonal-domain-purity-proposal.yaml \
+  --cases paddock/examples/python-hexagonal-domain-purity-proposal.policy-tests.yaml \
+  --output paddock-policy-review.json \
+  --format json
+```
+
+The proposal must remain a one-rule diff, with the good Python service passing
+and the violating import attributed to `domain-is-pure`.
 
 The same manifest-driven workflow is covered for the TypeScript and Python
 adapters:

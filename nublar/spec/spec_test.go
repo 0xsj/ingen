@@ -40,6 +40,12 @@ func TestNublarSchemaContracts(t *testing.T) {
 			requiredFields: []string{"schema", "run_id", "workflow", "status", "exit_code", "created_at", "completed_at", "checks"},
 			definitions:    []string{"file-ref", "workflow", "check", "issue"},
 		},
+		{
+			name:           "receipt",
+			path:           filepath.Join(repoRoot, "nublar", "spec", "receipt-v1.schema.json"),
+			constValue:     "ingen.nublar-delivery-receipt/v1",
+			requiredFields: []string{"schema", "run_id", "transport", "status", "attempted_at"},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

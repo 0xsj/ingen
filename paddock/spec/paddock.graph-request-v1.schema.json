@@ -29,6 +29,20 @@
         "minLength": 1
       }
     },
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "exclude": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "required_capabilities": {
       "$ref": "#/$defs/capabilities"
     }

@@ -93,6 +93,98 @@ export const main = value;
 	}
 }
 
+func TestTypeScriptAdapterResolvesAliasesRelativeToExtendedConfig(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".svelte-kit", "types"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src", "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".svelte-kit", "tsconfig.json"), []byte(`{
+  "compilerOptions": {
+    "paths": {
+      "$lib": ["../src/lib"],
+      "$lib/*": ["../src/lib/*"]
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{
+  "extends": "./.svelte-kit/tsconfig.json"
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main.ts"), []byte(`import { value } from "$lib/value";
+export const main = value;
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "lib", "value.ts"), []byte("export const value = 1;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := graph.LoadTypeScript(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasEdge(loaded, "src/main.ts", "src/lib/value.ts", "internal") {
+		t.Fatalf("alias from an extended config was not resolved relative to that config: %#v", loaded.Edges)
+	}
+}
+
+func TestTypeScriptAdapterLoadsSvelteSourcesAndResolvesSvelteImports(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "routes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src", "lib", "components"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(`{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {"$lib/*": ["src/lib/*"]}
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "routes", "+page.svelte"), []byte(`<script lang="ts">
+  import Card from "$lib/components/Card.svelte";
+</script>
+
+<Card />
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "lib", "components", "Card.svelte"), []byte(`<script lang="ts">
+  import { value } from "./value";
+</script>
+
+<p>{value}</p>
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "lib", "components", "value.ts"), []byte("export const value = 1;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := graph.LoadTypeScript(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasPackage(loaded, "src/routes/+page.svelte") || !hasPackage(loaded, "src/lib/components/Card.svelte") {
+		t.Fatalf("Svelte sources were not included in the graph: %#v", loaded.Packages)
+	}
+	if !hasEdge(loaded, "src/routes/+page.svelte", "src/lib/components/Card.svelte", "internal") {
+		t.Fatalf("Svelte alias import was not resolved: %#v", loaded.Edges)
+	}
+	if !hasEdge(loaded, "src/lib/components/Card.svelte", "src/lib/components/value.ts", "internal") {
+		t.Fatalf("Svelte script import was not resolved: %#v", loaded.Edges)
+	}
+}
+
 func TestTypeScriptAdapterSkipsFrameworkBuildOutput(t *testing.T) {
 	root := t.TempDir()
 	for _, directory := range []string{
@@ -100,6 +192,8 @@ func TestTypeScriptAdapterSkipsFrameworkBuildOutput(t *testing.T) {
 		filepath.Join(root, ".nuxt"),
 		filepath.Join(root, ".svelte-kit"),
 		filepath.Join(root, ".turbo"),
+		filepath.Join(root, ".vercel", "output"),
+		filepath.Join(root, ".output"),
 		filepath.Join(root, "storybook-static"),
 		filepath.Join(root, "coverage"),
 		filepath.Join(root, "node_modules", "generated-package"),

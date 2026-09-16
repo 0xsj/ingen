@@ -11,6 +11,15 @@
       "sha256": "6b40dfb15fa67f96c9f3bc79bc46206d45f6d44124197b344757499299e43445"
     }
   },
+  "policy": {
+    "id": "single-approval",
+    "version": 1,
+    "schema": "ingen.hammond-review-policy/v1",
+    "artifact": {
+      "uri": "hammond/examples/review-policy-v1.json",
+      "sha256": "3b823defcb99297bb05f7ca36e126d8f0ca376ef3fb507cbefe43f6c3e2bfa13"
+    }
+  },
   "state": "registered",
   "events": [
     {

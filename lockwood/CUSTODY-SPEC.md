@@ -178,6 +178,20 @@ custody record appended
 artifact available for retrieval and re-verification
 ```
 
+Intake preflights custody metadata that does not depend on the computed
+digest, including schema, source, producer, lineage syntax, and handling
+fields. The complete record is validated again after the artifact digest and
+size are known.
+
+Intake callers may set a positive `max-bytes` limit. Zero keeps the current
+unlimited behavior for library compatibility; negative values are rejected.
+The filesystem store enforces the limit while streaming bytes into its
+temporary file and rejects an oversized input before publishing a blob. The
+Sorna and CI-result adapters apply the same policy before custody publication;
+Sorna also bounds the verified bundle inputs before building its deterministic
+archive. A size-limit failure must not create a custody record or published
+blob.
+
 An artifact must not have custody status `accepted` before its bytes and
 custody record are durably written and its integrity status is `verified`. If
 intake fails, the caller receives an error and no partially written artifact is
@@ -228,6 +242,12 @@ semantic validity claim.
 not-checked integrity result may be retained only as quarantined or rejected
 custody.
 
+Accepted custody means that Lockwood durably stored and verified the artifact
+bytes; it does not mean every lineage parent is resolved or that a producer's
+semantic verdict is correct. A record may be accepted at intake with an
+unresolved parent, but record-level `verify` must fail closed until the
+lineage is complete.
+
 ### 5.5 Path independence
 
 Paths, filenames, and local artifact roots are provenance fields only. They do
@@ -271,6 +291,12 @@ the resulting tar as one immutable artifact. The archive media type identifies
 whether it contains a subject evidence bundle or an oracle evidence bundle.
 This proves custody of the verified input bytes; it does not replace Sorna's
 semantic evidence verification.
+
+The CI-result adapter validates `ingen.ci-result/v1` with the shared core
+contract, stores the original JSON bytes unchanged, and records the envelope's
+`tool` and `kind` as producer metadata. It preserves passed, failed, and error
+envelopes as artifacts; Lockwood does not reinterpret their verdicts or nested
+producer reports.
 
 The intake coordinator is the accepted-custody boundary. Callers should not
 publish an `accepted` record directly without first storing and verifying its
@@ -364,6 +390,6 @@ working and its invariants are tested.
 - Define orphan cleanup policy, including a grace period and race-safe
   coordination with recovery. The first implementation only reports orphans
   and supports explicit record recovery.
-- Decide whether remote or asynchronous lineage resolution needs a separate
-  pending status; local record verification currently fails closed on an
-  unresolved parent.
+- Decide whether a future workflow needs a separate lineage-resolution
+  projection or status. Current v1/v2 custody status remains independent of
+  lineage resolution and `verify` fails closed on an unresolved parent.

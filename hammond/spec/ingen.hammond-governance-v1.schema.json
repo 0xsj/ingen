@@ -5,11 +5,12 @@
   "description": "A governance record for one immutable contract artifact and its review lineage.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "record_id", "contract", "state", "events"],
+  "required": ["schema", "record_id", "contract", "policy", "state", "events"],
   "properties": {
     "schema": {"const": "ingen.hammond-governance/v1"},
     "record_id": {"type": "string", "minLength": 1},
     "contract": {"$ref": "#/$defs/contract-reference"},
+    "policy": {"$ref": "#/$defs/policy-reference"},
     "state": {
       "enum": ["registered", "in_review", "approved", "rejected", "superseded"]
     },
@@ -33,6 +34,17 @@
         "id": {"type": "string", "minLength": 1},
         "version": {"type": "integer", "minimum": 1},
         "schema": {"type": "string", "minLength": 1},
+        "artifact": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "policy-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "schema", "artifact"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "schema": {"const": "ingen.hammond-review-policy/v1"},
         "artifact": {"$ref": "#/$defs/artifact"}
       }
     },

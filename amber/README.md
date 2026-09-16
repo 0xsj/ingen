@@ -94,9 +94,13 @@ Contributor workflow and release handoff procedures are documented in
 
 The open version and tag decisions are recorded in
 [`VERSIONING.md`](VERSIONING.md).
+Deferred release operations and future consumer-driven work are tracked in
+[`BACKLOG.md`](BACKLOG.md).
 
 New users can start with the cross-language
 [`docs/getting-started.md`](docs/getting-started.md) guide.
+Teams building their own persistence or boundary integrations can use the
+[`docs/adapter-authoring.md`](docs/adapter-authoring.md) guide.
 
 ## Release readiness
 

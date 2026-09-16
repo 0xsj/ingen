@@ -10,6 +10,7 @@ type PutOptions struct {
 	ExpectedDigest string
 	MediaType      string
 	LogicalName    string
+	MaxBytes       int64
 }
 
 type Store interface {

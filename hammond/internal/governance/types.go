@@ -8,6 +8,7 @@ import (
 )
 
 const Schema = "ingen.hammond-governance/v1"
+const PolicySchema = "ingen.hammond-review-policy/v1"
 
 type State string
 
@@ -60,6 +61,24 @@ type ContractReference struct {
 	Artifact  Artifact `json:"artifact"`
 }
 
+type PolicyReference struct {
+	ID       string   `json:"id"`
+	Version  int      `json:"version"`
+	Schema   string   `json:"schema"`
+	Artifact Artifact `json:"artifact"`
+}
+
+func (reference PolicyReference) Key() string {
+	return fmt.Sprintf("%s:%d:%s:%s", reference.ID, reference.Version, reference.Schema, reference.Artifact.SHA256)
+}
+
+func (reference PolicyReference) Equal(other PolicyReference) bool {
+	return reference.ID == other.ID &&
+		reference.Version == other.Version &&
+		reference.Schema == other.Schema &&
+		reference.Artifact.SHA256 == other.Artifact.SHA256
+}
+
 func (reference ContractReference) Identity() ContractIdentity {
 	return ContractIdentity{
 		ProjectID:      reference.ProjectID,
@@ -105,6 +124,7 @@ type Record struct {
 	Schema   string            `json:"schema"`
 	RecordID string            `json:"record_id"`
 	Contract ContractReference `json:"contract"`
+	Policy   PolicyReference   `json:"policy"`
 	State    State             `json:"state"`
 	Events   []Event           `json:"events"`
 }

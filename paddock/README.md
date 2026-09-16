@@ -419,8 +419,13 @@ The Python adapter resolves absolute and relative project modules without
 importing or executing project code, and classifies standard-library,
 third-party, and unresolved imports for policy rules.
 The TypeScript adapter resolves relative imports and `tsconfig.json` path
-aliases, including local inherited JSONC configs, without requiring npm or a project
-build, and can report unresolved imports explicitly.
+aliases, including local inherited JSONC configs, without requiring npm or a
+project build. It also models `.svelte` files and imports from their component
+scripts, skips common generated output trees, and can report unresolved imports
+explicitly. Policies may optionally set `source.include` and `source.exclude`
+to filter relative path patterns; this discovery scope is distinct from
+`source.roots`, which scopes policy evaluation. Patterns support `*`, `**`,
+and plain directory shorthands.
 
 Rules default to blocking `error` findings, but may declare `warning` or `info`
 severity for non-blocking architectural guidance. Required dependencies are

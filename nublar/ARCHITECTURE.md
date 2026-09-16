@@ -10,6 +10,8 @@ The producer handoff and execution ownership are defined in
 [`EXECUTION-BOUNDARY.md`](EXECUTION-BOUNDARY.md).
 The CI-facing output and exit-code contract are defined in
 [`OUTPUT-BOUNDARY.md`](OUTPUT-BOUNDARY.md).
+The provider-neutral delivery and optional receipt contracts are defined in
+[`DELIVERY-BOUNDARY.md`](DELIVERY-BOUNDARY.md).
 
 ## Near-term tree
 
@@ -23,6 +25,7 @@ nublar/
 │       └── main.go
 ├── spec/
 │   ├── decision-v1.schema.json
+│   ├── receipt-v1.schema.json
 │   ├── workflow-v1.schema.json
 │   └── run-v1.schema.json
 ├── internal/
@@ -45,6 +48,7 @@ nublar/
 │   │   ├── projection.go
 │   │   ├── publisher.go
 │   │   └── webhook/
+│   │       └── webhook.go
 │   └── output/
 │       └── output.go
 ├── workflows/
@@ -63,6 +67,7 @@ workflow declaration
     → create run record
     → compute aggregate decision
     → persist result
+    → optionally deliver projection and export receipt
 ```
 
 ## Eventual expansion points

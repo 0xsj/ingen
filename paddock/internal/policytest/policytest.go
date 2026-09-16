@@ -313,6 +313,8 @@ func checkCase(root, policyPath string, config policy.Policy, options Options) (
 		Unit:                 config.Source.Unit,
 		Root:                 root,
 		Roots:                append([]string(nil), config.Source.Roots...),
+		Include:              append([]string(nil), config.Source.Include...),
+		Exclude:              append([]string(nil), config.Source.Exclude...),
 		RequiredCapabilities: requiredCapabilities,
 	})
 	if err != nil {

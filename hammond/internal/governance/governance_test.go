@@ -2,6 +2,8 @@ package governance
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ func TestRecordValidateApprovedContract(t *testing.T) {
 		Schema:   Schema,
 		RecordID: "document-pipeline-v1",
 		Contract: contractReference(digest, 1),
+		Policy:   DefaultReviewPolicy().Reference,
 		State:    StateApproved,
 		Events: []Event{
 			{ID: "event-001", Type: EventRegistered, Actor: "owner", At: "2026-09-15T00:00:00Z"},
@@ -32,6 +35,7 @@ func TestRecordValidateRejectsDecisionFromEarlierReviewCycle(t *testing.T) {
 		Schema:   Schema,
 		RecordID: "document-pipeline-v1",
 		Contract: contractReference(digest, 1),
+		Policy:   DefaultReviewPolicy().Reference,
 		State:    StateApproved,
 		Events: []Event{
 			{ID: "event-001", Type: EventRegistered, Actor: "owner", At: "2026-09-15T00:00:00Z"},
@@ -47,10 +51,43 @@ func TestRecordValidateRejectsDecisionFromEarlierReviewCycle(t *testing.T) {
 	}
 }
 
+func TestRecordValidateRejectsMismatchedReviewPolicy(t *testing.T) {
+	record := approvedRecord(strings.Repeat("a", 64))
+	policy := DefaultReviewPolicy()
+	policy.Reference.ID = "two-approval"
+	policy.Reference.Artifact.SHA256 = strings.Repeat("b", 64)
+	policy.MinimumApprovals = 2
+
+	if err := record.ValidateWithPolicy(policy); err == nil || !strings.Contains(err.Error(), "policy must match the supplied review policy") {
+		t.Fatalf("error = %v, want policy identity mismatch", err)
+	}
+}
+
+func TestRecordValidateRejectsUnauthorizedPolicyActor(t *testing.T) {
+	record := approvedRecord(strings.Repeat("a", 64))
+	record.Events[2].Actor = "unlisted-reviewer"
+
+	if err := record.Validate(); err == nil || !strings.Contains(err.Error(), "is not authorized for role") {
+		t.Fatalf("error = %v, want actor-role authorization error", err)
+	}
+}
+
 func TestAppendEventWithPolicyWaitsForDistinctApprovals(t *testing.T) {
 	digest := strings.Repeat("a", 64)
-	policy := ReviewPolicy{MinimumApprovals: 2}
+	policy := ReviewPolicy{
+		Reference: PolicyReference{
+			ID:      "two-approval",
+			Version: 1,
+			Schema:  PolicySchema,
+			Artifact: Artifact{
+				URI:    "testdata/two-approval-policy.json",
+				SHA256: strings.Repeat("b", 64),
+			},
+		},
+		MinimumApprovals: 2,
+	}
 	record := registeredRecord(digest)
+	record.Policy = policy.Reference
 	var err error
 	record, err = record.AppendEventWithPolicy(Event{
 		ID: "event-002", Type: EventReviewOpened, Actor: "owner", ReviewCycleID: "review-001", At: "2026-09-15T00:01:00Z",
@@ -84,6 +121,53 @@ func TestAppendEventWithPolicyWaitsForDistinctApprovals(t *testing.T) {
 	}
 	if record.State != StateApproved {
 		t.Fatalf("state after distinct approvals = %q, want approved", record.State)
+	}
+}
+
+func TestAppendEventWithPolicyRequiresRoles(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	policy := ReviewPolicy{
+		Reference: PolicyReference{
+			ID:      "product-security-approval",
+			Version: 1,
+			Schema:  PolicySchema,
+			Artifact: Artifact{
+				URI:    "testdata/product-security-policy.json",
+				SHA256: strings.Repeat("c", 64),
+			},
+		},
+		MinimumApprovals: 2,
+		RequiredRoles:    []string{"product-reviewer", "security-reviewer"},
+	}
+	record := registeredRecord(digest)
+	record.Policy = policy.Reference
+	var err error
+	record, err = record.AppendEventWithPolicy(Event{
+		ID: "event-002", Type: EventReviewOpened, Actor: "owner", ReviewCycleID: "review-001", At: "2026-09-15T00:01:00Z",
+	}, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []Event{
+		{ID: "event-003", Type: EventApprovalRecorded, Actor: "product-reviewer", Role: "product-reviewer", ReviewCycleID: "review-001", Decision: DecisionApprove, ArtifactSHA256: digest, At: "2026-09-15T00:02:00Z"},
+		{ID: "event-004", Type: EventApprovalRecorded, Actor: "second-product-reviewer", Role: "product-reviewer", ReviewCycleID: "review-001", Decision: DecisionApprove, ArtifactSHA256: digest, At: "2026-09-15T00:03:00Z"},
+	} {
+		record, err = record.AppendEventWithPolicy(event, policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if record.State != StateInReview {
+		t.Fatalf("state without security approval = %q, want in_review", record.State)
+	}
+	record, err = record.AppendEventWithPolicy(Event{
+		ID: "event-005", Type: EventApprovalRecorded, Actor: "security-reviewer", Role: "security-reviewer", ReviewCycleID: "review-001", Decision: DecisionApprove, ArtifactSHA256: digest, At: "2026-09-15T00:04:00Z",
+	}, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != StateApproved {
+		t.Fatalf("state with required roles = %q, want approved", record.State)
 	}
 }
 
@@ -131,10 +215,63 @@ func TestDecodeRecordRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestDecodeRecordLoadsReferencedPolicy(t *testing.T) {
+	record := approvedRecord(strings.Repeat("a", 64))
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeRecord(data); err != nil {
+		t.Fatal(err)
+	}
+
+	record.Policy.Artifact.SHA256 = strings.Repeat("b", 64)
+	data, err = json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeRecord(data); err == nil || !strings.Contains(err.Error(), "do not match reference artifact.sha256") {
+		t.Fatalf("error = %v, want policy digest error", err)
+	}
+}
+
 func TestDecodeEventRejectsUnknownFields(t *testing.T) {
 	data := []byte(`{"id":"event-001","type":"registered","actor":"owner","at":"2026-09-15T00:00:00Z","unexpected":true}`)
 	if _, err := DecodeEvent(data); err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("error = %v, want unknown-field error", err)
+	}
+}
+
+func TestLoadReviewPolicyVerifiesPolicyBytes(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "policy.json")
+	data := []byte("{\n  \"schema\": \"ingen.hammond-review-policy/v1\",\n  \"id\": \"two-approval\",\n  \"version\": 1,\n  \"minimum_approvals\": 2\n}\n")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reference := PolicyReference{
+		ID:      "two-approval",
+		Version: 1,
+		Schema:  PolicySchema,
+		Artifact: Artifact{
+			URI:    path,
+			SHA256: "453139d7edd9405759305f01c2109b35dca672910b0a8eb492c7e36805969b35",
+		},
+	}
+	policy, err := LoadReviewPolicy(reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.MinimumApprovals != 2 || !policy.Reference.Equal(reference) {
+		t.Fatalf("policy = %#v, want loaded two-approval policy", policy)
+	}
+
+	data = append(data[:len(data)-2], []byte("  \n}\n")...)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadReviewPolicy(reference); err == nil || !strings.Contains(err.Error(), "do not match reference artifact.sha256") {
+		t.Fatalf("error = %v, want digest mismatch", err)
 	}
 }
 
@@ -288,6 +425,7 @@ func approvedRecord(digest string) Record {
 		Schema:   Schema,
 		RecordID: "document-pipeline-v1",
 		Contract: contractReference(digest, 1),
+		Policy:   DefaultReviewPolicy().Reference,
 		State:    StateApproved,
 		Events: []Event{
 			{ID: "event-001", Type: EventRegistered, Actor: "owner", At: "2026-09-15T00:00:00Z"},
@@ -302,6 +440,7 @@ func registeredRecord(digest string) Record {
 		Schema:   Schema,
 		RecordID: "document-pipeline-v1",
 		Contract: contractReference(digest, 1),
+		Policy:   DefaultReviewPolicy().Reference,
 		State:    StateRegistered,
 		Events: []Event{
 			{ID: "event-001", Type: EventRegistered, Actor: "owner", At: "2026-09-15T00:00:00Z"},

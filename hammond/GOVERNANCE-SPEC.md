@@ -111,9 +111,14 @@ A decision from an earlier review cycle cannot satisfy a later review. Review
 cycle IDs must be unique within a governance record.
 
 The v1 domain model records decisions and evaluates them against a supplied
-review policy. The default policy requires one approval from one distinct actor
-in the active cycle. The model does not yet define organization-wide identity,
-permissions, or a policy configuration artifact.
+review policy artifact. The default policy requires one approval from one
+distinct actor in the active cycle. A policy may also require named approval
+roles, but the model does not yet verify organization-wide identity or role
+authority; local v1 actor-to-role grants are only verified against the policy
+artifact itself.
+
+Policy evaluation must use bytes that have been strictly decoded and whose
+SHA-256 matches the policy reference carried by the governance record.
 
 ## 6. Amendments and lineage
 
@@ -156,6 +161,13 @@ contract:
   artifact:
     uri: examples/document-pipeline-lab/contract/contract.yaml
     sha256: <digest>
+policy:
+  id: single-approval
+  version: 1
+  schema: ingen.hammond-review-policy/v1
+  artifact:
+    uri: hammond/examples/review-policy-v1.json
+    sha256: <policy-digest>
 state: approved
 events:
   - id: event-001
@@ -191,6 +203,8 @@ The v1 validator must reject:
 - invalid lifecycle transitions;
 - an approval without reviewer, role, decision, digest, or timestamp;
 - an approval or rejection that is not bound to the active review cycle;
+- an approval or rejection whose actor/role pair is not granted by the loaded
+  policy artifact;
 - an amendment without a predecessor, successor, kind, reason, or author;
 - an amendment with a self-link or lineage cycle; and
 - an attempt to mutate a superseded or approved historical record.
@@ -215,7 +229,7 @@ provider, or automatic Sorna execution.
 The following remain outside v1:
 
 - organization and team identity providers;
-- quorum and role policy configuration formats;
+- organization-aware identity, role authority, and advanced quorum rules;
 - hosted registry APIs;
 - artifact blob storage and retention;
 - merge conflict handling for concurrent amendments; and

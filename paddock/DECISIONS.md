@@ -77,12 +77,48 @@ versioned schemas, sealed policy locks, or CI verdicts.
   the before-policy accepts a shared package importing an orders domain via a
   configured alias, and the one-rule candidate rejects it specifically through
   `shared-is-independent` while preserving the good workspace case.
+- The Python adapter completes the current built-in adapter matrix: a focused
+  domain-to-adapter import is accepted by the before-policy and rejected by a
+  one-rule `domain-is-pure` proposal, while the good service remains passing
+  and no unrelated cycle finding is introduced.
+- The existing external-adapter authoring loop now protects the agent-facing
+  path as well as protocol conformance: a synthetic Rust graph can be mapped,
+  reviewed as JSON, verified by file hashes, sealed, and checked through the
+  lock. This is evidence that external languages do not need policy-engine
+  changes, not evidence that Paddock should own their parsers.
+- The external seam also has a negative enforcement case: the synthetic
+  adapter can emit a deliberate domain-to-application edge, and a focused
+  one-rule proposal reports `domain-is-pure` while the expected-failure review
+  remains a passing review artifact.
+- A read-only run against the real Heyrian TypeScript/Svelte repository found
+  2,876 source units and 8,573 edges after the adapter learned `.svelte`
+  sources, inherited SvelteKit `$lib` aliases, and common `.vercel`/`.output`
+  exclusions. The run still has 1,009 unresolved edges, mostly generated
+  `./$types` imports and intentional `?raw` lesson assets. This is concrete
+  evidence that source discovery scope is a product concern for mixed-content
+  repositories.
+- Heyrian's existing dependency-cruiser check is a useful external comparison:
+  its deliberately scoped check applies 13 rules to 1,956 modules and 7,924
+  dependencies and reports zero violations. The unscoped Paddock run
+  discovered the broader source tree; Heyrian's check excludes lesson examples
+  and runs only over its selected platform inputs.
+- The first scan-scope contract is now implemented. Optional
+  `source.include`/`source.exclude` patterns are validated and canonicalized,
+  participate in policy diffs and locks, reach external adapter requests, and
+  filter persisted graphs as well as built-in adapter graphs. A Heyrian-shaped
+  scope reduced Paddock's graph from 2,876 source units/8,573 edges to 1,864
+  source units/6,980 edges.
 
 ## Scope decision from this cycle
 
 - Do not add multi-project TypeScript config discovery yet. Reopen it when a
   real target has independent package configs or project references that the
   root-config model cannot represent.
+- Keep scan scope separate from `source.roots`: roots determine which
+  discovered units rules evaluate, while `source.include`/`source.exclude`
+  determine which files become graph evidence at all. The initial contract is
+  intentionally path-based and adapter-neutral; richer adapter-native config
+  should wait for a concrete project need.
 - Do not add a Paddock-controlled Go cache option yet. Reopen it if ordinary
   local or CI environments reproduce the managed-workspace cache failure after
   the documented `GOCACHE` setup is applied.
@@ -136,8 +172,12 @@ not need two authoring syntaxes yet.
 
 - Which adapter failures need additional stable diagnostic codes beyond the
   current process, graph, language, source-unit, and capability categories.
-- Whether path and workspace resolution behave predictably in monorepos,
-  symlinked directories, and generated build trees.
+- Whether path and workspace resolution behave predictably in monorepos and
+  symlinked directories; inherited SvelteKit config and common generated build
+  trees now have a real regression check.
+- Whether path-based scan patterns are expressive enough for real projects,
+  especially when a repository's architecture tool scopes by entrypoint globs
+  rather than directory boundaries.
 - First real performance measurements for graph construction and policy
   evaluation on a larger repository.
 - Which findings are false positives often enough to justify a rule or selector
@@ -150,6 +190,6 @@ not need two authoring syntaxes yet.
 
 ## Next development batch
 
-Use one real target to turn the usage notes above into evidence. Prioritize a
-small compatibility or ergonomics fix over adding a new rule kind, unless the
-target exposes a clear missing architectural primitive.
+Translate Heyrian's existing platform rules into a small Paddock policy and
+compare the scoped Paddock report with its dependency-cruiser check. Prioritize
+observed semantic differences over adding another rule kind.

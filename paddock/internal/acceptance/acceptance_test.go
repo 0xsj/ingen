@@ -1152,17 +1152,39 @@ cases:
 		t.Fatalf("unexpected component map: %#v", componentDocument)
 	}
 
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("external proposal diff failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var diff policydiff.Document
+	if err := json.Unmarshal([]byte(output), &diff); err != nil {
+		t.Fatalf("decode external proposal diff: %v\n%s", err, output)
+	}
+	if diff.Status != "changed" || diff.Summary.Added != 2 || diff.Summary.Removed != 0 || diff.Summary.Changed != 0 || diff.Summary.Total != 2 {
+		t.Fatalf("external proposal diff is not focused: %#v", diff)
+	}
+
 	reviewArgs := []string{
 		"policy", "review",
 		"--before", beforePath,
 		"--after", afterPath,
 		"--cases", casesPath,
 		"--output", reviewPath,
+		"--format", "json",
 	}
 	reviewArgs = append(reviewArgs, adapterArgs...)
 	output, exitCode = runCLI(t, cli, repoRoot, reviewArgs...)
-	if exitCode != 0 || !strings.Contains(output, "POLICY-REVIEW PASS") {
+	if exitCode != 0 {
 		t.Fatalf("policy review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var review policyreview.Document
+	if err := json.Unmarshal([]byte(output), &review); err != nil {
+		t.Fatalf("decode external proposal review: %v\n%s", err, output)
+	}
+	if review.Status != "PASS" || review.Diff.Summary.Total != 2 || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" || review.Diff.Tests.Passed != 1 {
+		t.Fatalf("external proposal review is incomplete: %#v", review)
 	}
 	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
 	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
@@ -1177,6 +1199,126 @@ cases:
 	output, exitCode = runCLI(t, cli, repoRoot, checkArgs...)
 	if exitCode != 0 || !strings.Contains(output, "PASS") {
 		t.Fatalf("locked external-adapter check failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIExternalAdapterNegativeProposal(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	directory := t.TempDir()
+	sourceRoot := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(sourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	adapter := filepath.Join(repoRoot, "paddock", "examples", "adapter", "conformance-adapter.py")
+	beforePath := filepath.Join(directory, "before.yaml")
+	afterPath := filepath.Join(directory, "after.yaml")
+	casesPath := filepath.Join(directory, "policy-tests.yaml")
+	reviewPath := filepath.Join(directory, "policy-review.json")
+
+	components := `components:
+  application:
+    match: src/app/**
+    labels:
+      role: application
+      context: orders
+  domain:
+    match: src/domain/**
+    labels:
+      role: domain
+      context: orders
+`
+	before := `schema: paddock.architecture/v1
+project: external-adapter-negative
+source:
+  language: rust
+  unit: file
+  roots: [src]
+` + components + "rules: []\n"
+	after := `schema: paddock.architecture/v1
+project: external-adapter-negative
+source:
+  language: rust
+  unit: file
+  roots: [src]
+` + components + `rules:
+  - id: domain-is-pure
+    kind: allow-dependencies
+    from: {role: domain}
+    allow:
+      - standard-library: std
+    message: external domain dependencies must remain approved
+`
+	manifest := `schema: paddock.policy-tests/v1
+cases:
+  - name: external-domain-boundary-violation
+    root: ` + filepath.ToSlash(sourceRoot) + `
+    expect: fail
+    require_rules:
+      - domain-is-pure
+`
+	for path, contents := range map[string]string{
+		beforePath: before,
+		afterPath:  after,
+		casesPath:  manifest,
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	adapterArgs := []string{
+		"--adapter", "python3",
+		"--adapter-arg", adapter,
+		"--adapter-arg", "--workspace",
+		"--adapter-arg", sourceRoot,
+		"--adapter-arg", "--violate",
+	}
+	checkArgs := append([]string{"check", sourceRoot, "--policy", beforePath}, adapterArgs...)
+	output, exitCode := runCLI(t, cli, repoRoot, checkArgs...)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("external before-policy unexpectedly rejected the graph: exit=%d output:\n%s", exitCode, output)
+	}
+
+	checkArgs = append([]string{"check", sourceRoot, "--policy", afterPath}, adapterArgs...)
+	output, exitCode = runCLI(t, cli, repoRoot, checkArgs...)
+	if exitCode != 1 || !strings.Contains(output, "domain-is-pure") {
+		t.Fatalf("external proposal did not reject the domain boundary: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("external negative proposal diff failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var diff policydiff.Document
+	if err := json.Unmarshal([]byte(output), &diff); err != nil {
+		t.Fatalf("decode external negative proposal diff: %v\n%s", err, output)
+	}
+	if diff.Status != "changed" || diff.Summary.Added != 1 || diff.Summary.Removed != 0 || diff.Summary.Changed != 0 || diff.Summary.Total != 1 || len(diff.Changes) != 1 || diff.Changes[0].Path != "rules.domain-is-pure" {
+		t.Fatalf("external negative proposal diff is not focused: %#v", diff)
+	}
+
+	reviewArgs := append([]string{
+		"policy", "review", "--before", beforePath, "--after", afterPath,
+		"--cases", casesPath, "--output", reviewPath, "--format", "json",
+	}, adapterArgs...)
+	output, exitCode = runCLI(t, cli, repoRoot, reviewArgs...)
+	if exitCode != 0 {
+		t.Fatalf("external negative proposal review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var review policyreview.Document
+	if err := json.Unmarshal([]byte(output), &review); err != nil {
+		t.Fatalf("decode external negative proposal review: %v\n%s", err, output)
+	}
+	if review.Status != "PASS" || review.Diff.Summary.Total != 1 || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" || review.Diff.Tests.Passed != 1 || len(review.Diff.Tests.Cases) != 1 || review.Diff.Tests.Cases[0].Actual != "fail" || strings.Join(review.Diff.Tests.Cases[0].FindingRules, ",") != "domain-is-pure" {
+		t.Fatalf("external negative proposal review is incomplete: %#v", review)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("external negative proposal verification failed: exit=%d output:\n%s", exitCode, output)
 	}
 }
 
@@ -1574,6 +1716,55 @@ func TestCLIPolicyTypeScriptProposalWorkflow(t *testing.T) {
 	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
 	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
 		t.Fatalf("TypeScript proposal verification failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIPolicyPythonProposalWorkflow(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	beforePath := filepath.Join(repoRoot, "paddock", "examples", "python-hexagonal-before-domain-purity.yaml")
+	afterPath := filepath.Join(repoRoot, "paddock", "examples", "python-hexagonal-domain-purity-proposal.yaml")
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "python-hexagonal-domain-purity-proposal.policy-tests.yaml")
+	violatingRoot := filepath.Join(repoRoot, "paddock", "examples", "services", "python-hexagonal", "domain-boundary-violating")
+
+	output, exitCode := runCLI(t, cli, repoRoot, "check", violatingRoot, "--policy", beforePath)
+	if exitCode != 0 || !strings.Contains(output, "PASS") {
+		t.Fatalf("before policy unexpectedly rejected the unregulated Python boundary: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "diff", "--before", beforePath, "--after", afterPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("Python proposal diff failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var diff policydiff.Document
+	if err := json.Unmarshal([]byte(output), &diff); err != nil {
+		t.Fatalf("decode Python proposal diff: %v\n%s", err, output)
+	}
+	if diff.Status != "changed" || diff.Summary.Added != 1 || diff.Summary.Removed != 0 || diff.Summary.Changed != 0 || diff.Summary.Total != 1 || len(diff.Changes) != 1 || diff.Changes[0].Path != "rules.domain-is-pure" {
+		t.Fatalf("Python proposal diff is not focused: %#v", diff)
+	}
+
+	reviewPath := filepath.Join(t.TempDir(), "policy-review.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "review", "--before", beforePath, "--after", afterPath,
+		"--cases", manifestPath, "--output", reviewPath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("Python proposal review failed: exit=%d output:\n%s", exitCode, output)
+	}
+	var review policyreview.Document
+	if err := json.Unmarshal([]byte(output), &review); err != nil {
+		t.Fatalf("decode Python proposal review: %v\n%s", err, output)
+	}
+	if review.Status != "PASS" || review.Diff.Summary.Total != 1 || review.Diff.Tests == nil || review.Diff.Tests.Status != "PASS" || review.Diff.Tests.Passed != 2 {
+		t.Fatalf("Python proposal review is not a focused passing review: %#v", review)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "policy", "review", "verify", "--input", reviewPath, "--files")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("Python proposal verification failed: exit=%d output:\n%s", exitCode, output)
 	}
 }
 

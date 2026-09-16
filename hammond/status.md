@@ -4,11 +4,12 @@
 
 The local v1 governance slice is implemented:
 
-- strict governance record and event decoding;
+- strict governance record, event, and policy decoding with policy-byte
+  verification;
 - contract identity and artifact SHA-256 binding;
 - review-cycle-bound approval and rejection events;
 - policy-aware lifecycle validation, with a one-distinct-actor approval as the
-  default policy;
+  default policy, optional required-role coverage, and local actor-role grants;
 - append-only file storage with atomic writes;
 - amendment and supersession lineage checks; and
 - a local CLI for registration, review events, amendments, supersession, and
@@ -16,9 +17,9 @@ The local v1 governance slice is implemented:
 
 ## Next boundary
 
-The next design decision is policy configuration: organization identity,
-authorized roles, and quorum rules. Those should become a versioned policy
-artifact before they are accepted by a hosted registry or CI gate.
+The next design decision is policy authority: organization identity, verified
+role membership, and advanced quorum rules. Those should extend the versioned
+policy artifact before they are accepted by a hosted registry or CI gate.
 
 ## Deferred
 

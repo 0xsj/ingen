@@ -2,7 +2,11 @@ package webhook
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -39,8 +43,12 @@ func TestPublishPostsDecisionWithIdempotencyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision := testDecision()
-	if err := publisher.Publish(context.Background(), decision); err != nil {
+	receipt, err := publisher.Publish(context.Background(), decision)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if receipt.Status != "accepted" || receipt.HTTPStatus != http.StatusNoContent || receipt.RunID != decision.RunID {
+		t.Fatalf("receipt = %+v, want accepted 204 receipt for %q", receipt, decision.RunID)
 	}
 	if receivedKey != decision.RunID || received.Schema != delivery.Schema || received.Status != decision.Status || received.Checks[0].Result == nil {
 		t.Fatalf("received decision = %+v with key %q, want provider-neutral decision", received, receivedKey)
@@ -67,8 +75,64 @@ func TestPublishRejectsNonSuccessResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := publisher.Publish(context.Background(), testDecision()); err == nil || !strings.Contains(err.Error(), "502") {
+	receipt, err := publisher.Publish(context.Background(), testDecision())
+	if err == nil || !strings.Contains(err.Error(), "502") {
 		t.Fatalf("Publish() = %v, want HTTP 502 error", err)
+	}
+	if receipt.Status != "failed" || receipt.HTTPStatus != http.StatusBadGateway || receipt.Error == "" {
+		t.Fatalf("receipt = %+v, want failed 502 receipt", receipt)
+	}
+}
+
+func TestPublishReturnsFailedReceiptOnTransportError(t *testing.T) {
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return nil, errors.New("connection refused")
+	})
+	publisher, err := New("https://example.test/nublar", &http.Client{Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := publisher.Publish(context.Background(), testDecision())
+	if err == nil || !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("Publish() = %v, want transport error", err)
+	}
+	if receipt.Status != "failed" || receipt.HTTPStatus != 0 || receipt.Error == "" || receipt.RunID != "run-webhook-01" {
+		t.Fatalf("receipt = %+v, want failed transport receipt", receipt)
+	}
+}
+
+func TestPublishSignsPayloadWhenSecretIsConfigured(t *testing.T) {
+	const secret = "webhook-secret"
+	var signature string
+	var payload []byte
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var err error
+		payload, err = io.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		signature = r.Header.Get("X-InGen-Signature-256")
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Status:     "204 No Content",
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+		}, nil
+	})
+	publisher, err := NewWithSecret("https://example.test/nublar", &http.Client{Transport: transport}, []byte(secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt, err := publisher.Publish(context.Background(), testDecision()); err != nil {
+		t.Fatal(err)
+	} else if receipt.Status != "accepted" {
+		t.Fatalf("receipt = %+v, want accepted receipt", receipt)
+	}
+	hasher := hmac.New(sha256.New, []byte(secret))
+	_, _ = hasher.Write(payload)
+	expected := "sha256=" + hex.EncodeToString(hasher.Sum(nil))
+	if signature != expected {
+		t.Fatalf("signature = %q, want %q", signature, expected)
 	}
 }
 

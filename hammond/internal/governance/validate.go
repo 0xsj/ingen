@@ -30,6 +30,10 @@ func (record Record) ValidateWithPolicy(policy ReviewPolicy) error {
 		problems = append(problems, "record_id is required")
 	}
 	problems = append(problems, validateContractReference(record.Contract, "contract")...)
+	problems = append(problems, validatePolicyReference(record.Policy, "policy")...)
+	if !record.Policy.Equal(policy.Reference) {
+		problems = append(problems, "policy must match the supplied review policy")
+	}
 	if !validState(record.State) {
 		problems = append(problems, fmt.Sprintf("state %q is invalid", record.State))
 	}
@@ -74,6 +78,7 @@ func (record Record) ValidateWithPolicy(policy ReviewPolicy) error {
 			derivedState = nextState
 		}
 	}
+	problems = append(problems, validatePolicyActorRoles(record.Events, policy)...)
 	if derivedState != "" && record.State != derivedState {
 		problems = append(problems, fmt.Sprintf("state is %q but events derive %q", record.State, derivedState))
 	}
@@ -82,6 +87,22 @@ func (record Record) ValidateWithPolicy(policy ReviewPolicy) error {
 		return &ValidationError{Problems: problems}
 	}
 	return nil
+}
+
+func validatePolicyActorRoles(events []Event, policy ReviewPolicy) []string {
+	if len(policy.ActorRoles) == 0 {
+		return nil
+	}
+	problems := make([]string, 0)
+	for index, event := range events {
+		if event.Type != EventApprovalRecorded && event.Type != EventRejectionRecorded {
+			continue
+		}
+		if !policy.authorizes(event.Actor, event.Role) {
+			problems = append(problems, fmt.Sprintf("events[%d].actor is not authorized for role %q by the supplied review policy", index, event.Role))
+		}
+	}
+	return problems
 }
 
 // AppendEvent applies one lifecycle event and returns a new materialized
@@ -123,6 +144,26 @@ func validateContractReference(reference ContractReference, path string) []strin
 	}
 	if strings.TrimSpace(reference.Schema) == "" {
 		problems = append(problems, path+".schema is required")
+	}
+	if strings.TrimSpace(reference.Artifact.URI) == "" {
+		problems = append(problems, path+".artifact.uri is required")
+	}
+	if !validSHA256(reference.Artifact.SHA256) {
+		problems = append(problems, path+".artifact.sha256 must be a lowercase SHA-256 digest")
+	}
+	return problems
+}
+
+func validatePolicyReference(reference PolicyReference, path string) []string {
+	problems := make([]string, 0)
+	if strings.TrimSpace(reference.ID) == "" {
+		problems = append(problems, path+".id is required")
+	}
+	if reference.Version < 1 {
+		problems = append(problems, path+".version must be positive")
+	}
+	if reference.Schema != PolicySchema {
+		problems = append(problems, path+".schema must be "+PolicySchema)
 	}
 	if strings.TrimSpace(reference.Artifact.URI) == "" {
 		problems = append(problems, path+".artifact.uri is required")

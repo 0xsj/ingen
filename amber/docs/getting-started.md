@@ -83,6 +83,8 @@ For Fetch-compatible HTTP runtimes, use `withIncomingRequest` at the inbound
 boundary and `withOutgoingRequest` or `withOutgoingResponse` for propagation.
 The TypeScript package also provides transport, messaging, logging, tracing,
 storage, and optional OpenTelemetry adapters from its public entry point.
+For background work, the runnable worker examples show explicit child and
+retry handling without requiring a broker.
 
 ## Context and trust
 
@@ -120,5 +122,6 @@ make example-typescript-getting-started
 - [`spec/storage-v1.md`](../spec/storage-v1.md) — optional storage contract
 - [`spec/trust-v1.md`](../spec/trust-v1.md) — structural and trust boundaries
 - [`examples/README.md`](../examples/README.md) — runnable compositions
+- [`docs/adapter-authoring.md`](adapter-authoring.md) — custom backend and boundary adapters
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — development workflow
 - [`RELEASE.md`](../RELEASE.md) — release handoff checklist

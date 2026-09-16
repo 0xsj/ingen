@@ -14,6 +14,10 @@ npm install @0xsj/amber
 
 The cross-language walkthrough, including Go, context, trust, storage, and
 verification guidance, is in the [getting started guide](../docs/getting-started.md).
+For application-owned backends and integrations, see the
+[adapter authoring guide](../docs/adapter-authoring.md).
+Custom storage implementations can import the reusable
+`runProvenanceStoreContract` helper from `@0xsj/amber/testing` in their tests.
 
 ```ts
 import {

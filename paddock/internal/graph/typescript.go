@@ -111,7 +111,7 @@ func findTypeScriptFiles(root string) ([]typeScriptFile, error) {
 		}
 		if entry.IsDir() {
 			switch entry.Name() {
-			case ".git", "node_modules", ".next", ".nuxt", ".svelte-kit", ".turbo":
+			case ".git", "node_modules", ".next", ".nuxt", ".svelte-kit", ".turbo", ".vercel", ".output":
 				return filepath.SkipDir
 			case "dist", "build", "coverage", "storybook-static":
 				// These names are commonly generated at the project root, but
@@ -144,7 +144,7 @@ func findTypeScriptFiles(root string) ([]typeScriptFile, error) {
 
 func isTypeScriptSource(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".ts", ".tsx", ".js", ".jsx":
+	case ".ts", ".tsx", ".js", ".jsx", ".svelte":
 		return true
 	default:
 		return false
@@ -167,8 +167,8 @@ func loadTypeScriptProjectConfig(root string) (typeScriptProjectConfig, error) {
 	if err != nil {
 		return typeScriptProjectConfig{}, fmt.Errorf("resolve TypeScript project root: %w", err)
 	}
-	config := typeScriptProjectConfig{Root: root, BaseURL: root, Paths: map[string][]string{}}
 	path := filepath.Join(root, "tsconfig.json")
+	config := typeScriptProjectConfig{Root: root, BaseURL: root, Paths: map[string][]string{}}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return config, nil
 	}
@@ -200,7 +200,10 @@ func loadTypeScriptConfigFile(path, root string, loading map[string]bool) (typeS
 		return typeScriptProjectConfig{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	config := typeScriptProjectConfig{Root: root, BaseURL: root, Paths: map[string][]string{}}
+	// Relative compiler options belong to the config file that declares them.
+	// This matters for generated framework configs such as SvelteKit's
+	// `.svelte-kit/tsconfig.json`, whose `$lib` target is `../src/lib/*`.
+	config := typeScriptProjectConfig{Root: root, BaseURL: filepath.Dir(path), Paths: map[string][]string{}}
 	if raw.Extends != "" {
 		parentPath, err := resolveTypeScriptConfigExtends(filepath.Dir(path), raw.Extends)
 		if err != nil {
@@ -421,7 +424,7 @@ func typeScriptCandidates(base string) []string {
 	candidates := []string{base}
 	extension := strings.ToLower(filepath.Ext(base))
 	if extension == "" || (!isTypeScriptSourceExtension(extension) && !isTypeScriptAssetExtension(extension)) {
-		for _, candidateExtension := range []string{".ts", ".tsx", ".js", ".jsx"} {
+		for _, candidateExtension := range []string{".ts", ".tsx", ".js", ".jsx", ".svelte"} {
 			candidates = append(candidates, base+candidateExtension)
 		}
 	} else if extension == ".js" || extension == ".jsx" {
@@ -431,7 +434,7 @@ func typeScriptCandidates(base string) []string {
 		}
 	}
 	if extension == "" {
-		for _, candidateExtension := range []string{".ts", ".tsx", ".js", ".jsx"} {
+		for _, candidateExtension := range []string{".ts", ".tsx", ".js", ".jsx", ".svelte"} {
 			candidates = append(candidates, filepath.ToSlash(filepath.Join(base, "index"+candidateExtension)))
 		}
 	}
