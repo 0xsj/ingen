@@ -15,6 +15,7 @@ import (
 )
 
 const Schema = "ingen.ci-result/v1"
+const AdapterProfileInput = "adapter_profile"
 
 type FileRef struct {
 	Path   string `json:"path"`
@@ -27,20 +28,21 @@ type Source struct {
 }
 
 type Artifact struct {
-	Schema      string            `json:"schema"`
-	Tool        string            `json:"tool"`
-	Kind        string            `json:"kind"`
-	Status      string            `json:"status"`
-	ExitCode    int               `json:"exit_code"`
-	CreatedAt   string            `json:"created_at"`
-	Source      Source            `json:"source"`
-	Policy      FileRef           `json:"policy"`
-	PolicyLock  *FileRef          `json:"policy_lock,omitempty"`
-	Graph       *FileRef          `json:"graph,omitempty"`
-	Baseline    *FileRef          `json:"baseline,omitempty"`
-	Report      *model.Result     `json:"report,omitempty"`
-	Explanation *explain.Document `json:"explanation,omitempty"`
-	Error       string            `json:"error,omitempty"`
+	Schema      string             `json:"schema"`
+	Tool        string             `json:"tool"`
+	Kind        string             `json:"kind"`
+	Status      string             `json:"status"`
+	ExitCode    int                `json:"exit_code"`
+	CreatedAt   string             `json:"created_at"`
+	Source      Source             `json:"source"`
+	Policy      FileRef            `json:"policy"`
+	PolicyLock  *FileRef           `json:"policy_lock,omitempty"`
+	Graph       *FileRef           `json:"graph,omitempty"`
+	Baseline    *FileRef           `json:"baseline,omitempty"`
+	Inputs      map[string]FileRef `json:"inputs,omitempty"`
+	Report      *model.Result      `json:"report,omitempty"`
+	Explanation *explain.Document  `json:"explanation,omitempty"`
+	Error       string             `json:"error,omitempty"`
 }
 
 func New(result *model.Result, policy FileRef, baseline *FileRef, createdAt time.Time) Artifact {
@@ -206,6 +208,7 @@ func validateSharedEnvelope(a Artifact) error {
 		PolicyLock: sharedFileRefPtr(a.PolicyLock),
 		Graph:      sharedFileRefPtr(a.Graph),
 		Baseline:   sharedFileRefPtr(a.Baseline),
+		Inputs:     sharedFileRefs(a.Inputs),
 		Error:      a.Error,
 	}
 	if a.Report != nil {
@@ -237,6 +240,17 @@ func sharedFileRefPtr(ref *FileRef) *ciresult.FileRef {
 		return nil
 	}
 	return sharedFileRef(*ref)
+}
+
+func sharedFileRefs(refs map[string]FileRef) map[string]ciresult.FileRef {
+	if len(refs) == 0 {
+		return nil
+	}
+	shared := make(map[string]ciresult.FileRef, len(refs))
+	for name, ref := range refs {
+		shared[name] = *sharedFileRef(ref)
+	}
+	return shared
 }
 
 func WriteJSON(w io.Writer, artifact Artifact) error {

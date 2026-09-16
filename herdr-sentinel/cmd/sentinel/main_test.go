@@ -245,6 +245,16 @@ func TestArtifactCommandRejectsSymlinkEscapeWithoutPublishing(t *testing.T) {
 	}
 }
 
+func TestReceiptArtifactPathIsRelativeToSuppliedRoot(t *testing.T) {
+	caller := t.TempDir()
+	root := t.TempDir()
+	t.Chdir(caller)
+	path, ok := receiptArtifactPath(root, ".artifacts/verifier", "run.json")
+	if !ok || path != filepath.Join(".artifacts", "verifier", "run.json") {
+		t.Fatalf("receiptArtifactPath() = %q, %v; want root-relative reference", path, ok)
+	}
+}
+
 func TestCIResultCommandRejectsCompletedReceiptWithDriftedReference(t *testing.T) {
 	t.Chdir(t.TempDir())
 	receiptPath := filepath.Join(".artifacts", "receipt.json")

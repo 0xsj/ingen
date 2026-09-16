@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.adapter-profile-validation-v1.schema.json",
+  "title": "Paddock adapter profile validation diagnostics",
+  "description": "Machine-readable diagnostics for a reusable external adapter profile.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "operation", "path", "valid", "errors"],
+  "properties": {
+    "schema": {"const": "paddock.adapter-profile-validation/v1"},
+    "operation": {"const": "adapter-profile-validate"},
+    "path": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "executable": {"type": "string", "minLength": 1},
+    "resolved_executable": {"type": "string", "minLength": 1},
+    "valid": {"type": "boolean"},
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

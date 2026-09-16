@@ -50,7 +50,8 @@ lockwood/
 │   ├── lockwood.attestation-v1.schema.json
 │   ├── lockwood.handling-event-attestation-v1.schema.json
 │   ├── lockwood.handling-event-policy-v1.schema.json
-│   └── lockwood.handling-event-v1.schema.json
+│   ├── lockwood.handling-event-v1.schema.json
+│   └── lockwood.redaction-provenance-attestation-v1.schema.json
 ├── examples/
 │   └── custody-record.json
 └── testdata/
@@ -60,18 +61,18 @@ lockwood/
 
 ```text
 lockwood/
-├── cmd/lockwood/                 # put, imports, signed handling events, get, inspect, lineage-status, handling events/status/guard, redaction registration/promotion, verify, find, recover, reconcile
+├── cmd/lockwood/                 # put, imports/provenance intake, signed handling events/provenance, provenance discovery, get, inspect, lineage-status, handling events/status/guard, redaction status/registration/promotion, verify, find, recover, reconcile
 ├── internal/
 │   ├── artifact/                 # SHA-256 references
 │   ├── store/                    # filesystem and in-memory blobs, inventories, reference manifests
 │   ├── custody/                  # filesystem and in-memory records, handling events, lineage, recovery, verification
 │   ├── catalog/                  # deterministic metadata queries
 │   ├── integrity/                # shared streaming hash and size verification
-│   ├── attestation/              # detached record/event sign/verify, encoding, and publication
+│   ├── attestation/              # detached record/event/provenance sign/verify, encoding, and publication
 │   └── adapters/
 │       ├── ciresult/             # validated ingen.ci-result/v1 intake
 │       └── sorna/                # deterministic verified Sorna bundle intake
-├── spec/                         # artifact-v1, custody-v1/v2, attestation-v1/trust-v1, handling-event-v1, event-attestation-v1, event-policy-v1
+├── spec/                         # artifact-v1, custody-v1/v2, attestation-v1/trust-v1, handling-event-v1, event-attestation-v1, event-policy-v1, redaction-provenance-attestation-v1
 └── testdata/                     # valid and invalid contract fixtures
 ```
 

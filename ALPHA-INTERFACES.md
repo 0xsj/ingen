@@ -101,9 +101,27 @@ These are the important guarantees of the current slice:
     handoff, Herdr ingress, and terminal audit resolve symlinks and reject
     paths that escape that root before creating, mutating, or passing an
     artifact reference.
-19. The verifier subject root is resolved under the supplied project root
-    before Sorna is launched; an escaping or unresolved subject root is a
-    preparation failure, not a delegated execution.
+19. The verifier subject root is resolved as an existing directory under the
+    supplied project root before Sorna is launched; an escaping, unresolved,
+    or non-directory subject root is a preparation failure, not a delegated
+    execution. When omitted, it is `.` relative to the child process root.
+20. The verifier evidence output directory is relative to the supplied project
+    root; existing symlink components are resolved before Sorna is launched,
+    and an escaping or existing non-directory output path is a preparation
+    failure. A not-yet-created output leaf is permitted only when its existing
+    parent remains rooted.
+21. A verifier completion artifact discovered under the supplied project root
+    is registered with a root-relative reference and its bytes are read through
+    that same root; caller working-directory changes cannot silently omit or
+    rebind Sorna's `run.json`.
+22. The workspace capability compiler and the oracle/verifier CLI handoffs
+    resolve the manifest and its policy references in the supplied project-root
+    namespace; the caller's working directory is not an alternate source of
+    capability-plan input bytes.
+23. Sentinel bootstrap accepts a supplied project root, loads the workspace
+    manifest from that rooted namespace, and records its path relative to that
+    root; the caller's working directory cannot substitute the receipt's
+    workspace bytes.
 
 ## What is deliberately not frozen
 

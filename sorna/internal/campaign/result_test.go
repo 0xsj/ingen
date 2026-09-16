@@ -45,6 +45,40 @@ func TestWriteAndLoadResultPreservesCampaignDenominator(t *testing.T) {
 	}
 }
 
+func TestLoadResultRejectsUnknownFields(t *testing.T) {
+	started := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
+	result := Result{
+		Schema:     ResultSchema,
+		Status:     "passed",
+		Plan:       PlanReference{Path: "plan.json", SHA256: strings.Repeat("a", 64)},
+		StartedAt:  started,
+		FinishedAt: started.Add(time.Second),
+		Summary:    Summary{Total: 1, Killed: 1},
+		Entries: []EntryResult{{
+			Sequence: 1, MutationID: "m1", EvidencePath: "evidence/m1",
+			Evidence: &EvidenceReference{ManifestSHA256: strings.Repeat("b", 64), ChecksumsSHA256: strings.Repeat("c", 64)},
+			Status:   "passed", Outcome: "killed", ExitCode: 0,
+			Diagnosis: &Diagnosis{ExpectedRuleStatus: map[string]string{"target": "fail"}},
+		}},
+	}
+	path := filepath.Join(t.TempDir(), "result.json")
+	if _, err := WriteResult(path, result); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.TrimSpace(string(contents))
+	text = strings.TrimSuffix(text, "}") + ",\"unexpected\":true}"
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadResult(path); err == nil || !strings.Contains(err.Error(), `unknown field "unexpected"`) {
+		t.Fatalf("LoadResult() = %v, want unknown-field error", err)
+	}
+}
+
 func TestHashEvidenceBindsManifestAndChecksums(t *testing.T) {
 	directory := t.TempDir()
 	manifest := []byte("manifest\n")

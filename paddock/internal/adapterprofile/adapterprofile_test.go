@@ -53,3 +53,30 @@ func TestLoadRejectsInvalidProfile(t *testing.T) {
 		t.Fatalf("profile error = %v", err)
 	}
 }
+
+func TestLoadRejectsUnknownTemplate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "adapter.yaml")
+	contents := `schema: paddock.adapter-profile/v1
+name: example
+executable: python3
+args: ["{{root}}", "{{unknown}}"]
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := adapterprofile.Load(path)
+	if err == nil || !strings.Contains(err.Error(), "unsupported template") {
+		t.Fatalf("profile template error = %v", err)
+	}
+}
+
+func TestIsSHA256(t *testing.T) {
+	if !adapterprofile.IsSHA256(strings.Repeat("a", 64)) {
+		t.Fatal("valid lowercase SHA-256 was rejected")
+	}
+	for _, value := range []string{"", strings.Repeat("a", 63), strings.Repeat("A", 64), strings.Repeat("g", 64)} {
+		if adapterprofile.IsSHA256(value) {
+			t.Fatalf("invalid SHA-256 was accepted: %q", value)
+		}
+	}
+}

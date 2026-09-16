@@ -90,11 +90,19 @@ var eventTypes = map[string]bool{
 // New creates a receipt whose workspace reference is bound to the exact bytes
 // loaded and validated from workspacePath.
 func New(workspacePath string, now time.Time) (Receipt, error) {
+	return NewUnderRoot(".", workspacePath, now)
+}
+
+// NewUnderRoot creates a receipt whose workspace reference is bound to the
+// exact bytes loaded and validated from workspacePath under root. The stored
+// workspace path remains relative so later rooted consumers use the same
+// project namespace.
+func NewUnderRoot(root, workspacePath string, now time.Time) (Receipt, error) {
 	workspacePath = filepath.Clean(workspacePath)
 	if err := validateRelativePath("workspace file", workspacePath); err != nil {
 		return Receipt{}, err
 	}
-	resolvedWorkspacePath, err := ResolveFileRefUnderRoot(".", ciresult.FileRef{Path: workspacePath})
+	resolvedWorkspacePath, err := ResolveFileRefUnderRoot(root, ciresult.FileRef{Path: workspacePath})
 	if err != nil {
 		return Receipt{}, fmt.Errorf("resolve Sentinel workspace %s: %w", workspacePath, err)
 	}
@@ -295,7 +303,13 @@ func terminalStatus(status string) bool {
 // AddFileArtifact adds a reference whose digest is calculated from the same
 // bytes that are read from path.
 func (r *Receipt) AddFileArtifact(id, role, kind, path string) error {
-	artifact, err := fileArtifact(id, role, kind, path)
+	return r.AddFileArtifactUnderRoot(id, role, kind, ".", path)
+}
+
+// AddFileArtifactUnderRoot adds a reference whose digest is calculated from
+// bytes read from path relative to root.
+func (r *Receipt) AddFileArtifactUnderRoot(id, role, kind, root, path string) error {
+	artifact, err := fileArtifactUnderRoot(id, role, kind, root, path)
 	if err != nil {
 		return err
 	}
@@ -305,19 +319,25 @@ func (r *Receipt) AddFileArtifact(id, role, kind, path string) error {
 // RegisterFileArtifact records a file artifact unless the exact same
 // identity is already present. It returns false for that idempotent no-op.
 func (r *Receipt) RegisterFileArtifact(id, role, kind, path string) (bool, error) {
-	artifact, err := fileArtifact(id, role, kind, path)
+	return r.RegisterFileArtifactUnderRoot(id, role, kind, ".", path)
+}
+
+// RegisterFileArtifactUnderRoot records a file artifact whose path is
+// relative to root unless the exact same identity is already present.
+func (r *Receipt) RegisterFileArtifactUnderRoot(id, role, kind, root, path string) (bool, error) {
+	artifact, err := fileArtifactUnderRoot(id, role, kind, root, path)
 	if err != nil {
 		return false, err
 	}
 	return r.RegisterArtifact(artifact)
 }
 
-func fileArtifact(id, role, kind, path string) (ArtifactRef, error) {
+func fileArtifactUnderRoot(id, role, kind, root, path string) (ArtifactRef, error) {
 	path = filepath.Clean(path)
 	if err := validateRelativePath("artifact file", path); err != nil {
 		return ArtifactRef{}, err
 	}
-	resolvedPath, err := ResolveFileRefUnderRoot(".", ciresult.FileRef{Path: path})
+	resolvedPath, err := ResolveFileRefUnderRoot(root, ciresult.FileRef{Path: path})
 	if err != nil {
 		return ArtifactRef{}, fmt.Errorf("resolve Sentinel artifact %s: %w", path, err)
 	}
@@ -496,6 +516,94 @@ func ResolveFileRefUnderRoot(root string, ref ciresult.FileRef) (string, error) 
 		return "", fmt.Errorf("rooted file %q escapes root %q", ref.Path, root)
 	}
 	return resolvedPath, nil
+}
+
+// ResolveDirectoryUnderRoot resolves an existing relative directory under
+// root and rejects symlink resolution that escapes that root.
+func ResolveDirectoryUnderRoot(root, raw string) (string, error) {
+	path, err := ResolveFileRefUnderRoot(root, ciresult.FileRef{Path: raw})
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("stat rooted directory %q: %w", raw, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("rooted directory %q is not a directory", raw)
+	}
+	return path, nil
+}
+
+// ValidatePathUnderRoot validates a relative path under root, resolving the
+// existing portion of the path so symlink escapes are rejected. The final
+// path may not exist yet; this is intended for output directories that Sorna
+// will create after preparation. Callers remain responsible for using the
+// same root as the child process and for protecting the path from changes
+// between validation and creation.
+func ValidatePathUnderRoot(root, raw string) error {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	if err := validateRelativePath("rooted path", raw); err != nil {
+		return err
+	}
+	rootPath, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve artifact root %q: %w", root, err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(rootPath)
+	if err != nil {
+		return fmt.Errorf("resolve artifact root %q: %w", root, err)
+	}
+	path := filepath.Join(rootPath, filepath.Clean(raw))
+	probe := path
+	for {
+		resolvedPath, resolveErr := filepath.EvalSymlinks(probe)
+		if resolveErr == nil {
+			relative, err := filepath.Rel(resolvedRoot, resolvedPath)
+			if err != nil {
+				return fmt.Errorf("compare rooted path %q with root %q: %w", raw, root, err)
+			}
+			if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+				return fmt.Errorf("rooted path %q escapes root %q", raw, root)
+			}
+			return nil
+		}
+		if !os.IsNotExist(resolveErr) {
+			return fmt.Errorf("resolve rooted path %q: %w", raw, resolveErr)
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return fmt.Errorf("resolve rooted path %q: %w", raw, resolveErr)
+		}
+		probe = parent
+	}
+}
+
+// ValidateDirectoryPathUnderRoot validates a relative directory path under
+// root, allowing the final directory to be created later. If it already
+// exists, it must resolve to a directory.
+func ValidateDirectoryPathUnderRoot(root, raw string) error {
+	if err := ValidatePathUnderRoot(root, raw); err != nil {
+		return err
+	}
+	rootPath, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve artifact root %q: %w", root, err)
+	}
+	path := filepath.Join(rootPath, filepath.Clean(raw))
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat rooted directory %q: %w", raw, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("rooted directory %q is not a directory", raw)
+	}
+	return nil
 }
 
 func parseTimestamp(name, value string) (time.Time, error) {

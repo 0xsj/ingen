@@ -11,6 +11,8 @@ The local v1 governance slice is implemented:
 - explicit local-only artifact loading that rejects URL schemes before
   filesystem access;
 - a local content-addressed artifact store with immutable digest-keyed blobs;
+- a local membership-version ledger that stores only the latest accepted
+  reference and rejects stale or same-version conflicting snapshots;
 - contract identity and artifact SHA-256 binding;
 - review-cycle-bound approval and rejection events;
 - policy-aware lifecycle validation, with a one-distinct-actor approval as the
@@ -21,10 +23,11 @@ The local v1 governance slice is implemented:
   membership providers, including the decision timestamp;
 - a time-scoped membership adapter with explicit effective and expiry windows;
 - digest-bound, optionally signed membership snapshots for normalized provider
-  responses, with explicit freshness checks;
+  responses, with explicit freshness checks and monotonic successor checks;
 - a bounded HTTP membership transport adapter with a caller-owned
   authentication hook, static or resolved endpoint, endpoint policy, and
-  redirect-target checks;
+  redirect-target checks, passing the final response endpoint to
+  normalization;
 - a provider-neutral exact host/port endpoint allowlist usable as that policy;
 - a generic bearer-token authenticator backed by a caller-owned token source;
 - a caller-owned normalization hook that can reject incomplete provider views
@@ -34,6 +37,8 @@ The local v1 governance slice is implemented:
   snapshot used for authorization;
 - optional Ed25519 authority-artifact signatures verified against a caller-owned
   trusted key set;
+- trust-store-bound policy and authority loaders for an explicit local
+  root-to-trust-to-authority chain;
 - versioned trust snapshots with active/revoked key rotation and monotonic,
   identity-preserving successor checks;
 - optional root signatures on trust snapshots, enabling a verified local
@@ -41,7 +46,8 @@ The local v1 governance slice is implemented:
 - versioned root-key snapshots with bootstrap/predecessor signature checks and
   fail-closed monotonic root rotation, with bootstrap pins for root identity,
   initial version, and public keys;
-- append-only file storage with atomic writes and process-shared locking;
+- append-only file storage with file-and-directory-synced atomic writes and
+  process-shared locking;
 - conditional event appends with deterministic revision conflict detection;
 - amendment and supersession lineage checks; and
 - a local CLI for registration, review events, amendments, supersession, and

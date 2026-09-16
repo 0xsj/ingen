@@ -72,7 +72,9 @@
         "executable": {"type": "string", "minLength": 1},
         "resolved_executable": {"type": "string", "minLength": 1},
         "executable_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-        "args_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        "args_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "profile_path": {"type": "string", "minLength": 1},
+        "profile_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
       }
     },
     "baseline-summary": {

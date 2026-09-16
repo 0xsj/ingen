@@ -98,6 +98,8 @@ type AdapterMetadata struct {
 	ResolvedExecutable string `json:"resolved_executable,omitempty"`
 	ExecutableSHA256   string `json:"executable_sha256,omitempty"`
 	ArgsSHA256         string `json:"args_sha256,omitempty"`
+	ProfilePath        string `json:"profile_path,omitempty"`
+	ProfileSHA256      string `json:"profile_sha256,omitempty"`
 }
 
 func (m *AdapterMetadata) Validate() error {
@@ -110,6 +112,7 @@ func (m *AdapterMetadata) Validate() error {
 	for name, value := range map[string]string{
 		"executable_sha256": m.ExecutableSHA256,
 		"args_sha256":       m.ArgsSHA256,
+		"profile_sha256":    m.ProfileSHA256,
 	} {
 		if value == "" {
 			continue

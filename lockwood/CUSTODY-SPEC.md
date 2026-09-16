@@ -341,9 +341,15 @@ The first implementation should support these conceptual operations:
 | `append-event` | Append a validated immutable redaction, retention, or legal-hold handling event. |
 | `list-events` | List handling events for a custody record in deterministic recorded-time order. |
 | `handling-status` | Project recorded handling state without mutating custody or enforcing policy. |
+| `redaction-status` | Trace a redaction event, verify its artifacts, and report explicit result custody anchors without mutation. |
 | `check-handling-guard` | Report whether a visible legal hold blocks a redact/delete operation; never performs it. |
 | `register-redaction` | Verify a caller-produced resulting artifact and append its redaction event without deleting the original. |
 | `promote-redaction` | Create a new accepted custody record for a registered result with explicit `derived-from` lineage. |
+| `sign-redaction-provenance` | Sign and publish a detached envelope binding a source record, redaction event, and promoted result record. |
+| `verify-redaction-provenance` | Verify a published redaction-provenance envelope with an explicit public key. |
+| `verify-redaction-provenance-trusted` | Verify a published redaction-provenance envelope through an explicit trust-registry snapshot. |
+| `find-redaction-provenance` | Inventory persisted redaction-provenance envelopes by relationship fields or key ID without asserting trust. |
+| `find-trusted-redaction-provenance` | Inventory and fully verify redaction-provenance envelopes through explicit custody, event, and trust-registry inputs. |
 | `sign-handling-event` | Sign and publish a detached envelope for an exact handling event. |
 | `verify-handling-event` | Verify a published handling-event envelope with an explicit public key. |
 | `verify-handling-event-trusted` | Verify a published handling-event envelope through an explicit trust-registry snapshot. |
@@ -355,6 +361,7 @@ The first implementation should support these conceptual operations:
 | `record-digest` | Compute the digest of a record's canonical representation. |
 | `sign-attestation` | Verify a custody record, sign its canonical digest with an explicit local key, and publish a detached envelope. |
 | `import-attestation` | Validate and publish a canonical detached envelope against an explicit custody record without asserting signer trust. |
+| `import-redaction-provenance` | Validate and publish a canonical provenance envelope against explicit source, event, and promoted records without asserting signer trust. |
 | `verify-attestation` | Verify a published detached envelope with an explicit public key. |
 | `verify-attestation-trusted` | Verify a published detached envelope through an explicit trust-registry snapshot. |
 | `verify` | Recompute a blob digest, or verify a custody record's blob digest and declared size. |
@@ -480,6 +487,36 @@ source blob, and handling event remain unchanged. Repeating identical promotion
 metadata is idempotent through the record-store contract. The new record does
 not prove that Lockwood performed the payload transformation; it only anchors
 the already published result and its declared lineage.
+
+`redaction-status` is a read-only trace over one source custody record and
+redaction event. It verifies the original and resulting artifact digests,
+reports accepted custody records for both digests, identifies result records
+with an explicit `derived-from` parent for the event's source digest, and
+checks the promoted records' reachable lineage. `complete` means the result is
+verified and custody-anchored with complete lineage; `result-unanchored` means
+the result is verified but has not been promoted. It reports incomplete
+integrity or lineage as diagnostics and does not claim the payload
+transformation occurred.
+
+The optional detached `lockwood.redaction-provenance-attestation/v1` envelope
+binds the source custody ID and canonical record digest, the redaction event ID
+and canonical event digest, both referenced artifact digests, and the promoted
+custody ID and canonical record digest. Signing requires accepted source and
+promoted records, a redaction event for the source, and an explicit
+`derived-from` edge from the promoted record to the event's original digest.
+`sign-redaction-provenance` stores only this separate envelope; the two
+verification commands recheck the records, event, artifact references, and
+signature directly or through the trust registry. A valid result authenticates
+the signed relationship, not the human actor, authorization, or correctness of
+the payload transformation.
+
+`find-redaction-provenance` is a read-only reference inventory over the
+recognized detached media type. It verifies each reference and canonical
+envelope but does not verify signatures or resolve the relationship. The
+trusted inventory path resolves the source and promoted records and handling
+event named by every envelope, verifies their artifacts and lineage, and then
+applies the explicit trust registry. It fails closed rather than silently
+omitting a damaged or unresolvable matching envelope.
 
 When payload-changing or destructive workflows are added:
 

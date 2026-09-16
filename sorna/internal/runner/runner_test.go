@@ -242,6 +242,87 @@ func TestExecuteUsesOnlyTheHTTPBoundaryAndExecutesStateSetup(t *testing.T) {
 	}
 }
 
+func TestExecuteTreatsNegativeSetupExpectationAsPrecondition(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupBody     string
+		wantRule      string
+		wantSetup     string
+		wantInconcl   int
+		wantRuleError bool
+	}{
+		{
+			name:        "prohibited field is absent",
+			setupBody:   "{\"id\":\"doc-1\"}",
+			wantRule:    "pass",
+			wantSetup:   "pass",
+			wantInconcl: 0,
+		},
+		{
+			name:          "prohibited field is present",
+			setupBody:     "{\"id\":\"doc-1\",\"error\":{\"code\":\"unexpected\"}}",
+			wantRule:      "inconclusive",
+			wantSetup:     "fail",
+			wantInconcl:   1,
+			wantRuleError: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				if r.Method == http.MethodPost && r.URL.Path == "/documents" {
+					return responseFor(r, 202, test.setupBody), nil
+				}
+				if r.Method == http.MethodGet && r.URL.Path == "/documents/doc-1" {
+					return responseFor(r, 200, "{\"status\":\"queued\"}"), nil
+				}
+				t.Fatalf("request = %s %s, want setup POST or target GET", r.Method, r.URL.Path)
+				return nil, nil
+			})}
+			sealed := sealForTest(t, []any{map[string]any{
+				"id":       "document.state-precondition",
+				"strength": "must",
+				"subject":  "GET /documents/{document_id}",
+				"given": map[string]any{
+					"state": "document_accepted",
+					"setup": []any{map[string]any{
+						"id": "accept-document",
+						"request": map[string]any{
+							"method": "POST",
+							"path":   "/documents",
+						},
+						"expect": map[string]any{"status": int64(202)},
+						"expect_not": []any{map[string]any{
+							"body": map[string]any{"required": []any{"error"}},
+						}, map[string]any{
+							"body": map[string]any{"required": []any{"rejected"}},
+						}},
+						"capture": map[string]any{"document_id": "body.id"},
+					}},
+				},
+				"expect": map[string]any{"status": int64(200)},
+			}})
+			record, err := Execute(context.Background(), sealed, Config{
+				BaseURL: "http://subject.invalid",
+				Client:  client,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if record.Rules[0].Status != test.wantRule || record.Rules[0].Setup[0].Status != test.wantSetup {
+				t.Fatalf("rule = %+v, want rule %s and setup %s", record.Rules[0], test.wantRule, test.wantSetup)
+			}
+			if record.Summary.Inconclusive != test.wantInconcl {
+				t.Fatalf("summary = %+v, want inconclusive %d", record.Summary, test.wantInconcl)
+			}
+			if test.wantRuleError && !strings.Contains(record.Rules[0].Reason, "did not establish") {
+				t.Fatalf("rule reason = %q, want setup precondition reason", record.Rules[0].Reason)
+			}
+		})
+	}
+}
+
 func TestExecuteHonorsMustNotRuleStrength(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -380,6 +461,54 @@ func TestEvaluateChecksMultipleRequiredEvents(t *testing.T) {
 	}
 	if len(assertions) != 2 || assertions[0].Status != "pass" || assertions[1].Status != "pass" {
 		t.Fatalf("event assertions = %#v, want two passes", assertions)
+	}
+}
+
+func TestEvaluateChecksOrderedEventsAsRelativeSequence(t *testing.T) {
+	tests := []struct {
+		name       string
+		actual     []string
+		wantStatus string
+	}{
+		{
+			name:       "same order",
+			actual:     []string{"document.accepted", "document.queued"},
+			wantStatus: "pass",
+		},
+		{
+			name:       "extra event between expected events",
+			actual:     []string{"document.accepted", "audit.recorded", "document.queued"},
+			wantStatus: "pass",
+		},
+		{
+			name:       "wrong order",
+			actual:     []string{"document.queued", "document.accepted"},
+			wantStatus: "fail",
+		},
+		{
+			name:       "missing event",
+			actual:     []string{"document.accepted"},
+			wantStatus: "fail",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertions, err := evaluate(map[string]any{
+				"events": map[string]any{
+					"ordered": []any{"document.accepted", "document.queued"},
+				},
+			}, Observation{
+				Events: test.actual,
+				Body:   json.RawMessage("null"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(assertions) != 1 || assertions[0].Path != "events.order" || assertions[0].Status != test.wantStatus {
+				t.Fatalf("event assertions = %#v, want one events.order %s assertion", assertions, test.wantStatus)
+			}
+		})
 	}
 }
 
@@ -534,6 +663,45 @@ func TestWritePersistsRunRecord(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("stat run record: %v", err)
+	}
+}
+
+func TestLoadFileRejectsUnknownFields(t *testing.T) {
+	directory := t.TempDir()
+	path, err := Write(directory, RunRecord{
+		Schema:    Schema,
+		RunID:     "run-load-test",
+		CreatedAt: time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC),
+		Contract:  ContractReference{ID: "contract-test", Version: 1, SHA256: strings.Repeat("a", 64)},
+		Subject:   SubjectReference{BaseURL: "http://subject.invalid", Adapter: "http-json-v1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.TrimSpace(string(contents))
+	text = strings.TrimSuffix(text, "}") + ",\n  \"unexpected\": true\n}"
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFile(path); err == nil || !strings.Contains(err.Error(), `unknown field "unexpected"`) {
+		t.Fatalf("LoadFile() = %v, want unknown-field error", err)
+	}
+}
+
+func TestValidateRejectsInvalidRunIdentity(t *testing.T) {
+	record := RunRecord{
+		Schema:   "sorna.run/v1",
+		RunID:    "",
+		Contract: ContractReference{ID: "contract-test", Version: 0, SHA256: "bad"},
+		Subject:  SubjectReference{BaseURL: "not-a-url", Adapter: ""},
+	}
+	err := record.Validate()
+	if err == nil || !strings.Contains(err.Error(), "schema must be ingen.run/v1") || !strings.Contains(err.Error(), "contract") || !strings.Contains(err.Error(), "subject.base_url") {
+		t.Fatalf("Validate() = %v, want identity validation errors", err)
 	}
 }
 

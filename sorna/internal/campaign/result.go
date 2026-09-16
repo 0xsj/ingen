@@ -297,6 +297,7 @@ func LoadResult(path string) (Result, error) {
 		return Result{}, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
 	var result Result
 	if err := decoder.Decode(&result); err != nil {
 		return Result{}, fmt.Errorf("parse campaign result %s: %w", path, err)

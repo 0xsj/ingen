@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"ingen/core/ciresult"
 )
 
 const workspaceFixture = `sentinel_workspace:
@@ -129,6 +131,25 @@ func TestNewRejectsWorkspaceSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestNewUnderRootUsesSuppliedRoot(t *testing.T) {
+	root := t.TempDir()
+	caller := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "workspace.yaml"), []byte(workspaceFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caller, "workspace.yaml"), []byte("not a Sentinel workspace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(caller)
+	receipt, err := NewUnderRoot(root, "workspace.yaml", time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Workspace.ID != "webhook-validation" || receipt.Workspace.File.Path != "workspace.yaml" {
+		t.Fatalf("receipt = %+v, want rooted workspace reference", receipt)
+	}
+}
+
 func TestRegisterFileArtifactIsIdempotentButRejectsConflicts(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile("workspace.yaml", []byte(workspaceFixture), 0o644); err != nil {
@@ -187,6 +208,35 @@ func TestRegisterFileArtifactRejectsSymlinkEscape(t *testing.T) {
 	}
 	if len(receipt.Artifacts) != 0 {
 		t.Fatalf("artifacts after symlink rejection = %d, want none", len(receipt.Artifacts))
+	}
+}
+
+func TestRegisterFileArtifactUnderRootUsesRootRelativeReference(t *testing.T) {
+	root := t.TempDir()
+	caller := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "artifact.json"), []byte("result"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(caller)
+	receipt := Receipt{
+		Schema: Schema,
+		RunID:  "run-rooted-artifact-test",
+		Workspace: WorkspaceRef{
+			ID:      "webhook-validation",
+			Version: 1,
+			File:    ciresult.FileRef{Path: "workspace.yaml", SHA256: strings.Repeat("a", 64)},
+		},
+		Status:    "created",
+		CreatedAt: "2026-01-02T03:04:05Z",
+		UpdatedAt: "2026-01-02T03:04:05Z",
+		Events:    []Event{{Sequence: 1, Type: "workspace-created", At: "2026-01-02T03:04:05Z"}},
+	}
+	changed, err := receipt.RegisterFileArtifactUnderRoot("result", "verifier", "sorna-run", root, "artifact.json")
+	if err != nil || !changed {
+		t.Fatalf("RegisterFileArtifactUnderRoot() = %v, %v; want rooted artifact", changed, err)
+	}
+	if len(receipt.Artifacts) != 1 || receipt.Artifacts[0].Ref.Path != "artifact.json" || receipt.Artifacts[0].Ref.SHA256 == "" {
+		t.Fatalf("artifacts = %+v, want root-relative hashed reference", receipt.Artifacts)
 	}
 }
 

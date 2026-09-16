@@ -51,11 +51,18 @@ type Role struct {
 // FromFile compiles a validated workspace manifest and hashes the exact bytes
 // that were used to produce the plan.
 func FromFile(path string) (Plan, error) {
+	return FromFileUnderRoot(".", path)
+}
+
+// FromFileUnderRoot compiles a validated workspace manifest and hashes the
+// exact bytes used to produce the plan, resolving all manifest references
+// relative to root.
+func FromFileUnderRoot(root, path string) (Plan, error) {
 	path = filepath.Clean(path)
 	if err := validateRelativePath("workspace manifest", path); err != nil {
 		return Plan{}, err
 	}
-	resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(".", ciresult.FileRef{Path: path})
+	resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(root, ciresult.FileRef{Path: path})
 	if err != nil {
 		return Plan{}, fmt.Errorf("resolve Sentinel workspace %s: %w", path, err)
 	}
@@ -68,11 +75,11 @@ func FromFile(path string) (Plan, error) {
 		return Plan{}, err
 	}
 	digest := sha256.Sum256(contents)
-	oraclePolicy, err := fileReference(loaded.Sorna.OraclePolicy)
+	oraclePolicy, err := fileReference(root, loaded.Sorna.OraclePolicy)
 	if err != nil {
 		return Plan{}, err
 	}
-	subjectPolicy, err := fileReference(loaded.Sorna.SubjectPolicy)
+	subjectPolicy, err := fileReference(root, loaded.Sorna.SubjectPolicy)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -260,12 +267,12 @@ func validatePolicyRef(name string, ref ciresult.FileRef) error {
 	return validateRelativePath(name, ref.Path)
 }
 
-func fileReference(path string) (ciresult.FileRef, error) {
+func fileReference(root, path string) (ciresult.FileRef, error) {
 	path = filepath.Clean(path)
 	if err := validateRelativePath("policy", path); err != nil {
 		return ciresult.FileRef{}, err
 	}
-	resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(".", ciresult.FileRef{Path: path})
+	resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(root, ciresult.FileRef{Path: path})
 	if err != nil {
 		return ciresult.FileRef{}, fmt.Errorf("resolve Sentinel policy %s: %w", path, err)
 	}

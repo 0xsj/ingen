@@ -194,6 +194,21 @@ expect:
     required: [document.accepted]
 ~~~
 
+An ordered event expectation uses a relative sequence in one response:
+
+~~~yaml
+expect:
+  events:
+    ordered: [document.accepted, document.queued]
+~~~
+
+Extra observed events may appear between the ordered names. Neither form
+asserts delivery to an external broker or ordering across separate requests.
+
+State-establishing setup may provide both `expect` and an `expect_not` list.
+Each item in the latter is a prohibition evaluated before the target request;
+if any item matches, setup fails and the target rule is inconclusive.
+
 The signal and its transport must be part of the public subject contract.
 Sorna lifecycle events and host-access telemetry are verifier-owned evidence;
 they do not prove that the subject emitted a domain event.

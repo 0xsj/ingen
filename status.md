@@ -99,10 +99,17 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - The symlink-aware rooted-reference guarantee is now frozen as cross-boundary invariant 18 in ALPHA-INTERFACES.md.
 - The `sentinel run artifact` CLI now proves the same rejection is publish-safe: an escaping path returns failure without changing the locked receipt bytes.
 - Capability-plan loading and Sorna oracle/verifier handoffs now use the same rooted resolver for workspace, policy, and frozen-oracle inputs.
-- Verifier preparation now rejects a subject root that escapes the supplied project root before Sorna is launched; the guarantee is frozen as alpha invariant 19.
-- The latest host-enabled fresh positive and expected-failure proofs passed after the rooted capability/handoff change, in `/private/tmp/ingen-sentinel-workspace.fqFUDU` and `/private/tmp/ingen-sentinel-failure-workspace.aoumsG`.
+- Verifier preparation now requires an existing subject root directory and normalizes an omitted subject root to `.` under the child process root; alpha invariant 19 records that contract.
+- Verifier preparation now rejects an output directory whose existing path or symlink components escape the supplied project root, or whose existing target is not a directory, while allowing a not-yet-created rooted leaf; the guarantee is frozen as alpha invariant 20.
+- Verifier completion now registers Sorna's `run.json` relative to the supplied project root and hashes it through that root, so absolute-root invocations cannot silently omit the completion artifact; the guarantee is frozen as alpha invariant 21.
+- Capability-plan loading now resolves the workspace manifest and policy references under the supplied `--root` for the capabilities, oracle, and verifier CLI paths; the guarantee is frozen as alpha invariant 22.
+- Bootstrap now accepts the supplied `--root` and records a root-relative workspace reference from bytes loaded in that namespace; the guarantee is frozen as alpha invariant 23.
+- The latest host-enabled fresh positive and expected-failure proofs passed after the root-aware bootstrap change, in `/private/tmp/ingen-sentinel-workspace.ezgUfA` and `/private/tmp/ingen-sentinel-failure-workspace.n9eDRZ`.
 
 ## Useful entry points
+
+Nublar's step-by-step command flow is documented in
+[nublar/USAGE-GUIDE.md](nublar/USAGE-GUIDE.md).
 
 ```sh
 make mutation-provider-inspect

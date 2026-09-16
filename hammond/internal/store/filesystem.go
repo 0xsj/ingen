@@ -359,31 +359,50 @@ func marshalRecord(record governance.Record) ([]byte, error) {
 }
 
 func writeBytes(path string, data []byte) error {
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".hammond-record-*.tmp")
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".hammond-file-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temporary Hammond record: %w", err)
+		return fmt.Errorf("create temporary Hammond file: %w", err)
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	if err := temporary.Chmod(0o644); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("set Hammond record permissions: %w", err)
+		return fmt.Errorf("set Hammond file permissions: %w", err)
 	}
 	if _, err := temporary.Write(data); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("write temporary Hammond record: %w", err)
+		return fmt.Errorf("write temporary Hammond file: %w", err)
 	}
 	if err := temporary.Sync(); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("sync temporary Hammond record: %w", err)
+		return fmt.Errorf("sync temporary Hammond file: %w", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary Hammond record: %w", err)
+		return fmt.Errorf("close temporary Hammond file: %w", err)
 	}
 	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("publish Hammond record: %w", err)
+		return fmt.Errorf("publish Hammond file: %w", err)
+	}
+	if err := syncDirectory(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("sync Hammond file directory: %w", err)
 	}
 	return nil
+}
+
+// syncDirectory persists the directory entry created by os.Rename. The file
+// contents are synced before publication; syncing the parent directory makes
+// the rename durable across a crash on filesystems that support directory
+// synchronization.
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	if err := directory.Sync(); err != nil {
+		_ = directory.Close()
+		return err
+	}
+	return directory.Close()
 }
 
 func (s *FileStore) pathFor(identity governance.ContractIdentity) string {

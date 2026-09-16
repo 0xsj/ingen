@@ -36,13 +36,15 @@ Custody v2 can preserve credential-free remote source URI/version metadata;
 this records provenance only and does not fetch or attest remote objects.
 
 The initial local CLI exposes `put`, `import-sorna`, `import-ci-result`,
-`import-attestation`, `get`, `inspect`, `lineage-status`, `append-event`,
-`list-events`, `handling-status`, `check-handling-guard`, `register-redaction`, `promote-redaction`, `inspect-attestation`, `inspect-attestation-link`,
-`find-attestation`, `record-digest`, `sign-attestation`,
-`sign-handling-event`,
+`import-attestation`, `import-redaction-provenance`, `get`, `inspect`, `lineage-status`, `append-event`,
+`list-events`, `handling-status`, `redaction-status`, `check-handling-guard`, `register-redaction`, `promote-redaction`, `inspect-attestation`, `inspect-attestation-link`,
+`find-attestation`, `find-redaction-provenance`, `record-digest`, `sign-attestation`,
+`sign-handling-event`, `sign-redaction-provenance`,
 `verify-attestation`, `verify-attestation-trusted`, `find-trusted-attestation`,
 `verify-handling-event`, `verify-handling-event-trusted`,
 `verify-handling-event-authorized`,
+`verify-redaction-provenance`, `verify-redaction-provenance-trusted`,
+`find-trusted-redaction-provenance`,
 `verify`, `find`, `recover`, and read-only `reconcile` reporting for
 orphaned or damaged storage. `recover` accepts a saved pending custody record,
 re-verifies its existing blob, and retries record publication. Intake commands
@@ -54,8 +56,8 @@ save a recoverable record when publication fails.
 valid orphan blobs as cleanup candidates. This report is read-only; Lockwood
 does not delete candidates automatically. Use `--as-of <RFC3339>` for a
 reproducible age cutoff. The CLI recognizes and protects valid published
-detached attestation artifacts from orphan classification; ordinary
-unreferenced blobs remain reportable.
+detached attestation and redaction-provenance artifacts from orphan
+classification; ordinary unreferenced blobs remain reportable.
 
 `lineage-status --root <root> <custody-id>` provides a read-only projection of
 reachable lineage. It reports unresolved parents, cycles, and damaged
@@ -84,6 +86,26 @@ Lockwood processes that share a root, not distributed coordination.
 resulting artifact, with a `derived-from` parent for the source artifact. It
 verifies the source and result again, preserves the source record and blob, and
 is idempotent for identical record metadata.
+`redaction-status` gives a read-only trace from the source custody record and
+event through verified original/result artifacts and any explicitly promoted
+result records. `complete` means the result is custody-anchored and its
+lineage verifies; `result-unanchored` means the result is verified but has no
+promoted custody record.
+
+An optional detached `redaction-promotion` provenance envelope binds the source
+custody record, redaction event, original/result digests, and promoted custody
+record by their canonical representation digests. `sign-redaction-provenance`
+publishes the envelope; the direct and trusted verification commands verify the
+relationship with an explicit public key or trust-registry snapshot. This
+authenticates the signed bytes and key status, but does not prove who operated
+the redaction or that the payload transformation was correct.
+
+`find-redaction-provenance` inventories persisted provenance envelopes by
+source custody ID, event ID, promoted custody ID, or key ID without asserting
+signature trust. `find-trusted-redaction-provenance` additionally resolves and
+verifies the source record, event, promoted record, payload references, signed
+relationship, and explicit trust-registry snapshot; any missing or damaged
+relationship fails the whole read-only query.
 
 Handling events can optionally be accompanied by a detached
 `handling-event-attestation/v1` Ed25519 envelope. `sign-handling-event`
@@ -156,6 +178,12 @@ its target matches the supplied custody record, and publishes the detached
 artifact. It performs no signature verification; use `verify-attestation` for
 that step.
 
+The `import-redaction-provenance` command accepts a canonical provenance
+envelope file, checks its content digest and relationship against explicitly
+named source, event, and promoted custody records, and publishes the detached
+artifact. It performs no signature verification; use the direct or trusted
+provenance verification commands for that step.
+
 The read-only `inspect-attestation` command loads a known envelope by its
 artifact digest and reports its canonical envelope metadata. It does not verify
 the signature or establish signer trust.
@@ -183,3 +211,7 @@ The detached event-signature schema is in
 [`spec/lockwood.handling-event-attestation-v1.schema.json`](spec/lockwood.handling-event-attestation-v1.schema.json).
 The action-policy schema is in
 [`spec/lockwood.handling-event-policy-v1.schema.json`](spec/lockwood.handling-event-policy-v1.schema.json).
+The detached redaction-provenance schema is in
+[`spec/lockwood.redaction-provenance-attestation-v1.schema.json`](spec/lockwood.redaction-provenance-attestation-v1.schema.json),
+with a representative fixture in
+[`testdata/valid-redaction-provenance-attestation-v1.json`](testdata/valid-redaction-provenance-attestation-v1.json).

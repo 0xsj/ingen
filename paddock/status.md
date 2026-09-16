@@ -135,6 +135,14 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 - External adapter protocol with capability negotiation.
 - Reusable `paddock.adapter-profile/v1` files with per-root argument
   expansion for direct commands and policy-test workflows.
+- `adapter profile validate` preflight diagnostics that check profile shape and
+  executable availability without launching the adapter.
+- `adapter profile verify` exact-file SHA-256 checks for reviewed profiles,
+  including optional enforcement in the portable CI helper.
+- Profile-backed graph evidence records the profile path and SHA-256 in CI and
+  agent-facing explanation provenance.
+- Profile-backed CI results now retain the exact profile as the shared
+  `adapter_profile` input reference.
 - Adapter conformance validation without policy evaluation.
 - Structured adapter validation diagnostics for process, graph, language,
   source-unit, and capability failures.

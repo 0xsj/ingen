@@ -19,6 +19,7 @@ const (
 	handlingEventSchemaURL            = "https://ingen.example/spec/lockwood.handling-event-v1.schema.json"
 	handlingEventAttestationSchemaURL = "https://ingen.example/spec/lockwood.handling-event-attestation-v1.schema.json"
 	handlingEventPolicySchemaURL      = "https://ingen.example/spec/lockwood.handling-event-policy-v1.schema.json"
+	redactionProvenanceSchemaURL      = "https://ingen.example/spec/lockwood.redaction-provenance-attestation-v1.schema.json"
 )
 
 func TestDraftSchemasValidateFixtures(t *testing.T) {
@@ -92,6 +93,13 @@ func TestDraftHandlingEventPolicySchemaValidatesFixture(t *testing.T) {
 	}
 }
 
+func TestDraftRedactionProvenanceSchemaValidatesFixture(t *testing.T) {
+	schema := compileLockwoodSchema(t, redactionProvenanceSchemaURL, "spec/lockwood.redaction-provenance-attestation-v1.schema.json")
+	if err := schema.Validate(loadJSONDocument(t, "testdata/valid-redaction-provenance-attestation-v1.json")); err != nil {
+		t.Fatalf("valid redaction provenance attestation rejected by draft schema: %v", err)
+	}
+}
+
 func compileLockwoodSchema(t *testing.T, url, relativePath string) *jsonschema.Schema {
 	t.Helper()
 	compiler := jsonschema.NewCompiler()
@@ -108,6 +116,7 @@ func compileLockwoodSchema(t *testing.T, url, relativePath string) *jsonschema.S
 		{url: handlingEventSchemaURL, path: "spec/lockwood.handling-event-v1.schema.json"},
 		{url: handlingEventAttestationSchemaURL, path: "spec/lockwood.handling-event-attestation-v1.schema.json"},
 		{url: handlingEventPolicySchemaURL, path: "spec/lockwood.handling-event-policy-v1.schema.json"},
+		{url: redactionProvenanceSchemaURL, path: "spec/lockwood.redaction-provenance-attestation-v1.schema.json"},
 	} {
 		data, err := os.ReadFile(resource.path)
 		if err != nil {

@@ -48,7 +48,9 @@ hammond/
 │       ├── store.go          # persistence and conditional revision interface
 │       ├── artifacts.go      # local content-addressed artifact blobs
 │       ├── filesystem.go     # atomic local writes and process-shared locking
+│       ├── membership.go     # monotonic membership-version ledger
 │       ├── artifacts_test.go
+│       ├── membership_test.go
 │       └── filesystem_test.go
 │
 ├── spec/
@@ -141,10 +143,13 @@ revoked roots are excluded from the next verifier. The initial bootstrap and
 approval of root keys remain outside Hammond. The initial bootstrap pins the
 expected root ID, version, and public keys. A trust snapshot can be root-signed
 and verified before its active keys are used.
+Trust-store-bound policy and authority loaders are available when callers want
+the root → trust → authority chain to remain explicit at the API boundary.
 `TimeScopedAuthority` is available for normalized membership data with
 effective and expiry timestamps. `MembershipSnapshot` adds a digest-bound,
 optionally signed provider-response envelope around those grants; callers can
-use `VerifierAt` to enforce snapshot freshness before evaluation.
+use `VerifierAt` to enforce snapshot freshness before evaluation, and its
+rotation helper rejects equal or older versions.
 `HTTPMembershipProvider` is a narrow transport adapter for fetching one such
 snapshot. It requires a caller-owned signature verifier, bounds the response,
 and exposes authentication, endpoint-resolution, and endpoint-policy hooks;
@@ -159,4 +164,5 @@ by the caller's injected verifier for audit provenance. Callers can use
 enforce that binding. `MembershipEndpointAllowlist` is available as a strict
 exact host/port endpoint policy; it does not replace caller-owned TLS or
 network enforcement. When configured, the HTTPS requirement and endpoint
-policy are also applied to redirect targets before the client follows them.
+policy are also applied to redirect targets before the client follows them;
+normalization receives the final response endpoint as source context.

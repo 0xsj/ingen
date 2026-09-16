@@ -136,6 +136,7 @@ scenario read_document {
     }
     when POST "/documents"
     must response.status == 202
+    must_not response.body.error exists
     capture document_id = response.body.id
   }
   when GET "/documents/{document_id}"
@@ -155,9 +156,12 @@ subject must expose the event as a public response signal:
 ~~~text
 when POST "/documents"
 must emit "document.accepted"
+must emit in order ["document.accepted", "document.queued"]
 ~~~
 
 Sorna's HTTP runner observes this through the `X-InGen-Event` response header.
+The ordered form requires the named events to appear in relative order in the
+same response; unrelated events may appear between them.
 
 ## Status
 

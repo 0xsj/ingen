@@ -51,6 +51,8 @@ boundary:
 - `ingen.contract/v1`
 - `ingen.policy/v1`
 - `ingen.oracle/v1`
+- `ingen.run/v1`
+- `sorna.evidence/v1`
 - `ingen.mutation-catalogue/v1`
 - `ingen.mutation-plan/v1`
 - `ingen.mutation-provider-review/v1`
@@ -61,10 +63,12 @@ boundary:
 - `sorna.replay-matrix-manifest/v1`
 
 The shared `ingen.ci-result/v1` envelope is the consumer-facing handoff. The
-contract, capability policy, frozen oracle, provider manifest, and
-replay-matrix shapes have published JSON schemas under [`spec/`](spec/). The
-remaining producer artifacts are currently defined by their specifications and
-runtime validation rather than all having separate published JSON Schema files.
+contract, capability policy, frozen oracle, subject run, evidence manifest,
+mutation campaign result, provider manifest, and replay-matrix shapes have
+published JSON schemas under
+[`spec/`](spec/). The remaining producer artifacts are currently defined by
+their specifications and runtime validation rather than all having separate
+published JSON Schema files.
 
 ## Claims this checkpoint supports
 

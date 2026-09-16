@@ -25,6 +25,8 @@ import (
 	"ingen/sorna/internal/oracle"
 )
 
+const Schema = "ingen.run/v1"
+
 // Config controls the public HTTP subject that a run observes.
 type Config struct {
 	BaseURL   string
@@ -262,7 +264,7 @@ func executeCases(ctx context.Context, contractReference ContractReference, case
 		limitations = append(limitations, "subject policy was host-enforced, but access completeness and process-tree/subject-identity enforcement are not independently attested")
 	}
 	record := RunRecord{
-		Schema:    "ingen.run/v1",
+		Schema:    Schema,
 		RunID:     "run-" + strconv.FormatInt(createdAt.UnixNano(), 10),
 		CreatedAt: createdAt,
 		Assurance: Assurance{
@@ -467,20 +469,68 @@ func executeSetupStep(ctx context.Context, base *url.URL, client *http.Client, i
 	result.Observation = observation
 	result.ObservationSHA256 = observationHash(observation)
 
-	expect, _ := step["expect"].(map[string]any)
-	assertions, err := evaluate(expect, observation)
-	if err != nil {
-		result.Reason = err.Error()
-		return result
-	}
-	result.Assertions = assertions
 	result.Status = "pass"
-	for _, assertion := range assertions {
-		if assertion.Status != "pass" {
-			result.Status = "fail"
-			result.Reason = "setup expectation did not match the observation"
+	if rawExpect, present := step["expect"]; present {
+		expect, ok := rawExpect.(map[string]any)
+		if !ok {
+			result.Status = "error"
+			result.Reason = "setup expect is not an object"
 			return result
 		}
+		assertions, err := evaluate(expect, observation)
+		if err != nil {
+			result.Status = "error"
+			result.Reason = err.Error()
+			return result
+		}
+		result.Assertions = append(result.Assertions, assertions...)
+		for _, assertion := range assertions {
+			if assertion.Status != "pass" {
+				result.Status = "fail"
+			}
+		}
+	}
+	if rawExpectNot, present := step["expect_not"]; present {
+		expectations, ok := rawExpectNot.([]any)
+		if !ok || len(expectations) == 0 {
+			result.Status = "error"
+			result.Reason = "setup expect_not must be a non-empty list"
+			return result
+		}
+		for index, rawExpectation := range expectations {
+			expectNot, ok := rawExpectation.(map[string]any)
+			if !ok {
+				result.Status = "error"
+				result.Reason = fmt.Sprintf("setup expect_not[%d] is not an object", index)
+				return result
+			}
+			assertions, err := evaluate(expectNot, observation)
+			if err != nil {
+				result.Status = "error"
+				result.Reason = err.Error()
+				return result
+			}
+			if len(assertions) == 0 {
+				result.Status = "error"
+				result.Reason = fmt.Sprintf("setup expect_not[%d] has no executable expectation", index)
+				return result
+			}
+			result.Assertions = append(result.Assertions, assertions...)
+			prohibited := true
+			for _, assertion := range assertions {
+				if assertion.Status != "pass" {
+					prohibited = false
+					break
+				}
+			}
+			if prohibited {
+				result.Status = "fail"
+				result.Reason = "setup prohibited expectation matched the observation"
+			}
+		}
+	}
+	if result.Status == "fail" && result.Reason == "" {
+		result.Reason = "setup expectation did not match the observation"
 	}
 
 	if rawCapture, present := step["capture"]; present {
@@ -788,9 +838,13 @@ func evaluate(expect map[string]any, observation Observation) ([]Assertion, erro
 }
 
 func evaluateEvents(spec map[string]any, actual []string) ([]Assertion, error) {
-	rawRequired, present := spec["required"]
-	if !present {
-		return nil, fmt.Errorf("expect.events.required is required")
+	rawRequired, hasRequired := spec["required"]
+	rawOrdered, hasOrdered := spec["ordered"]
+	if hasRequired == hasOrdered {
+		return nil, fmt.Errorf("expect.events must define exactly one of required or ordered")
+	}
+	if hasOrdered {
+		return evaluateOrderedEvents(rawOrdered, actual)
 	}
 	required, ok := rawRequired.([]any)
 	if !ok {
@@ -817,6 +871,59 @@ func evaluateEvents(spec map[string]any, actual []string) ([]Assertion, error) {
 		})
 	}
 	return assertions, nil
+}
+
+func evaluateOrderedEvents(raw any, actual []string) ([]Assertion, error) {
+	ordered, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("expect.events.ordered must be a list")
+	}
+	if len(ordered) == 0 {
+		return nil, fmt.Errorf("expect.events.ordered must contain at least one event")
+	}
+	expected := make([]string, 0, len(ordered))
+	seen := make(map[string]struct{}, len(ordered))
+	for index, rawEvent := range ordered {
+		event, ok := rawEvent.(string)
+		if !ok || strings.TrimSpace(event) == "" {
+			return nil, fmt.Errorf("expect.events.ordered[%d] must be a non-empty string", index)
+		}
+		event = strings.TrimSpace(event)
+		if _, present := seen[event]; present {
+			return nil, fmt.Errorf("expect.events.ordered contains duplicate event %q", event)
+		}
+		seen[event] = struct{}{}
+		expected = append(expected, event)
+	}
+	matches := orderedEventsMatch(expected, actual)
+	return []Assertion{{
+		Path:     "events.order",
+		Expected: expected,
+		Actual:   actual,
+		Status:   statusFor(matches),
+		Reason:   orderedEventsReason(matches),
+	}}, nil
+}
+
+func orderedEventsMatch(expected, actual []string) bool {
+	next := 0
+	for _, event := range actual {
+		if event != expected[next] {
+			continue
+		}
+		next++
+		if next == len(expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func orderedEventsReason(matches bool) string {
+	if matches {
+		return ""
+	}
+	return "events were not emitted in the required order"
 }
 
 func eventMissingReason(exists bool) string {

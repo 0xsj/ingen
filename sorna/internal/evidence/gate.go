@@ -72,7 +72,7 @@ func EvaluateGate(outputDir string, policy GatePolicy) (GateResult, error) {
 		if manifest.Execution.Outcome != "completed" {
 			reasons = append(reasons, fmt.Sprintf("oracle outcome is %q", manifest.Execution.Outcome))
 		}
-	case "sorna.evidence/v1":
+	case Schema:
 		var manifest Manifest
 		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 			return GateResult{}, fmt.Errorf("decode evidence manifest: %w", err)

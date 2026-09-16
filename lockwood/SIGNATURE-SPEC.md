@@ -115,11 +115,11 @@ ID and retains the old ID as revoked; IDs must not be reused by governance.
 Old envelopes are never mutated and remain available for direct
 cryptographic verification even after a key is revoked or expires.
 
-The registry makes a key-status decision for detached record-attestation and
-handling-event-signature verification. It is not a signer directory, an
-access-control list, or proof of a producer claim. The trusted verification
-CLIs require this registry explicitly and report its canonical snapshot digest
-and evaluation time in transient receipts.
+The registry makes a key-status decision for detached record-attestation,
+handling-event-signature, and redaction-provenance verification. It is not a
+signer directory, an access-control list, or proof of a producer claim. The
+trusted verification CLIs require this registry explicitly and report its
+canonical snapshot digest and evaluation time in transient receipts.
 
 The read-only `verify-attestation` CLI path accepts one explicit
 standard-base64 Ed25519 public-key file. It is an operator-supplied
@@ -143,6 +143,14 @@ The `import-attestation` CLI accepts a canonical envelope file, checks its
 content digest and target against an explicitly named custody record, and
 publishes it without verifying the signature. This separates structural
 intake from caller-controlled signer trust.
+
+The `import-redaction-provenance` CLI accepts a canonical provenance envelope
+file, checks its content digest and target against explicitly named source,
+event, and promoted custody records, and publishes it without verifying the
+signature. It also rechecks the promoted record's declared relationship to the
+event. This separates structural provenance intake from caller-controlled
+signer trust; use `verify-redaction-provenance` or its trusted variant for
+cryptographic verification.
 
 The read-only `inspect-attestation` CLI loads a known envelope by artifact
 digest and reports its canonical metadata. It does not verify the signature;
@@ -202,6 +210,71 @@ Successful verification receipts are transient operational evidence. They
 authenticate the signature under the selected key snapshot but do not prove
 that the actor named in the event is a human, that the event was authorized,
 or that any redaction, retention, or legal-hold effect was enforced.
+
+## Redaction-promotion provenance
+
+The redaction-promotion envelope is a separate detached signature. It binds a
+registered redaction event to the accepted custody record that anchors its
+resulting artifact without changing either custody record, the event stream, or
+the payload bytes:
+
+```json
+{
+  "schema": "lockwood.redaction-provenance-attestation/v1",
+  "target": {
+    "kind": "redaction-promotion",
+    "source_custody_id": "lockwood-source",
+    "source_record_digest": "sha256:<canonical-source-record>",
+    "event_id": "redaction-2026-01",
+    "event_digest": "sha256:<canonical-handling-event>",
+    "original_digest": "sha256:<original-artifact>",
+    "resulting_digest": "sha256:<resulting-artifact>",
+    "promoted_custody_id": "lockwood-result",
+    "promoted_record_digest": "sha256:<canonical-promoted-record>"
+  },
+  "algorithm": "ed25519",
+  "key_id": "provenance-key-2026-01",
+  "signature": "<standard-base64-ed25519-signature>"
+}
+```
+
+The signer signs the exact UTF-8 bytes of this domain-separated message, with
+one final newline:
+
+```text
+lockwood.redaction-provenance-attestation/v1
+redaction-promotion
+provenance-key-2026-01
+lockwood-source
+sha256:<canonical-source-record>
+redaction-2026-01
+sha256:<canonical-handling-event>
+sha256:<original-artifact>
+sha256:<resulting-artifact>
+lockwood-result
+sha256:<canonical-promoted-record>
+```
+
+The implementation requires accepted source and promoted records, a redaction
+event belonging to the source record, matching original/result references, and
+an explicit `derived-from` parent on the promoted record for the event's
+original digest. Publication stores only the canonical detached envelope. The
+direct and trusted verification commands also re-verify the referenced payload
+artifacts and promoted record lineage. A valid signature authenticates control
+of the selected key over this relationship; it does not authenticate the human
+actor, grant action authorization, or prove the transformation's semantic
+correctness.
+
+The read-only `find-redaction-provenance` command inventories persisted
+provenance envelopes by source custody ID, event ID, promoted custody ID, or
+key ID. It verifies the recognized artifact reference and canonical envelope
+but does not verify the signature or resolve signer trust. The separate
+`find-trusted-redaction-provenance` command resolves the source and promoted
+custody records and the handling event named by each envelope, verifies the
+payload references and promoted lineage, verifies the signature through the
+explicit trust registry, and returns only successful results. A missing record
+or event, damaged artifact, incomplete lineage, invalid signature, revoked key,
+or invalid validity window fails closed.
 
 ## Open decisions
 

@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sorna.evidence-v1.schema.json",
+  "title": "Sorna evidence bundle manifest",
+  "description": "The language-neutral index that binds a Sorna run to its policies and checksummed material artifacts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "created_at", "assurance", "contract", "subject", "artifacts_sha256"],
+  "properties": {
+    "schema": {"const": "sorna.evidence/v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "assurance": {"$ref": "#/$defs/assurance"},
+    "contract": {"$ref": "#/$defs/contract-reference"},
+    "oracle": {"$ref": "#/$defs/oracle-reference"},
+    "baseline": {"$ref": "#/$defs/baseline-reference"},
+    "subject": {"$ref": "#/$defs/subject"},
+    "policy": {"$ref": "#/$defs/policy-reference"},
+    "subject_policy": {"$ref": "#/$defs/policy-reference"},
+    "campaign": {"$ref": "#/$defs/campaign"},
+    "artifacts_sha256": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    }
+  },
+  "$defs": {
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "status", "limitations"],
+      "properties": {
+        "level": {"type": "integer", "minimum": 0},
+        "status": {"type": "string", "minLength": 1},
+        "observation_coverage": {"type": "string", "minLength": 1},
+        "limitations": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "contract-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "oracle-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "sha256"],
+      "properties": {
+        "schema": {"const": "ingen.oracle/v1"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "baseline-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_path", "run_id", "contract"],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "minLength": 1},
+        "contract": {"$ref": "#/$defs/contract-reference"},
+        "oracle": {"$ref": "#/$defs/oracle-reference"}
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_url", "adapter"],
+      "properties": {
+        "base_url": {"type": "string", "minLength": 1},
+        "adapter": {"type": "string", "minLength": 1},
+        "variant": {"type": "string"}
+      }
+    },
+    "policy-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "campaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "run_id", "sequence", "mutation_id", "plan", "provider"],
+      "properties": {
+        "schema": {"const": "sorna.campaign-provenance/v1"},
+        "run_id": {"type": "string", "minLength": 1},
+        "sequence": {"type": "integer", "minimum": 1},
+        "mutation_id": {"type": "string", "minLength": 1},
+        "plan": {"$ref": "#/$defs/campaign-artifact"},
+        "provider": {"$ref": "#/$defs/campaign-artifact"}
+      }
+    },
+    "campaign-artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_path", "bundle_path", "sha256"],
+      "properties": {
+        "source_path": {"type": "string", "minLength": 1},
+        "bundle_path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

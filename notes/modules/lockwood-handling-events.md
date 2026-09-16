@@ -28,6 +28,27 @@ The `lockwood.handling-event-policy/v1` snapshot then separately allowlists
 which trusted key IDs may sign each event type; authorized verification
 reports both snapshot digests.
 
+After a result is promoted, a separate
+`lockwood.redaction-provenance-attestation/v1` envelope can sign the complete
+relationship between the source custody record, redaction event, original and
+resulting artifacts, and promoted custody record. Direct and trust-registry
+verification rechecks those references and the promoted record's `derived-from`
+lineage. The envelope remains detached, and a valid signature authenticates
+only the signed relationship and key status; it does not prove the actor's
+identity, authorization, or correctness of the transformation.
+
+The read-only provenance inventory filters persisted envelopes by source,
+event, promoted record, or key ID after verifying their reference metadata and
+canonical bytes. Its trusted variant resolves the named records and event,
+rechecks payload integrity and promoted lineage, and applies the explicit trust
+registry. Any missing or damaged matching relationship fails closed.
+
+`import-redaction-provenance` is the structural intake counterpart: it accepts
+canonical envelope bytes, checks the content digest and explicit source/event/
+promoted-record relationship, and stores the detached artifact without
+verifying the signature. Signature verification and signer trust remain
+separate read-only operations.
+
 ## Why
 
 Separate events preserve the custody record's canonical representation and
@@ -71,6 +92,14 @@ the actor, deleting bytes, redacting a payload, or enforcing a policy.
   an accepted record anchoring the event's source digest before adding a
   `derived-from` parent. This preserves the original record and blob but does
   not claim that Lockwood transformed the payload.
+- `redaction-status` provides the read-only trace across the source event,
+  verified original/result artifacts, and promoted result records. A verified
+  result can remain `result-unanchored` until promotion; `complete` also
+  requires the promoted result's reachable lineage to verify.
+- Redaction-provenance envelopes are separate artifacts and do not turn the
+  event stream or custody records into signed records by default. Reconcile
+  protects their recognized media type, but discovery and verification still
+  require explicit source, event, promoted-record, and key inputs.
 
 ## Used in
 

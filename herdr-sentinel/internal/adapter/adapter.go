@@ -119,9 +119,9 @@ func PrepareVerifier(
 		root = "."
 	}
 	if strings.TrimSpace(subjectRoot) == "" {
-		subjectRoot = root
+		subjectRoot = "."
 	}
-	if _, err := sentinelrun.ResolveFileRefUnderRoot(root, ciresult.FileRef{Path: subjectRoot}); err != nil {
+	if _, err := sentinelrun.ResolveDirectoryUnderRoot(root, subjectRoot); err != nil {
 		return Prepared{}, fmt.Errorf("prepare Sentinel verifier adapter: subject root: %w", err)
 	}
 	if strings.TrimSpace(readyPath) == "" {
@@ -151,6 +151,9 @@ func PrepareVerifier(
 	}
 	if err := validateRelativePath("output directory", outputDir); err != nil {
 		return Prepared{}, fmt.Errorf("prepare Sentinel verifier adapter: %w", err)
+	}
+	if err := sentinelrun.ValidateDirectoryPathUnderRoot(root, outputDir); err != nil {
+		return Prepared{}, fmt.Errorf("prepare Sentinel verifier adapter: output directory: %w", err)
 	}
 	if len(sornaCommand) == 0 || strings.TrimSpace(sornaCommand[0]) == "" {
 		return Prepared{}, fmt.Errorf("prepare Sentinel verifier adapter: Sorna command must contain an executable")

@@ -16,8 +16,8 @@ digest-first identity without becoming hosted retention infrastructure.
 `governance.Artifact` containing both that locator and digest. Repeated `Put`
 calls for the same bytes are idempotent. `Get` derives its lookup from the
 digest, verifies the bytes again, and ignores a caller-supplied URI that could
-point elsewhere. Publication uses Hammond's atomic write helper and a shared
-artifact-store lock.
+point elsewhere. Publication uses Hammond's file-sync, atomic rename, and
+parent-directory-sync helper under a shared artifact-store lock.
 
 ## Why
 
@@ -32,6 +32,8 @@ artifact reference auditable and makes tampering observable.
   account with filesystem write access from changing them.
 - This is local content addressing, not hosted blob retention, replication,
   garbage collection, authorization, or remote retrieval.
+- Directory synchronization improves local crash durability but is not a
+  substitute for hosted replication or a database durability contract.
 - `Get` is intentionally digest-driven; the reference URI is provenance or a
   locator returned by `Put`, not permission to read an arbitrary path.
 - A digest proves byte identity, not contract meaning, completeness, or

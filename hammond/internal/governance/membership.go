@@ -143,6 +143,27 @@ func (snapshot MembershipSnapshot) VerifierAtWithProvenance(now string, maxAge, 
 	return snapshot.VerifierWithProvenance(), nil
 }
 
+// Rotate verifies and accepts a successor membership snapshot signed by the
+// caller-supplied provider verifier. Membership identity must remain stable
+// and versions must increase strictly, so a valid old snapshot cannot be
+// replayed as a replacement.
+func (snapshot MembershipSnapshot) Rotate(data []byte, reference MembershipReference, verifier AuthoritySignatureVerifier) (MembershipSnapshot, error) {
+	if err := snapshot.Validate(); err != nil {
+		return MembershipSnapshot{}, fmt.Errorf("validate current Hammond membership: %w", err)
+	}
+	replacement, err := DecodeMembershipSnapshotWithSignatureVerifier(data, reference, verifier)
+	if err != nil {
+		return MembershipSnapshot{}, err
+	}
+	if replacement.Reference.ID != snapshot.Reference.ID {
+		return MembershipSnapshot{}, fmt.Errorf("membership rotation must retain membership id")
+	}
+	if replacement.Reference.Version <= snapshot.Reference.Version {
+		return MembershipSnapshot{}, fmt.Errorf("membership rotation version must increase")
+	}
+	return replacement, nil
+}
+
 // DecodeMembershipSnapshot strictly decodes a membership response and binds
 // its exact bytes to the supplied reference.
 func DecodeMembershipSnapshot(data []byte, reference MembershipReference) (MembershipSnapshot, error) {

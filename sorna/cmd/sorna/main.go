@@ -1772,13 +1772,9 @@ func pathContains(parent, child string) bool {
 }
 
 func readRunRecord(outputDir string) (runner.RunRecord, error) {
-	contents, err := os.ReadFile(filepath.Join(outputDir, "run.json"))
+	record, err := runner.LoadFile(filepath.Join(outputDir, "run.json"))
 	if err != nil {
-		return runner.RunRecord{}, fmt.Errorf("read mutation run record: %w", err)
-	}
-	var record runner.RunRecord
-	if err := json.Unmarshal(contents, &record); err != nil {
-		return runner.RunRecord{}, fmt.Errorf("decode mutation run record: %w", err)
+		return runner.RunRecord{}, fmt.Errorf("load mutation run record: %w", err)
 	}
 	return record, nil
 }

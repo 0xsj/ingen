@@ -17,6 +17,7 @@ The supported event form is:
 ~~~text
 must emit "document.accepted"
 must_not emit "document.rejected"
+must emit in order ["document.accepted", "document.queued"]
 ~~~
 
 The Malcolm adapter lowers this to:
@@ -25,11 +26,19 @@ The Malcolm adapter lowers this to:
 {"events":{"required":["document.accepted"]}}
 ~~~
 
+The ordered form lowers to:
+
+~~~json
+{"events":{"ordered":["document.accepted","document.queued"]}}
+~~~
+
 For the HTTP/JSON subject adapter, the runner reads the
 `X-InGen-Event` response header. Multiple header values and comma-separated
 names are accepted; the observation records each distinct non-empty name in
-first-seen order. Each assertion is a membership check for the current
-response.
+first-seen order. A `required` assertion checks membership in the current
+response. An `ordered` assertion checks that the declared names occur in
+relative order in the current response; unrelated events may appear between
+them.
 
 ## Why
 
@@ -49,6 +58,7 @@ when POST "/documents"
 must response.status == 202
 must emit "document.accepted"
 must emit "document.queued"
+must emit in order ["document.accepted", "document.queued"]
 ~~~
 
 If the header is absent, the positive rule fails. If the same expectation has
@@ -56,11 +66,12 @@ strength `must_not`, an emitted event fails and an absent event passes.
 
 ## Gotchas
 
-- Event assertions check presence in one response; this slice does not prove
-  delivery to an external broker, ordering across requests, or eventual
-  delivery.
-- Multiple events are supported as independent membership checks. First-seen
-  order is retained in evidence, but an ordering requirement is not evaluated.
+- Event assertions inspect one response; this slice does not prove delivery to
+  an external broker, ordering across requests, or eventual delivery.
+- Multiple events can be checked independently with `required`, or as a
+  relative sequence with `ordered`. Extra events between ordered names are
+  allowed. Observed names are deduplicated, so repeated occurrences of the
+  same event are not a supported ordering signal.
 - Event names are constrained to identifier-like segments with `.`, `:`, or
   `-` separators by the Go adapter.
 - A subject that emits an event privately but does not expose the declared

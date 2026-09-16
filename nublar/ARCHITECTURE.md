@@ -14,6 +14,7 @@ The provider-neutral delivery and optional receipt contracts are defined in
 [`DELIVERY-BOUNDARY.md`](DELIVERY-BOUNDARY.md).
 The optional local receipt persistence boundary is defined in
 [`RECEIPT-STORAGE.md`](RECEIPT-STORAGE.md).
+The practical command flow is defined in [`USAGE-GUIDE.md`](USAGE-GUIDE.md).
 
 ## Near-term tree
 
@@ -21,6 +22,7 @@ The optional local receipt persistence boundary is defined in
 nublar/
 ├── README.md
 ├── ARCHITECTURE.md
+├── USAGE-GUIDE.md
 ├── CONTRACT-CHECKPOINT.md
 ├── CONSUMER-REQUEST-TEMPLATE.md
 ├── FREEZE-RECORD.md

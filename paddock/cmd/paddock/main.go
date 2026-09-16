@@ -104,12 +104,35 @@ func main() {
 		}
 	case "adapter":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "paddock: adapter requires validate or test subcommand")
+			fmt.Fprintln(os.Stderr, "paddock: adapter requires validate, profile, or test subcommand")
 			os.Exit(2)
 		}
 		switch os.Args[2] {
 		case "validate":
 			exitCode, err := validateAdapter(os.Args[3:])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "paddock:", err)
+				os.Exit(2)
+			}
+			if exitCode != 0 {
+				os.Exit(exitCode)
+			}
+		case "profile":
+			if len(os.Args) < 4 {
+				fmt.Fprintln(os.Stderr, "paddock: adapter profile requires validate or verify subcommand")
+				os.Exit(2)
+			}
+			var exitCode int
+			var err error
+			switch os.Args[3] {
+			case "validate":
+				exitCode, err = validateAdapterProfile(os.Args[4:])
+			case "verify":
+				exitCode, err = verifyAdapterProfile(os.Args[4:])
+			default:
+				fmt.Fprintf(os.Stderr, "paddock: unsupported adapter profile subcommand %q\n", os.Args[3])
+				os.Exit(2)
+			}
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "paddock:", err)
 				os.Exit(2)
@@ -452,6 +475,9 @@ func graphCommand(args []string) error {
 			loaded, document, err = paddockgraph.LoadExternal(context.Background(), adapterExecutable, adapterArgs, adapterRequest)
 			if err != nil {
 				return graphCommandFailure(format, absRoot, language, request.Unit, adapterExecutable, err)
+			}
+			if err := attachAdapterProfileMetadata(&document, adapterProfilePath); err != nil {
+				return err
 			}
 			unit = document.Unit
 			roots = append([]string(nil), document.Roots...)
@@ -1647,6 +1673,30 @@ func resolveAdapterProfileTemplate(profilePath, executable string, args []string
 	return profile.ResolveTemplate()
 }
 
+func attachAdapterProfileMetadata(document *paddockgraph.Document, profilePath string) error {
+	if profilePath == "" {
+		return nil
+	}
+	if document.Adapter == nil {
+		document.Adapter = &paddockgraph.AdapterMetadata{Kind: "external"}
+	}
+	ref, err := adapterProfileFileRef(profilePath)
+	if err != nil {
+		return err
+	}
+	document.Adapter.ProfilePath = ref.Path
+	document.Adapter.ProfileSHA256 = ref.SHA256
+	return nil
+}
+
+func adapterProfileFileRef(profilePath string) (paddockartifact.FileRef, error) {
+	absolutePath, err := filepath.Abs(profilePath)
+	if err != nil {
+		return paddockartifact.FileRef{}, fmt.Errorf("resolve adapter profile path: %w", err)
+	}
+	return paddockartifact.File(absolutePath)
+}
+
 func loadExternalGraphDocument(root string, config paddockpolicy.Policy, executable string, args []string) (*model.Graph, paddockgraph.Document, error) {
 	return loadExternalGraphRequest(root, config.Source.Language, config.Source.Unit, config.Source.Roots, config.Source.Include, config.Source.Exclude, executable, args)
 }
@@ -2012,6 +2062,9 @@ func createCIArtifact(args []string) (int, error) {
 		if err != nil {
 			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, nil, nil, err, createdAt)
 		}
+		if err := attachAdapterProfileMetadata(&document, adapterProfilePath); err != nil {
+			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, nil, nil, err, createdAt)
+		}
 		if err := saveGraphDocument(graphOutputPath, document); err != nil {
 			return saveCIErrorWithInputs(outputPath, root, policyRef, policyLockRef, nil, nil, err, createdAt)
 		}
@@ -2052,6 +2105,15 @@ func createCIArtifact(args []string) (int, error) {
 		}
 	}
 	ciArtifact := paddockartifact.NewWithInputs(result, policyRef, policyLockRef, graphRef, baselineRef, createdAt)
+	if adapterProfilePath != "" {
+		profileRef, err := adapterProfileFileRef(adapterProfilePath)
+		if err != nil {
+			return 0, err
+		}
+		ciArtifact.Inputs = map[string]paddockartifact.FileRef{
+			paddockartifact.AdapterProfileInput: profileRef,
+		}
+	}
 	if err := paddockartifact.Save(outputPath, ciArtifact); err != nil {
 		return 0, err
 	}
@@ -2191,6 +2253,16 @@ func validateAdapter(args []string) (int, error) {
 		}
 		return 2, nil
 	}
+	if err := attachAdapterProfileMetadata(&document, adapterProfilePath); err != nil {
+		if format != "json" {
+			return 0, err
+		}
+		diagnostics := paddockgraph.ValidationDocumentForError("adapter-validate", root, language, unit, adapterExecutable, err)
+		if encodeErr := json.NewEncoder(os.Stdout).Encode(diagnostics); encodeErr != nil {
+			return 0, encodeErr
+		}
+		return 2, nil
+	}
 
 	switch format {
 	case "text":
@@ -2207,6 +2279,195 @@ func validateAdapter(args []string) (int, error) {
 		return 0, encoder.Encode(document)
 	}
 	return 0, nil
+}
+
+func validateAdapterProfile(args []string) (int, error) {
+	inputPath := ""
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--input", "--profile":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a profile path", args[index])
+			}
+			index++
+			inputPath = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			return 0, fmt.Errorf("unknown option %q", args[index])
+		}
+	}
+	if inputPath == "" {
+		return 0, fmt.Errorf("adapter profile validate requires --input <profile.yaml>")
+	}
+	if format != "text" && format != "json" {
+		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+	absolutePath, err := filepath.Abs(inputPath)
+	if err != nil {
+		return 0, err
+	}
+	document := paddockadapterprofile.ValidationDocument{
+		Schema:    paddockadapterprofile.ValidationSchema,
+		Operation: "adapter-profile-validate",
+		Path:      absolutePath,
+		Valid:     false,
+		Errors:    []paddockadapterprofile.ValidationIssue{},
+	}
+	profile, err := paddockadapterprofile.Load(inputPath)
+	if err != nil {
+		document.Errors = append(document.Errors, paddockadapterprofile.ValidationIssue{Code: "invalid-profile", Message: err.Error()})
+	} else {
+		document.Name = profile.Name
+		document.Executable = profile.Executable
+		resolved, resolveErr := profile.ResolveExecutable()
+		if resolveErr != nil {
+			document.Errors = append(document.Errors, paddockadapterprofile.ValidationIssue{Code: "executable-not-found", Message: resolveErr.Error()})
+		} else {
+			document.ResolvedExecutable = resolved
+			document.Valid = true
+		}
+	}
+	if format == "json" {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(document); err != nil {
+			return 0, err
+		}
+	} else if document.Valid {
+		fmt.Fprintln(os.Stdout, "ADAPTER PROFILE VALID")
+		fmt.Fprintf(os.Stdout, "profile: %s\n", document.Path)
+		fmt.Fprintf(os.Stdout, "name: %s\n", document.Name)
+		fmt.Fprintf(os.Stdout, "executable: %s\n", document.Executable)
+		fmt.Fprintf(os.Stdout, "resolved_executable: %s\n", document.ResolvedExecutable)
+	} else {
+		fmt.Fprintln(os.Stdout, "ADAPTER PROFILE INVALID")
+		fmt.Fprintf(os.Stdout, "profile: %s\n", document.Path)
+		for _, issue := range document.Errors {
+			fmt.Fprintf(os.Stdout, "error: %s: %s\n", issue.Code, issue.Message)
+		}
+	}
+	if !document.Valid {
+		return 2, nil
+	}
+	return 0, nil
+}
+
+func verifyAdapterProfile(args []string) (int, error) {
+	inputPath := ""
+	expectedSHA256 := ""
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--input", "--profile":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a profile path", args[index])
+			}
+			index++
+			inputPath = args[index]
+		case "--expected-sha256", "--sha256":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a SHA-256 digest", args[index])
+			}
+			index++
+			expectedSHA256 = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires text or json", args[index])
+			}
+			index++
+			format = args[index]
+		default:
+			return 0, fmt.Errorf("unknown option %q", args[index])
+		}
+	}
+	if inputPath == "" {
+		return 0, fmt.Errorf("adapter profile verify requires --input <profile.yaml>")
+	}
+	if expectedSHA256 == "" {
+		return 0, fmt.Errorf("adapter profile verify requires --expected-sha256 <sha256>")
+	}
+	if !paddockadapterprofile.IsSHA256(expectedSHA256) {
+		return 0, fmt.Errorf("adapter profile verify requires a 64-character lowercase SHA-256 digest")
+	}
+	if format != "text" && format != "json" {
+		return 0, fmt.Errorf("unsupported format %q; use text or json", format)
+	}
+	absolutePath, err := filepath.Abs(inputPath)
+	if err != nil {
+		return 0, err
+	}
+	document := paddockadapterprofile.VerificationDocument{
+		Schema:         paddockadapterprofile.VerificationSchema,
+		Operation:      "adapter-profile-verify",
+		Path:           absolutePath,
+		ExpectedSHA256: expectedSHA256,
+		Status:         "FAIL",
+		Errors:         []paddockadapterprofile.ValidationIssue{},
+	}
+	ref, err := paddockartifact.File(inputPath)
+	if err != nil {
+		document.Errors = append(document.Errors, paddockadapterprofile.ValidationIssue{Code: "profile-unreadable", Message: err.Error()})
+		return writeAdapterProfileVerification(document, format, 2)
+	}
+	document.ActualSHA256 = ref.SHA256
+	if document.ActualSHA256 != expectedSHA256 {
+		document.Errors = append(document.Errors, paddockadapterprofile.ValidationIssue{Code: "sha256-mismatch", Message: "profile SHA-256 does not match the expected digest"})
+	}
+	profile, loadErr := paddockadapterprofile.Load(inputPath)
+	if loadErr != nil {
+		document.Errors = append(document.Errors, paddockadapterprofile.ValidationIssue{Code: "invalid-profile", Message: loadErr.Error()})
+	} else {
+		document.Name = profile.Name
+		document.Executable = profile.Executable
+		resolved, resolveErr := profile.ResolveExecutable()
+		if resolveErr != nil {
+			document.Errors = append(document.Errors, paddockadapterprofile.ValidationIssue{Code: "executable-not-found", Message: resolveErr.Error()})
+		} else {
+			document.ResolvedExecutable = resolved
+		}
+	}
+	if len(document.Errors) == 0 {
+		document.Status = "PASS"
+		return writeAdapterProfileVerification(document, format, 0)
+	}
+	exitCode := 2
+	if len(document.Errors) == 1 && document.Errors[0].Code == "sha256-mismatch" {
+		exitCode = 1
+	}
+	return writeAdapterProfileVerification(document, format, exitCode)
+}
+
+func writeAdapterProfileVerification(document paddockadapterprofile.VerificationDocument, format string, exitCode int) (int, error) {
+	if format == "json" {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(document); err != nil {
+			return 0, err
+		}
+		return exitCode, nil
+	}
+	if document.Status == "PASS" {
+		fmt.Fprintln(os.Stdout, "ADAPTER PROFILE VERIFIED")
+	} else if len(document.Errors) == 1 && document.Errors[0].Code == "sha256-mismatch" {
+		fmt.Fprintln(os.Stdout, "ADAPTER PROFILE DRIFT")
+	} else {
+		fmt.Fprintln(os.Stdout, "ADAPTER PROFILE UNVERIFIED")
+	}
+	fmt.Fprintf(os.Stdout, "profile: %s\n", document.Path)
+	fmt.Fprintf(os.Stdout, "expected_sha256: %s\n", document.ExpectedSHA256)
+	if document.ActualSHA256 != "" {
+		fmt.Fprintf(os.Stdout, "actual_sha256: %s\n", document.ActualSHA256)
+	}
+	for _, issue := range document.Errors {
+		fmt.Fprintf(os.Stdout, "error: %s: %s\n", issue.Code, issue.Message)
+	}
+	return exitCode, nil
 }
 
 func adapterTestCommand(args []string) (int, error) {
@@ -2589,6 +2850,8 @@ func explanationProvenance(path string, artifact paddockartifact.Artifact) (*pad
 				ResolvedExecutable: graphDocument.Adapter.ResolvedExecutable,
 				ExecutableSHA256:   graphDocument.Adapter.ExecutableSHA256,
 				ArgsSHA256:         graphDocument.Adapter.ArgsSHA256,
+				ProfilePath:        graphDocument.Adapter.ProfilePath,
+				ProfileSHA256:      graphDocument.Adapter.ProfileSHA256,
 			}
 		}
 	}
@@ -2717,6 +2980,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       paddock ci <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml> --graph-output <graph.json>] [--baseline <file>] --output <ci-result.json>")
 	fmt.Fprintln(os.Stderr, "       paddock ci validate --input <ci-result.json> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock adapter validate <source-root> --language <language> [--unit package|file] [--adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock adapter profile validate --input <profile.yaml> [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock adapter profile verify --input <profile.yaml> --expected-sha256 <sha256> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock adapter test --cases <manifest.yaml> [--output <result.json>] [--ci-result <ci-result.json>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock adapter test validate --cases <manifest.yaml> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock adapter test verify --input <adapter-test-result.json> [--files] [--format text|json]")

@@ -4,6 +4,10 @@ This guide describes how an external CI or delivery system consumes the local
 Nublar first slice. Nublar collects producer artifacts; it does not launch the
 producer commands that create them.
 
+For a full operator walkthrough, including the compatibility aggregate and
+local verification flow, see [`USAGE-GUIDE.md`](USAGE-GUIDE.md). This document
+focuses on the consumer boundary.
+
 ## Collect a run
 
 The external workflow first publishes complete `ingen.ci-result/v1` files at
@@ -121,8 +125,9 @@ They should not be encoded into `run_id`.
 The Nublar-only verification gate is:
 
 ```sh
-make nublar-check
+make nublar-freeze-check
 ```
 
-It runs Nublar's race tests, static analysis, and schema syntax checks without
-running any producer workflow.
+It runs Nublar's race tests, static analysis, schema syntax checks, consumer
+scenarios, history and receipt assertions, and diff-whitespace validation
+without running any producer workflow.

@@ -206,6 +206,12 @@ and unobserved expected rules. This is the actionable explanation for a
 survivor or inconclusive result. The full rule observations remain in the
 per-mutation evidence bundle.
 
+The structural cross-language shape is published as
+[`spec/ingen.mutation-campaign-result-v1.schema.json`](spec/ingen.mutation-campaign-result-v1.schema.json).
+`campaign.LoadResult` also rejects unknown fields, trailing JSON values,
+non-canonical bytes, and inconsistent counters or diagnoses before a result is
+used by the mutation verification CLI.
+
 ## 5. Operator families
 
 The first HTTP/JSON implementation should support a small, deterministic set.

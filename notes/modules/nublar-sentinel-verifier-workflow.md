@@ -48,7 +48,7 @@ The host-enabled proof completed on 2026-09-16 with Sorna's macOS Seatbelt
 path: the collected Nublar run was `passed`, and its preserved Sentinel
 envelope included the `ingen.sentinel-ci-explanation/v1` audit trace.
 The latest fresh run was inspected in
-`/private/tmp/ingen-sentinel-workspace.fqFUDU`.
+`/private/tmp/ingen-sentinel-workspace.ezgUfA`.
 
 Repeat the proof from a fresh source/artifact workspace with:
 
@@ -76,7 +76,7 @@ It runs the controlled duplicate-idempotency defect through the real Sorna
 handoff. The target ignores the producer's expected nonzero exits only long
 enough to emit the shared envelope, then asserts that Nublar records the final
 `failed/1` decision. The proof completed on 2026-09-16 in
-`/private/tmp/ingen-sentinel-failure-workspace.aoumsG`, with one failed Sorna
+`/private/tmp/ingen-sentinel-failure-workspace.n9eDRZ`, with one failed Sorna
 rule and a passing Sentinel integrity audit.
 
 ## Limits

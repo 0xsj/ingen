@@ -35,9 +35,10 @@ those policies into behavioral rules.
 - The oracle rule is checked against the workspace's top-level
   `implementation_roots`, including defect and mutation-source roots that may
   not be writable by the implementation role.
-- Workspace manifests and policy references are resolved under the current
-  project root when the plan is created; symlink escapes are rejected before
-  their bytes are hashed into the plan.
+- Workspace manifests and policy references are resolved under the supplied
+  project root when the plan is created; the CLI's `--root` keeps plan loading
+  in the same namespace as the later Sorna handoff. Symlink escapes are
+  rejected before their bytes are hashed into the plan.
 - Host-specific policy syntax, process launch, access telemetry, and signed
   attestations remain outside this slice.
 
@@ -49,6 +50,14 @@ make sentinel-capability-plan
 
 This produces `.artifacts/sentinel-webhook-capability-plan.json` with the
 status explicitly marked `declaration-only` / `unverified`.
+
+For a project rooted outside the caller's working directory, pass the same
+root used by the later adapter handoff:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel workspace capabilities \
+  --workspace workspaces/webhook-validation.yaml --root /path/to/project
+```
 
 ## Used in
 

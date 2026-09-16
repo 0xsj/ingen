@@ -270,6 +270,104 @@ func TestPrepareVerifierRejectsSubjectRootEscape(t *testing.T) {
 	}
 }
 
+func TestPrepareVerifierRejectsSubjectRootFile(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	writeFile(t, "subject", "not a directory")
+	_, err := PrepareVerifier(verifierPlan(), ".", "oracle.json", "http://127.0.0.1:8090", "subject", "subject", "/healthz", "clean", ".artifacts/run", nil, []string{"sorna"})
+	if err == nil || !strings.Contains(err.Error(), "rooted directory") || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("PrepareVerifier() = %v, want subject-root directory error", err)
+	}
+}
+
+func TestPrepareVerifierRejectsOutputDirectorySymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, "evidence"); err != nil {
+		t.Fatal(err)
+	}
+	plan := capability.Plan{
+		Schema: capability.Schema,
+		Workspace: capability.WorkspaceRef{
+			ID:            "webhook-validation",
+			Version:       1,
+			Manifest:      ciresult.FileRef{Path: "workspace.yaml", SHA256: digest("manifest")},
+			OraclePolicy:  ciresult.FileRef{Path: "oracle-policy.yaml", SHA256: digest("oracle policy")},
+			SubjectPolicy: ciresult.FileRef{Path: "subject-policy.yaml", SHA256: digest("subject policy")},
+		},
+		ImplementationRoots: []string{"subject"},
+		Enforcement:         "declaration-only",
+		Assurance:           "unverified",
+		Roles: []capability.Role{{
+			ID:        "verifier",
+			Kind:      "verifier",
+			Workspace: ".sentinel/verifier",
+		}},
+	}
+	_, err := PrepareVerifier(plan, ".", "oracle.json", "http://127.0.0.1:8090", ".", "subject", "/healthz", "clean", "evidence", nil, []string{"sorna"})
+	if err == nil || !strings.Contains(err.Error(), "output directory") || !strings.Contains(err.Error(), "escapes root") {
+		t.Fatalf("PrepareVerifier() = %v, want output-directory containment error", err)
+	}
+}
+
+func TestPrepareVerifierRejectsOutputDirectoryFile(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	writeFile(t, "evidence", "not a directory")
+	_, err := PrepareVerifier(verifierPlan(), ".", "oracle.json", "http://127.0.0.1:8090", ".", "subject", "/healthz", "clean", "evidence", nil, []string{"sorna"})
+	if err == nil || !strings.Contains(err.Error(), "output directory") || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("PrepareVerifier() = %v, want output-directory type error", err)
+	}
+}
+
+func TestPrepareVerifierDefaultsSubjectRootForAbsoluteRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFileAt := func(path, contents string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, path), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFileAt("workspace.yaml", "manifest")
+	writeFileAt("oracle-policy.yaml", "oracle policy")
+	writeFileAt("subject-policy.yaml", "subject policy")
+	writeFileAt("oracle.json", "frozen oracle")
+
+	prepared, err := PrepareVerifier(verifierPlan(), root, "oracle.json", "http://127.0.0.1:8090", "", "subject", "/healthz", "clean", ".artifacts/run", nil, []string{"sorna"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	for index, arg := range prepared.Command {
+		if arg == "--subject-root" && index+1 < len(prepared.Command) && prepared.Command[index+1] == "." {
+			return
+		}
+	}
+	t.Fatalf("command = %q, want default subject root relative to child root", prepared.Command)
+}
+
+func verifierPlan() capability.Plan {
+	return capability.Plan{
+		Schema: capability.Schema,
+		Workspace: capability.WorkspaceRef{
+			ID:            "webhook-validation",
+			Version:       1,
+			Manifest:      ciresult.FileRef{Path: "workspace.yaml", SHA256: digest("manifest")},
+			OraclePolicy:  ciresult.FileRef{Path: "oracle-policy.yaml", SHA256: digest("oracle policy")},
+			SubjectPolicy: ciresult.FileRef{Path: "subject-policy.yaml", SHA256: digest("subject policy")},
+		},
+		ImplementationRoots: []string{"subject"},
+		Enforcement:         "declaration-only",
+		Assurance:           "unverified",
+		Roles: []capability.Role{{
+			ID:        "verifier",
+			Kind:      "verifier",
+			Workspace: ".sentinel/verifier",
+		}},
+	}
+}
+
 func writeFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {

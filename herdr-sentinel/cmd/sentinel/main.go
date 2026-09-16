@@ -82,6 +82,7 @@ func capabilitiesCommand(args []string) int {
 	flags := flag.NewFlagSet("sentinel workspace capabilities", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	workspacePath := flags.String("workspace", "", "Sentinel workspace manifest")
+	root := flags.String("root", ".", "project root containing the workspace manifest and policies")
 	outputPath := flags.String("output", "", "path for the capability plan; stdout when empty")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -90,7 +91,7 @@ func capabilitiesCommand(args []string) int {
 		usage()
 		return 2
 	}
-	plan, err := capability.FromFile(*workspacePath)
+	plan, err := capability.FromFileUnderRoot(*root, *workspacePath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -277,7 +278,7 @@ func oracleAdapterCommand(args []string) int {
 		usage()
 		return 2
 	}
-	plan, err := capability.FromFile(*workspacePath)
+	plan, err := capability.FromFileUnderRoot(*root, *workspacePath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -414,7 +415,7 @@ func verifierAdapterCommand(args []string) int {
 		return 2
 	}
 
-	plan, err := capability.FromFile(*workspacePath)
+	plan, err := capability.FromFileUnderRoot(*root, *workspacePath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -511,11 +512,14 @@ func verifierAdapterCommand(args []string) int {
 		_, err := sentinelrun.UpdateFile(*receiptPath, func(receipt *sentinelrun.Receipt) (bool, error) {
 			completionIDs := append([]string(nil), artifactIDs...)
 			if resultPath, ok := receiptArtifactPath(*root, *outputDir, "run.json"); ok {
-				if _, statErr := os.Stat(resultPath); statErr == nil {
-					if err := receipt.AddFileArtifact("sorna-run", prepared.RoleID, "sorna-run", resultPath); err != nil {
-						return false, err
+				rootAbs, rootErr := filepath.Abs(*root)
+				if rootErr == nil {
+					if _, statErr := os.Stat(filepath.Join(rootAbs, resultPath)); statErr == nil {
+						if err := receipt.AddFileArtifactUnderRoot("sorna-run", prepared.RoleID, "sorna-run", *root, resultPath); err != nil {
+							return false, err
+						}
+						completionIDs = append(completionIDs, "sorna-run")
 					}
-					completionIDs = append(completionIDs, "sorna-run")
 				}
 			}
 			if err := receipt.AppendEvent(sentinelrun.Event{
@@ -565,16 +569,15 @@ func (r *repeatedString) Set(value string) error {
 }
 
 func receiptArtifactPath(root, outputDir, name string) (string, bool) {
+	if filepath.IsAbs(outputDir) {
+		return "", false
+	}
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return "", false
 	}
 	outputPath := filepath.Join(rootAbs, outputDir, name)
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return "", false
-	}
-	relative, err := filepath.Rel(workingDir, outputPath)
+	relative, err := filepath.Rel(rootAbs, outputPath)
 	if err != nil || relative == ".." || filepath.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
 		return "", false
 	}
@@ -759,6 +762,7 @@ func bootstrapRunCommand(args []string) int {
 	flags := flag.NewFlagSet("sentinel run bootstrap", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	workspacePath := flags.String("workspace", "", "Sentinel workspace manifest")
+	root := flags.String("root", ".", "project root containing the workspace manifest")
 	outputPath := flags.String("output", "", "path for the Sentinel lifecycle receipt")
 	runID := flags.String("run-id", "", "optional explicit run ID")
 	if err := flags.Parse(args); err != nil {
@@ -768,7 +772,7 @@ func bootstrapRunCommand(args []string) int {
 		usage()
 		return 2
 	}
-	receipt, err := sentinelrun.New(*workspacePath, time.Now().UTC())
+	receipt, err := sentinelrun.NewUnderRoot(*root, *workspacePath, time.Now().UTC())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -854,12 +858,12 @@ func auditFailureSummary(report sentinelaudit.Report) string {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: sentinel workspace validate <path>")
-	fmt.Fprintln(os.Stderr, "       sentinel workspace capabilities --workspace <path> [--output <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel workspace capabilities --workspace <path> [--root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter oracle --workspace <path> [--root <dir>] [--receipt <path>] -- <command> [args...]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter verifier --workspace <path> --oracle <path> --base-url <url> --subject-command <exe> [--subject-arg <arg> ...] [--root <dir>] [--subject-root <dir>] [--ready-path <path>] [--subject-variant <label>] [--output-dir <dir>] [--receipt <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-event --receipt <path> --event <path> [--root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-events --receipt <path> --events <path> [--root <dir>] [--output <path>]")
-	fmt.Fprintln(os.Stderr, "       sentinel run bootstrap --workspace <path> --output <path>")
+	fmt.Fprintln(os.Stderr, "       sentinel run bootstrap --workspace <path> [--root <dir>] --output <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel run ci-result --receipt <path> [--source-root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel run audit --receipt <path> [--root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel run artifact --receipt <path> --id <id> --role <role> --kind <kind> --path <path> [--output <path>]")

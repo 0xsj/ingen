@@ -95,6 +95,9 @@ For locked-policy execution, `--policy-lock` may be supplied without
 `--policy`; Paddock evaluates the canonical policy embedded in the lock and
 retains the original policy path and source hash as provenance.
 
+When Paddock runs with `--adapter-config`, the envelope records the exact
+profile file under `inputs.adapter_profile`, including its path and SHA-256.
+
 ## Sorna producer
 
 Sorna adapts its verified bundle gate to the same envelope:

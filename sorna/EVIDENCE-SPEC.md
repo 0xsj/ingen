@@ -106,6 +106,11 @@ must remain stable.
 
 The manifest is the entry point for the evidence bundle:
 
+The machine-readable v1 shape is published as
+[`spec/sorna.evidence-v1.schema.json`](spec/sorna.evidence-v1.schema.json).
+It defines the structural handoff only: hashes and the verifier remain the
+authority for whether the referenced bytes are present and unchanged.
+
 ```json
 {
   "schema": "sorna.evidence/v1",
@@ -169,9 +174,20 @@ The final manifest is written only after these artifact hashes exist. If an
 artifact changes, the run ID must be treated as a new run or explicitly marked
 invalid.
 
+Sorna's v1 readers reject unknown fields and trailing JSON values in the run
+record and evidence manifest. This keeps a consumer from silently accepting a
+different artifact shape. The reader checks identity and lineage fields; the
+bundle verifier then checks the referenced bytes and their cross-artifact
+relationships.
+
 Sorna should provide a verification command that checks hashes and reports the
 first mismatch. Hashing is an integrity mechanism, not proof that an artifact
 was originally correct.
+
+The subject execution record referenced by the manifest is published as
+[`spec/ingen.run-v1.schema.json`](spec/ingen.run-v1.schema.json). It preserves
+the frozen oracle reference, public subject observations, contract verdict,
+and optional lifecycle or mutation detail without embedding the oracle itself.
 
 ## 6. Lifecycle events
 

@@ -302,6 +302,7 @@ func seriesCompareCommand(args []string) int {
 	flags.SetOutput(os.Stderr)
 	format := flags.String("format", "text", "output format: text or json")
 	output := flags.String("output", "", "output path; stdout when empty")
+	summaryOnly := flags.Bool("summary-only", false, "emit aggregate series summary without points")
 	var changeIDs stringListFlag
 	flags.Var(&changeIDs, "change-id", "include only this stable change ID; repeatable or comma-separated")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -332,7 +333,11 @@ func seriesCompareCommand(args []string) int {
 		writer = file
 	}
 
-	if *format == "json" {
+	if *summaryOnly && *format == "json" {
+		err = sattler.WriteSeriesSummaryJSON(writer, series)
+	} else if *summaryOnly {
+		err = sattler.WriteSeriesSummaryText(writer, series)
+	} else if *format == "json" {
 		err = sattler.WriteSeriesJSON(writer, series)
 	} else {
 		err = sattler.WriteSeriesText(writer, series)
@@ -376,5 +381,5 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       sattler custody compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
 	fmt.Fprintln(os.Stderr, "       sattler provenance compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
 	fmt.Fprintln(os.Stderr, "       sattler bundle compare [--format text|json] [--summary-only] [--change-id id] [--output path] MANIFEST")
-	fmt.Fprintln(os.Stderr, "       sattler series compare [--format text|json] [--change-id id] [--output path] MANIFEST")
+	fmt.Fprintln(os.Stderr, "       sattler series compare [--format text|json] [--summary-only] [--change-id id] [--output path] MANIFEST")
 }

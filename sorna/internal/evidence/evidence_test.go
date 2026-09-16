@@ -81,6 +81,70 @@ func TestWriteBundleAndVerify(t *testing.T) {
 	}
 }
 
+func TestLoadManifestFileRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	manifest := Manifest{
+		Schema:    Schema,
+		RunID:     "run-manifest-load-test",
+		CreatedAt: time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC),
+		Contract:  runner.ContractReference{ID: "contract-test", Version: 1, SHA256: strings.Repeat("a", 64)},
+		Subject:   runner.SubjectReference{BaseURL: "http://subject.invalid", Adapter: "http-json-v1"},
+		ArtifactsSHA256: map[string]string{
+			"run.json": strings.Repeat("b", 64),
+		},
+	}
+	contents, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = append(contents[:len(contents)-1], []byte(`,"unexpected":true}`)...)
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadManifestFile(path); err == nil || !strings.Contains(err.Error(), `unknown field "unexpected"`) {
+		t.Fatalf("LoadManifestFile() = %v, want unknown-field error", err)
+	}
+}
+
+func TestVerifyRejectsUnknownRunFieldsAfterChecksumPasses(t *testing.T) {
+	directory := t.TempDir()
+	record := runner.RunRecord{
+		Schema:    runner.Schema,
+		RunID:     "run-unknown-field-test",
+		CreatedAt: time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC),
+		Contract:  runner.ContractReference{ID: "contract-test", Version: 1, SHA256: strings.Repeat("a", 64)},
+		Subject:   runner.SubjectReference{BaseURL: "http://subject.invalid", Adapter: "http-json-v1"},
+	}
+	bundle, err := WriteBundle(directory, record, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runBytes, err := os.ReadFile(bundle.RunPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runBytes = append(runBytes[:len(runBytes)-2], []byte(",\n  \"unexpected\": true\n}\n")...)
+	if err := os.WriteFile(bundle.RunPath, runBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	checksums, err := os.ReadFile(bundle.ChecksumsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(checksums), "\n")
+	for index, line := range lines {
+		if strings.HasSuffix(line, "  run.json") {
+			lines[index] = hashBytes(runBytes) + "  run.json"
+		}
+	}
+	if err := os.WriteFile(bundle.ChecksumsPath, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Verify(directory); err == nil || !strings.Contains(err.Error(), `unknown field "unexpected"`) {
+		t.Fatalf("Verify() = %v, want unknown-field error after checksum verification", err)
+	}
+}
+
 func TestWriteBundleEmbedsSealedPolicyAndHashesIt(t *testing.T) {
 	directory := t.TempDir()
 	now := time.Date(2026, 9, 13, 20, 0, 0, 0, time.UTC)

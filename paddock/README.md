@@ -223,7 +223,8 @@ argument flags cannot be combined with a profile.
 `check` can invoke an adapter directly. `ci` can do the same when
 `--graph-output` names the durable graph file whose hash is recorded in the
 CI artifact. Graph evidence also records optional adapter identity and
-non-secret invocation digests; CI-derived explanations surface that metadata
+non-secret invocation digests. When `--adapter-config` is used, it also records
+the profile path and SHA-256; CI-derived explanations surface that metadata
 through provenance when the graph file is available.
 When `graph` is used with `--language` and no policy, Paddock supplies the
 language's default source unit (`file` for Python and TypeScript/JavaScript,
@@ -244,6 +245,19 @@ invalid external adapter, JSON mode emits `paddock.adapter-validation/v1` with
 a stable failure code and exits `2`; text mode retains the concise diagnostic.
 The same diagnostic is emitted by `graph --format json` when its explicit
 external adapter cannot produce a valid graph.
+
+`adapter profile validate --input <profile.yaml>` validates a reusable adapter
+profile and checks that its executable is available without starting the
+adapter. JSON mode emits `paddock.adapter-profile-validation/v1` diagnostics
+and exits `2` for malformed profiles or missing executables.
+
+`adapter profile verify --input <profile.yaml> --expected-sha256 <digest>` adds
+an exact-file integrity check for a reviewed profile. It still performs the
+same shape and executable preflight; a digest mismatch exits `1`, while a
+malformed or unusable profile exits `2`. JSON mode emits
+`paddock.adapter-profile-verification/v1`. The portable CI helper runs this
+check when `PADDOCK_ADAPTER_PROFILE_SHA256` is set alongside
+`PADDOCK_ADAPTER_CONFIG`.
 
 `adapter test` runs a versioned `paddock.adapter-tests/v1` manifest with
 multiple roots or adapter modes and emits `paddock.adapter-test-result/v1`
@@ -369,7 +383,8 @@ go run ./paddock/cmd/paddock init \
 [`core/CI-RESULT-SPEC.md`](../core/CI-RESULT-SPEC.md). It includes the
 deterministic report, explanation, policy hash, optional policy-lock hash,
 optional graph hash, source identity, and the same exit code that the CI gate
-receives.
+receives. Profile-backed runs also record the exact profile as the
+`adapter_profile` entry in the language-neutral `inputs` map.
 The shared envelope schema is
 [`core/ciresult-v1.schema.json`](../core/ciresult-v1.schema.json).
 

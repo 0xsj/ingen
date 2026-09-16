@@ -1,8 +1,11 @@
 package adapterprofile
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -10,6 +13,8 @@ import (
 )
 
 const Schema = "paddock.adapter-profile/v1"
+const ValidationSchema = "paddock.adapter-profile-validation/v1"
+const VerificationSchema = "paddock.adapter-profile-verification/v1"
 
 // Profile names an external adapter once so callers can reuse it across graph,
 // policy, and CI commands. Arguments may use {{root}} and {{profile_dir}}.
@@ -19,6 +24,43 @@ type Profile struct {
 	Executable string   `yaml:"executable" json:"executable"`
 	Args       []string `yaml:"args,omitempty" json:"args,omitempty"`
 	path       string
+}
+
+type ValidationDocument struct {
+	Schema             string            `json:"schema"`
+	Operation          string            `json:"operation"`
+	Path               string            `json:"path"`
+	Name               string            `json:"name,omitempty"`
+	Executable         string            `json:"executable,omitempty"`
+	ResolvedExecutable string            `json:"resolved_executable,omitempty"`
+	Valid              bool              `json:"valid"`
+	Errors             []ValidationIssue `json:"errors"`
+}
+
+type ValidationIssue struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type VerificationDocument struct {
+	Schema             string            `json:"schema"`
+	Operation          string            `json:"operation"`
+	Path               string            `json:"path"`
+	Name               string            `json:"name,omitempty"`
+	Executable         string            `json:"executable,omitempty"`
+	ResolvedExecutable string            `json:"resolved_executable,omitempty"`
+	ExpectedSHA256     string            `json:"expected_sha256"`
+	ActualSHA256       string            `json:"actual_sha256,omitempty"`
+	Status             string            `json:"status"`
+	Errors             []ValidationIssue `json:"errors"`
+}
+
+func IsSHA256(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func Load(path string) (Profile, error) {
@@ -55,8 +97,35 @@ func (p Profile) Validate() error {
 		if strings.TrimSpace(arg) == "" {
 			return fmt.Errorf("adapter profile argument %d must not be empty", index+1)
 		}
+		templateFree := strings.ReplaceAll(arg, "{{root}}", "")
+		templateFree = strings.ReplaceAll(templateFree, "{{profile_dir}}", "")
+		if strings.Contains(templateFree, "{{") || strings.Contains(templateFree, "}}") {
+			return fmt.Errorf("adapter profile argument %d contains an unsupported template", index+1)
+		}
 	}
 	return nil
+}
+
+func (p Profile) ResolveExecutable() (string, error) {
+	if err := p.Validate(); err != nil {
+		return "", err
+	}
+	executable := p.executablePath()
+	if strings.ContainsAny(executable, `/\\`) {
+		info, err := os.Stat(executable)
+		if err != nil {
+			return "", fmt.Errorf("adapter profile executable %q is not available: %w", executable, err)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("adapter profile executable %q is a directory", executable)
+		}
+		return executable, nil
+	}
+	resolved, err := exec.LookPath(executable)
+	if err != nil {
+		return "", fmt.Errorf("adapter profile executable %q was not found: %w", executable, err)
+	}
+	return resolved, nil
 }
 
 // Resolve returns an executable and arguments ready for one source root.

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.adapter-profile-verification-v1.schema.json",
+  "title": "Paddock adapter profile verification result",
+  "description": "Machine-readable integrity and usability verification for a reusable external adapter profile.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "operation", "path", "expected_sha256", "status", "errors"],
+  "properties": {
+    "schema": {"const": "paddock.adapter-profile-verification/v1"},
+    "operation": {"const": "adapter-profile-verify"},
+    "path": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "executable": {"type": "string", "minLength": 1},
+    "resolved_executable": {"type": "string", "minLength": 1},
+    "expected_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "actual_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

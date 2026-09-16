@@ -60,6 +60,8 @@ type AdapterReference struct {
 	ResolvedExecutable string `json:"resolved_executable,omitempty"`
 	ExecutableSHA256   string `json:"executable_sha256,omitempty"`
 	ArgsSHA256         string `json:"args_sha256,omitempty"`
+	ProfilePath        string `json:"profile_path,omitempty"`
+	ProfileSHA256      string `json:"profile_sha256,omitempty"`
 }
 
 type FindingFilter struct {
@@ -146,7 +148,11 @@ func Text(w io.Writer, document Document) error {
 			return err
 		}
 		if document.Provenance.Adapter != nil {
-			if _, err := fmt.Fprintf(w, "ADAPTER kind=%s name=%s executable=%s executable_sha256=%s args_sha256=%s\n", document.Provenance.Adapter.Kind, document.Provenance.Adapter.Name, document.Provenance.Adapter.Executable, document.Provenance.Adapter.ExecutableSHA256, document.Provenance.Adapter.ArgsSHA256); err != nil {
+			profile := ""
+			if document.Provenance.Adapter.ProfilePath != "" {
+				profile = fmt.Sprintf(" profile=%s profile_sha256=%s", document.Provenance.Adapter.ProfilePath, document.Provenance.Adapter.ProfileSHA256)
+			}
+			if _, err := fmt.Fprintf(w, "ADAPTER kind=%s name=%s executable=%s executable_sha256=%s args_sha256=%s%s\n", document.Provenance.Adapter.Kind, document.Provenance.Adapter.Name, document.Provenance.Adapter.Executable, document.Provenance.Adapter.ExecutableSHA256, document.Provenance.Adapter.ArgsSHA256, profile); err != nil {
 				return err
 			}
 		}

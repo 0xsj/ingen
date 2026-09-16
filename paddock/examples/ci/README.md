@@ -104,6 +104,11 @@ versioned profile already contains the executable and arguments, set
 `PADDOCK_ADAPTER_CONFIG` instead; it cannot be combined with the executable
 or args-file variables.
 
+For a reviewed profile, set `PADDOCK_ADAPTER_PROFILE_SHA256` to the exact
+lowercase SHA-256 of that file. The helper verifies the profile before any
+workflow phase runs; profile drift exits `1`, while an invalid profile exits
+`2`.
+
 Alternatively, a CI job can let Paddock invoke the adapter and persist the
 graph in one command:
 
@@ -123,6 +128,7 @@ export PADDOCK_POLICY=paddock/examples/rust-hexagonal.yaml
 export PADDOCK_LOCK=paddock-rust-hexagonal.lock.json
 export PADDOCK_SOURCE_ROOT=paddock/examples/services/rust-hexagonal/good
 export PADDOCK_ADAPTER_CONFIG=paddock/examples/rust-use-adapter.yaml
+export PADDOCK_ADAPTER_PROFILE_SHA256=$(shasum -a 256 "$PADDOCK_ADAPTER_CONFIG" | awk '{print $1}')
 export PADDOCK_ADAPTER_TESTS=paddock/examples/rust-use-adapter-tests.yaml
 export PADDOCK_ADAPTER_TEST_RESULT=paddock-rust-adapter-test-result.json
 export PADDOCK_ADAPTER_CI_RESULT=paddock-rust-adapter-ci-result.json

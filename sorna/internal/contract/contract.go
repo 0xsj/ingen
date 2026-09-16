@@ -511,10 +511,21 @@ func validateSetup(value any, path string, problems *[]string) {
 				*problems = append(*problems, stepPath+".request.path must start with /")
 			}
 		}
-		if expect, validExpect := step["expect"].(map[string]any); !validExpect {
-			*problems = append(*problems, stepPath+".expect must be an object")
-		} else {
-			validateExpectationShape(expect, stepPath+".expect", problems)
+		_, hasExpect := step["expect"]
+		_, hasExpectNot := step["expect_not"]
+		if !hasExpect && !hasExpectNot {
+			*problems = append(*problems, stepPath+" must define expect or expect_not")
+		}
+		if expect, present := step["expect"]; present {
+			expectObject, validExpect := expect.(map[string]any)
+			if !validExpect {
+				*problems = append(*problems, stepPath+".expect must be an object")
+			} else {
+				validateExpectationShape(expectObject, stepPath+".expect", problems)
+			}
+		}
+		if expectNot, present := step["expect_not"]; present {
+			validateNegativeSetupExpectations(expectNot, stepPath+".expect_not", problems)
 		}
 		if capture, present := step["capture"]; present {
 			captures, validCaptures := capture.(map[string]any)
@@ -532,6 +543,22 @@ func validateSetup(value any, path string, problems *[]string) {
 				}
 			}
 		}
+	}
+}
+
+func validateNegativeSetupExpectations(value any, path string, problems *[]string) {
+	expectations, ok := value.([]any)
+	if !ok || len(expectations) == 0 {
+		*problems = append(*problems, path+" must be a non-empty list")
+		return
+	}
+	for index, value := range expectations {
+		expectation, ok := value.(map[string]any)
+		if !ok {
+			*problems = append(*problems, fmt.Sprintf("%s[%d] must be an object", path, index))
+			continue
+		}
+		validateExpectationShape(expectation, fmt.Sprintf("%s[%d]", path, index), problems)
 	}
 }
 
@@ -555,22 +582,31 @@ func validateEventSpec(value any, path string, problems *[]string) {
 		*problems = append(*problems, path+" must be an object")
 		return
 	}
-	rawRequired, present := spec["required"]
-	if !present {
-		*problems = append(*problems, path+".required is required")
+	rawRequired, hasRequired := spec["required"]
+	rawOrdered, hasOrdered := spec["ordered"]
+	if hasRequired == hasOrdered {
+		*problems = append(*problems, path+" must define exactly one of required or ordered")
 		return
 	}
-	required, ok := rawRequired.([]any)
+	if hasRequired {
+		validateEventList(rawRequired, path+".required", problems)
+		return
+	}
+	validateEventList(rawOrdered, path+".ordered", problems)
+}
+
+func validateEventList(value any, path string, problems *[]string) {
+	events, ok := value.([]any)
 	if !ok {
-		*problems = append(*problems, path+".required must be a list")
+		*problems = append(*problems, path+" must be a list")
 		return
 	}
-	if len(required) == 0 {
-		*problems = append(*problems, path+".required must contain at least one event")
+	if len(events) == 0 {
+		*problems = append(*problems, path+" must contain at least one event")
 	}
-	for index, value := range required {
+	for index, value := range events {
 		if !nonEmptyString(value) {
-			*problems = append(*problems, fmt.Sprintf("%s.required[%d] must be a non-empty string", path, index))
+			*problems = append(*problems, fmt.Sprintf("%s[%d] must be a non-empty string", path, index))
 		}
 	}
 }

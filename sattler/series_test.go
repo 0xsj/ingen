@@ -2,6 +2,7 @@ package sattler
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -41,10 +42,31 @@ func TestCompareSeriesManifestAggregatesOrderedBundles(t *testing.T) {
 	if err := WriteSeriesText(&output, series); err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{"Sattler comparison series", "changes by ID:", "verdict.status: 2", "first attempt", "second attempt"} {
+	for _, fragment := range []string{"Sattler comparison series", "changes by ID:", "verdict.status: 2", "transitions by subsystem:", "nublar_run: unchanged=0, changed=2, incompatible=0", "first attempt", "second attempt"} {
 		if !strings.Contains(output.String(), fragment) {
 			t.Fatalf("series text = %q, missing %q", output.String(), fragment)
 		}
+	}
+}
+
+func TestCompareSeriesManifestAggregatesTransitionsBySubsystem(t *testing.T) {
+	points := []SeriesPoint{
+		{Summary: BundleSummary{Subsystems: map[string]BundleSubsystemSummary{
+			"ci_result":  {Transition: NewStateTransition("status", "passed", "passed", true)},
+			"nublar_run": {Transition: NewStateTransition("status", "passed", "failed", true)},
+		}}},
+		{Summary: BundleSummary{Subsystems: map[string]BundleSubsystemSummary{
+			"ci_result":  {Transition: NewStateTransition("status", "passed", "failed", false)},
+			"nublar_run": {Transition: NewStateTransition("status", "failed", "failed", true)},
+		}}},
+	}
+
+	transitions := summarizeSeriesTransitions(points)
+	if transitions["ci_result"].Unchanged != 1 || transitions["ci_result"].Changed != 0 || transitions["ci_result"].Incompatible != 1 {
+		t.Fatalf("CI transitions = %+v, want unchanged=1 and incompatible=1", transitions["ci_result"])
+	}
+	if transitions["nublar_run"].Unchanged != 1 || transitions["nublar_run"].Changed != 1 || transitions["nublar_run"].Incompatible != 0 {
+		t.Fatalf("Nublar transitions = %+v, want unchanged=1 and changed=1", transitions["nublar_run"])
 	}
 }
 
@@ -96,6 +118,125 @@ func TestCompareSeriesManifestFiltersChangeIDsBeforeAggregation(t *testing.T) {
 	}
 }
 
+func TestCompareSeriesManifestAggregatesMutationChanges(t *testing.T) {
+	root := t.TempDir()
+	bundlePath := writeMutationSeriesBundle(t, root, "mutations")
+	manifest := ComparisonSeriesManifest{
+		Schema: ComparisonSeriesManifestSchema,
+		Entries: []ComparisonSeriesEntry{{
+			ID:       "campaign-1",
+			Manifest: filepath.Base(filepath.Dir(bundlePath)) + "/comparison.json",
+		}},
+	}
+	seriesPath := filepath.Join(root, "series.json")
+	writeSeriesFile(t, seriesPath, marshalJSON(t, manifest))
+
+	series, err := CompareSeriesManifestFile(seriesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if series.Summary.MutationChangesByID["alpha"] != 1 || series.Summary.MutationChangesByID["beta"] != 0 {
+		t.Fatalf("mutation change frequencies = %+v, want alpha only", series.Summary.MutationChangesByID)
+	}
+	if len(series.Entries[0].MutationChangeIDs) != 1 || series.Entries[0].MutationChangeIDs[0] != "alpha" {
+		t.Fatalf("mutation change IDs = %+v, want alpha", series.Entries[0].MutationChangeIDs)
+	}
+
+	var output bytes.Buffer
+	if err := WriteSeriesText(&output, series); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "mutation changes by ID:") || !strings.Contains(output.String(), "alpha: 1") || !strings.Contains(output.String(), "mutation changes=alpha") {
+		t.Fatalf("series text = %q, want mutation frequency and point detail", output.String())
+	}
+}
+
+func TestWriteSeriesTextIncludesPointCorrelations(t *testing.T) {
+	series := ComparisonSeries{
+		Manifest: "series.json",
+		Summary:  SeriesSummary{Entries: 1, Compatible: 1},
+		Entries: []SeriesPoint{{
+			ID:      "attempt-1",
+			Summary: BundleSummary{ChangeSummary: ChangeSummary{}},
+			Correlations: []BundleCorrelation{{
+				Kind:               BundleCorrelationKindNublarCustodySource,
+				Side:               "after",
+				Relation:           BundleCorrelationExactMatch,
+				NublarRunID:        "run-1",
+				CustodySourceRunID: "run-1",
+			}},
+		}},
+	}
+
+	var output bytes.Buffer
+	if err := WriteSeriesText(&output, series); err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{"correlations:", "nublar-run-to-custody-source after: exact-match", "Nublar run \"run-1\""} {
+		if !strings.Contains(output.String(), fragment) {
+			t.Fatalf("series text = %q, missing %q", output.String(), fragment)
+		}
+	}
+}
+
+func TestWriteSeriesSummaryOmitsPointEntries(t *testing.T) {
+	series := ComparisonSeries{
+		Manifest: "series.json",
+		Summary: SeriesSummary{
+			Entries:      2,
+			Compatible:   1,
+			Incompatible: 1,
+			TotalChanges: 3,
+			ChangesByID:  map[string]int{"verdict.status": 2},
+		},
+		Entries: []SeriesPoint{{ID: "one"}, {ID: "two"}},
+	}
+
+	var jsonOutput bytes.Buffer
+	if err := WriteSeriesSummaryJSON(&jsonOutput, series); err != nil {
+		t.Fatal(err)
+	}
+	var document SeriesSummaryReport
+	if err := json.Unmarshal(jsonOutput.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Schema != comparisonSeriesSummarySchema || document.Summary.TotalChanges != 3 {
+		t.Fatalf("summary document = %+v, want summary schema and totals", document)
+	}
+	if strings.Contains(jsonOutput.String(), `"entries": [`) {
+		t.Fatalf("summary JSON = %q, unexpectedly contains point entries", jsonOutput.String())
+	}
+
+	var textOutput bytes.Buffer
+	if err := WriteSeriesSummaryText(&textOutput, series); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(textOutput.String(), "  points:") || !strings.Contains(textOutput.String(), "Sattler comparison series summary") {
+		t.Fatalf("summary text = %q, want summary heading without points", textOutput.String())
+	}
+}
+
+func TestCompareSeriesManifestAggregatesCorrelationObservations(t *testing.T) {
+	points := []SeriesPoint{{
+		Correlations: []BundleCorrelation{
+			{Kind: BundleCorrelationKindNublarCustodySource, Relation: BundleCorrelationExactMatch},
+			{Kind: BundleCorrelationKindNublarCustodySource, Relation: BundleCorrelationMismatch},
+			{Kind: BundleCorrelationKindNublarAmber, Relation: BundleCorrelationUnknown},
+		},
+	}}
+	summary := summarizeSeriesCorrelations(points)
+
+	if summary.Observations != 3 {
+		t.Fatalf("correlation observations = %d, want 3", summary.Observations)
+	}
+	if summary.ByKind[BundleCorrelationKindNublarCustodySource] != 2 || summary.ByKind[BundleCorrelationKindNublarAmber] != 1 {
+		t.Fatalf("correlations by kind = %+v, want custody=2 and Amber=1", summary.ByKind)
+	}
+	if summary.ByRelation[string(BundleCorrelationExactMatch)] != 1 || summary.ByRelation[string(BundleCorrelationMismatch)] != 1 || summary.ByRelation[string(BundleCorrelationUnknown)] != 1 {
+		t.Fatalf("correlations by relation = %+v, want one of each", summary.ByRelation)
+	}
+}
+
 func writeSeriesBundle(t *testing.T, root, directory, afterStatus string) string {
 	t.Helper()
 	directoryPath := filepath.Join(root, directory)
@@ -114,6 +255,32 @@ func writeSeriesBundle(t *testing.T, root, directory, afterStatus string) string
 		Schema: ComparisonManifestSchema,
 		Before: ComparisonInputs{NublarRun: "before.json"},
 		After:  ComparisonInputs{NublarRun: "after.json"},
+	}
+	manifestPath := filepath.Join(directoryPath, "comparison.json")
+	writeSeriesFile(t, manifestPath, marshalJSON(t, manifest))
+	return manifestPath
+}
+
+func writeMutationSeriesBundle(t *testing.T, root, directory string) string {
+	t.Helper()
+	directoryPath := filepath.Join(root, directory)
+	if err := os.MkdirAll(directoryPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := validArtifact()
+	before.Kind = "mutation-campaign"
+	before.Report = json.RawMessage(`{"schema":"ingen.mutation-campaign-result/v1","status":"passed","plan":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"summary":{"total":2,"killed":2,"survived":0,"inconclusive":0,"other":0,"errors":0},"entries":[{"mutation_id":"alpha","status":"passed","outcome":"killed"},{"mutation_id":"beta","status":"passed","outcome":"killed"}]}`)
+	after := validArtifact()
+	after.Kind = "mutation-campaign"
+	after.Status = "failed"
+	after.ExitCode = 1
+	after.Report = json.RawMessage(`{"schema":"ingen.mutation-campaign-result/v1","status":"failed","plan":{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"summary":{"total":2,"killed":1,"survived":1,"inconclusive":0,"other":0,"errors":0},"entries":[{"mutation_id":"alpha","status":"failed","outcome":"survived"},{"mutation_id":"beta","status":"passed","outcome":"killed"}]}`)
+	writeSeriesFile(t, filepath.Join(directoryPath, "before.json"), marshalJSON(t, before))
+	writeSeriesFile(t, filepath.Join(directoryPath, "after.json"), marshalJSON(t, after))
+	manifest := ComparisonManifest{
+		Schema: ComparisonManifestSchema,
+		Before: ComparisonInputs{CIResult: "before.json"},
+		After:  ComparisonInputs{CIResult: "after.json"},
 	}
 	manifestPath := filepath.Join(directoryPath, "comparison.json")
 	writeSeriesFile(t, manifestPath, marshalJSON(t, manifest))

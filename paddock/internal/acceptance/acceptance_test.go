@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"ingen/core/ciresult"
+	"ingen/paddock/internal/adapterprofile"
 	"ingen/paddock/internal/adaptertest"
 	"ingen/paddock/internal/artifact"
 	"ingen/paddock/internal/baseline"
@@ -398,6 +399,16 @@ func TestAdapterTestSchemasContract(t *testing.T) {
 		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-profile-v1.schema.json"),
 		"adapter profile",
 		[]string{"schema", "name", "executable"},
+	)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-profile-validation-v1.schema.json"),
+		"adapter profile validation",
+		[]string{"schema", "operation", "path", "valid", "errors"},
+	)
+	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-profile-verification-v1.schema.json"),
+		"adapter profile verification",
+		[]string{"schema", "operation", "path", "expected_sha256", "status", "errors"},
 	)
 	assertSchemaContract(t,
 		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-tests-v1.schema.json"),
@@ -898,6 +909,69 @@ func TestCLIExternalRustUseAdapter(t *testing.T) {
 	if profileGraph.Adapter == nil || profileGraph.Adapter.Name != "paddock-rust-use" || profileGraph.PackageCount != 9 || profileGraph.EdgeCount != 13 {
 		t.Fatalf("Rust adapter profile graph is incomplete: %#v", profileGraph)
 	}
+	profileRef, err := artifact.File(profilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profileGraph.Adapter.ProfilePath != profileRef.Path || profileGraph.Adapter.ProfileSHA256 != profileRef.SHA256 {
+		t.Fatalf("Rust adapter profile graph omitted profile provenance: %#v", profileGraph.Adapter)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"adapter", "profile", "validate", "--input", profilePath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("Rust adapter profile validation command exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var profileValidation adapterprofile.ValidationDocument
+	if err := json.Unmarshal([]byte(output), &profileValidation); err != nil {
+		t.Fatalf("decode Rust adapter profile validation: %v\n%s", err, output)
+	}
+	if profileValidation.Schema != adapterprofile.ValidationSchema || profileValidation.Operation != "adapter-profile-validate" || !profileValidation.Valid || profileValidation.Name != "rust-use-example" || profileValidation.Executable != "python3" || profileValidation.ResolvedExecutable == "" || len(profileValidation.Errors) != 0 {
+		t.Fatalf("Rust adapter profile validation is incomplete: %#v", profileValidation)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"adapter", "profile", "verify", "--input", profilePath,
+		"--expected-sha256", profileRef.SHA256, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("Rust adapter profile verification exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var profileVerification adapterprofile.VerificationDocument
+	if err := json.Unmarshal([]byte(output), &profileVerification); err != nil {
+		t.Fatalf("decode Rust adapter profile verification: %v\n%s", err, output)
+	}
+	if profileVerification.Schema != adapterprofile.VerificationSchema || profileVerification.Operation != "adapter-profile-verify" || profileVerification.Status != "PASS" || profileVerification.Path != profileRef.Path || profileVerification.ExpectedSHA256 != profileRef.SHA256 || profileVerification.ActualSHA256 != profileRef.SHA256 || profileVerification.Name != "rust-use-example" || profileVerification.ResolvedExecutable == "" || len(profileVerification.Errors) != 0 {
+		t.Fatalf("Rust adapter profile verification is incomplete: %#v", profileVerification)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"adapter", "profile", "verify", "--input", profilePath,
+		"--expected-sha256", strings.Repeat("0", 64), "--format", "json",
+	)
+	if exitCode != 1 {
+		t.Fatalf("drifted Rust adapter profile verification exit code = %d, want 1; output:\n%s", exitCode, output)
+	}
+	if err := json.Unmarshal([]byte(output), &profileVerification); err != nil {
+		t.Fatalf("decode drifted Rust adapter profile verification: %v\n%s", err, output)
+	}
+	if profileVerification.Status != "FAIL" || profileVerification.ActualSHA256 != profileRef.SHA256 || len(profileVerification.Errors) != 1 || profileVerification.Errors[0].Code != "sha256-mismatch" {
+		t.Fatalf("drifted Rust adapter profile verification is incomplete: %#v", profileVerification)
+	}
+	invalidProfilePath := filepath.Join(t.TempDir(), "invalid-adapter.yaml")
+	if err := os.WriteFile(invalidProfilePath, []byte("schema: paddock.adapter-profile/v1\nname: broken\nexecutable: missing-paddock-adapter\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"adapter", "profile", "validate", "--input", invalidProfilePath, "--format", "json",
+	)
+	if exitCode != 2 {
+		t.Fatalf("invalid Rust adapter profile exit code = %d, want 2; output:\n%s", exitCode, output)
+	}
+	if err := json.Unmarshal([]byte(output), &profileValidation); err != nil {
+		t.Fatalf("decode invalid Rust adapter profile validation: %v\n%s", err, output)
+	}
+	if profileValidation.Valid || len(profileValidation.Errors) != 1 || profileValidation.Errors[0].Code != "executable-not-found" {
+		t.Fatalf("invalid Rust adapter profile diagnostics are incomplete: %#v", profileValidation)
+	}
 	output, exitCode = runCLI(t, cli, repoRoot,
 		"graph", goodSource, "--language", "rust", "--unit", "file",
 		"--adapter-config", profilePath, "--format", "json",
@@ -909,7 +983,7 @@ func TestCLIExternalRustUseAdapter(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &graphFromProfile); err != nil {
 		t.Fatalf("decode Rust adapter profile graph command: %v\n%s", err, output)
 	}
-	if graphFromProfile.Adapter == nil || graphFromProfile.Adapter.Name != "paddock-rust-use" || graphFromProfile.PackageCount != 9 || graphFromProfile.EdgeCount != 13 {
+	if graphFromProfile.Adapter == nil || graphFromProfile.Adapter.Name != "paddock-rust-use" || graphFromProfile.Adapter.ProfilePath != profileRef.Path || graphFromProfile.Adapter.ProfileSHA256 != profileRef.SHA256 || graphFromProfile.PackageCount != 9 || graphFromProfile.EdgeCount != 13 {
 		t.Fatalf("Rust adapter profile graph command is incomplete: %#v", graphFromProfile)
 	}
 	output, exitCode = runCLI(t, cli, repoRoot,
@@ -1011,7 +1085,10 @@ func TestCLIExternalRustUseAdapter(t *testing.T) {
 	if err != nil || ciArtifact.Graph == nil || ciArtifact.Graph.SHA256 == "" {
 		t.Fatalf("Rust use CI artifact omitted graph evidence: err=%v artifact=%#v", err, ciArtifact)
 	}
-	if _, document, err := graph.LoadDocument(graphPath); err != nil || document.Adapter == nil || document.Adapter.Name != "paddock-rust-use" || document.Adapter.Version != "1.0.0" {
+	if profileInput, ok := ciArtifact.Inputs[artifact.AdapterProfileInput]; !ok || profileInput.Path != profileRef.Path || profileInput.SHA256 != profileRef.SHA256 {
+		t.Fatalf("Rust use CI artifact omitted adapter profile input: %#v", ciArtifact.Inputs)
+	}
+	if _, document, err := graph.LoadDocument(graphPath); err != nil || document.Adapter == nil || document.Adapter.Name != "paddock-rust-use" || document.Adapter.Version != "1.0.0" || document.Adapter.ProfilePath != profileRef.Path || document.Adapter.ProfileSHA256 != profileRef.SHA256 {
 		t.Fatalf("Rust use CI graph omitted adapter identity: err=%v document=%#v", err, document)
 	}
 
@@ -1023,7 +1100,7 @@ func TestCLIExternalRustUseAdapter(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &explanation); err != nil {
 		t.Fatalf("decode Rust use CI explanation: %v\n%s", err, output)
 	}
-	if explanation.Provenance == nil || explanation.Provenance.Adapter == nil || explanation.Provenance.Adapter.Name != "paddock-rust-use" || explanation.Provenance.Adapter.Version != "1.0.0" {
+	if explanation.Provenance == nil || explanation.Provenance.Adapter == nil || explanation.Provenance.Adapter.Name != "paddock-rust-use" || explanation.Provenance.Adapter.Version != "1.0.0" || explanation.Provenance.Adapter.ProfilePath != profileRef.Path || explanation.Provenance.Adapter.ProfileSHA256 != profileRef.SHA256 {
 		t.Fatalf("Rust use explanation omitted adapter identity: %#v", explanation.Provenance)
 	}
 }
@@ -2595,6 +2672,10 @@ func TestPortableCIWorkflowWithRustAdapter(t *testing.T) {
 	resultPath := filepath.Join(directory, "rust-ci-result.json")
 	failingGraphPath := filepath.Join(directory, "rust-violating-graph.json")
 	failingResultPath := filepath.Join(directory, "rust-violating-ci-result.json")
+	profileRef, err := artifact.File(profilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	workflowEnv := func(source, graphOutput, resultOutput string) []string {
 		return []string{
@@ -2603,6 +2684,7 @@ func TestPortableCIWorkflowWithRustAdapter(t *testing.T) {
 			"PADDOCK_LOCK=" + lockPath,
 			"PADDOCK_SOURCE_ROOT=" + source,
 			"PADDOCK_ADAPTER_CONFIG=" + profilePath,
+			"PADDOCK_ADAPTER_PROFILE_SHA256=" + profileRef.SHA256,
 			"PADDOCK_GRAPH_OUTPUT=" + graphOutput,
 			"PADDOCK_RESULT=" + resultOutput,
 			"PADDOCK_ADAPTER_TESTS=" + adapterTestsPath,
@@ -2645,9 +2727,12 @@ func TestPortableCIWorkflowWithRustAdapter(t *testing.T) {
 	if workflowArtifact.Status != "passed" || workflowArtifact.Report == nil || len(workflowArtifact.Report.Findings) != 0 || workflowArtifact.Graph == nil || workflowArtifact.Graph.SHA256 == "" {
 		t.Fatalf("Rust adapter passing CI artifact is incomplete: %#v", workflowArtifact)
 	}
+	if profileInput, ok := workflowArtifact.Inputs[artifact.AdapterProfileInput]; !ok || profileInput.Path != profileRef.Path || profileInput.SHA256 != profileRef.SHA256 {
+		t.Fatalf("Rust adapter passing CI artifact omitted adapter profile input: %#v", workflowArtifact.Inputs)
+	}
 	if _, document, err := graph.LoadDocument(graphPath); err != nil || document.Language != "rust" || document.Unit != "file" || document.PackageCount != 9 || document.EdgeCount != 13 {
 		t.Fatalf("Rust adapter passing graph is invalid: err=%v document=%#v", err, document)
-	} else if document.Adapter == nil || document.Adapter.Kind != "external" || document.Adapter.Name != "paddock-rust-use" || document.Adapter.Version != "1.0.0" || document.Adapter.Executable != "python3" || document.Adapter.ArgsSHA256 == "" || document.Adapter.ExecutableSHA256 == "" {
+	} else if document.Adapter == nil || document.Adapter.Kind != "external" || document.Adapter.Name != "paddock-rust-use" || document.Adapter.Version != "1.0.0" || document.Adapter.Executable != "python3" || document.Adapter.ArgsSHA256 == "" || document.Adapter.ExecutableSHA256 == "" || document.Adapter.ProfilePath != profileRef.Path || document.Adapter.ProfileSHA256 != profileRef.SHA256 {
 		t.Fatalf("Rust adapter passing graph omitted metadata: %#v", document.Adapter)
 	}
 	output, exitCode = runCLI(t, cli, repoRoot, "ci", "validate", "--input", resultPath)
@@ -2667,9 +2752,25 @@ func TestPortableCIWorkflowWithRustAdapter(t *testing.T) {
 	if failingArtifact.Status != "failed" || failingArtifact.Report == nil || len(failingArtifact.Report.Findings) != 2 || failingArtifact.Graph == nil || failingArtifact.Graph.SHA256 == "" {
 		t.Fatalf("Rust adapter failing CI artifact is incomplete: %#v", failingArtifact)
 	}
+	if profileInput, ok := failingArtifact.Inputs[artifact.AdapterProfileInput]; !ok || profileInput.Path != profileRef.Path || profileInput.SHA256 != profileRef.SHA256 {
+		t.Fatalf("Rust adapter failing CI artifact omitted adapter profile input: %#v", failingArtifact.Inputs)
+	}
+	if _, document, err := graph.LoadDocument(failingGraphPath); err != nil || document.Adapter == nil || document.Adapter.ProfilePath != profileRef.Path || document.Adapter.ProfileSHA256 != profileRef.SHA256 {
+		t.Fatalf("Rust adapter failing graph omitted profile provenance: err=%v document=%#v", err, document)
+	}
 	output, exitCode = runCLI(t, cli, repoRoot, "ci", "validate", "--input", failingResultPath)
 	if exitCode != 0 || !strings.Contains(output, "CI-RESULT VALID") {
 		t.Fatalf("Rust adapter failing CI result validation failed: exit=%d output:\n%s", exitCode, output)
+	}
+	driftEnv := workflowEnv(goodSource, filepath.Join(t.TempDir(), "unused-graph.json"), filepath.Join(t.TempDir(), "unused-result.json"))
+	for index, value := range driftEnv {
+		if strings.HasPrefix(value, "PADDOCK_ADAPTER_PROFILE_SHA256=") {
+			driftEnv[index] = "PADDOCK_ADAPTER_PROFILE_SHA256=" + strings.Repeat("0", 64)
+		}
+	}
+	output, exitCode = runWorkflow(t, workflow, repoRoot, driftEnv, "verify")
+	if exitCode != 1 || !strings.Contains(output, "ADAPTER PROFILE DRIFT") {
+		t.Fatalf("Rust adapter profile drift was not blocked: exit=%d output:\n%s", exitCode, output)
 	}
 }
 

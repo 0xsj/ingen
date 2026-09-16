@@ -1,14 +1,17 @@
 package spec
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
-func TestReplayMatrixSchemaContracts(t *testing.T) {
+func TestPublishedSchemaContracts(t *testing.T) {
 	_, sourcePath, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller() did not return the schema test path")
@@ -44,6 +47,27 @@ func TestReplayMatrixSchemaContracts(t *testing.T) {
 			constValue:     "ingen.oracle/v1",
 			requiredFields: []string{"schema", "status", "contract", "policy_sha256", "cases"},
 			definitions:    []string{"contract", "case"},
+		},
+		{
+			name:           "run",
+			file:           "ingen.run-v1.schema.json",
+			constValue:     "ingen.run/v1",
+			requiredFields: []string{"schema", "run_id", "created_at", "assurance", "contract", "contract_verdict", "subject", "summary", "rules"},
+			definitions:    []string{"assurance", "contract-reference", "rule-result", "observation"},
+		},
+		{
+			name:           "evidence",
+			file:           "sorna.evidence-v1.schema.json",
+			constValue:     "sorna.evidence/v1",
+			requiredFields: []string{"schema", "run_id", "created_at", "assurance", "contract", "subject", "artifacts_sha256"},
+			definitions:    []string{"assurance", "contract-reference", "campaign"},
+		},
+		{
+			name:           "mutation-campaign-result",
+			file:           "ingen.mutation-campaign-result-v1.schema.json",
+			constValue:     "ingen.mutation-campaign-result/v1",
+			requiredFields: []string{"schema", "status", "plan", "started_at", "finished_at", "summary", "entries"},
+			definitions:    []string{"plan", "entry", "summary", "diagnosis"},
 		},
 		{
 			name:           "report",
@@ -84,6 +108,13 @@ func TestReplayMatrixSchemaContracts(t *testing.T) {
 			}
 			if err := json.Unmarshal(data, &schema); err != nil {
 				t.Fatalf("decode %s schema: %v", test.name, err)
+			}
+			compiler := jsonschema.NewCompiler()
+			if err := compiler.AddResource(test.file, bytes.NewReader(data)); err != nil {
+				t.Fatalf("register %s schema: %v", test.name, err)
+			}
+			if _, err := compiler.Compile(test.file); err != nil {
+				t.Fatalf("compile %s schema: %v", test.name, err)
 			}
 			if schema.ID == "" || schema.Draft == "" || schema.Type != "object" || schema.AdditionalProperties {
 				t.Fatalf("incomplete or open %s schema: %+v", test.name, schema)

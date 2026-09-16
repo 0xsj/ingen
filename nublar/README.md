@@ -6,6 +6,7 @@ in [`PRODUCT-BOUNDARY.md`](PRODUCT-BOUNDARY.md). The persisted run artifact
 is described in [`RUN-ARTIFACT.md`](RUN-ARTIFACT.md), with run identity
 defined in [`RUN-IDENTITY.md`](RUN-IDENTITY.md). Execution ownership is
 defined in [`EXECUTION-BOUNDARY.md`](EXECUTION-BOUNDARY.md).
+For the practical command flow, see [`USAGE-GUIDE.md`](USAGE-GUIDE.md).
 
 Nublar is InGen's CI and delivery surface. Its first implementation slice is a
 small coordinator that aggregates shared CI result envelopes. It may eventually
@@ -118,6 +119,8 @@ The external consumer handoff is documented in
 [`CONSUMER-GUIDE.md`](CONSUMER-GUIDE.md).
 The current local contract checkpoint is documented in
 [`CONTRACT-CHECKPOINT.md`](CONTRACT-CHECKPOINT.md).
+The step-by-step local usage flow is documented in
+[`USAGE-GUIDE.md`](USAGE-GUIDE.md).
 The local freeze boundary and change rule are recorded in
 [`FREEZE-RECORD.md`](FREEZE-RECORD.md).
 The template for proposing the next concrete consumer requirement is

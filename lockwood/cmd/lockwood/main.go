@@ -51,12 +51,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runListEvents(args[1:], stdout, stderr)
 	case "handling-status":
 		return runHandlingStatus(args[1:], stdout, stderr)
+	case "redaction-status":
+		return runRedactionStatus(args[1:], stdout, stderr)
 	case "check-handling-guard":
 		return runCheckHandlingGuard(args[1:], stdout, stderr)
 	case "register-redaction":
 		return runRegisterRedaction(args[1:], stdout, stderr)
 	case "promote-redaction":
 		return runPromoteRedaction(args[1:], stdout, stderr)
+	case "sign-redaction-provenance":
+		return runSignRedactionProvenance(args[1:], stdout, stderr)
 	case "inspect-attestation":
 		return runInspectAttestation(args[1:], stdout, stderr)
 	case "inspect-attestation-link":
@@ -65,14 +69,20 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runRecordDigest(args[1:], stdout, stderr)
 	case "find-attestation":
 		return runFindAttestation(args[1:], stdout, stderr)
+	case "find-redaction-provenance":
+		return runFindRedactionProvenance(args[1:], stdout, stderr)
 	case "find-trusted-attestation":
 		return runFindTrustedAttestation(args[1:], stdout, stderr)
+	case "find-trusted-redaction-provenance":
+		return runFindTrustedRedactionProvenance(args[1:], stdout, stderr)
 	case "sign-attestation":
 		return runSignAttestation(args[1:], stdout, stderr)
 	case "sign-handling-event":
 		return runSignHandlingEvent(args[1:], stdout, stderr)
 	case "import-attestation":
 		return runImportAttestation(args[1:], stdout, stderr)
+	case "import-redaction-provenance":
+		return runImportRedactionProvenance(args[1:], stdout, stderr)
 	case "verify-attestation":
 		return runVerifyAttestation(args[1:], stdout, stderr)
 	case "verify-attestation-trusted":
@@ -83,6 +93,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runVerifyHandlingEventTrusted(args[1:], stdout, stderr)
 	case "verify-handling-event-authorized":
 		return runVerifyHandlingEventAuthorized(args[1:], stdout, stderr)
+	case "verify-redaction-provenance":
+		return runVerifyRedactionProvenance(args[1:], stdout, stderr)
+	case "verify-redaction-provenance-trusted":
+		return runVerifyRedactionProvenanceTrusted(args[1:], stdout, stderr)
 	case "verify":
 		return runVerify(args[1:], stdout, stderr)
 	case "find":
@@ -585,6 +599,36 @@ func runHandlingStatus(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runRedactionStatus(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood redaction-status", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	sourceID := flags.String("source-id", "", "custody record containing the redaction event")
+	eventID := flags.String("event-id", "", "redaction event ID")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *sourceID == "" || *eventID == "" {
+		fmt.Fprintln(stderr, "redaction-status requires --root, --source-id, --event-id, and no positional arguments")
+		return 2
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	status, err := custody.AnalyzeRedaction(records, artifacts, records, *sourceID, *eventID)
+	if err != nil {
+		fmt.Fprintf(stderr, "redaction-status: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, status); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runCheckHandlingGuard(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood check-handling-guard", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -859,6 +903,43 @@ func runFindAttestation(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runFindRedactionProvenance(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood find-redaction-provenance", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	sourceID := flags.String("source-id", "", "source custody record ID to match")
+	eventID := flags.String("event-id", "", "redaction event ID to match")
+	promotedID := flags.String("promoted-id", "", "promoted result custody record ID to match")
+	keyID := flags.String("key-id", "", "provenance signing key ID to match")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" {
+		fmt.Fprintln(stderr, "find-redaction-provenance requires --root and no positional arguments")
+		return 2
+	}
+	artifacts, _, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	results, err := attestation.FindRedactionProvenance(artifacts, attestation.RedactionProvenanceQuery{
+		SourceCustodyID:   *sourceID,
+		EventID:           *eventID,
+		PromotedCustodyID: *promotedID,
+		KeyID:             *keyID,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "find-redaction-provenance: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, results); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runFindTrustedAttestation(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood find-trusted-attestation", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -895,6 +976,58 @@ func runFindTrustedAttestation(args []string, stdout, stderr io.Writer) int {
 	results, err := attestation.FindTrusted(records, artifacts, attestation.Query{TargetDigest: *targetDigest, KeyID: *keyID}, registry, when)
 	if err != nil {
 		fmt.Fprintf(stderr, "find-trusted-attestation: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, results); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runFindTrustedRedactionProvenance(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood find-trusted-redaction-provenance", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	sourceID := flags.String("source-id", "", "source custody record ID to match")
+	eventID := flags.String("event-id", "", "redaction event ID to match")
+	promotedID := flags.String("promoted-id", "", "promoted result custody record ID to match")
+	keyID := flags.String("key-id", "", "provenance signing key ID to match")
+	registryPath := flags.String("registry", "", "canonical attestation trust registry file")
+	evaluatedAt := flags.String("at", "", "RFC3339 trust evaluation time; defaults to current UTC time")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *registryPath == "" {
+		fmt.Fprintln(stderr, "find-trusted-redaction-provenance requires --root, --registry, and no positional arguments")
+		return 2
+	}
+	when, err := parseTime(*evaluatedAt)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid --at: %v\n", err)
+		return 2
+	}
+	if when.IsZero() {
+		when = time.Now().UTC()
+	}
+	registry, err := readTrustRegistryFile(*registryPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "find-trusted-redaction-provenance: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	results, err := attestation.FindTrustedRedactionProvenance(records, records, artifacts, attestation.RedactionProvenanceQuery{
+		SourceCustodyID:   *sourceID,
+		EventID:           *eventID,
+		PromotedCustodyID: *promotedID,
+		KeyID:             *keyID,
+	}, registry, when)
+	if err != nil {
+		fmt.Fprintf(stderr, "find-trusted-redaction-provenance: %v\n", err)
 		return 1
 	}
 	if err := writeJSON(stdout, results); err != nil {
@@ -997,6 +1130,64 @@ func runSignHandlingEvent(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runSignRedactionProvenance(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood sign-redaction-provenance", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	sourceID := flags.String("source-id", "", "source custody record ID")
+	eventID := flags.String("event-id", "", "redaction event ID")
+	promotedID := flags.String("promoted-id", "", "promoted result custody record ID")
+	keyID := flags.String("key-id", "", "redaction provenance signing key ID")
+	privateKeyPath := flags.String("private-key", "", "base64 Ed25519 private-key file")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *sourceID == "" || *eventID == "" || *promotedID == "" || *keyID == "" || *privateKeyPath == "" {
+		fmt.Fprintln(stderr, "sign-redaction-provenance requires --root, --source-id, --event-id, --promoted-id, --key-id, --private-key, and no positional arguments")
+		return 2
+	}
+	privateKey, err := readPrivateKeyFile(*privateKeyPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-redaction-provenance: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	source, err := custody.VerifyRecord(records, artifacts, *sourceID)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-redaction-provenance: verify source custody record: %v\n", err)
+		return 1
+	}
+	event, err := records.GetEvent(*sourceID, *eventID)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-redaction-provenance: read redaction event: %v\n", err)
+		return 1
+	}
+	promoted, err := custody.VerifyRecord(records, artifacts, *promotedID)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-redaction-provenance: verify promoted custody record: %v\n", err)
+		return 1
+	}
+	envelope, err := attestation.SignRedactionProvenance(source, event, promoted, *keyID, privateKey)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-redaction-provenance: %v\n", err)
+		return 1
+	}
+	publication, err := attestation.PublishRedactionProvenance(source, event, promoted, envelope, artifacts)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-redaction-provenance: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, publication); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runImportAttestation(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood import-attestation", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -1048,6 +1239,78 @@ func runImportAttestation(args []string, stdout, stderr io.Writer) int {
 	publication, err := attestation.PublishForRecord(record, envelope, artifacts)
 	if err != nil {
 		fmt.Fprintf(stderr, "import-attestation: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, publication); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runImportRedactionProvenance(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood import-redaction-provenance", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	sourceID := flags.String("source-id", "", "source custody record ID")
+	eventID := flags.String("event-id", "", "redaction event ID")
+	promotedID := flags.String("promoted-id", "", "promoted result custody record ID")
+	expectedDigest := flags.String("expected-digest", "", "optional expected SHA-256 envelope digest")
+	maxBytes := flags.Int64("max-bytes", 0, "maximum envelope size in bytes; 0 means unlimited")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" || *sourceID == "" || *eventID == "" || *promotedID == "" {
+		fmt.Fprintln(stderr, "import-redaction-provenance requires --root, --source-id, --event-id, --promoted-id, and exactly one envelope path")
+		return 2
+	}
+	file, err := os.Open(flags.Arg(0))
+	if err != nil {
+		fmt.Fprintf(stderr, "import-redaction-provenance: open envelope: %v\n", err)
+		return 1
+	}
+	data, result, readErr := integrity.ReadAll(file, *maxBytes)
+	closeErr := file.Close()
+	if readErr != nil {
+		fmt.Fprintf(stderr, "import-redaction-provenance: read envelope: %v\n", readErr)
+		return 1
+	}
+	if closeErr != nil {
+		fmt.Fprintf(stderr, "import-redaction-provenance: close envelope: %v\n", closeErr)
+		return 1
+	}
+	if err := integrity.VerifyDigest(result.Digest, *expectedDigest); err != nil {
+		fmt.Fprintf(stderr, "import-redaction-provenance: %v\n", err)
+		return 1
+	}
+	envelope, err := attestation.UnmarshalCanonicalRedactionProvenance(data)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-redaction-provenance: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	source, err := custody.VerifyRecord(records, artifacts, *sourceID)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-redaction-provenance: verify source custody record: %v\n", err)
+		return 1
+	}
+	event, err := records.GetEvent(*sourceID, *eventID)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-redaction-provenance: read redaction event: %v\n", err)
+		return 1
+	}
+	promoted, err := custody.VerifyRecord(records, artifacts, *promotedID)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-redaction-provenance: verify promoted custody record: %v\n", err)
+		return 1
+	}
+	publication, err := attestation.PublishRedactionProvenance(source, event, promoted, envelope, artifacts)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-redaction-provenance: %v\n", err)
 		return 1
 	}
 	if err := writeJSON(stdout, publication); err != nil {
@@ -1305,6 +1568,119 @@ func runVerifyHandlingEventAuthorized(args []string, stdout, stderr io.Writer) i
 	return 0
 }
 
+func runVerifyRedactionProvenance(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood verify-redaction-provenance", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	sourceID := flags.String("source-id", "", "source custody record ID")
+	eventID := flags.String("event-id", "", "redaction event ID")
+	promotedID := flags.String("promoted-id", "", "promoted result custody record ID")
+	publicKeyPath := flags.String("public-key", "", "base64 Ed25519 public-key file")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" || *sourceID == "" || *eventID == "" || *promotedID == "" || *publicKeyPath == "" {
+		fmt.Fprintln(stderr, "verify-redaction-provenance requires --root, --source-id, --event-id, --promoted-id, --public-key, and exactly one provenance digest")
+		return 2
+	}
+	publicKey, err := readPublicKeyFile(*publicKeyPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	source, err := custody.VerifyRecord(records, artifacts, *sourceID)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance: verify source custody record: %v\n", err)
+		return 1
+	}
+	event, err := records.GetEvent(*sourceID, *eventID)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance: read redaction event: %v\n", err)
+		return 1
+	}
+	promoted, err := custody.VerifyRecord(records, artifacts, *promotedID)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance: verify promoted custody record: %v\n", err)
+		return 1
+	}
+	receipt, err := attestation.VerifyPublishedRedactionProvenanceReceipt(source, event, promoted, flags.Arg(0), records, artifacts, publicKey)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, receipt); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runVerifyRedactionProvenanceTrusted(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood verify-redaction-provenance-trusted", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	sourceID := flags.String("source-id", "", "source custody record ID")
+	eventID := flags.String("event-id", "", "redaction event ID")
+	promotedID := flags.String("promoted-id", "", "promoted result custody record ID")
+	registryPath := flags.String("registry", "", "canonical attestation trust registry file")
+	evaluatedAt := flags.String("at", "", "RFC3339 trust evaluation time; defaults to current UTC time")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" || *sourceID == "" || *eventID == "" || *promotedID == "" || *registryPath == "" {
+		fmt.Fprintln(stderr, "verify-redaction-provenance-trusted requires --root, --source-id, --event-id, --promoted-id, --registry, and exactly one provenance digest")
+		return 2
+	}
+	when, err := parseTime(*evaluatedAt)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid --at: %v\n", err)
+		return 2
+	}
+	if when.IsZero() {
+		when = time.Now().UTC()
+	}
+	registry, err := readTrustRegistryFile(*registryPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance-trusted: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	source, err := custody.VerifyRecord(records, artifacts, *sourceID)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance-trusted: verify source custody record: %v\n", err)
+		return 1
+	}
+	event, err := records.GetEvent(*sourceID, *eventID)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance-trusted: read redaction event: %v\n", err)
+		return 1
+	}
+	promoted, err := custody.VerifyRecord(records, artifacts, *promotedID)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance-trusted: verify promoted custody record: %v\n", err)
+		return 1
+	}
+	receipt, err := attestation.VerifyPublishedRedactionProvenanceWithRegistryReceipt(source, event, promoted, flags.Arg(0), records, artifacts, registry, when)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-redaction-provenance-trusted: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, receipt); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runVerify(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood verify", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -1507,7 +1883,7 @@ func runReconcile(args []string, stdout, stderr io.Writer) int {
 	report, err := custody.ReconcileWithOptions(artifacts, records, custody.ReconcileOptions{
 		OrphanGrace:        *orphanGrace,
 		Now:                when,
-		DetachedMediaTypes: []string{attestation.MediaType, attestation.HandlingEventMediaType},
+		DetachedMediaTypes: []string{attestation.MediaType, attestation.HandlingEventMediaType, attestation.RedactionProvenanceMediaType},
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "reconcile: %v\n", err)
@@ -1706,20 +2082,27 @@ func usage(writer io.Writer) {
 	fmt.Fprintln(writer, "  append-event       append an immutable handling event to a custody record")
 	fmt.Fprintln(writer, "  list-events        list immutable handling events for a custody record")
 	fmt.Fprintln(writer, "  handling-status    project recorded handling state without enforcing policy")
+	fmt.Fprintln(writer, "  redaction-status   trace a redaction event and its custody promotion")
 	fmt.Fprintln(writer, "  check-handling-guard report legal-hold blocking for redact/delete")
 	fmt.Fprintln(writer, "  register-redaction register a verified caller-produced redaction derivative")
 	fmt.Fprintln(writer, "  promote-redaction create custody for a registered redaction result")
+	fmt.Fprintln(writer, "  sign-redaction-provenance sign and publish source-event-result provenance")
 	fmt.Fprintln(writer, "  record-digest <id> print the canonical custody-record digest")
 	fmt.Fprintln(writer, "  find-attestation   find published attestations by target or key ID")
+	fmt.Fprintln(writer, "  find-redaction-provenance find published source-event-result provenance")
 	fmt.Fprintln(writer, "  find-trusted-attestation find and verify attestations through a trust registry")
+	fmt.Fprintln(writer, "  find-trusted-redaction-provenance find and verify provenance through a trust registry")
 	fmt.Fprintln(writer, "  sign-attestation   sign and publish a detached attestation")
 	fmt.Fprintln(writer, "  sign-handling-event sign and publish a detached handling-event signature")
 	fmt.Fprintln(writer, "  import-attestation import and publish a detached attestation")
+	fmt.Fprintln(writer, "  import-redaction-provenance import and publish detached source-event-result provenance")
 	fmt.Fprintln(writer, "  verify-attestation verify a published attestation with an explicit public key")
 	fmt.Fprintln(writer, "  verify-attestation-trusted verify with an explicit trust registry")
 	fmt.Fprintln(writer, "  verify-handling-event verify a handling-event signature with an explicit public key")
 	fmt.Fprintln(writer, "  verify-handling-event-trusted verify a handling-event signature through a trust registry")
 	fmt.Fprintln(writer, "  verify-handling-event-authorized verify a handling event through trust and action policy")
+	fmt.Fprintln(writer, "  verify-redaction-provenance verify signed source-event-result provenance")
+	fmt.Fprintln(writer, "  verify-redaction-provenance-trusted verify provenance through a trust registry")
 	fmt.Fprintln(writer, "  verify <digest>    verify stored bytes")
 	fmt.Fprintln(writer, "  verify --id <id>   verify a custody record and its blob")
 	fmt.Fprintln(writer, "  find               query custody records")

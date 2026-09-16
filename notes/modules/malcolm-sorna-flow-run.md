@@ -22,14 +22,16 @@ The `malcolm-sorna-flow-run` target:
 6. runs the oracle under the separate flow subject policy; and
 7. verifies the resulting evidence bundle.
 
-The flow has seven executable rule cases. The create cases send a JSON body
+The flow has eight executable rule cases. The create cases send a JSON body
 directly. The read cases first POST a document, assert the setup response,
 capture `body.id`, substitute it into
 `/documents/{document_id}`, and assert the queued result. The final read case
 also proves that a prohibited `response.body.error exists` expectation is
-treated as a negative rule. One create case also proves that the subject's
+treated as a negative rule. The setup also proves that the same prohibited
+error pattern can be used as a state-establishing precondition. One create case
+also proves that the subject's
 `X-InGen-Event` response signals satisfy `must emit "document.accepted"` and
-`must emit "document.queued"`.
+`must emit "document.queued"`; another checks their relative order.
 
 ## Why
 
@@ -50,7 +52,7 @@ sealed contract, and subject artifacts use the corresponding
 
 ## Gotchas
 
-- A passing flow run proves these seven declared cases against this subject
+- A passing flow run proves these eight declared cases against this subject
   boundary; it does not prove the entire document API.
 - Setup runs once per generated rule case. Each rule therefore creates its own
   document and captures its own ID.

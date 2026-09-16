@@ -34,6 +34,9 @@ key for audit while exposing only the replacement key to the verifier.
 That trust snapshot may itself be signed by a root key. Hammond verifies the
 root signature before deriving the active-key verifier, creating a local
 root-to-authority chain without claiming to solve root-key distribution.
+Callers can use the trust-store-bound policy and authority loaders to keep that
+root-to-trust-to-authority chain explicit at the API boundary; the helpers
+validate the supplied trust store before deriving its active-key verifier.
 
 Normalized organization responses can use a separate signed membership
 snapshot. Hammond verifies that response and adapts its effective-dated grants

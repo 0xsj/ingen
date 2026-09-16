@@ -466,6 +466,178 @@ func TestCLIRegisterRedactionPreservesOriginal(t *testing.T) {
 	if code := run([]string{"verify", "--root", root, "--id", promotedID}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("verify promoted record exit code = %d", code)
 	}
+	var redactionStatusOutput bytes.Buffer
+	if code := run([]string{"redaction-status", "--root", root, "--source-id", custodyID, "--event-id", eventID}, strings.NewReader(""), &redactionStatusOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("redaction-status exit code = %d", code)
+	}
+	var redactionStatus custody.RedactionStatus
+	if err := json.Unmarshal(redactionStatusOutput.Bytes(), &redactionStatus); err != nil {
+		t.Fatalf("decode redaction status: %v", err)
+	}
+	if redactionStatus.Status != custody.RedactionComplete || !redactionStatus.OriginalArtifactVerified || !redactionStatus.ResultingArtifactVerified || len(redactionStatus.PromotedCustodyIDs) != 1 || redactionStatus.PromotedCustodyIDs[0] != promotedID {
+		t.Fatalf("redaction status = %+v", redactionStatus)
+	}
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{59}, ed25519.SeedSize))
+	privateKeyPath := filepath.Join(t.TempDir(), "provenance.key")
+	if err := os.WriteFile(privateKeyPath, []byte(base64.StdEncoding.EncodeToString(privateKey)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var signProvenanceOutput bytes.Buffer
+	if code := run([]string{
+		"sign-redaction-provenance",
+		"--root", root,
+		"--source-id", custodyID,
+		"--event-id", eventID,
+		"--promoted-id", promotedID,
+		"--key-id", "provenance-key-2026-01",
+		"--private-key", privateKeyPath,
+	}, strings.NewReader(""), &signProvenanceOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("sign-redaction-provenance exit code = %d", code)
+	}
+	var provenancePublication attestation.RedactionProvenancePublication
+	if err := json.Unmarshal(signProvenanceOutput.Bytes(), &provenancePublication); err != nil {
+		t.Fatalf("decode redaction provenance publication: %v", err)
+	}
+	if provenancePublication.SourceCustodyID != custodyID || provenancePublication.EventID != eventID || provenancePublication.PromotedCustodyID != promotedID || provenancePublication.Artifact.MediaType != attestation.RedactionProvenanceMediaType {
+		t.Fatalf("redaction provenance publication = %+v", provenancePublication)
+	}
+	provenancePath := filepath.Join(t.TempDir(), "redaction-provenance.json")
+	provenanceBytes, err := attestation.MarshalCanonicalRedactionProvenance(provenancePublication.Envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(provenancePath, provenanceBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var importedProvenanceOutput bytes.Buffer
+	if code := run([]string{
+		"import-redaction-provenance",
+		"--root", root,
+		"--source-id", custodyID,
+		"--event-id", eventID,
+		"--promoted-id", promotedID,
+		"--expected-digest", provenancePublication.Artifact.Digest,
+		provenancePath,
+	}, strings.NewReader(""), &importedProvenanceOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("import-redaction-provenance exit code = %d", code)
+	}
+	var importedProvenance attestation.RedactionProvenancePublication
+	if err := json.Unmarshal(importedProvenanceOutput.Bytes(), &importedProvenance); err != nil {
+		t.Fatalf("decode imported redaction provenance publication: %v", err)
+	}
+	if importedProvenance.Artifact.Digest != provenancePublication.Artifact.Digest || importedProvenance.SourceCustodyID != custodyID || importedProvenance.PromotedCustodyID != promotedID {
+		t.Fatalf("imported redaction provenance publication = %+v", importedProvenance)
+	}
+	publicKeyPath := filepath.Join(t.TempDir(), "provenance.pub")
+	if err := os.WriteFile(publicKeyPath, []byte(base64.StdEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey))+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var verifyProvenanceOutput bytes.Buffer
+	if code := run([]string{
+		"verify-redaction-provenance",
+		"--root", root,
+		"--source-id", custodyID,
+		"--event-id", eventID,
+		"--promoted-id", promotedID,
+		"--public-key", publicKeyPath,
+		provenancePublication.Artifact.Digest,
+	}, strings.NewReader(""), &verifyProvenanceOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("verify-redaction-provenance exit code = %d", code)
+	}
+	var provenanceVerification attestation.RedactionProvenanceVerificationReceipt
+	if err := json.Unmarshal(verifyProvenanceOutput.Bytes(), &provenanceVerification); err != nil {
+		t.Fatalf("decode redaction provenance verification: %v", err)
+	}
+	if !provenanceVerification.Verified || provenanceVerification.SourceCustodyID != custodyID || provenanceVerification.PromotedCustodyID != promotedID || provenanceVerification.AttestationDigest != provenancePublication.Artifact.Digest {
+		t.Fatalf("redaction provenance verification = %+v", provenanceVerification)
+	}
+	registry := attestation.TrustRegistry{
+		Schema: attestation.TrustRegistrySchema,
+		Keys: []attestation.TrustedKey{{
+			KeyID:     "provenance-key-2026-01",
+			Algorithm: attestation.Algorithm,
+			PublicKey: base64.StdEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey)),
+			Status:    attestation.KeyActive,
+		}},
+	}
+	registryBytes, err := attestation.MarshalCanonicalTrustRegistry(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryPath := filepath.Join(t.TempDir(), "provenance-trust.json")
+	if err := os.WriteFile(registryPath, registryBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var trustedProvenanceOutput bytes.Buffer
+	if code := run([]string{
+		"verify-redaction-provenance-trusted",
+		"--root", root,
+		"--source-id", custodyID,
+		"--event-id", eventID,
+		"--promoted-id", promotedID,
+		"--registry", registryPath,
+		"--at", "2026-09-17T13:00:00Z",
+		provenancePublication.Artifact.Digest,
+	}, strings.NewReader(""), &trustedProvenanceOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("verify-redaction-provenance-trusted exit code = %d", code)
+	}
+	var trustedProvenance attestation.TrustedRedactionProvenanceVerificationReceipt
+	if err := json.Unmarshal(trustedProvenanceOutput.Bytes(), &trustedProvenance); err != nil {
+		t.Fatalf("decode trusted redaction provenance verification: %v", err)
+	}
+	if !trustedProvenance.Verified || !trustedProvenance.Trusted || trustedProvenance.RegistryDigest == "" || trustedProvenance.EvaluatedAt != "2026-09-17T13:00:00Z" {
+		t.Fatalf("trusted redaction provenance verification = %+v", trustedProvenance)
+	}
+	var findProvenanceOutput bytes.Buffer
+	if code := run([]string{
+		"find-redaction-provenance",
+		"--root", root,
+		"--source-id", custodyID,
+		"--event-id", eventID,
+		"--promoted-id", promotedID,
+		"--key-id", "provenance-key-2026-01",
+	}, strings.NewReader(""), &findProvenanceOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("find-redaction-provenance exit code = %d", code)
+	}
+	var foundProvenance []attestation.StoredRedactionProvenance
+	if err := json.Unmarshal(findProvenanceOutput.Bytes(), &foundProvenance); err != nil {
+		t.Fatalf("decode redaction provenance inventory: %v", err)
+	}
+	if len(foundProvenance) != 1 || foundProvenance[0].Artifact.Digest != provenancePublication.Artifact.Digest || foundProvenance[0].Envelope.KeyID != "provenance-key-2026-01" {
+		t.Fatalf("redaction provenance inventory = %+v", foundProvenance)
+	}
+	var trustedFindProvenanceOutput bytes.Buffer
+	if code := run([]string{
+		"find-trusted-redaction-provenance",
+		"--root", root,
+		"--registry", registryPath,
+		"--at", "2026-09-17T13:00:00Z",
+		"--source-id", custodyID,
+		"--event-id", eventID,
+		"--promoted-id", promotedID,
+	}, strings.NewReader(""), &trustedFindProvenanceOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("find-trusted-redaction-provenance exit code = %d", code)
+	}
+	var trustedFoundProvenance []attestation.TrustedStoredRedactionProvenance
+	if err := json.Unmarshal(trustedFindProvenanceOutput.Bytes(), &trustedFoundProvenance); err != nil {
+		t.Fatalf("decode trusted redaction provenance inventory: %v", err)
+	}
+	if len(trustedFoundProvenance) != 1 || !trustedFoundProvenance[0].Verification.Trusted || trustedFoundProvenance[0].Artifact.Digest != provenancePublication.Artifact.Digest {
+		t.Fatalf("trusted redaction provenance inventory = %+v", trustedFoundProvenance)
+	}
+	var reconcileOutput bytes.Buffer
+	if code := run([]string{"reconcile", "--root", root}, strings.NewReader(""), &reconcileOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("reconcile after provenance publication exit code = %d", code)
+	}
+	var reconcileReport struct {
+		Orphans []any `json:"orphans"`
+	}
+	if err := json.Unmarshal(reconcileOutput.Bytes(), &reconcileReport); err != nil {
+		t.Fatal(err)
+	}
+	if len(reconcileReport.Orphans) != 0 {
+		t.Fatalf("redaction provenance was classified as an orphan: %+v", reconcileReport.Orphans)
+	}
 }
 
 func TestCLIHandlingEventAttestation(t *testing.T) {

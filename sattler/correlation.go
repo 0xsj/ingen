@@ -100,10 +100,14 @@ func correlateAmberSide(side string, nublar *NublarCorrelationSummary, amberCorr
 }
 
 func writeBundleCorrelationText(w io.Writer, correlation BundleCorrelation) error {
+	return writeBundleCorrelationTextIndented(w, "    ", correlation)
+}
+
+func writeBundleCorrelationTextIndented(w io.Writer, indent string, correlation BundleCorrelation) error {
 	if correlation.Kind == BundleCorrelationKindNublarAmber {
-		_, err := fmt.Fprintf(w, "    - %s %s: %s (Nublar correlation %q, Amber correlation %q)\n", correlation.Kind, correlation.Side, correlation.Relation, correlation.NublarCorrelationID, correlation.AmberCorrelationID)
+		_, err := fmt.Fprintf(w, "%s- %s %s: %s (Nublar correlation %q, Amber correlation %q)\n", indent, correlation.Kind, correlation.Side, correlation.Relation, correlation.NublarCorrelationID, correlation.AmberCorrelationID)
 		return err
 	}
-	_, err := fmt.Fprintf(w, "    - %s %s: %s (Nublar run %q, custody source %q)\n", correlation.Kind, correlation.Side, correlation.Relation, correlation.NublarRunID, correlation.CustodySourceRunID)
+	_, err := fmt.Fprintf(w, "%s- %s %s: %s (Nublar run %q, custody source %q)\n", indent, correlation.Kind, correlation.Side, correlation.Relation, correlation.NublarRunID, correlation.CustodySourceRunID)
 	return err
 }

@@ -89,6 +89,28 @@ func TestFromFileRejectsWorkspaceSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestFromFileUnderRootUsesSuppliedRoot(t *testing.T) {
+	root := t.TempDir()
+	caller := t.TempDir()
+	for path, contents := range map[string]string{
+		"workspace.yaml":      workspaceFixture,
+		"oracle-policy.yaml":  "oracle policy",
+		"subject-policy.yaml": "subject policy",
+	} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(caller)
+	plan, err := FromFileUnderRoot(root, "workspace.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Workspace.ID != "webhook-validation" || plan.Workspace.OraclePolicy.SHA256 == "" || plan.Workspace.SubjectPolicy.SHA256 == "" {
+		t.Fatalf("plan = %+v, want rooted manifest and policy references", plan)
+	}
+}
+
 func TestValidateRejectsAllowedImplementationRootForOracle(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeWorkspaceFixture(t)

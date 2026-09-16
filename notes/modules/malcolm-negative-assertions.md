@@ -49,8 +49,10 @@ containing error makes the prohibited expectation match and fails the rule.
 - This slice supports must_not only for target rules and the same status,
   top-level response presence, and top-level response equality expressions as
   must.
-- Setup requirements stay positive-only. Setup is a precondition, so a
-  negative setup contract needs a separately reviewed lifecycle meaning.
+- Setup `must_not` requirements are supported as preconditions. They lower to
+  separate Sorna `expect_not` list items; if any prohibited expectation
+  matches, setup fails and the target rule is marked inconclusive. Captures
+  happen only after all positive and negative setup checks pass.
 - A negative rule with no executable assertion is an execution error rather than
   a vacuous pass.
 - A passing negative assertion proves only that the prohibited pattern was not

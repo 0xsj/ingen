@@ -155,6 +155,14 @@ returned by that normalizer. Hammond provides an exact host/port
 policy; it does not resolve DNS, validate certificates, or enforce network
 segmentation. Configured HTTPS and endpoint policies are reapplied to redirect
 targets before the HTTP client follows them.
+When normalization is requested, its source context is the final endpoint that
+produced the response after allowed redirects, not merely the initial URL.
+Membership rotation helpers preserve the snapshot ID and require a strictly
+increasing version, so a valid older provider snapshot cannot replace a newer
+one merely because it is still fresh.
+After verifying a snapshot, callers may persist only its latest reference in a
+local membership-version ledger. That ledger is a replay guard, not provider
+artifact storage or signature verification.
 
 The transport package may provide a bearer-token request adapter, but token
 acquisition, storage, refresh, rotation, and scope remain caller-owned.
@@ -173,6 +181,11 @@ helper preserves the trust ID and requires a strictly increasing version,
 preventing a previously valid trust snapshot from being replayed.
 When the root layer is available, callers can bind that rotation directly to
 the active keys of a validated `AuthorityRootStore`.
+
+Callers can likewise load a policy or authority artifact through a validated
+`AuthorityTrustStore`, which keeps the root-to-trust-to-authority chain
+explicit. These helpers do not change the artifact schemas or provider
+semantics.
 
 The caller may keep the root layer as a separate versioned root snapshot.
 `AuthorityRootStore` exposes only its active keys and can verify a replacement

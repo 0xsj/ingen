@@ -1,0 +1,63 @@
+{
+  "$id": "https://ingen.example/spec/lockwood.redaction-provenance-attestation-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lockwood redaction provenance attestation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target", "algorithm", "key_id", "signature"],
+  "properties": {
+    "schema": {"const": "lockwood.redaction-provenance-attestation/v1"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_custody_id",
+        "source_record_digest",
+        "event_id",
+        "event_digest",
+        "original_digest",
+        "resulting_digest",
+        "promoted_custody_id",
+        "promoted_record_digest"
+      ],
+      "properties": {
+        "kind": {"const": "redaction-promotion"},
+        "source_custody_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "source_record_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "event_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "event_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "original_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "resulting_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "promoted_custody_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "promoted_record_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "algorithm": {"const": "ed25519"},
+    "key_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 88,
+      "maxLength": 88,
+      "pattern": "^[A-Za-z0-9+/]{86}={1,2}$"
+    }
+  }
+}

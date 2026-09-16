@@ -197,6 +197,58 @@ func TestValidationChecksEventExpectationShape(t *testing.T) {
 	}
 }
 
+func TestValidationChecksOrderedEventExpectationShape(t *testing.T) {
+	document := minimalDocument()
+	document.Contract["rules"] = []any{map[string]any{
+		"id":       "ordered-event-rule",
+		"strength": "must",
+		"subject":  "POST /documents",
+		"expect": map[string]any{
+			"events": map[string]any{"ordered": []any{"document.accepted", "document.queued"}},
+		},
+	}}
+	if problems := Validate(document); len(problems) > 0 {
+		t.Fatalf("valid ordered event expectation has problems: %v", problems)
+	}
+
+	document.Contract["rules"] = []any{map[string]any{
+		"id":       "ordered-event-rule",
+		"strength": "must",
+		"subject":  "POST /documents",
+		"expect": map[string]any{
+			"events": map[string]any{"ordered": []any{}},
+		},
+	}}
+	problems := Validate(document)
+	if !containsProblem(problems, "events.ordered must contain at least one event") {
+		t.Fatalf("problems = %v, want empty ordered event list problem", problems)
+	}
+}
+
+func TestValidationAcceptsNegativeSetupExpectation(t *testing.T) {
+	document := minimalDocument()
+	document.Contract["rules"] = []any{map[string]any{
+		"id":       "stateful-rule",
+		"strength": "must",
+		"subject":  "GET /documents/{document_id}",
+		"given": map[string]any{
+			"setup": []any{map[string]any{
+				"id": "prepare",
+				"request": map[string]any{
+					"method": "POST",
+					"path":   "/documents",
+				},
+				"expect_not": []any{map[string]any{
+					"body": map[string]any{"required": []any{"error"}},
+				}},
+			}},
+		},
+	}}
+	if problems := Validate(document); len(problems) > 0 {
+		t.Fatalf("valid negative setup expectation has problems: %v", problems)
+	}
+}
+
 func TestMaterializeExpandsNestedRepeatValuesWithoutMutatingInput(t *testing.T) {
 	input := map[string]any{
 		"name": "large.txt",

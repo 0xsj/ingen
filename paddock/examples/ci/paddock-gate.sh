@@ -11,6 +11,7 @@ graph_input=${PADDOCK_GRAPH:-}
 graph_output=${PADDOCK_GRAPH_OUTPUT:-paddock-graph.json}
 adapter=${PADDOCK_ADAPTER:-}
 adapter_config=${PADDOCK_ADAPTER_CONFIG:-}
+adapter_profile_sha256=${PADDOCK_ADAPTER_PROFILE_SHA256:-}
 adapter_args_file=${PADDOCK_ADAPTER_ARGS_FILE:-}
 diff_output=${PADDOCK_DIFF:-paddock-policy-diff.json}
 policy_cases=${PADDOCK_CASES:-}
@@ -36,9 +37,18 @@ if [ -n "$adapter_config" ] && { [ -n "$adapter" ] || [ -n "$adapter_args_file" 
 	echo "PADDOCK_ADAPTER_CONFIG cannot be combined with PADDOCK_ADAPTER or PADDOCK_ADAPTER_ARGS_FILE" >&2
 	exit 2
 fi
+if [ -n "$adapter_profile_sha256" ] && [ -z "$adapter_config" ]; then
+	echo "PADDOCK_ADAPTER_PROFILE_SHA256 requires PADDOCK_ADAPTER_CONFIG" >&2
+	exit 2
+fi
 if [ -n "$adapter_args_file" ] && [ ! -f "$adapter_args_file" ]; then
 	echo "adapter args file does not exist: $adapter_args_file" >&2
 	exit 2
+fi
+if [ -n "$adapter_profile_sha256" ]; then
+	"$paddock" adapter profile verify \
+		--input "$adapter_config" \
+		--expected-sha256 "$adapter_profile_sha256"
 fi
 
 case "$command_name" in

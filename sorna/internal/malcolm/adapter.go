@@ -80,6 +80,8 @@ var (
 	bodyExists       = regexp.MustCompile("^response\\.body\\.([A-Za-z_][A-Za-z0-9_]*)\\s+exists$")
 	bodyEquals       = regexp.MustCompile("^response\\.body\\.([A-Za-z_][A-Za-z0-9_]*)\\s*==\\s*(.+)$")
 	eventEmit        = regexp.MustCompile("^emit\\s+\"([A-Za-z_][A-Za-z0-9_.:-]*)\"$")
+	eventOrder       = regexp.MustCompile("^emit\\s+in\\s+order\\s+\\[(.*)\\]$")
+	eventName        = regexp.MustCompile("^[A-Za-z_][A-Za-z0-9_.:-]*$")
 	bodySelector     = regexp.MustCompile("^body\\.([A-Za-z_][A-Za-z0-9_]*)$")
 )
 
@@ -366,10 +368,11 @@ func lowerSetup(setup Setup) (map[string]any, error) {
 	}
 
 	expect := make(map[string]any)
+	expectNot := make([]any, 0)
 	for index, requirement := range setup.Requirements {
-		if requirement.Kind != "must" {
+		if requirement.Kind != "must" && requirement.Kind != "must_not" {
 			return nil, fmt.Errorf(
-				"requirement %d uses %q; stateful setup only supports must",
+				"requirement %d uses %q; stateful setup supports only must and must_not",
 				index+1,
 				requirement.Kind,
 			)
@@ -377,6 +380,10 @@ func lowerSetup(setup Setup) (map[string]any, error) {
 		lowered, err := lowerExpression(requirement.Expression)
 		if err != nil {
 			return nil, fmt.Errorf("requirement %d: %w", index+1, err)
+		}
+		if requirement.Kind == "must_not" {
+			expectNot = append(expectNot, lowered)
+			continue
 		}
 		if err := mergeExpectation(expect, lowered); err != nil {
 			return nil, fmt.Errorf("requirement %d: %w", index+1, err)
@@ -394,7 +401,12 @@ func lowerSetup(setup Setup) (map[string]any, error) {
 	lowered := map[string]any{
 		"id":      setup.Name,
 		"request": request,
-		"expect":  expect,
+	}
+	if len(expect) > 0 || len(expectNot) == 0 {
+		lowered["expect"] = expect
+	}
+	if len(expectNot) > 0 {
+		lowered["expect_not"] = expectNot
 	}
 	if len(setup.Captures) > 0 {
 		captures := make(map[string]any, len(setup.Captures))
@@ -527,10 +539,46 @@ func lowerExpression(expression string) (map[string]any, error) {
 			},
 		}, nil
 	}
+	if match := eventOrder.FindStringSubmatch(expression); match != nil {
+		ordered, err := parseEventOrder(match[1])
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"events": map[string]any{
+				"ordered": ordered,
+			},
+		}, nil
+	}
 	return nil, fmt.Errorf(
-		"expression %q is not lowerable; supported forms are response.status == N, response.body.FIELD exists, response.body.FIELD == VALUE, and emit \"event.name\"",
+		"expression %q is not lowerable; supported forms are response.status == N, response.body.FIELD exists, response.body.FIELD == VALUE, emit \"event.name\", and emit in order [\"event.a\", \"event.b\"]",
 		expression,
 	)
+}
+
+func parseEventOrder(raw string) ([]any, error) {
+	parts := strings.Split(raw, ",")
+	ordered := make([]any, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for index, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, fmt.Errorf("event order entry %d must be a quoted non-empty event name", index)
+		}
+		event, err := strconv.Unquote(part)
+		if err != nil || !eventName.MatchString(event) {
+			return nil, fmt.Errorf("event order entry %d must be a quoted identifier-like event name", index)
+		}
+		if _, present := seen[event]; present {
+			return nil, fmt.Errorf("event order contains duplicate event %q", event)
+		}
+		seen[event] = struct{}{}
+		ordered = append(ordered, event)
+	}
+	if len(ordered) == 0 {
+		return nil, fmt.Errorf("event order must contain at least one event")
+	}
+	return ordered, nil
 }
 
 func parseLiteral(raw string) (any, error) {

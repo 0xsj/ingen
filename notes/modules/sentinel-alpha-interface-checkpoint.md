@@ -27,8 +27,20 @@ semantics. Native Herdr host binding should remain a separate future boundary.
   creating new receipt file references.
 - Capability-plan loading and the Sorna oracle/verifier handoffs use the same
   resolver for workspace, policy, and frozen-oracle inputs.
-- Verifier preparation resolves the subject root under the supplied project
-  root before Sorna launch.
+- Verifier preparation resolves the subject root as an existing directory
+  under the supplied project root before Sorna launch; an omitted subject root
+  is passed as `.` under the child process root.
+- Verifier preparation also checks the evidence output directory under the
+  supplied project root, including existing symlink components and directory
+  type, while permitting a new rooted output leaf.
+- Verifier completion registers Sorna's `run.json` with a path relative to the
+  supplied project root and hashes it through that root, so an absolute root
+  cannot silently lose the completion artifact.
+- The capability compiler and the oracle/verifier CLI handoffs load workspace
+  and policy inputs under the supplied `--root`; caller working-directory
+  changes cannot substitute plan input bytes.
+- Bootstrap accepts the same supplied `--root`, loads the workspace manifest
+  from that namespace, and records a root-relative workspace reference.
 - This rooted reference rule is now an explicit cross-boundary alpha invariant
   in ALPHA-INTERFACES.md.
 
@@ -60,8 +72,8 @@ GOCACHE=/private/tmp/ingen-sentinel-go-cache go test -race ./herdr-sentinel/... 
 The expected-failure target uses the controlled webhook duplicate-idempotency
 defect and succeeds only when the final Nublar run is `failed/1`.
 The latest host-enabled positive and expected-failure runs were inspected in
-`/private/tmp/ingen-sentinel-workspace.fqFUDU` and
-`/private/tmp/ingen-sentinel-failure-workspace.aoumsG`.
+`/private/tmp/ingen-sentinel-workspace.ezgUfA` and
+`/private/tmp/ingen-sentinel-failure-workspace.n9eDRZ`.
 
 ## Verification caveat
 

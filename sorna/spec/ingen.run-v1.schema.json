@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.run-v1.schema.json",
+  "title": "InGen Sorna subject run",
+  "description": "The language-neutral execution record produced when Sorna evaluates a frozen behavioral oracle against a subject.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "created_at", "assurance", "contract", "contract_verdict", "subject", "summary", "rules"],
+  "properties": {
+    "schema": {"const": "ingen.run/v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "assurance": {"$ref": "#/$defs/assurance"},
+    "contract": {"$ref": "#/$defs/contract-reference"},
+    "oracle": {"$ref": "#/$defs/oracle-reference"},
+    "baseline": {"$ref": "#/$defs/baseline-reference"},
+    "contract_verdict": {"$ref": "#/$defs/contract-verdict"},
+    "subject": {"$ref": "#/$defs/subject"},
+    "lifecycle": {"$ref": "#/$defs/lifecycle"},
+    "summary": {"$ref": "#/$defs/summary"},
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/rule-result"}
+    },
+    "mutation": {"$ref": "#/$defs/mutation-result"}
+  },
+  "$defs": {
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "status", "limitations"],
+      "properties": {
+        "level": {"type": "integer", "minimum": 0},
+        "status": {"type": "string", "minLength": 1},
+        "observation_coverage": {"type": "string", "minLength": 1},
+        "limitations": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "contract-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "oracle-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "sha256"],
+      "properties": {
+        "schema": {"const": "ingen.oracle/v1"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "baseline-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_path", "run_id", "contract"],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "minLength": 1},
+        "contract": {"$ref": "#/$defs/contract-reference"},
+        "oracle": {"$ref": "#/$defs/oracle-reference"}
+      }
+    },
+    "contract-verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "error", "inconclusive"]},
+        "reason": {"type": "string"}
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_url", "adapter"],
+      "properties": {
+        "base_url": {"type": "string", "minLength": 1},
+        "adapter": {"type": "string", "minLength": 1},
+        "variant": {"type": "string"}
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "outcome", "events"],
+      "properties": {
+        "mode": {"type": "string", "minLength": 1},
+        "command": {"type": "array", "items": {"type": "string"}},
+        "working_dir": {"type": "string"},
+        "base_url": {"type": "string"},
+        "ready_path": {"type": "string"},
+        "started_at": {"type": "string", "format": "date-time"},
+        "ready_at": {"type": "string", "format": "date-time"},
+        "stopped_at": {"type": "string", "format": "date-time"},
+        "outcome": {"type": "string", "minLength": 1},
+        "exit_code": {"type": "integer"},
+        "sandbox": {"$ref": "#/$defs/sandbox"},
+        "access_telemetry": {"$ref": "#/$defs/access-telemetry"},
+        "events": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/lifecycle-event"}
+        }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "enforcement", "policy_sha256", "subject_id", "executable_path", "executable_sha256", "can_invoke_subject"],
+      "properties": {
+        "backend": {"type": "string", "minLength": 1},
+        "enforcement": {"type": "string", "minLength": 1},
+        "policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "subject_id": {"type": "string", "minLength": 1},
+        "executable_path": {"type": "string", "minLength": 1},
+        "executable_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "observed_executable_path": {"type": "string"},
+        "observed_executable_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "executable_observed_at": {"type": "string", "format": "date-time"},
+        "can_invoke_subject": {"type": "boolean"},
+        "allowed_tools": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "access-telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source", "event_count", "parse_errors", "process_tree_errors", "executable_sample_count", "executable_sampling_interval_ms", "executable_observation_count", "executable_observation_errors"],
+      "properties": {
+        "status": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "process_id": {"type": "integer", "minimum": 1},
+        "process_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+        "event_count": {"type": "integer", "minimum": 0},
+        "parse_errors": {"type": "integer", "minimum": 0},
+        "process_tree_errors": {"type": "integer", "minimum": 0},
+        "executable_sample_count": {"type": "integer", "minimum": 0},
+        "executable_sampling_interval_ms": {"type": "integer", "minimum": 0},
+        "executable_sampling_started_at": {"type": "string", "format": "date-time"},
+        "executable_sampling_stopped_at": {"type": "string", "format": "date-time"},
+        "executable_observation_count": {"type": "integer", "minimum": 0},
+        "executable_observation_errors": {"type": "integer", "minimum": 0},
+        "reason": {"type": "string"}
+      }
+    },
+    "lifecycle-event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "timestamp", "kind"],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 1},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "kind": {"type": "string", "minLength": 1},
+        "detail": {"type": "string"}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failed", "errors", "inconclusive", "skipped"],
+      "properties": {
+        "passed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "errors": {"type": "integer", "minimum": 0},
+        "inconclusive": {"type": "integer", "minimum": 0},
+        "skipped": {"type": "integer", "minimum": 0}
+      }
+    },
+    "rule-result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "case_id", "subject", "status", "request", "observation", "observation_sha256"],
+      "properties": {
+        "rule_id": {"type": "string"},
+        "case_id": {"type": "string"},
+        "subject": {"type": "string"},
+        "status": {"enum": ["pass", "fail", "error", "inconclusive", "skipped"]},
+        "setup": {"type": "array", "items": {"$ref": "#/$defs/step-result"}},
+        "request": {"$ref": "#/$defs/request"},
+        "observation": {"$ref": "#/$defs/observation"},
+        "observation_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "assertions": {"type": "array", "items": {"$ref": "#/$defs/assertion"}},
+        "reason": {"type": "string"}
+      }
+    },
+    "step-result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "request", "observation", "observation_sha256"],
+      "properties": {
+        "id": {"type": "string"},
+        "status": {"enum": ["pass", "fail", "error", "inconclusive", "skipped"]},
+        "request": {"$ref": "#/$defs/request"},
+        "observation": {"$ref": "#/$defs/observation"},
+        "observation_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "assertions": {"type": "array", "items": {"$ref": "#/$defs/assertion"}},
+        "reason": {"type": "string"}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "url"],
+      "properties": {
+        "method": {"type": "string"},
+        "url": {"type": "string"},
+        "body": {}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"type": "integer", "minimum": 0, "maximum": 999},
+        "events": {"type": "array", "items": {"type": "string"}},
+        "body": {},
+        "body_text": {"type": "string"}
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "expected", "actual", "status"],
+      "properties": {
+        "path": {"type": "string"},
+        "expected": {},
+        "actual": {},
+        "status": {"enum": ["pass", "fail"]},
+        "reason": {"type": "string"}
+      }
+    },
+    "mutation-result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spec", "outcome"],
+      "properties": {
+        "spec": {"$ref": "#/$defs/mutation-spec"},
+        "outcome": {"enum": ["killed", "survived", "inconclusive"]},
+        "expected_observations": {"type": "array", "items": {"$ref": "#/$defs/expected-observation"}},
+        "directly_failed_rules": {"type": "array", "items": {"type": "string"}},
+        "cascading_inconclusive": {"type": "array", "items": {"type": "string"}},
+        "unaffected_rules": {"type": "array", "items": {"type": "string"}},
+        "unobserved_expected": {"type": "array", "items": {"type": "string"}},
+        "reason": {"type": "string"}
+      }
+    },
+    "mutation-spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "plane", "description", "expected_rule_ids"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "plane": {"type": "string", "minLength": 1},
+        "operator": {"type": "string"},
+        "target": {"type": "string"},
+        "description": {"type": "string"},
+        "change": {"type": "object"},
+        "expected_rule_ids": {"type": "array", "items": {"type": "string"}},
+        "status": {"type": "string"}
+      }
+    },
+    "expected-observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "status"],
+      "properties": {
+        "rule_id": {"type": "string"},
+        "status": {"type": "string"}
+      }
+    }
+  }
+}

@@ -10,6 +10,8 @@ the four HTTP/JSON entrypoints listed there and leaves ID formatting and the
 internal queue implementation unspecified. Successful `POST /documents`
 responses also expose the public event signals `document.accepted` and
 `document.queued` through repeated `X-InGen-Event` headers.
+Their header order is meaningful to Malcolm ordered-event assertions for this
+single response.
 
 Run its tests with:
 

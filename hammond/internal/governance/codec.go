@@ -83,6 +83,16 @@ func DecodeReviewPolicyWithAuthoritySignatureVerifier(data []byte, reference Pol
 	return decodeReviewPolicy(data, reference, verifier)
 }
 
+// DecodeReviewPolicyWithTrustStore strictly decodes a policy and verifies any
+// referenced authority artifact with the active keys of a validated trust
+// snapshot.
+func DecodeReviewPolicyWithTrustStore(data []byte, reference PolicyReference, trust AuthorityTrustStore) (ReviewPolicy, error) {
+	if err := trust.Validate(); err != nil {
+		return ReviewPolicy{}, fmt.Errorf("validate Hammond authority trust: %w", err)
+	}
+	return DecodeReviewPolicyWithAuthoritySignatureVerifier(data, reference, trust.SignatureVerifier())
+}
+
 func decodeReviewPolicy(data []byte, reference PolicyReference, verifier AuthoritySignatureVerifier) (ReviewPolicy, error) {
 	var document reviewPolicyDocument
 	if err := decodeStrict(data, &document); err != nil {
@@ -145,6 +155,16 @@ func LoadReviewPolicyWithAuthoritySignatureVerifier(reference PolicyReference, v
 	return DecodeReviewPolicyWithAuthoritySignatureVerifier(data, reference, verifier)
 }
 
+// LoadReviewPolicyWithTrustStore loads a policy and verifies any referenced
+// authority artifact with the active keys of a validated trust snapshot.
+func LoadReviewPolicyWithTrustStore(reference PolicyReference, trust AuthorityTrustStore) (ReviewPolicy, error) {
+	data, err := readLocalArtifact(reference.Artifact.URI)
+	if err != nil {
+		return ReviewPolicy{}, fmt.Errorf("read Hammond review policy %s: %w", reference.Artifact.URI, err)
+	}
+	return DecodeReviewPolicyWithTrustStore(data, reference, trust)
+}
+
 // DecodeReviewAuthority strictly decodes an authority snapshot and binds its
 // exact bytes to the supplied reference.
 func DecodeReviewAuthority(data []byte, reference AuthorityReference) (ReviewAuthority, error) {
@@ -158,6 +178,15 @@ func DecodeReviewAuthorityWithSignatureVerifier(data []byte, reference Authority
 		return ReviewAuthority{}, fmt.Errorf("authority signature verifier is required")
 	}
 	return decodeReviewAuthority(data, reference, verifier)
+}
+
+// DecodeReviewAuthorityWithTrustStore strictly decodes and verifies a signed
+// authority artifact with the active keys of a validated trust snapshot.
+func DecodeReviewAuthorityWithTrustStore(data []byte, reference AuthorityReference, trust AuthorityTrustStore) (ReviewAuthority, error) {
+	if err := trust.Validate(); err != nil {
+		return ReviewAuthority{}, fmt.Errorf("validate Hammond authority trust: %w", err)
+	}
+	return DecodeReviewAuthorityWithSignatureVerifier(data, reference, trust.SignatureVerifier())
 }
 
 func decodeReviewAuthority(data []byte, reference AuthorityReference, verifier AuthoritySignatureVerifier) (ReviewAuthority, error) {
@@ -223,6 +252,16 @@ func LoadReviewAuthorityWithSignatureVerifier(reference AuthorityReference, veri
 		return ReviewAuthority{}, fmt.Errorf("read Hammond authority %s: %w", reference.Artifact.URI, err)
 	}
 	return DecodeReviewAuthorityWithSignatureVerifier(data, reference, verifier)
+}
+
+// LoadReviewAuthorityWithTrustStore loads and verifies an authority artifact
+// with the active keys of a validated trust snapshot.
+func LoadReviewAuthorityWithTrustStore(reference AuthorityReference, trust AuthorityTrustStore) (ReviewAuthority, error) {
+	data, err := readLocalArtifact(reference.Artifact.URI)
+	if err != nil {
+		return ReviewAuthority{}, fmt.Errorf("read Hammond authority %s: %w", reference.Artifact.URI, err)
+	}
+	return DecodeReviewAuthorityWithTrustStore(data, reference, trust)
 }
 
 func isEmptyAuthorityReference(reference AuthorityReference) bool {

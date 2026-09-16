@@ -26,10 +26,9 @@ contract shape.
 ## Why
 
 Malcolm's free-form given clauses do not yet have an executable lowering in
-Sorna, and negative setup clauses remain unsupported. Silently dropping either
-would produce an artifact that looks complete while asserting less than the
-source. The adapter therefore fails with an explicit message until a reviewed
-lowering exists.
+Sorna. Negative setup clauses now lower to an explicit list of `expect_not`
+preconditions, so their meaning is retained instead of being dropped or
+mistakenly applied to the target request.
 
 The healthcheck example provides a small stateless bridge proof. The
 document_flow example additionally proves request bodies, setup assertions,
@@ -62,10 +61,12 @@ The intermediate files default to .artifacts/malcolm-healthz.ir.json and
 - Request bodies currently contain only non-empty top-level string, integer,
   and boolean fields.
 - Stateful setup expectations are merged before lowering so status and body
-  assertions are checked by one setup step.
-- Target-rule must_not now preserves Sorna's negative strength for the same
-  lowerable expressions. `emit "event.name"` lowers to a required event
-  membership check; negative setup requirements remain rejected.
+  assertions are checked by one setup step. Positive requirements go under
+  `expect`; each negative requirement becomes one item under `expect_not`.
+- Target-rule must_not preserves Sorna's negative strength for the same
+  lowerable expressions. Setup `must_not` is a precondition: if the prohibited
+  expectation matches, the setup fails and the target becomes inconclusive.
+  `emit "event.name"` lowers to a required event membership check.
 - Passing Sorna contract validation proves structural compatibility, not that a
   running subject satisfies the resulting contract.
 

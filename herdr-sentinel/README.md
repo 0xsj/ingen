@@ -37,6 +37,16 @@ The receipt records the exact workspace-manifest bytes and a first
 events can refer to hashed artifacts without Sentinel reinterpreting their
 contents.
 
+When the project is outside the caller's working directory, bootstrap accepts
+the project root explicitly and keeps the recorded workspace path relative to
+it:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel run bootstrap \
+  --workspace workspaces/webhook-validation.yaml --root /path/to/project \
+  --output /path/to/project/.artifacts/sentinel-webhook-run.json
+```
+
 Compile the declaration-only capability handoff with:
 
 ```sh
@@ -46,6 +56,14 @@ make sentinel-capability-plan
 This checks that allowed and denied roots do not overlap and that the oracle
 writer denies every declared implementation root. It is ready for a future
 host adapter, but it is not itself an enforcement mechanism.
+
+When the project is outside the caller's working directory, load the manifest
+and its policy references from that project root explicitly:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel workspace capabilities \
+  --workspace workspaces/webhook-validation.yaml --root /path/to/project
+```
 
 The first execution handoff delegates the oracle-writer role to Sorna:
 

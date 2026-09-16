@@ -19,11 +19,12 @@ and JSON body unchanged.
 
 The `malcolm-sorna-flow-event-defect-run` target:
 
-1. creates and verifies the clean seven-case baseline;
+1. creates and verifies the clean eight-case baseline;
 2. reuses the exact frozen flow oracle;
 3. runs the event-removal subject under the same declared policies;
 4. binds the run to the baseline with Sorna's mutation metadata; and
-5. requires `create_document.requirement.3` to fail directly.
+5. requires `create_document.requirement.3` to fail directly. The ordered
+   event case also fails because its accepted-event prefix is missing.
 
 Sorna classifies the mutation as `killed`, so the command exits successfully
 while the mutation evidence still contains the expected failed rule.
@@ -49,9 +50,10 @@ Its `run.json` records the mutation outcome and the missing event assertion.
 - `killed` proves sensitivity to this declared event removal; it does not
   prove that the subject emits events correctly in every workflow.
 - The defect removes a transport signal, not an external broker publication.
-  Async delivery, ordering, and consumer receipt remain outside this slice.
+  Async delivery, cross-request ordering, and consumer receipt remain outside
+  this slice. The ordered assertion only checks relative order in one response.
 - The multi-event header remains observable after the mutation: the queued
-  event still passes while the accepted event fails.
+  event still passes while the accepted and ordered event assertions fail.
 - The mutation target must be a rule ID from the frozen oracle and the
   baseline must pass with matching contract, oracle, and policy identities.
 - The subject policy still permits only the flow's declared local HTTP port;

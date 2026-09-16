@@ -330,6 +330,36 @@ func TestLoadMembershipSnapshotWithSignatureVerifier(t *testing.T) {
 		t.Fatalf("error = %v, want future-dated membership snapshot", err)
 	}
 
+	nextDocument := document
+	nextDocument.Version = 2
+	nextPayload, err := canonicalMembershipPayload(nextDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextDocument.Signature = &AuthoritySignature{
+		Algorithm: AuthoritySignatureAlgorithmEd25519,
+		KeyID:     "directory-2026",
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(providerPrivateKey, nextPayload)),
+	}
+	nextData, err := json.Marshal(nextDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextDigest := sha256.Sum256(nextData)
+	nextReference := reference
+	nextReference.Version = nextDocument.Version
+	nextReference.Artifact.SHA256 = hex.EncodeToString(nextDigest[:])
+	rotated, err := snapshot.Rotate(nextData, nextReference, verifier)
+	if err != nil {
+		t.Fatalf("membership rotation error = %v", err)
+	}
+	if rotated.Reference.Version != 2 {
+		t.Fatalf("rotated membership version = %d, want 2", rotated.Reference.Version)
+	}
+	if _, err := rotated.Rotate(nextData, nextReference, verifier); err == nil || !strings.Contains(err.Error(), "version must increase") {
+		t.Fatalf("replayed membership rotation error = %v, want monotonicity failure", err)
+	}
+
 	document.Grants[0].Role = "security-reviewer"
 	tampered, err := json.Marshal(document)
 	if err != nil {
@@ -632,6 +662,81 @@ func TestHTTPMembershipProviderAppliesEndpointPolicyToRedirects(t *testing.T) {
 	}
 	if !callerRedirectPolicyCalled {
 		t.Fatal("caller redirect policy was not preserved")
+	}
+}
+
+func TestHTTPMembershipProviderPassesFinalRedirectEndpointToNormalizer(t *testing.T) {
+	providerPublicKey, providerPrivateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"members":["reviewer@example.test"]}`))
+	}))
+	defer targetServer.Close()
+	initialServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, targetServer.URL, http.StatusFound)
+	}))
+	defer initialServer.Close()
+
+	normalizer := MembershipResponseNormalizer(func(_ context.Context, sourceURI string, raw []byte) (NormalizedMembershipResponse, error) {
+		if sourceURI != targetServer.URL {
+			return NormalizedMembershipResponse{}, fmt.Errorf("normalizer source = %q, want final endpoint %q", sourceURI, targetServer.URL)
+		}
+		if string(raw) != `{"members":["reviewer@example.test"]}` {
+			return NormalizedMembershipResponse{}, fmt.Errorf("normalizer raw bytes = %q", raw)
+		}
+		document := membershipDocument{
+			Schema:   MembershipSchema,
+			ID:       "redirected-membership",
+			Version:  1,
+			IssuedAt: "2026-09-15T00:00:00Z",
+			Grants: []AuthorityGrant{{
+				Actor:     "reviewer@example.test",
+				Role:      "product-reviewer",
+				ValidFrom: "2026-09-15T00:00:00Z",
+			}},
+		}
+		payload, err := canonicalMembershipPayload(document)
+		if err != nil {
+			return NormalizedMembershipResponse{}, err
+		}
+		document.Signature = &AuthoritySignature{
+			Algorithm: AuthoritySignatureAlgorithmEd25519,
+			KeyID:     "directory-2026",
+			Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(providerPrivateKey, payload)),
+		}
+		data, err := json.Marshal(document)
+		if err != nil {
+			return NormalizedMembershipResponse{}, err
+		}
+		digest := sha256.Sum256(data)
+		return NormalizedMembershipResponse{
+			Data: data,
+			Reference: MembershipReference{
+				ID:      document.ID,
+				Version: document.Version,
+				Schema:  MembershipSchema,
+				Artifact: Artifact{
+					URI:    sourceURI,
+					SHA256: hex.EncodeToString(digest[:]),
+				},
+			},
+		}, nil
+	})
+	provider := HTTPMembershipProvider{
+		Endpoint:         initialServer.URL,
+		Client:           initialServer.Client(),
+		MaxResponseBytes: 1024,
+	}
+	snapshot, err := provider.FetchNormalized(context.Background(), normalizer, Ed25519AuthoritySignatureVerifier{
+		Keys: map[string]ed25519.PublicKey{"directory-2026": providerPublicKey},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Reference.ID != "redirected-membership" {
+		t.Fatalf("snapshot reference = %#v, want normalized redirect snapshot", snapshot.Reference)
 	}
 }
 
@@ -1113,6 +1218,25 @@ func TestLoadReviewAuthorityWithEd25519Signature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	trustStore := AuthorityTrustStore{
+		Reference: AuthorityTrustReference{
+			ID:      "authority-trust",
+			Version: 1,
+			Schema:  AuthorityTrustSchema,
+			Artifact: Artifact{
+				URI:    "authority-trust.json",
+				SHA256: strings.Repeat("a", 64),
+			},
+		},
+		Keys: map[string]ed25519.PublicKey{"test-authority": publicKey},
+	}
+	loadedThroughTrust, err := LoadReviewAuthorityWithTrustStore(reference, trustStore)
+	if err != nil {
+		t.Fatalf("load authority through trust store: %v", err)
+	}
+	if !loadedThroughTrust.Reference.Equal(reference) {
+		t.Fatalf("authority through trust store = %#v, want reference %#v", loadedThroughTrust.Reference, reference)
+	}
 	if authorized, err := loaded.Verify("reviewer@example.test", "product-reviewer", "2026-09-15T00:02:00Z"); err != nil || !authorized {
 		t.Fatalf("loaded authority verification = %v, %v; want authorized", authorized, err)
 	}
@@ -1144,6 +1268,12 @@ func TestLoadReviewAuthorityWithEd25519Signature(t *testing.T) {
 	}
 	if _, err := LoadReviewPolicyWithAuthoritySignatureVerifier(policyReference, verifier); err != nil {
 		t.Fatalf("load signed authority through policy: %v", err)
+	}
+	if _, err := LoadReviewPolicyWithTrustStore(policyReference, trustStore); err != nil {
+		t.Fatalf("load signed authority through trust-bound policy: %v", err)
+	}
+	if _, err := LoadReviewPolicyWithTrustStore(policyReference, AuthorityTrustStore{}); err == nil || !strings.Contains(err.Error(), "validate Hammond authority trust") {
+		t.Fatalf("invalid trust policy load error = %v, want trust validation failure", err)
 	}
 
 	document.Signature.Signature = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", ed25519.SignatureSize)))

@@ -62,6 +62,44 @@ func TestBundleCompareCommandSummaryOnly(t *testing.T) {
 	}
 }
 
+func TestSeriesCompareCommandSummaryOnly(t *testing.T) {
+	root := t.TempDir()
+	bundleRoot := filepath.Join(root, "bundle")
+	if err := os.MkdirAll(bundleRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflowHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	run := `{"schema":"ingen.nublar-run/v1","run_id":"run-1","workflow":{"id":"workflow","file":{"path":"workflow.yaml","sha256":"` + workflowHash + `"}},"status":"passed","exit_code":0,"checks":[{"id":"check","tool":"sorna","required":true,"status":"passed"}]}`
+	if err := os.WriteFile(filepath.Join(bundleRoot, "before.json"), []byte(run), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	afterRun := strings.Replace(run, `"status":"passed"`, `"status":"failed"`, 1)
+	if err := os.WriteFile(filepath.Join(bundleRoot, "after.json"), []byte(afterRun), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	comparison := `{"schema":"ingen.sattler-comparison-input/v0","before":{"nublar_run":"before.json"},"after":{"nublar_run":"after.json"}}`
+	comparisonPath := filepath.Join(bundleRoot, "comparison.json")
+	if err := os.WriteFile(comparisonPath, []byte(comparison), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	series := `{"schema":"ingen.sattler-comparison-series-input/v0","entries":[{"id":"one","manifest":"bundle/comparison.json"}]}`
+	seriesPath := filepath.Join(root, "series.json")
+	if err := os.WriteFile(seriesPath, []byte(series), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := captureStdout(t, func() int {
+		return seriesCompareCommand([]string{"compare", "--summary-only", "--format", "json", seriesPath})
+	})
+	var document sattler.SeriesSummaryReport
+	if err := json.Unmarshal([]byte(stdout), &document); err != nil {
+		t.Fatalf("stdout = %q, decode error = %v", stdout, err)
+	}
+	if document.Schema != "ingen.sattler-comparison-series-summary/v0" || document.Summary.Entries != 1 || strings.Contains(stdout, `"entries": [`) {
+		t.Fatalf("summary document = %+v, want one point-free series summary", document)
+	}
+}
+
 func captureStderr(t *testing.T, run func() int) string {
 	t.Helper()
 	read, write, err := os.Pipe()

@@ -26,6 +26,9 @@ When `RequireHTTPS` or `EndpointPolicy` is configured, Hammond reapplies the
 same endpoint checks to redirect targets before the injected client follows
 them. A caller-provided `http.Client.CheckRedirect` remains responsible for
 redirect limits and stop/continue behavior.
+If normalization is requested, the source URI passed to the normalizer is the
+final response request URL after those redirects, preserving the endpoint that
+actually produced the bytes.
 
 ## Why
 
@@ -47,6 +50,8 @@ process.
   semantically correct organization view.
 - A normalizer may establish completeness for its provider, but that claim is
   not inferred from an HTTP status or from Hammond's signature check.
+- The final response endpoint is source context, not an authorization proof;
+  endpoint policy and TLS/network controls still belong to the caller.
 
 ## Used in
 

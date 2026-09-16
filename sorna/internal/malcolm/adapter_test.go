@@ -91,6 +91,67 @@ func TestTranslateLowersEventRequirement(t *testing.T) {
 	}
 }
 
+func TestTranslateLowersOrderedEventRequirement(t *testing.T) {
+	ir := validIR(func(s *Scenario) {
+		s.Requirements[0].Expression = "emit in order [\"document.accepted\", \"document.queued\"]"
+	})
+	document, err := Translate(ir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := contract.Validate(document); len(problems) > 0 {
+		t.Fatalf("translated contract is invalid: %v", problems)
+	}
+	rule := document.Contract["rules"].([]any)[0].(map[string]any)
+	expect := rule["expect"].(map[string]any)
+	events := expect["events"].(map[string]any)
+	ordered := events["ordered"].([]any)
+	if len(ordered) != 2 || ordered[0] != "document.accepted" || ordered[1] != "document.queued" {
+		t.Fatalf("ordered event expectation = %#v, want accepted then queued", events)
+	}
+}
+
+func TestTranslateLowersNegativeSetupRequirement(t *testing.T) {
+	ir := validIR(func(s *Scenario) {
+		s.Setups = []Setup{{
+			Name: "prepare",
+			Request: &Request{Body: map[string]any{
+				"name": "welcome.md",
+			}},
+			When: When{
+				Method: "POST",
+				Path:   "/documents",
+			},
+			Requirements: []Requirement{
+				{Kind: "must", Expression: "response.status == 202"},
+				{Kind: "must_not", Expression: "response.body.error exists"},
+				{Kind: "must_not", Expression: "response.body.rejected exists"},
+			},
+		}}
+	})
+	document, err := Translate(ir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := contract.Validate(document); len(problems) > 0 {
+		t.Fatalf("translated contract is invalid: %v", problems)
+	}
+	rule := document.Contract["rules"].([]any)[0].(map[string]any)
+	setup := rule["given"].(map[string]any)["setup"].([]any)[0].(map[string]any)
+	if _, present := setup["expect"].(map[string]any)["status"]; !present {
+		t.Fatalf("positive setup expectation = %#v, want status", setup["expect"])
+	}
+	expectNot := setup["expect_not"].([]any)
+	if len(expectNot) != 2 {
+		t.Fatalf("negative setup expectations = %#v, want two independent expectations", setup["expect_not"])
+	}
+	expectNotBody := expectNot[0].(map[string]any)
+	body := expectNotBody["body"].(map[string]any)
+	if len(body["required"].([]any)) != 1 || body["required"].([]any)[0] != "error" {
+		t.Fatalf("negative setup expectation = %#v, want missing error", expectNot)
+	}
+}
+
 func TestTranslateLowersRequestBodyAndStatefulSetup(t *testing.T) {
 	ir := validIR(func(s *Scenario) {
 		s.State = stringPointer("document_accepted")
@@ -166,7 +227,7 @@ func TestTranslateRejectsMeaningItCannotLower(t *testing.T) {
 			want: "free-form given",
 		},
 		{
-			name: "stateful setup negative requirement",
+			name: "stateful setup unsupported requirement kind",
 			ir: validIR(func(s *Scenario) {
 				s.Setups = []Setup{{
 					Name: "prepare",
@@ -175,12 +236,12 @@ func TestTranslateRejectsMeaningItCannotLower(t *testing.T) {
 						Path:   "/documents",
 					},
 					Requirements: []Requirement{{
-						Kind:       "must_not",
+						Kind:       "should",
 						Expression: "response.status == 500",
 					}},
 				}}
 			}),
-			want: "stateful setup only supports must",
+			want: "kind must be must or must_not",
 		},
 		{
 			name: "unknown expression",

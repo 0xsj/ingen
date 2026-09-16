@@ -26,17 +26,29 @@ a temporary read-only snapshot, and invokes `sorna sandbox exec --policy ...`
 against that snapshot. Policy loading, Seatbelt profile generation, process
 restrictions, and enforcement evidence remain Sorna responsibilities. The
 workspace, policy, and frozen-oracle references are resolved under the supplied
-root with symlink escapes rejected before a handoff is prepared.
+root with symlink escapes rejected before a handoff is prepared. The capability
+compiler used by the CLI resolves the manifest and policy references under that
+same root, so the caller's working directory cannot substitute different input
+bytes before the adapter receives the plan.
 
 The verifier adapter composes Sorna's managed `run` command separately. It
 binds a frozen oracle plus distinct oracle and subject-policy snapshots, then
 passes subject lifecycle arguments through without reinterpreting them.
-Before launch, its subject root must resolve within the supplied project root;
-an escaping or unresolved subject root fails preparation.
+Before launch, its subject root must resolve to an existing directory within
+the supplied project root; an escaping, unresolved, or non-directory subject
+root fails preparation. When omitted, Sentinel passes `.` so the default is
+relative to the child process root rather than to the caller's working
+directory.
+Its evidence output directory is also validated relative to that root,
+including existing parent symlinks. A new output leaf is allowed when the
+existing parent is rooted, but an escaping symlink or existing regular file
+fails preparation before Sorna receives the command.
 
 When given a Sentinel receipt, the adapter records the policy handoff and
 Sorna start before launch, then records Sorna completion and the process
-outcome after launch.
+outcome after launch. If Sorna produced `run.json`, Sentinel registers it as a
+root-relative artifact and hashes it through the supplied root, independent of
+the caller's working directory.
 
 ## Why
 
@@ -56,6 +68,10 @@ reimplementing filesystem, network, or process rules.
 - The oracle and verifier adapters now have separate handoffs. The
   mutation-runner still needs explicit policy composition rather than an
   accidental reuse of either adapter's policy.
+- The verifier output path is checked against the same rooted resolver family
+  as its input references. This is a local preflight containment check; the
+  process still needs to run with the validated root and the path can change
+  after validation unless the host supplies stronger filesystem guarantees.
 - The command currently uses `go run ./sorna/cmd/sorna` as the local Sorna
   entry point; a packaged Sorna binary or Herdr-managed process should replace
   that default in a later integration.

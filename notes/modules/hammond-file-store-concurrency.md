@@ -15,8 +15,9 @@ earlier event.
 The file store now creates a `.hammond.lock` in its root and takes an advisory
 exclusive lock for registration and all coordinated mutations. `Get` and
 `List` take shared locks so readers do not observe the middle of an amendment
-publication. The existing temporary-file-plus-rename write remains the guard
-against partial record contents.
+publication. The temporary-file-plus-rename write remains the guard against
+partial record contents; Hammond also syncs the parent directory after the
+rename on filesystems that support directory synchronization.
 
 Callers that read before mutating can use `RecordRevision` with the conditional
 append, amendment, and supersession operations. Hammond compares the revision
@@ -49,6 +50,9 @@ and deliberately retry or surface the conflict.
 - The lock is advisory and depends on filesystem support for `flock`; it is a
   local-store mechanism, not a distributed coordination service.
 - The lock file is operational metadata and is ignored by record listing.
+- File and directory synchronization improves local crash durability, but does
+  not provide database transactions, hosted replication, or a hardware-level
+  durability guarantee.
 
 ## Used in
 

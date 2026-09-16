@@ -17,8 +17,10 @@ into one generic "test policy".
 4. writes distinct read-only snapshots for all three inputs;
 5. composes Sorna's existing `run` command with the snapshots and subject
    lifecycle arguments; and
-6. optionally records those inputs and Sorna's `run.json` in the Sentinel
-   lifecycle receipt.
+6. optionally records those inputs and Sorna's `run.json` in the Sentinel,
+   using a root-relative artifact reference; and
+7. keeps the Sorna artifact lookup and hash rooted even when the project root
+   is an absolute path outside the caller's working directory.
 
 Example:
 
@@ -61,6 +63,12 @@ for readiness, compares behavior, and writes the evidence bundle.
 - The verifier handoff is currently a local Sorna CLI adapter and reports
   `pending-host-enforcement` until Sorna runs. A packaged Sorna binary or
   Herdr-managed process is a later integration concern.
+- The handoff resolves the subject root as an existing rooted directory and
+  validates the evidence output directory before composing the Sorna command;
+  omitted subject roots default to `.` under the child process root.
+- The CLI loads the workspace manifest and policy references under the supplied
+  `--root` before composing the plan, keeping capability inputs in the same
+  rooted namespace as the verifier handoff.
 - Mutation execution is intentionally not included in this handoff yet. It
   needs its own policy composition and artifact lineage rather than reusing a
   verifier command by convention.

@@ -11,6 +11,7 @@ spec document_flow v2 {
     must response.body.id exists
     must emit "document.accepted"
     must emit "document.queued"
+    must emit in order ["document.accepted", "document.queued"]
   }
 
   scenario read_document {
@@ -23,6 +24,7 @@ spec document_flow v2 {
       when POST "/documents"
       must response.status == 202
       must response.body.id exists
+      must_not response.body.error exists
       capture document_id = response.body.id
     }
     when GET "/documents/{document_id}"

@@ -317,7 +317,11 @@ func (provider HTTPMembershipProvider) fetchBytes(ctx context.Context) ([]byte, 
 	if int64(len(data)) > provider.MaxResponseBytes {
 		return nil, "", fmt.Errorf("membership provider response exceeds %d bytes", provider.MaxResponseBytes)
 	}
-	return data, endpoint, nil
+	sourceEndpoint := endpoint
+	if response.Request != nil && response.Request.URL != nil {
+		sourceEndpoint = response.Request.URL.String()
+	}
+	return data, sourceEndpoint, nil
 }
 
 func (provider HTTPMembershipProvider) resolveEndpoint(ctx context.Context) (string, error) {

@@ -17,12 +17,23 @@ check with:
 make sorna-alpha-check
 ```
 
+The cross-language artifact boundary includes the published
+[`ingen.run/v1`](spec/ingen.run-v1.schema.json) execution record and
+[`sorna.evidence/v1`](spec/sorna.evidence-v1.schema.json) evidence manifest.
+The run records what the frozen oracle observed; the manifest binds that run to
+policies and checksummed files.
+
+Mutation campaigns publish their aggregate through
+[`ingen.mutation-campaign-result/v1`](spec/ingen.mutation-campaign-result-v1.schema.json).
+The result is loaded canonically and keeps each mutation's evidence hashes and
+diagnosis attached to the aggregate outcome.
+
 Malcolm can hand its JSON IR slice to Sorna through the small `sorna-malcolm`
 adapter. The adapter intentionally accepts only meaning it can lower without
 loss: typed top-level request bodies, stateful setup requests with positive
-status/body assertions, top-level response field equality/presence, captures
-of top-level response fields, and explicit `X-InGen-Event` event signals. The
-repeatable repository example is:
+and negative status/body assertions, top-level response field
+equality/presence, captures of top-level response fields, and explicit
+`X-InGen-Event` event signals. The repeatable repository example is:
 
 ~~~sh
 make malcolm-sorna-contract
@@ -44,9 +55,10 @@ contract, including executable `given.body`, `given.setup`, `given.state`, and
 capture data.
 
 The flow also includes `must emit "document.accepted"`. The adapter lowers
-this to `expect.events.required`, and the HTTP/JSON runner observes event names
-from the subject's `X-InGen-Event` response header. This is a public subject
-signal, separate from Sorna lifecycle and host-access telemetry.
+this to `expect.events.required` and `expect.events.ordered`, and the HTTP/JSON
+runner observes event names from the subject's `X-InGen-Event` response header.
+The ordered form checks relative order within one response; both are public
+subject signals, separate from Sorna lifecycle and host-access telemetry.
 
 The full stateful and event behavioral proof is:
 

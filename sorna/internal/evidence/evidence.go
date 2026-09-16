@@ -17,6 +17,8 @@ import (
 	"ingen/sorna/internal/runner"
 )
 
+const Schema = "sorna.evidence/v1"
+
 // Bundle describes the files written for one run.
 type Bundle struct {
 	RootDir               string
@@ -224,7 +226,7 @@ func WriteBundleWithPolicies(outputDir string, record runner.RunRecord, sealedPo
 		subjectPolicyReference = &reference
 	}
 	manifest := Manifest{
-		Schema:          "sorna.evidence/v1",
+		Schema:          Schema,
 		RunID:           record.RunID,
 		CreatedAt:       record.CreatedAt,
 		Assurance:       record.Assurance,
@@ -281,15 +283,11 @@ func AttachCampaignProvenance(outputDir string, input CampaignProvenanceInput) e
 	}
 
 	manifestPath := filepath.Join(outputDir, "manifest.json")
-	manifestBytes, err := os.ReadFile(manifestPath)
+	manifest, err := LoadManifestFile(manifestPath)
 	if err != nil {
-		return fmt.Errorf("read evidence manifest: %w", err)
+		return fmt.Errorf("load evidence manifest: %w", err)
 	}
-	var manifest Manifest
-	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		return fmt.Errorf("decode evidence manifest: %w", err)
-	}
-	if manifest.Schema != "sorna.evidence/v1" {
+	if manifest.Schema != Schema {
 		return fmt.Errorf("campaign provenance requires a Sorna run evidence bundle, got %q", manifest.Schema)
 	}
 	if manifest.Campaign != nil {
@@ -501,20 +499,16 @@ func verifyBundleSemantics(outputDir string, checksums map[string]bool) error {
 				return nil
 			},
 		)
-	case "sorna.evidence/v1":
-		var manifest Manifest
-		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-			return fmt.Errorf("decode evidence manifest: %w", err)
-		}
-		runBytes, err := os.ReadFile(filepath.Join(outputDir, "run.json"))
+	case Schema:
+		manifest, err := LoadManifestFile(filepath.Join(outputDir, "manifest.json"))
 		if err != nil {
-			return fmt.Errorf("read run: %w", err)
+			return fmt.Errorf("load evidence manifest: %w", err)
 		}
-		var record runner.RunRecord
-		if err := json.Unmarshal(runBytes, &record); err != nil {
-			return fmt.Errorf("decode run: %w", err)
+		record, err := runner.LoadFile(filepath.Join(outputDir, "run.json"))
+		if err != nil {
+			return fmt.Errorf("load run: %w", err)
 		}
-		if record.Schema != "ingen.run/v1" || manifest.RunID != record.RunID || manifest.Contract != record.Contract || !sameOracle(manifest.Oracle, record.Oracle) || manifest.Subject != record.Subject || !sameBaseline(manifest.Baseline, record.Baseline) {
+		if record.Schema != runner.Schema || manifest.RunID != record.RunID || manifest.Contract != record.Contract || !sameOracle(manifest.Oracle, record.Oracle) || manifest.Subject != record.Subject || !sameBaseline(manifest.Baseline, record.Baseline) {
 			return fmt.Errorf("evidence manifest identity does not match run identity")
 		}
 		if err := verifyCampaignProvenance(outputDir, manifest, checksums); err != nil {

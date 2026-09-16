@@ -1,9 +1,7 @@
 package evidence
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 
@@ -59,26 +57,18 @@ func ValidateBaseline(outputDir string, requirements BaselineRequirements) (runn
 }
 
 func loadRun(outputDir string) (Manifest, runner.RunRecord, error) {
-	manifestBytes, err := os.ReadFile(filepath.Join(outputDir, "manifest.json"))
+	manifest, err := LoadManifestFile(filepath.Join(outputDir, "manifest.json"))
 	if err != nil {
-		return Manifest{}, runner.RunRecord{}, fmt.Errorf("read baseline manifest: %w", err)
+		return Manifest{}, runner.RunRecord{}, fmt.Errorf("load baseline manifest: %w", err)
 	}
-	var manifest Manifest
-	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		return Manifest{}, runner.RunRecord{}, fmt.Errorf("decode baseline manifest: %w", err)
-	}
-	if manifest.Schema != "sorna.evidence/v1" {
+	if manifest.Schema != Schema {
 		return Manifest{}, runner.RunRecord{}, fmt.Errorf("baseline manifest schema must be sorna.evidence/v1, got %q", manifest.Schema)
 	}
-	runBytes, err := os.ReadFile(filepath.Join(outputDir, "run.json"))
+	record, err := runner.LoadFile(filepath.Join(outputDir, "run.json"))
 	if err != nil {
-		return Manifest{}, runner.RunRecord{}, fmt.Errorf("read baseline run: %w", err)
+		return Manifest{}, runner.RunRecord{}, fmt.Errorf("load baseline run: %w", err)
 	}
-	var record runner.RunRecord
-	if err := json.Unmarshal(runBytes, &record); err != nil {
-		return Manifest{}, runner.RunRecord{}, fmt.Errorf("decode baseline run: %w", err)
-	}
-	if record.Schema != "ingen.run/v1" {
+	if record.Schema != runner.Schema {
 		return Manifest{}, runner.RunRecord{}, fmt.Errorf("baseline run schema must be ingen.run/v1, got %q", record.Schema)
 	}
 	if manifest.RunID != record.RunID || manifest.Contract != record.Contract || !sameOracle(manifest.Oracle, record.Oracle) {

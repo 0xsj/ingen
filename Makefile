@@ -210,7 +210,7 @@ malcolm-sorna-flow-seal: malcolm-sorna-flow-contract ## Seal the Malcolm request
 malcolm-sorna-flow-oracle-freeze: malcolm-sorna-flow-seal ## Freeze an oracle from the Malcolm request-body/stateful contract
 	$(GO_CMD) run ./sorna/cmd/sorna oracle freeze --contract "$(MALCOLM_FLOW_CONTRACT_OUTPUT)" --policy "$(MALCOLM_FLOW_ORACLE_POLICY)" --root . --output-dir "$(MALCOLM_FLOW_ORACLE_OUTPUT_DIR)"
 
-malcolm-sorna-flow-run: malcolm-sorna-flow-oracle-freeze subject-build ## Run the Malcolm request-body/stateful/event oracle against the managed document subject
+malcolm-sorna-flow-run: malcolm-sorna-flow-oracle-freeze subject-build ## Run the Malcolm request-body/stateful/negative-setup/event oracle against the managed document subject
 	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(MALCOLM_FLOW_ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(MALCOLM_FLOW_ORACLE_POLICY)" --subject-policy "$(MALCOLM_FLOW_SUBJECT_POLICY)" --subject-root . --base-url "$(SUBJECT_URL)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant malcolm-flow --output-dir "$(MALCOLM_FLOW_RUN_OUTPUT_DIR)"
 	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(MALCOLM_FLOW_RUN_OUTPUT_DIR)"
 
@@ -220,7 +220,7 @@ malcolm-sorna-flow-event-defect-build: ## Build the controlled Malcolm event-rem
 
 malcolm-sorna-flow-event-defect-run: malcolm-sorna-flow-run malcolm-sorna-flow-event-defect-build ## Prove the Malcolm event assertion kills an event-removal mutation
 	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(MALCOLM_FLOW_ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(MALCOLM_FLOW_ORACLE_POLICY)" --subject-policy "$(MALCOLM_FLOW_SUBJECT_POLICY)" --subject-root . --baseline-evidence "$(MALCOLM_FLOW_RUN_OUTPUT_DIR)" --base-url "$(MALCOLM_FLOW_EVENT_DEFECT_URL)" --subject-command "$(MALCOLM_FLOW_EVENT_DEFECT_BINARY)" --subject-arg=-addr --subject-arg "$(MALCOLM_FLOW_EVENT_DEFECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant malcolm-flow-event-removed --mutation-id malcolm-flow-remove-accepted-event --mutation-plane implementation --mutation-description "remove the document.accepted event signal" --expected-rule create_document.requirement.3 --output-dir "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)"
-	jq -e '(.mutation.outcome == "killed") and any(.rules[]; (.rule_id == "create_document.requirement.3") and (.status == "fail") and any(.assertions[]; (.path == "events.document.accepted") and (.status == "fail")))' "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)/run.json"
+	jq -e '(.mutation.outcome == "killed") and any(.rules[]; (.rule_id == "create_document.requirement.3") and (.status == "fail") and any(.assertions[]; (.path == "events.document.accepted") and (.status == "fail"))) and any(.rules[]; (.rule_id == "create_document.requirement.5") and (.status == "fail") and any(.assertions[]; (.path == "events.order") and (.status == "fail")))' "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)/run.json"
 	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)"
 
 malcolm-sorna-seal: malcolm-sorna-contract ## Seal the Malcolm-generated Sorna contract

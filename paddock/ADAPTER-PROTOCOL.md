@@ -71,6 +71,31 @@ which keeps helper paths portable. A profile cannot be combined with explicit
 
 The profile schema is
 [`spec/paddock.adapter-profile-v1.schema.json`](spec/paddock.adapter-profile-v1.schema.json).
+Validate a profile before using it with:
+
+```sh
+paddock adapter profile validate --input profile.yaml
+```
+
+This checks the profile shape and executable availability without starting the
+adapter. JSON mode emits the
+[`paddock.adapter-profile-validation/v1`](spec/paddock.adapter-profile-validation-v1.schema.json)
+diagnostic document.
+
+For CI integrity binding, verify the exact profile bytes against a reviewed
+digest:
+
+```sh
+paddock adapter profile verify \
+  --input profile.yaml \
+  --expected-sha256 <lowercase-sha256> \
+  --format json
+```
+
+The command also performs profile and executable preflight. A digest mismatch
+returns exit code `1`; malformed or unusable profile input returns `2`. Its
+machine-readable contract is
+[`spec/paddock.adapter-profile-verification-v1.schema.json`](spec/paddock.adapter-profile-verification-v1.schema.json).
 
 ## Request
 
