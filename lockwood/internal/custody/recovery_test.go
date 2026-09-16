@@ -59,6 +59,40 @@ func TestIngestorRecoversPendingRecordWithoutRepublishingBlob(t *testing.T) {
 	}
 }
 
+func TestIngestorRecoversWithMemoryBackends(t *testing.T) {
+	artifacts := store.NewMemory()
+	records := NewMemory()
+	if err := records.Put(testRecord(t, "lockwood-memory-recovery-conflict")); err != nil {
+		t.Fatal(err)
+	}
+	ingestor, err := NewIngestor(artifacts, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ingestor.Accept(bytes.NewBufferString("memory recovery"), IntakeRequest{
+		CustodyID: "lockwood-memory-recovery-conflict",
+		MediaType: "text/plain",
+		Producer:  Producer{Tool: "example", Kind: "memory-recovery"},
+		Source:    Source{Path: "memory-recovery.txt"},
+		Handling:  Handling{Redaction: "none", RetentionClass: "default"},
+	})
+	var intakeErr *IntakeError
+	if !errors.As(err, &intakeErr) {
+		t.Fatalf("Accept error = %v, want IntakeError", err)
+	}
+	recoveredRecords := NewMemory()
+	recovering, err := NewIngestor(artifacts, recoveredRecords)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recovering.Recover(intakeErr.Record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyRecord(recoveredRecords, artifacts, intakeErr.Record.CustodyID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReconcileReportsOrphansDanglingReferencesAndCorruption(t *testing.T) {
 	root := t.TempDir()
 	artifacts, err := store.NewFilesystem(root)

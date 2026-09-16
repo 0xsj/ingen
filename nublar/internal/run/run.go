@@ -2,6 +2,7 @@
 package run
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -308,8 +309,17 @@ func LoadFile(path string) (Run, error) {
 	if err != nil {
 		return Run{}, fmt.Errorf("read Nublar run %s: %w", path, err)
 	}
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
 	var r Run
-	if err := json.Unmarshal(contents, &r); err != nil {
+	if err := decoder.Decode(&r); err != nil {
+		return Run{}, fmt.Errorf("parse Nublar run %s: %w", path, err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return Run{}, fmt.Errorf("parse Nublar run %s: multiple JSON values are not supported", path)
+		}
 		return Run{}, fmt.Errorf("parse Nublar run %s: %w", path, err)
 	}
 	if err := r.Validate(); err != nil {

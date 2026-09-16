@@ -90,7 +90,7 @@ func (record Record) ValidateWithPolicy(policy ReviewPolicy) error {
 }
 
 func validatePolicyActorRoles(events []Event, policy ReviewPolicy) []string {
-	if len(policy.ActorRoles) == 0 {
+	if !policy.hasAuthorityVerifier() {
 		return nil
 	}
 	problems := make([]string, 0)
@@ -98,7 +98,10 @@ func validatePolicyActorRoles(events []Event, policy ReviewPolicy) []string {
 		if event.Type != EventApprovalRecorded && event.Type != EventRejectionRecorded {
 			continue
 		}
-		if !policy.authorizes(event.Actor, event.Role) {
+		authorized, err := policy.authorizes(event.Actor, event.Role, event.At)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("events[%d] authority verification failed: %v", index, err))
+		} else if !authorized {
 			problems = append(problems, fmt.Sprintf("events[%d].actor is not authorized for role %q by the supplied review policy", index, event.Role))
 		}
 	}
@@ -164,6 +167,86 @@ func validatePolicyReference(reference PolicyReference, path string) []string {
 	}
 	if reference.Schema != PolicySchema {
 		problems = append(problems, path+".schema must be "+PolicySchema)
+	}
+	if strings.TrimSpace(reference.Artifact.URI) == "" {
+		problems = append(problems, path+".artifact.uri is required")
+	}
+	if !validSHA256(reference.Artifact.SHA256) {
+		problems = append(problems, path+".artifact.sha256 must be a lowercase SHA-256 digest")
+	}
+	return problems
+}
+
+func validateAuthorityReference(reference AuthorityReference, path string) []string {
+	problems := make([]string, 0)
+	if strings.TrimSpace(reference.ID) == "" {
+		problems = append(problems, path+".id is required")
+	}
+	if reference.Version < 1 {
+		problems = append(problems, path+".version must be positive")
+	}
+	if reference.Schema != AuthoritySchema {
+		problems = append(problems, path+".schema must be "+AuthoritySchema)
+	}
+	if strings.TrimSpace(reference.Artifact.URI) == "" {
+		problems = append(problems, path+".artifact.uri is required")
+	}
+	if !validSHA256(reference.Artifact.SHA256) {
+		problems = append(problems, path+".artifact.sha256 must be a lowercase SHA-256 digest")
+	}
+	return problems
+}
+
+func validateAuthorityTrustReference(reference AuthorityTrustReference, path string) []string {
+	problems := make([]string, 0)
+	if strings.TrimSpace(reference.ID) == "" {
+		problems = append(problems, path+".id is required")
+	}
+	if reference.Version < 1 {
+		problems = append(problems, path+".version must be positive")
+	}
+	if reference.Schema != AuthorityTrustSchema {
+		problems = append(problems, path+".schema must be "+AuthorityTrustSchema)
+	}
+	if strings.TrimSpace(reference.Artifact.URI) == "" {
+		problems = append(problems, path+".artifact.uri is required")
+	}
+	if !validSHA256(reference.Artifact.SHA256) {
+		problems = append(problems, path+".artifact.sha256 must be a lowercase SHA-256 digest")
+	}
+	return problems
+}
+
+func validateAuthorityRootReference(reference AuthorityRootReference, path string) []string {
+	problems := make([]string, 0)
+	if strings.TrimSpace(reference.ID) == "" {
+		problems = append(problems, path+".id is required")
+	}
+	if reference.Version < 1 {
+		problems = append(problems, path+".version must be positive")
+	}
+	if reference.Schema != AuthorityRootSchema {
+		problems = append(problems, path+".schema must be "+AuthorityRootSchema)
+	}
+	if strings.TrimSpace(reference.Artifact.URI) == "" {
+		problems = append(problems, path+".artifact.uri is required")
+	}
+	if !validSHA256(reference.Artifact.SHA256) {
+		problems = append(problems, path+".artifact.sha256 must be a lowercase SHA-256 digest")
+	}
+	return problems
+}
+
+func validateMembershipReference(reference MembershipReference, path string) []string {
+	problems := make([]string, 0)
+	if strings.TrimSpace(reference.ID) == "" {
+		problems = append(problems, path+".id is required")
+	}
+	if reference.Version < 1 {
+		problems = append(problems, path+".version must be positive")
+	}
+	if reference.Schema != MembershipSchema {
+		problems = append(problems, path+".schema must be "+MembershipSchema)
 	}
 	if strings.TrimSpace(reference.Artifact.URI) == "" {
 		problems = append(problems, path+".artifact.uri is required")

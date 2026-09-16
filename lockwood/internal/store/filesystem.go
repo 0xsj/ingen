@@ -1,8 +1,6 @@
 package store
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +8,7 @@ import (
 	"strings"
 
 	"ingen/lockwood/internal/artifact"
+	"ingen/lockwood/internal/integrity"
 )
 
 type Filesystem struct {
@@ -56,12 +55,7 @@ func (s *Filesystem) Put(reader io.Reader, options PutOptions) (artifact.Referen
 		_ = os.Remove(tempName)
 	}()
 
-	hasher := sha256.New()
-	input := reader
-	if options.MaxBytes > 0 {
-		input = io.LimitReader(reader, options.MaxBytes)
-	}
-	size, err := io.Copy(io.MultiWriter(temp, hasher), input)
+	result, err := integrity.Copy(temp, reader, options.MaxBytes)
 	if err != nil {
 		_ = temp.Close()
 		return artifact.Reference{}, fmt.Errorf("write temporary artifact: %w", err)
@@ -73,21 +67,11 @@ func (s *Filesystem) Put(reader io.Reader, options PutOptions) (artifact.Referen
 	if err := temp.Close(); err != nil {
 		return artifact.Reference{}, fmt.Errorf("close temporary artifact: %w", err)
 	}
-	if options.MaxBytes > 0 && size == options.MaxBytes {
-		var extra [1]byte
-		n, readErr := io.ReadFull(reader, extra[:])
-		if n > 0 {
-			return artifact.Reference{}, fmt.Errorf("artifact exceeds maximum size of %d bytes", options.MaxBytes)
-		}
-		if readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
-			return artifact.Reference{}, fmt.Errorf("check artifact size: %w", readErr)
-		}
+	if err := integrity.VerifyDigest(result.Digest, options.ExpectedDigest); err != nil {
+		return artifact.Reference{}, err
 	}
-
-	digest := artifact.SHA256Algorithm + ":" + hex.EncodeToString(hasher.Sum(nil))
-	if options.ExpectedDigest != "" && options.ExpectedDigest != digest {
-		return artifact.Reference{}, fmt.Errorf("expected digest %s, computed %s", options.ExpectedDigest, digest)
-	}
+	digest := result.Digest
+	size := result.SizeBytes
 
 	path, err := s.blobPath(digest)
 	if err != nil {
@@ -166,13 +150,12 @@ func (s *Filesystem) Verify(digest string) error {
 	}
 	defer file.Close()
 
-	hasher := sha256.New()
-	if _, err := io.Copy(hasher, file); err != nil {
+	result, err := integrity.Copy(io.Discard, file, 0)
+	if err != nil {
 		return fmt.Errorf("hash artifact: %w", err)
 	}
-	actual := artifact.SHA256Algorithm + ":" + hex.EncodeToString(hasher.Sum(nil))
-	if actual != digest {
-		return fmt.Errorf("artifact digest mismatch: got %s, want %s", actual, digest)
+	if result.Digest != digest {
+		return fmt.Errorf("artifact digest mismatch: got %s, want %s", result.Digest, digest)
 	}
 	return nil
 }

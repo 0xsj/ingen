@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -10,6 +12,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"ingen/lockwood/internal/attestation"
+	"ingen/lockwood/internal/custody"
 )
 
 func TestCLIEndToEnd(t *testing.T) {
@@ -44,6 +49,15 @@ func TestCLIEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(inspectOutput.String(), digest) {
 		t.Fatalf("inspect output does not contain digest: %s", inspectOutput.String())
+	}
+
+	var recordDigestOutput bytes.Buffer
+	if code := run([]string{"record-digest", "--root", root, "lockwood-cli-0001"}, strings.NewReader(""), &recordDigestOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("record-digest exit code = %d", code)
+	}
+	recordDigest := strings.TrimSpace(recordDigestOutput.String())
+	if !strings.HasPrefix(recordDigest, "sha256:") || len(recordDigest) != len("sha256:")+64 {
+		t.Fatalf("record digest = %q, want sha256 digest", recordDigest)
 	}
 
 	var findOutput bytes.Buffer
@@ -243,6 +257,80 @@ func TestCLIImportCIResult(t *testing.T) {
 	}
 	if record["artifact"].(map[string]any)["media_type"] != "application/vnd.ingen.ci-result+json" {
 		t.Fatalf("imported media type = %+v", record["artifact"])
+	}
+}
+
+func TestCLIVerifyAttestation(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(t.TempDir(), "attested.txt")
+	if err := os.WriteFile(input, []byte("attested bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const custodyID = "lockwood-cli-attestation-0001"
+	var putOutput bytes.Buffer
+	if code := run([]string{
+		"put",
+		"--root", root,
+		"--id", custodyID,
+		"--media-type", "text/plain",
+		"--producer", "example",
+		"--kind", "attestation-fixture",
+		input,
+	}, strings.NewReader(""), &putOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("put exit code = %d", code)
+	}
+	var record custody.Record
+	if err := json.Unmarshal(putOutput.Bytes(), &record); err != nil {
+		t.Fatalf("decode put output: %v", err)
+	}
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{18}, ed25519.SeedSize))
+	envelope, err := attestation.Sign(record, "review-key-2026-01", privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, _, err := openStores(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := attestation.Publish(envelope, artifacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKeyPath := filepath.Join(t.TempDir(), "review-key.pub")
+	encodedKey := base64.StdEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey)) + "\n"
+	if err := os.WriteFile(publicKeyPath, []byte(encodedKey), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if code := run([]string{
+		"verify-attestation",
+		"--root", root,
+		"--id", custodyID,
+		"--public-key", publicKeyPath,
+		ref.Digest,
+	}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("verify-attestation exit code = %d", code)
+	}
+	if !strings.Contains(output.String(), `"key_id": "review-key-2026-01"`) {
+		t.Fatalf("verify-attestation output = %s", output.String())
+	}
+
+	w := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{19}, ed25519.SeedSize))
+	if err := os.WriteFile(publicKeyPath, []byte(base64.StdEncoding.EncodeToString(w.Public().(ed25519.PublicKey))+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if code := run([]string{
+		"verify-attestation",
+		"--root", root,
+		"--id", custodyID,
+		"--public-key", publicKeyPath,
+		ref.Digest,
+	}, strings.NewReader(""), &bytes.Buffer{}, &stderr); code == 0 {
+		t.Fatal("verify-attestation accepted a wrong public key")
+	}
+	if !strings.Contains(stderr.String(), "verification failed") {
+		t.Fatalf("wrong-key stderr = %q", stderr.String())
 	}
 }
 

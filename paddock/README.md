@@ -190,7 +190,11 @@ status, and suggested remediation. It also includes per-rule counts for total,
 active, blocking, waived, and baselined findings, plus an explicit triage
 outcome of `remediate`, `review`, `accepted`, or `clear`. This allows an LLM
 agent or CI reviewer to triage a large report before inspecting each edge. It
-never changes the underlying verdict. Use `--rule <id>` to select one rule, or
+never changes the underlying verdict. Deny-rule remediation suggestions include
+the normalized denied targets, including internal path and external package
+patterns. When multiple rules report the same source-to-target edge, each JSON
+finding includes the other rule IDs in `related_rules`, and text mode emits a
+matching `Related:` hint. Use `--rule <id>` to select one rule, or
 `--status all|active|blocking|advisory|waived|baselined|expired-waiver` to
 select a finding state. `blocking` selects active error findings, including
 expired waivers. Filtered output records its selection and retains the original
@@ -401,6 +405,11 @@ The service fixtures are in [`examples/services/`](examples/services/README.md).
 The acceptance suite runs every good and violating subject through the CLI,
 including a deliberately cyclic Go subject, and verifies invalid-policy
 failures and the machine-readable report shape.
+
+The real-project translation benchmark is
+[`examples/heyrian-platform-subset.yaml`](examples/heyrian-platform-subset.yaml),
+with its scope and semantic comparison notes in
+[`examples/heyrian-platform-subset.md`](examples/heyrian-platform-subset.md).
 
 Run the focused suite with:
 

@@ -75,6 +75,15 @@ type Record struct {
 	Handling   Handling           `json:"handling"`
 }
 
+// RecordStore is the custody-record backend contract. Implementations must
+// validate records, preserve canonical field values, reject conflicting
+// custody IDs, and return records in deterministic order from List.
+type RecordStore interface {
+	Put(record Record) error
+	Get(custodyID string) (Record, error)
+	List() ([]Record, error)
+}
+
 var custodyIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 func (record Record) Validate() error {

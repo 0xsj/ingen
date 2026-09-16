@@ -1,0 +1,9 @@
+{
+  "schema": "ingen.hammond-authority/v1",
+  "id": "local-reviewers",
+  "version": 1,
+  "actors": {
+    "reviewer": ["product-reviewer"],
+    "reviewer@example.test": ["product-reviewer"]
+  }
+}

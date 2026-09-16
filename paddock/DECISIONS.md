@@ -1,6 +1,6 @@
 # Paddock development decisions
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 This is a working decision log for Paddock development. It records product
 boundaries and unresolved design choices; it is not a replacement for the
@@ -108,6 +108,42 @@ versioned schemas, sealed policy locks, or CI verdicts.
   filter persisted graphs as well as built-in adapter graphs. A Heyrian-shaped
   scope reduced Paddock's graph from 2,876 source units/8,573 edges to 1,864
   source units/6,980 edges.
+- A translated Heyrian platform subset now passes ten representative Paddock
+  rules with zero findings. The complete comparison had 2,175 in-repository
+  TypeScript/Svelte source units in both tools. Their total graph
+  counts intentionally differ: dependency-cruiser exposes external and asset
+  modules, while Paddock represents those as edge target kinds. This is
+  sufficient evidence for a semantic rule comparison, not a claim of identical
+  graph accounting.
+- The latest Heyrian replay is complete again. Paddock's 13-rule subset passes
+  with 2,209 source units and 8,215 edges; dependency-cruiser reports 2,302
+  total modules, 9,382 dependencies, and zero violations across 13 rules. Both
+  tools enumerate the same 2,209 in-repository TypeScript/Svelte source paths.
+  No target-project changes were made to produce this result.
+
+## Translation boundary from this cycle
+
+- Keep `examples/heyrian-platform-subset.yaml` as a real-policy benchmark, but
+  do not present it as a full dependency-cruiser migration. It covers kernel,
+  HTTP, services, root, and platform-cycle constraints that map directly to
+  current components and rules.
+- Use reserved `path`/`path-not` rule selectors for path predicates rather than
+  forcing every source unit into a positive client/server component split.
+  `|`-joined alternatives cover the compound server-only predicate observed in
+  Heyrian while leaving component classification positive and reviewable.
+- Keep external package-family ownership at the edge level. The current graph
+  retains the raw external import name, and `external: "@vendor/*"` matches
+  package families without expanding vendor code. Do not add richer package
+  metadata unless a real adapter needs it.
+- Use internal target `path` patterns for concrete adapter and portability
+  boundaries. This keeps repository-specific folder ownership expressible
+  without introducing a new rule kind or over-classifying every source unit.
+- Keep explanation remediation deterministic and grounded in the normalized
+  rule summary. Deny-dependency suggestions now repeat the denied targets so an
+  agent can see the boundary constraint without reparsing the policy file.
+- Preserve duplicate rule signals but relate them by source, target, and source
+  location. This lets an agent collapse repeated symptoms around one edge while
+  keeping every rule's independent attribution available for review.
 
 ## Scope decision from this cycle
 
@@ -190,6 +226,10 @@ not need two authoring syntaxes yet.
 
 ## Next development batch
 
-Translate Heyrian's existing platform rules into a small Paddock policy and
-compare the scoped Paddock report with its dependency-cruiser check. Prioritize
-observed semantic differences over adding another rule kind.
+The Heyrian translation cluster is complete for the current 13-rule config:
+adapter-folder ownership, memory-adapter selection, and configuration
+portability are all represented and pass the real-project replay. Keep the
+Heyrian source-path parity check and external-package fixture as regression
+benchmarks. The next batch should be driven by a concrete false positive,
+adapter metadata need, or authoring ergonomics gap rather than another
+speculative rule kind.

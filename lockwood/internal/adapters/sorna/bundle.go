@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"ingen/lockwood/internal/artifact"
 	"ingen/lockwood/internal/custody"
+	"ingen/lockwood/internal/integrity"
 )
 
 const (
@@ -151,8 +153,7 @@ func readSnapshotWithLimit(directory string, maxBytes int64) (snapshot, error) {
 		if err != nil {
 			return snapshot{}, fmt.Errorf("read checksummed file %s: %w", name, err)
 		}
-		actual := sha256.Sum256(data)
-		if hex.EncodeToString(actual[:]) != expected {
+		if err := integrity.VerifyBytes(data, artifact.SHA256Algorithm+":"+expected); err != nil {
 			return snapshot{}, fmt.Errorf("checksum mismatch for %s", name)
 		}
 		files[name] = data

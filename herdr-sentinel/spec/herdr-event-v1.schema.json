@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.herdr-event-v1.schema.json",
+  "title": "InGen Herdr lifecycle event v1",
+  "description": "A provider-neutral Herdr callback that can be appended to a Sentinel lifecycle receipt.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event_id", "run_id", "workspace_id", "workspace_version", "type", "at"],
+  "properties": {
+    "schema": {"const": "ingen.herdr-event/v1"},
+    "event_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "workspace_id": {"type": "string", "minLength": 1},
+    "workspace_version": {"type": "integer", "minimum": 1},
+    "type": {"type": "string", "minLength": 1},
+    "at": {"type": "string", "format": "date-time"},
+    "role": {"type": "string", "minLength": 1},
+    "workspace": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "receipt_status": {"enum": ["created", "running", "completed", "failed", "blocked", "cleaned"]},
+    "artifact_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "outcome": {"type": "string", "minLength": 1},
+    "reason": {"type": "string", "minLength": 1}
+  }
+}

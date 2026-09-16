@@ -14,8 +14,7 @@ Package areas:
 - `internal/contract`: validation, canonicalization, sealing, and lineage;
 - `internal/campaign`: deterministic mutation campaign planning;
 - `internal/oracle`: deterministic case generation and freezing;
-- `internal/adapter`: HTTP/JSON and later public-boundary adapters;
-- `internal/verification`: baseline and rule execution;
+- `internal/runner`: HTTP/JSON public-boundary execution;
 - `internal/mutation`: mutation providers, campaigns, and classification;
 - `providers/golang`: source-copy and build mechanics for Go mutation variants;
 - `internal/evidence`: manifests, lifecycle JSONL, checksums, and verification;
@@ -46,8 +45,26 @@ The verified run path uses `sorna run --oracle <path>` and consumes the
 canonical frozen artifact directly. The older `--contract <path>` form remains
 as a compatibility path for callers that have not migrated yet.
 
+Frozen oracle loading is intentionally strict: an oracle must contain at least
+one case, and case IDs and rule IDs must each be unique. This prevents an empty
+or ambiguous artifact from producing misleading execution summaries.
+
 After a run, `sorna evidence verify <directory>` checks the bundle's recorded
 SHA-256 values and reports the first mismatch.
+
+`sorna evidence replay --oracle <path> --base-url <url> <directory>` first
+verifies a stored bundle, then re-executes its frozen oracle against an
+explicitly supplied equivalent HTTP subject. Replay never reopens the
+contract, launches a subject, or overwrites the evidence bundle. A changed
+contract-visible outcome is `drifted`; a changed observation with the same
+outcome is reported separately.
+
+For the document-pipeline example, use the existing Makefile target after
+starting an equivalent subject:
+
+```sh
+REPLAY_BASE_URL=http://127.0.0.1:8080 make sorna-replay
+```
 
 On macOS, the first host-enforcement backend is available through:
 
@@ -94,6 +111,19 @@ The default gate blocks contract failures and surviving or inconclusive
 mutations, while observation coverage remains report-only. The optional
 minimum makes periodic sampling gaps blocking.
 
+Contract-plane mutations use a separate inspection path. `mutation contract
+inspect` applies each declared change to a copied contract, re-seals it,
+regenerates the oracle under the original policy identity, and compares cases
+by rule ID. It reports `visible`, `equivalent`, or `invalid`; it never launches
+a subject and is not a contract-correctness score. Targets use
+`rule:<rule-id>`. The document-pipeline example is in
+`mutations/contract-catalogue.yaml`.
+
+The follow-up `mutation contract ci-result <report>` command revalidates the
+report against the original contract and oracle, then emits the shared
+`ingen.ci-result/v1` envelope. Invalid mutation entries become a failed CI
+result; unreadable, non-canonical, or mismatched inputs become an error result.
+
 When the evidence bundle cannot be verified, `--format ci-result` emits an
 `error` envelope with exit code `2` so a CI collector can retain the failure.
 
@@ -117,6 +147,15 @@ inputs. Validate or inspect the first example with:
 make mutation-catalogue-validate
 go run ./sorna/cmd/sorna mutation validate examples/document-pipeline-lab/mutations/catalogue.yaml --contract examples/document-pipeline-lab/contract/contract.yaml
 go run ./sorna/cmd/sorna mutation list examples/document-pipeline-lab/mutations/catalogue.yaml
+go run ./sorna/cmd/sorna mutation contract inspect examples/document-pipeline-lab/mutations/contract-catalogue.yaml \
+  --contract examples/document-pipeline-lab/contract/contract.yaml \
+  --oracle .artifacts/document-pipeline-oracle/oracle.json \
+  --output .artifacts/document-pipeline-contract-mutations.json
+go run ./sorna/cmd/sorna mutation contract ci-result \
+  .artifacts/document-pipeline-contract-mutations.json \
+  --contract examples/document-pipeline-lab/contract/contract.yaml \
+  --oracle .artifacts/document-pipeline-oracle/oracle.json \
+  --output .artifacts/document-pipeline-contract-mutations-ci.json
 make mutation-plan
 make mutation-provider-validate
 make mutation-provider-inspect

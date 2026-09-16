@@ -119,6 +119,25 @@ func TestCatalogFindsRemoteSourceMetadata(t *testing.T) {
 	}
 }
 
+func TestCatalogSupportsMemoryRecordStore(t *testing.T) {
+	records := custody.NewMemory()
+	record := catalogRecord("lockwood-catalog-memory", "example", "fixture", "text/plain", "memory.txt")
+	if err := records.Put(record); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := New(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := catalog.Find(Query{CustodyID: record.CustodyID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].CustodyID != record.CustodyID {
+		t.Fatalf("memory catalog results = %+v", results)
+	}
+}
+
 func catalogRecord(id, tool, kind, mediaType, logicalName string) custody.Record {
 	record := custody.Record{
 		Schema:     custody.Schema,

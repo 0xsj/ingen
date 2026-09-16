@@ -34,8 +34,13 @@ hammond/
 │   │   ├── validate.go       # structural and governance invariants
 │   │   ├── lifecycle.go      # draft/review/approved/superseded transitions
 │   │   ├── lineage.go        # parent, successor, and amendment relationships
-│   │   ├── amendment.go      # policy-aware amendment and supersession events
-│   │   ├── codec.go          # strict record/event/policy decoding and hashing
+	│   │   ├── amendment.go      # policy-aware amendment and supersession events
+	│   │   ├── authority_signature.go # trusted Ed25519 authority signatures
+	│   │   ├── authority_root.go # caller-delivered root-key snapshots and rotation
+	│   │   ├── authority_trust.go # active/revoked key snapshots and trust roots
+│   │   ├── authority_membership.go # effective-dated membership adapter
+│   │   ├── membership.go      # authenticated provider membership snapshots
+│   │   ├── codec.go          # strict decoding and contract/policy hashing
 │   │   └── governance_test.go
 │   │
 │   └── store/
@@ -43,13 +48,19 @@ hammond/
 │       ├── filesystem.go     # initial local implementation
 │       └── filesystem_test.go
 │
-├── spec/
+	├── spec/
+	│   ├── ingen.hammond-authority-v1.schema.json
+	│   ├── ingen.hammond-authority-root-v1.schema.json
+	│   ├── ingen.hammond-authority-trust-v1.schema.json
 │   ├── ingen.hammond-governance-v1.schema.json
+│   ├── ingen.hammond-membership-v1.schema.json
 │   └── ingen.hammond-review-policy-v1.schema.json
 │
 ├── examples/
+│   ├── review-authority-v1.json
 │   ├── review-policy-v1.json
 │   └── document-pipeline/
+│       ├── contract-v2.canonical.json
 │       ├── record-v2.json
 │       ├── event-review-opened.json
 │       └── event-approved.json
@@ -100,6 +111,24 @@ go run ./hammond/cmd/hammond lineage --store "$STORE"
 
 The store and CLI use the explicit v1 default policy: one approval from one
 distinct actor in the active review cycle. Library callers can also require
-named approval roles or a higher threshold; role authorization outside the
-verified policy artifact and organization-level policy rules are not modeled
-yet.
+named approval roles or a higher threshold. A policy may reference a separate,
+digest-bound local authority snapshot for actor-to-role grants;
+organization-level identity and policy rules are not modeled yet.
+
+At runtime, callers can supply an `AuthorityVerifier` implementation. Its
+check receives the approval event's timestamp, so providers can apply
+effective-date and revocation rules. The bundled local authority snapshot is
+one adapter; a hosted registry can later inject verified organization
+membership without changing record or lifecycle validation. Callers that need
+issuer attribution can additionally load signed
+authority artifacts with a trusted `AuthoritySignatureVerifier` key set.
+`AuthorityTrustStore` provides a versioned active/revoked key-set adapter for
+rotation. `AuthorityRootStore` provides the caller-delivered root-key layer: a
+replacement root snapshot can be signed by an active predecessor, while
+revoked roots are excluded from the next verifier. The initial bootstrap and
+approval of root keys remain outside Hammond. A trust snapshot can be
+root-signed and verified before its active keys are used.
+`TimeScopedAuthority` is available for normalized membership data with
+effective and expiry timestamps. `MembershipSnapshot` adds a digest-bound,
+optionally signed provider-response envelope around those grants; callers can
+use `VerifierAt` to enforce snapshot freshness before evaluation.

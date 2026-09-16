@@ -3,7 +3,7 @@
 Status: review note only. This document does not change the policy or its
 sealed lock.
 
-Run date: 2026-09-15
+Initial run date: 2026-09-15
 
 The portable Paddock gate was run against the sibling
 `/Users/sj/Desktop/dev/builds/overwatch/overwatch-backend` repository using
@@ -14,6 +14,35 @@ The portable Paddock gate was run against the sibling
 - 40 findings were reported;
 - no cross-context, shared-boundary, composition-root, cycle, or coverage
   findings were reported.
+
+## Agent explanation replay
+
+A fresh locked replay on 2026-09-16 was passed through `paddock explain` without
+changing the source repository, policy, or lock:
+
+- 136 packages and 1,607 edges were analyzed;
+- the locked check returned exit `1` with the same 40 findings;
+- the explanation grouped them as 38 `domain-is-pure`, one
+  `application-not-infrastructure`, and one `layers-point-inward` finding;
+- triage was `remediate`, with all 40 findings active and blocking.
+
+The text and JSON explanation now expose the concrete constraint an agent needs
+to inspect the boundary. For example, the application finding identifies the
+denied `{role=infrastructure}` and `{role=adapter}` targets, while the domain
+findings repeat the allowed standard-library, shared-error, and same-context
+domain targets. The `audit/app/query` → `audit/infra/postgres` edge is reported
+by both `application-not-infrastructure` and `layers-point-inward`; each
+explanation retains its rule but identifies the other through `related_rules`.
+An agent can narrow the handoff without reading the full report:
+
+```sh
+paddock explain /tmp/overwatch-backend-paddock-report.json \
+  --rule application-not-infrastructure --status blocking --format json
+```
+
+This validates the explanation path as a review aid. It remains separate from
+the authoritative CI verdict and does not imply that the Overwatch findings
+should be fixed, waived, or baselined automatically.
 
 ## Finding groups
 

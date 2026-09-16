@@ -105,6 +105,8 @@ The CI-facing output and exit-code contract is documented in
 [`OUTPUT-BOUNDARY.md`](OUTPUT-BOUNDARY.md).
 The provider-neutral delivery projection is documented in
 [`DELIVERY-BOUNDARY.md`](DELIVERY-BOUNDARY.md).
+The first Sentinel verifier handoff into Nublar is documented in
+[`nublar-sentinel-verifier-workflow.md`](../notes/modules/nublar-sentinel-verifier-workflow.md).
 
 The mixed-producer integration fixture demonstrates the intended neutrality
 boundary: Nublar composes Sorna and Paddock envelopes while preserving each
@@ -123,3 +125,11 @@ The command validates every `ingen.ci-result/v1` input, preserves the complete
 producer artifact under `results`, and returns the highest envelope severity:
 `error` (exit `2`) > `failed` (exit `1`) > `passed` (exit `0`). It does not read
 Sorna's mutation fields or Paddock's architecture findings.
+
+Nublar's collector uses the closed v1 envelope shape: unknown top-level fields
+and multiple JSON values in one result file are rejected. Producer `report` and
+`explanation` values remain opaque JSON and are preserved without interpretation.
+
+The focused repository check is `make nublar-check`; it runs Nublar's race
+tests and static analysis, then parses the Nublar schema files without running
+any producer workflow.

@@ -1,0 +1,41 @@
+mutation_catalogue:
+  schema: ingen.mutation-catalogue/v1
+  id: document-pipeline-contract-mutations
+  version: 1
+  contract_id: document-pipeline
+  contract_version: 2
+
+  mutations:
+    - id: remove-oversize-rule
+      plane: contract
+      operator: contract.rule.remove
+      target: rule:document.create.rejects-oversize
+      description: Remove the required oversize rejection rule from the contract.
+      change:
+        rule_id: document.create.rejects-oversize
+      expected_rule_ids:
+        - document.create.rejects-oversize
+      status: candidate
+
+    - id: weaken-create-status
+      plane: contract
+      operator: contract.rule.expect.status.replace
+      target: rule:document.create.valid.accepted
+      description: Change the required create response from 202 to 200.
+      change:
+        from: 202
+        to: 200
+      expected_rule_ids:
+        - document.create.valid.accepted
+      status: candidate
+
+    - id: remove-create-name-requirement
+      plane: contract
+      operator: contract.rule.expect.required.remove
+      target: rule:document.create.valid.accepted
+      description: Remove the required name field from the create response shape.
+      change:
+        field: name
+      expected_rule_ids:
+        - document.create.valid.accepted
+      status: candidate

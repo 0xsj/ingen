@@ -157,7 +157,8 @@ func (p *Patterns) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// Selector is a set of labels. The usual keys are role, context, and feature.
+// Selector is a set of labels. The usual keys are role, context, and feature;
+// rule selectors may also use the reserved path and path-not keys.
 type Selector map[string]string
 type Selectors []Selector
 
@@ -187,6 +188,7 @@ func (s *Selectors) UnmarshalYAML(node *yaml.Node) error {
 type Target struct {
 	Literal string            `json:"literal,omitempty"`
 	Labels  map[string]string `json:"labels,omitempty"`
+	Path    string            `json:"path,omitempty"`
 	Kind    string            `json:"kind,omitempty"`
 	Value   string            `json:"value,omitempty"`
 }
@@ -223,6 +225,10 @@ func (t *Targets) UnmarshalYAML(node *yaml.Node) error {
 			var labels map[string]string
 			if err := value.Decode(&labels); err != nil {
 				return err
+			}
+			if pattern, ok := labels["path"]; ok {
+				result = append(result, Target{Path: pattern})
+				continue
 			}
 			for key, item := range labels {
 				if key == "standard-library" || key == "external" {

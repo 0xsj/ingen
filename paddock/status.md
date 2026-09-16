@@ -1,6 +1,6 @@
 # Paddock status
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 ## Where we left off
 
@@ -30,6 +30,10 @@ project without changing Overwatch or publishing anything:
 - The backend findings are grouped in
   `examples/overwatch/overwatch-backend-triage.md`; no policy or lock change
   has been made pending architecture-owner decisions.
+- A fresh locked Overwatch report now exercises the agent-facing explanation
+  path: 40 findings are grouped into three rules, triage is `remediate`, and
+  deny/allow remediation suggestions include the concrete boundary targets.
+  The explanation remains advisory and does not alter the locked verdict.
 - An unsealed shared-kernel policy candidate now measures the effect of
   allowing `pkg/id` and `pkg/events`; the current review policy and lock remain
   authoritative. The candidate passed its policy review and reduced the
@@ -82,6 +86,30 @@ project without changing Overwatch or publishing anything:
   diffs and locks, passed to external adapters, and applied to built-in and
   persisted graphs. Replaying Heyrian with a dependency-cruiser-shaped scope
   reduced the Paddock graph to 1,864 source units and 6,980 edges.
+- A translated Heyrian platform subset now lives in
+  `examples/heyrian-platform-subset.yaml`. Against the current workspace it
+  passes ten representative rules with zero findings. The complete comparison
+  showed Paddock and dependency-cruiser enumerating the
+  same 2,140 in-repository `.ts`/`.svelte` source units; their total module and
+  edge counts are not directly equivalent because dependency-cruiser
+  materializes external and asset modules while Paddock keeps those as edge
+  target kinds. The comparison is therefore about rule findings and source-
+  path coverage, not identical graph totals.
+- The latest Heyrian replay is parseable again. Paddock's 13-rule subset passes
+  with 2,209 source units, 8,215 edges, and zero findings; dependency-cruiser
+  passes with 2,302 total modules, 9,382 dependencies, 13 rules, and zero
+  violations. The two tools enumerate the same 2,209 in-repository `.ts` and
+  `.svelte` source paths. No Heyrian files were changed by this work.
+- The translation now covers the server-only predicate as well: rule selectors
+  support `path`/`path-not` with `|`-joined alternatives for server directories,
+  route suffixes, and special files. External package-family matching was
+  handled separately with a focused fixture and is supported at the edge level.
+- Internal target path patterns are now supported. A focused TypeScript fixture
+  and the Heyrian policy exercise adapter-folder ownership and memory-adapter
+  selection, and configuration portability without adding another rule kind.
+- A focused configuration-portability fixture now proves that the same rule
+  catches internal server/UI targets, `$app`/`$env` imports, and Svelte package
+  families without relying only on a clean real-project replay.
 
 The Overwatch backend result is intentional review feedback, not a Paddock
 failure. Its policy is not yet an approved compliance gate for that codebase.
@@ -146,6 +174,12 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 - CI result artifacts using `ingen.ci-result/v1`.
 - Read-only CI artifact validation for Paddock and external producers.
 - Agent-facing text and JSON explanations.
+- Deny-rule explanations include the normalized denied targets in their
+  remediation suggestions, keeping internal path and external package-family
+  constraints visible to text-only agents and reviewers.
+- Explanation findings now identify related rule IDs when multiple rules report
+  the same source-to-target edge. Overwatch's application/infrastructure edge
+  is the first real dogfood case; both rule signals remain preserved.
 - Standalone JSON Schema for `paddock.explanation/v1` agent handoff artifacts.
 - Standalone JSON Schema for `paddock.policy-diff/v1` review evidence.
 - Standalone JSON Schema for `paddock.policy-review/v1` durable decisions.
@@ -188,6 +222,13 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
   workspace packages and shared-to-domain boundary enforcement.
 - Initial compiled-binary smoke measurements for the Overwatch backend/UI and
   the TypeScript workspace fixture.
+- Heyrian platform-subset translation benchmark covering all 13 rules in the
+  current dependency-cruiser config, while documenting the remaining semantic
+  translation boundaries.
+- External package-family targets now support segment patterns such as
+  `external: "@supabase/*"`; a two-file TypeScript fixture proves that an
+  unapproved importer is attributed to the ownership rule without installing
+  or traversing the vendor package.
 - Draft-to-review authoring-loop coverage proving conservative drafts fail
   policy cases until their architectural boundaries are explicitly reviewed.
 - Initialization summaries expose graph scale, unclassified components, and
@@ -212,13 +253,13 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 
 1. Use the development decision log to keep unresolved policy choices explicit
    and prevent premature expansion of the rule language.
-2. Re-run the Heyrian comparison with a real translated policy and record
-   path-resolution, performance, false-positive, and policy-authoring friction
-   now that discovery scope is explicit.
-3. Use that evidence to decide whether the next work is policy vocabulary,
-   adapter resolution, or documentation. Overwatch architecture-owner decisions
-   remain valuable input, but are not required for Paddock development to
-   continue.
+2. Keep the 13-rule Heyrian subset and its source-path parity replay as a
+   regression benchmark while deciding whether the next work is selector
+   vocabulary, adapter metadata, or documentation.
+3. Keep the focused configuration-portability fixture as a negative regression
+   case; the current real-project replay is clean.
+   Overwatch architecture-owner decisions remain valuable input, but are not
+   required for Paddock development to continue.
 
 ### Likely near-term work
 
@@ -242,10 +283,20 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 ## Recommended development checkpoint
 
 This checkpoint has now been reached: the draft-to-seal loop, one external
-adapter, one real TypeScript/Svelte repository, and an explicit discovery-scope
-contract have been exercised. The next stopping point should be after the
-scoped repository has been evaluated with a translated real policy. Release
+adapter, one real TypeScript/Svelte repository, an explicit discovery-scope
+contract, a translated real-policy subset, path selectors, internal target
+paths, and external package-family ownership have been exercised. A durable
+complete comparison note is recorded, and the remaining work should now be
+driven by real false positives, adapter needs, or authoring friction. Release
 publication remains deferred while development continues.
+
+## Next development batch
+
+Keep the 13-rule Heyrian comparison and its source-path parity replay as
+regression benchmarks. The next implementation batch should address the first
+concrete adoption issue found in dogfooding—likely selector ergonomics,
+adapter metadata, or a focused configuration-portability fixture—rather than
+adding speculative rule kinds.
 
 ## Useful resume commands
 

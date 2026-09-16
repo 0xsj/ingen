@@ -56,6 +56,27 @@ func TestIngestorAcceptsArtifactAndPublishesMatchingRecord(t *testing.T) {
 	}
 }
 
+func TestIngestorAcceptsMemoryArtifactStore(t *testing.T) {
+	artifacts := store.NewMemory()
+	records := NewMemory()
+	ingestor, err := NewIngestor(artifacts, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ingestor.Accept(strings.NewReader("memory-backed artifact"), IntakeRequest{
+		CustodyID: "lockwood-memory-intake-0001",
+		MediaType: "text/plain",
+		Producer:  Producer{Tool: "example", Kind: "memory-fixture"},
+		Source:    Source{Path: "memory.txt"},
+		Handling:  Handling{Redaction: "none", RetentionClass: "default"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyRecord(records, artifacts, "lockwood-memory-intake-0001"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestIngestorRejectsExpectedDigestMismatchBeforeRecordPublication(t *testing.T) {
 	root := t.TempDir()
 	artifacts, err := store.NewFilesystem(root)

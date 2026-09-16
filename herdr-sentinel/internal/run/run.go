@@ -43,10 +43,13 @@ type WorkspaceRef struct {
 
 type Event struct {
 	Sequence    int64    `json:"sequence"`
+	SourceID    string   `json:"source_id,omitempty"`
 	Type        string   `json:"type"`
 	At          string   `json:"at"`
 	Role        string   `json:"role,omitempty"`
 	Workspace   string   `json:"workspace,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
+	Status      string   `json:"status,omitempty"`
 	ArtifactIDs []string `json:"artifact_ids,omitempty"`
 	Outcome     string   `json:"outcome,omitempty"`
 	Reason      string   `json:"reason,omitempty"`
@@ -181,9 +184,16 @@ func (r Receipt) Validate() error {
 			return err
 		}
 	}
+	sourceIDs := make(map[string]bool, len(r.Events))
 	for index, event := range r.Events {
 		if err := event.validate(index, createdAt, updatedAt, artifactIDs); err != nil {
 			return err
+		}
+		if event.SourceID != "" {
+			if sourceIDs[event.SourceID] {
+				return fmt.Errorf("Sentinel run event source ID %q was duplicated", event.SourceID)
+			}
+			sourceIDs[event.SourceID] = true
 		}
 	}
 	return nil
@@ -218,8 +228,8 @@ func (r *Receipt) SetStatus(status string, at time.Time) error {
 	if r == nil {
 		return fmt.Errorf("Sentinel run receipt is nil")
 	}
-	if !statuses[status] {
-		return fmt.Errorf("Sentinel run status %q is unsupported", status)
+	if err := ValidateStatus(status); err != nil {
+		return err
 	}
 	if at.IsZero() {
 		at = time.Now()
@@ -231,6 +241,15 @@ func (r *Receipt) SetStatus(status string, at time.Time) error {
 		return err
 	}
 	*r = candidate
+	return nil
+}
+
+// ValidateStatus checks the operator-visible receipt states accepted by the
+// Sentinel lifecycle model.
+func ValidateStatus(status string) error {
+	if !statuses[status] {
+		return fmt.Errorf("Sentinel run status %q is unsupported", status)
+	}
 	return nil
 }
 
@@ -292,6 +311,20 @@ func (e Event) validate(index int, createdAt, updatedAt time.Time, artifactIDs m
 	wantedSequence := int64(index + 1)
 	if e.Sequence != wantedSequence {
 		return fmt.Errorf("Sentinel run event %d sequence must be %d", index+1, wantedSequence)
+	}
+	if e.SourceID != "" && strings.TrimSpace(e.SourceID) == "" {
+		return fmt.Errorf("Sentinel run event %d source_id must not be blank", index+1)
+	}
+	if e.SessionID != "" && strings.TrimSpace(e.SessionID) == "" {
+		return fmt.Errorf("Sentinel run event %d session_id must not be blank", index+1)
+	}
+	if e.Status != "" {
+		if strings.TrimSpace(e.Status) == "" {
+			return fmt.Errorf("Sentinel run event %d status must not be blank", index+1)
+		}
+		if err := ValidateStatus(e.Status); err != nil {
+			return fmt.Errorf("Sentinel run event %d: %w", index+1, err)
+		}
 	}
 	if !eventTypes[e.Type] {
 		return fmt.Errorf("Sentinel run event %d type %q is unsupported", index+1, e.Type)
@@ -415,6 +448,10 @@ func LoadFile(path string) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, fmt.Errorf("read Sentinel run %s: %w", path, err)
 	}
+	return loadBytes(path, contents)
+}
+
+func loadBytes(path string, contents []byte) (Receipt, error) {
 	decoder := json.NewDecoder(bytes.NewReader(contents))
 	decoder.DisallowUnknownFields()
 	var receipt Receipt

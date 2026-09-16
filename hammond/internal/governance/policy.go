@@ -5,13 +5,37 @@ import (
 	"strings"
 )
 
+// AuthorityVerifier is the runtime seam for checking whether an actor may use
+// a role at a decision timestamp. Implementations may consult a local
+// snapshot or an external organization-backed authority source.
+type AuthorityVerifier interface {
+	Verify(actor, role, at string) (bool, error)
+}
+
 // ReviewPolicy controls when an active review cycle materializes approved
-// state. Identity and role authorization remain outside this value for now.
+// state. Authority, when present, points to a separately versioned local
+// actor-to-role snapshot; it is not an external identity proof.
 type ReviewPolicy struct {
-	Reference        PolicyReference
-	MinimumApprovals int
-	RequiredRoles    []string
-	ActorRoles       map[string][]string
+	Reference         PolicyReference
+	MinimumApprovals  int
+	RequiredRoles     []string
+	Authority         AuthorityReference
+	AuthorityVerifier AuthorityVerifier
+	// ActorRoles is retained as the materialized local snapshot for audit and
+	// compatibility. New runtime authority sources should use AuthorityVerifier.
+	ActorRoles map[string][]string
+}
+
+type AuthoritySignature struct {
+	Algorithm string `json:"algorithm"`
+	KeyID     string `json:"key_id"`
+	Signature string `json:"signature"`
+}
+
+type ReviewAuthority struct {
+	Reference AuthorityReference
+	Actors    map[string][]string
+	Signature *AuthoritySignature
 }
 
 // DefaultReviewPolicy is the explicit v1 policy used by the local store and
@@ -24,10 +48,19 @@ func DefaultReviewPolicy() ReviewPolicy {
 			Schema:  PolicySchema,
 			Artifact: Artifact{
 				URI:    "hammond/examples/review-policy-v1.json",
-				SHA256: "3b823defcb99297bb05f7ca36e126d8f0ca376ef3fb507cbefe43f6c3e2bfa13",
+				SHA256: "c80517e8aa51ca1715fc5e1214b2222aa99ed5fa286aee9f7340814c39caac10",
 			},
 		},
 		MinimumApprovals: 1,
+		Authority: AuthorityReference{
+			ID:      "local-reviewers",
+			Version: 1,
+			Schema:  AuthoritySchema,
+			Artifact: Artifact{
+				URI:    "hammond/examples/review-authority-v1.json",
+				SHA256: "f478a9d1b32421f22645b2f374feb8cbcf5978aec2ef3317605e92d8322e3c62",
+			},
+		},
 		ActorRoles: map[string][]string{
 			"reviewer":              {"product-reviewer"},
 			"reviewer@example.test": {"product-reviewer"},
@@ -54,56 +87,92 @@ func (policy ReviewPolicy) Validate() error {
 	if policy.MinimumApprovals < 1 {
 		return fmt.Errorf("minimum approvals must be positive")
 	}
-	seenRoles := make(map[string]struct{}, len(policy.RequiredRoles))
-	for _, role := range policy.RequiredRoles {
+	if !isEmptyAuthorityReference(policy.Authority) {
+		if problems := validateAuthorityReference(policy.Authority, "authority"); len(problems) > 0 {
+			return fmt.Errorf("%s", strings.Join(problems, "; "))
+		}
+	}
+	if err := validateRoleList(policy.RequiredRoles, "required roles"); err != nil {
+		return err
+	}
+	return validateActorRoleGrants(policy.ActorRoles)
+}
+
+func (authority ReviewAuthority) Validate() error {
+	if problems := validateAuthorityReference(authority.Reference, "authority"); len(problems) > 0 {
+		return fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
+	if authority.Actors == nil {
+		return fmt.Errorf("authority actors are required")
+	}
+	if err := validateAuthoritySignature(authority.Signature); err != nil {
+		return err
+	}
+	return validateActorRoleGrants(authority.Actors)
+}
+
+// Verify implements AuthorityVerifier for a verified local authority snapshot.
+func (authority ReviewAuthority) Verify(actor, role, _ string) (bool, error) {
+	roles, exists := authority.Actors[strings.TrimSpace(actor)]
+	if !exists {
+		return false, nil
+	}
+	role = strings.TrimSpace(role)
+	for _, grantedRole := range roles {
+		if strings.TrimSpace(grantedRole) == role {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func validateRoleList(roles []string, label string) error {
+	seenRoles := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
 		role = strings.TrimSpace(role)
 		if role == "" {
-			return fmt.Errorf("required roles must not be empty")
+			return fmt.Errorf("%s must not be empty", label)
 		}
 		if _, exists := seenRoles[role]; exists {
-			return fmt.Errorf("required role %q is duplicated", role)
+			return fmt.Errorf("%s role %q is duplicated", label, role)
 		}
 		seenRoles[role] = struct{}{}
 	}
-	for actor, roles := range policy.ActorRoles {
+	return nil
+}
+
+func validateActorRoleGrants(actorRoles map[string][]string) error {
+	for actor, roles := range actorRoles {
 		if strings.TrimSpace(actor) == "" {
 			return fmt.Errorf("actor role grants must not contain an empty actor")
 		}
-		seenActorRoles := make(map[string]struct{}, len(roles))
-		for _, role := range roles {
-			role = strings.TrimSpace(role)
-			if role == "" {
-				return fmt.Errorf("actor %q has an empty role grant", actor)
-			}
-			if _, exists := seenActorRoles[role]; exists {
-				return fmt.Errorf("actor %q has duplicated role %q", actor, role)
-			}
-			seenActorRoles[role] = struct{}{}
+		if err := validateRoleList(roles, fmt.Sprintf("actor %q", actor)); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (policy ReviewPolicy) authorizes(actor, role string) bool {
-	if len(policy.ActorRoles) == 0 {
-		return true
+func (policy ReviewPolicy) authorizes(actor, role, at string) (bool, error) {
+	if _, err := parseUTC(at); err != nil {
+		return false, fmt.Errorf("decision timestamp must be validated before authority verification: %w", err)
 	}
-	roles, exists := policy.ActorRoles[strings.TrimSpace(actor)]
-	if !exists {
-		return false
+	if policy.AuthorityVerifier != nil {
+		return policy.AuthorityVerifier.Verify(actor, role, at)
 	}
-	role = strings.TrimSpace(role)
-	for _, grantedRole := range roles {
-		if strings.TrimSpace(grantedRole) == role {
-			return true
-		}
+	if isEmptyAuthorityReference(policy.Authority) && len(policy.ActorRoles) == 0 {
+		return true, nil
 	}
-	return false
+	return ReviewAuthority{Actors: policy.ActorRoles}.Verify(actor, role, at)
 }
 
-func (policy ReviewPolicy) satisfied(events []Event, cycleID string) bool {
+func (policy ReviewPolicy) hasAuthorityVerifier() bool {
+	return policy.AuthorityVerifier != nil || !isEmptyAuthorityReference(policy.Authority) || len(policy.ActorRoles) > 0
+}
+
+func (policy ReviewPolicy) satisfied(events []Event, cycleID string) (bool, error) {
 	if policy.MinimumApprovals < 1 || strings.TrimSpace(cycleID) == "" {
-		return false
+		return false, nil
 	}
 
 	actors := make(map[string]struct{})
@@ -114,22 +183,26 @@ func (policy ReviewPolicy) satisfied(events []Event, cycleID string) bool {
 		}
 		actor := strings.TrimSpace(event.Actor)
 		role := strings.TrimSpace(event.Role)
-		if actor != "" && policy.authorizes(actor, role) {
+		authorized, err := policy.authorizes(actor, role, event.At)
+		if err != nil {
+			return false, fmt.Errorf("verify actor %q for role %q: %w", actor, role, err)
+		}
+		if authorized && actor != "" {
 			actors[actor] = struct{}{}
 		}
-		if role != "" && policy.authorizes(actor, role) {
+		if authorized && role != "" {
 			roles[role] = struct{}{}
 		}
 	}
 	if len(actors) < policy.MinimumApprovals {
-		return false
+		return false, nil
 	}
 	for _, requiredRole := range policy.RequiredRoles {
 		if _, exists := roles[strings.TrimSpace(requiredRole)]; !exists {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 func activeReviewCycle(events []Event) string {

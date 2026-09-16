@@ -288,6 +288,9 @@ func readRecord(path string) (governance.Record, error) {
 }
 
 func validateRegistration(record governance.Record) error {
+	if _, err := governance.LoadContractArtifact(record.Contract); err != nil {
+		return fmt.Errorf("load registration contract: %w", err)
+	}
 	policy, err := governance.LoadReviewPolicy(record.Policy)
 	if err != nil {
 		return fmt.Errorf("load registration policy: %w", err)

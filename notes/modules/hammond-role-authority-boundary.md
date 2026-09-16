@@ -12,9 +12,10 @@ security review were required.
 ## What
 
 The policy artifact may require one or more approval roles in addition to a
-minimum number of distinct actors. It may also carry explicit actor-to-role
-grants. The evaluator checks required-role coverage and rejects approval or
-rejection events whose actor/role pair is not granted when grants are present.
+minimum number of distinct actors. It may reference a separate, versioned
+authority artifact that carries explicit actor-to-role grants. The evaluator
+checks required-role coverage and rejects approval or rejection events whose
+actor/role pair is not granted by the loaded authority snapshot.
 
 ## Why
 
@@ -26,15 +27,20 @@ the local policy artifact.
 ## Gotchas
 
 - Required roles are matched exactly after trimming whitespace.
-- The current evaluator verifies grants against the loaded policy artifact; it
-  does not verify them against an identity provider.
-- A single actor can claim multiple roles until authority rules are introduced.
+- Authority verification receives the event timestamp, allowing future
+  providers to apply effective-date and revocation rules.
+- The authority reference and its bytes are verified before grants are used.
+- The current evaluator verifies grants against the loaded local authority
+  snapshot; it does not verify them against an identity provider.
+- A single actor can hold multiple roles when the authority snapshot grants
+  them.
 - Policy identity and contract identity remain separate.
 
 ## Used in
 
 - `hammond/internal/governance/policy.go`
 - `hammond/internal/governance/codec.go`
+- `hammond/spec/ingen.hammond-authority-v1.schema.json`
 - `hammond/spec/ingen.hammond-review-policy-v1.schema.json`
 
 ## Related

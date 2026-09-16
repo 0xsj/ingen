@@ -31,7 +31,11 @@ func transitionWithPolicy(state State, event Event, activeReviewCycleID string, 
 		if cycleID == "" {
 			cycleID = activeReviewCycleID
 		}
-		if policy.satisfied(candidateEvents, cycleID) {
+		satisfied, err := policy.satisfied(candidateEvents, cycleID)
+		if err != nil {
+			return state, fmt.Errorf("evaluate review policy: %w", err)
+		}
+		if satisfied {
 			return StateApproved, nil
 		}
 		return StateInReview, nil

@@ -73,6 +73,30 @@ func TestServiceFixtures(t *testing.T) {
 			source:    "feature-sliced-ts/violating",
 			wantRules: []string{"features-do-not-cross", "shared-is-feature-free", "no-unresolved-imports"},
 		},
+		{
+			name:      "external package family violation",
+			policy:    "external-package-ownership.yaml",
+			source:    "external-package-ts",
+			wantRules: []string{"supabase-has-one-owner"},
+		},
+		{
+			name:      "negative source selector violation",
+			policy:    "negative-source-selector.yaml",
+			source:    "negative-source-selector-ts",
+			wantRules: []string{"server-code-stays-on-server"},
+		},
+		{
+			name:      "internal target path violations",
+			policy:    "internal-target-paths.yaml",
+			source:    "internal-target-path-ts",
+			wantRules: []string{"adapters-behind-the-server-root", "memory-adapters-for-roots-and-tests"},
+		},
+		{
+			name:      "config portability violations",
+			policy:    "config-portability.yaml",
+			source:    "config-portability-ts",
+			wantRules: []string{"config-is-portable"},
+		},
 	}
 
 	for _, fixture := range fixtures {

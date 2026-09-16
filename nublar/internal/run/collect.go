@@ -26,6 +26,12 @@ func CollectWorkflowFile(workflowPath, root, runID string) (Run, error) {
 // CollectWorkflow resolves checks under root. Collection failures are recorded
 // in the returned run so CI consumers receive a reviewable error artifact.
 func CollectWorkflow(document workflow.Document, workflowRef ciresult.FileRef, root, runID string) (Run, error) {
+	if err := workflow.Validate(document); err != nil {
+		return Run{}, fmt.Errorf("validate Nublar workflow before collection: %w", err)
+	}
+	if err := validateFileRef("workflow", workflowRef); err != nil {
+		return Run{}, fmt.Errorf("validate Nublar workflow reference before collection: %w", err)
+	}
 	if runID == "" {
 		generated, err := NewID()
 		if err != nil {

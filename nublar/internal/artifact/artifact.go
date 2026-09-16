@@ -3,10 +3,12 @@
 package artifact
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"ingen/core/ciresult"
@@ -23,8 +25,17 @@ func LoadFile(path string) (Loaded, error) {
 		return Loaded{}, fmt.Errorf("read CI result %s: %w", path, err)
 	}
 
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
 	var result ciresult.Artifact
-	if err := json.Unmarshal(contents, &result); err != nil {
+	if err := decoder.Decode(&result); err != nil {
+		return Loaded{}, fmt.Errorf("parse CI result %s: %w", path, err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return Loaded{}, fmt.Errorf("parse CI result %s: multiple JSON values are not supported", path)
+		}
 		return Loaded{}, fmt.Errorf("parse CI result %s: %w", path, err)
 	}
 	if err := result.Validate(); err != nil {

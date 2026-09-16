@@ -144,6 +144,7 @@
       "properties": {
         "finding": {"$ref": "#/$defs/finding"},
         "rule": {"$ref": "#/$defs/rule-summary"},
+        "related_rules": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
         "status": {"enum": ["blocking", "advisory", "waived", "baselined", "expired-waiver"]},
         "observation": {"type": "string", "minLength": 1},
         "why": {"type": "string"},

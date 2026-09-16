@@ -137,16 +137,34 @@ func Validate(artifact Artifact) []string {
 	if !digestPattern.MatchString(artifact.PolicySHA256) {
 		problems = append(problems, "oracle.policy_sha256 must be a lowercase SHA-256 digest")
 	}
+	if len(artifact.Cases) == 0 {
+		problems = append(problems, "oracle.cases must contain at least one case")
+	}
+	seenCaseIDs := make(map[string]bool, len(artifact.Cases))
+	seenRuleIDs := make(map[string]bool, len(artifact.Cases))
+	allowedStrengths := map[string]bool{
+		"must": true, "must_not": true, "may": true, "should": true, "unspecified": true,
+	}
 	for index, item := range artifact.Cases {
 		path := fmt.Sprintf("oracle.cases[%d]", index)
 		if strings.TrimSpace(item.CaseID) == "" {
 			problems = append(problems, path+".case_id must be non-empty")
+		} else if seenCaseIDs[item.CaseID] {
+			problems = append(problems, fmt.Sprintf("%s.case_id duplicates %q", path, item.CaseID))
+		} else {
+			seenCaseIDs[item.CaseID] = true
 		}
 		if strings.TrimSpace(item.RuleID) == "" {
 			problems = append(problems, path+".rule_id must be non-empty")
+		} else if seenRuleIDs[item.RuleID] {
+			problems = append(problems, fmt.Sprintf("%s.rule_id duplicates %q", path, item.RuleID))
+		} else {
+			seenRuleIDs[item.RuleID] = true
 		}
 		if strings.TrimSpace(item.Strength) == "" {
 			problems = append(problems, path+".strength must be non-empty")
+		} else if !allowedStrengths[item.Strength] {
+			problems = append(problems, path+".strength is invalid")
 		}
 	}
 	return problems

@@ -46,3 +46,46 @@ func TestLoadFileHashesTheValidatedBytes(t *testing.T) {
 		t.Fatalf("loaded artifact = %+v, want validated producer artifact", loaded.Artifact)
 	}
 }
+
+func TestLoadFileRejectsUnknownEnvelopeFields(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "result.json")
+	contents := `{
+  "schema": "ingen.ci-result/v1",
+  "tool": "sorna",
+  "kind": "test",
+  "status": "error",
+  "exit_code": 2,
+  "created_at": "2026-09-15T12:00:00Z",
+  "source": {"root": "."},
+  "error": "input unavailable",
+  "unexpected": true
+}`
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFile(path); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("LoadFile() = %v, want unknown-field error", err)
+	}
+}
+
+func TestLoadFileRejectsMultipleJSONValues(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "result.json")
+	contents := `{
+  "schema": "ingen.ci-result/v1",
+  "tool": "sorna",
+  "kind": "test",
+  "status": "error",
+  "exit_code": 2,
+  "created_at": "2026-09-15T12:00:00Z",
+  "source": {"root": "."},
+  "error": "input unavailable"
+} {"extra": true}`
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFile(path); err == nil || !strings.Contains(err.Error(), "multiple JSON values") {
+		t.Fatalf("LoadFile() = %v, want multiple-value error", err)
+	}
+}

@@ -1,0 +1,33 @@
+{
+  "$id": "https://ingen.example/spec/lockwood.attestation-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lockwood detached attestation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target", "algorithm", "key_id", "signature"],
+  "properties": {
+    "schema": {"const": "lockwood.attestation/v1"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "digest"],
+      "properties": {
+        "kind": {"const": "custody-record"},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "algorithm": {"const": "ed25519"},
+    "key_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 88,
+      "maxLength": 88,
+      "pattern": "^[A-Za-z0-9+/]{86}={1,2}$"
+    }
+  }
+}

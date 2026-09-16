@@ -1,0 +1,27 @@
+schema: paddock.architecture/v1
+project: config-portability
+
+source:
+  language: typescript
+  unit: file
+  roots: [src]
+
+components:
+  config:
+    match: src/config/**
+    labels:
+      role: config
+
+rules:
+  - id: config-is-portable
+    kind: deny-dependencies
+    from: {role: config}
+    deny:
+      - {path: src/server/**|src/components/**}
+      - {external: "$app/**"}
+      - {external: "$env/**"}
+      - {external: "svelte/**"}
+      - {external: "@sveltejs/**"}
+    message: config must remain plain data and portable across runtimes
+
+waivers: []

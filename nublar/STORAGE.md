@@ -26,15 +26,19 @@ The filesystem store:
 - rejects a second save for an existing run ID rather than overwriting history;
 - validates the run before writing, after loading, and while listing.
 
+Run loading uses the closed `ingen.nublar-run/v1` shape: unknown top-level
+fields and multiple JSON values in one stored record are rejected before the
+run reaches the storage or query surface.
+
 The generated filename is an implementation detail. The run ID inside the
 artifact remains the authoritative identity.
 
 ## Intentionally deferred
 
-This boundary does not yet provide filtering, retention, garbage collection,
-locking across processes, remote storage, or database migrations. Those
-capabilities should be added when a concrete consumer needs them. The initial
-list behavior is specified in [`RUN-QUERY.md`](RUN-QUERY.md).
+This boundary does not yet provide retention, garbage collection, locking
+across processes, remote storage, or database migrations. Query filtering is a
+read-side concern documented in [`RUN-QUERY.md`](RUN-QUERY.md). The remaining
+storage capabilities should be added when a concrete consumer needs them.
 
 The store protects readers from partial files and flushes file contents before
 publication. Directory-level crash consistency and multi-process coordination

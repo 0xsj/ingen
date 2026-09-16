@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"ingen/core/ciresult"
 	sentineladapter "ingen/herdr-sentinel/internal/adapter"
+	sentinelaudit "ingen/herdr-sentinel/internal/audit"
 	"ingen/herdr-sentinel/internal/capability"
+	sentinelreport "ingen/herdr-sentinel/internal/report"
 	sentinelrun "ingen/herdr-sentinel/internal/run"
 	"ingen/herdr-sentinel/internal/workspace"
 )
@@ -121,10 +124,122 @@ func adapterCommand(args []string) int {
 		return oracleAdapterCommand(args[1:])
 	case "verifier":
 		return verifierAdapterCommand(args[1:])
+	case "herdr-event":
+		return herdrEventAdapterCommand(args[1:])
+	case "herdr-events":
+		return herdrEventsAdapterCommand(args[1:])
 	default:
 		usage()
 		return 2
 	}
+}
+
+func herdrEventAdapterCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel adapter herdr-event", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	receiptPath := flags.String("receipt", "", "path to the Sentinel lifecycle receipt")
+	eventPath := flags.String("event", "", "path to one ingen.herdr-event/v1 JSON event")
+	root := flags.String("root", ".", "project root containing receipt artifact references")
+	outputPath := flags.String("output", "", "path for the updated receipt; receipt path when empty")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *receiptPath == "" || *eventPath == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	event, err := sentineladapter.LoadHerdrEvent(*eventPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *outputPath == "" {
+		appended, err := sentineladapter.ApplyHerdrEventFile(*receiptPath, event, *root)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if appended {
+			fmt.Println("appended:", filepath.Clean(*receiptPath))
+		} else {
+			fmt.Println("unchanged:", filepath.Clean(*receiptPath))
+		}
+		return 0
+	}
+	receipt, err := sentinelrun.LoadFile(*receiptPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	appended, err := sentineladapter.ApplyHerdrEventWithRoot(&receipt, event, *root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if appended {
+		if err := os.MkdirAll(filepath.Dir(*outputPath), 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if err := sentinelrun.SaveFile(*outputPath, receipt); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println("appended:", filepath.Clean(*outputPath))
+		return 0
+	}
+	fmt.Println("unchanged:", filepath.Clean(*outputPath))
+	return 0
+}
+
+func herdrEventsAdapterCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel adapter herdr-events", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	receiptPath := flags.String("receipt", "", "path to the Sentinel lifecycle receipt")
+	eventsPath := flags.String("events", "", "path to newline-delimited ingen.herdr-event/v1 objects")
+	root := flags.String("root", ".", "project root containing receipt artifact references")
+	outputPath := flags.String("output", "", "path for the updated receipt; receipt path when empty")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *receiptPath == "" || *eventsPath == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	events, err := sentineladapter.LoadHerdrEventStream(*eventsPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *outputPath == "" {
+		appended, err := sentineladapter.ApplyHerdrEventsFile(*receiptPath, events, *root)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Printf("appended: %s (%d new events)\n", filepath.Clean(*receiptPath), appended)
+		return 0
+	}
+	receipt, err := sentinelrun.LoadFile(*receiptPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	appended, err := sentineladapter.ApplyHerdrEventsWithRoot(&receipt, events, *root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := os.MkdirAll(filepath.Dir(*outputPath), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := sentinelrun.SaveFile(*outputPath, receipt); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("appended: %s (%d new events)\n", filepath.Clean(*outputPath), appended)
+	return 0
 }
 
 func oracleAdapterCommand(args []string) int {
@@ -477,16 +592,169 @@ func receiptArtifactPath(root, outputDir, name string) (string, bool) {
 }
 
 func runCommand(args []string) int {
-	if len(args) == 0 || args[0] != "bootstrap" {
+	if len(args) == 0 {
 		usage()
 		return 2
 	}
+	switch args[0] {
+	case "bootstrap":
+		return bootstrapRunCommand(args[1:])
+	case "ci-result":
+		return ciResultCommand(args[1:])
+	case "audit":
+		return auditRunCommand(args[1:])
+	case "artifact":
+		return artifactRunCommand(args[1:])
+	case "report":
+		return reportRunCommand(args[1:])
+	default:
+		usage()
+		return 2
+	}
+}
+
+func auditRunCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel run audit", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	receiptPath := flags.String("receipt", "", "path to the Sentinel lifecycle receipt")
+	root := flags.String("root", ".", "project root containing receipt file references")
+	outputPath := flags.String("output", "", "path for the audit report; stdout when empty")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *receiptPath == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	report, err := sentinelaudit.Build(*receiptPath, *root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *outputPath == "" {
+		if err := sentinelaudit.WriteJSON(os.Stdout, report); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(*outputPath), 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if err := sentinelaudit.SaveFile(*outputPath, report); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println("created:", filepath.Clean(*outputPath))
+	}
+	return report.ExitCode()
+}
+
+func artifactRunCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel run artifact", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	receiptPath := flags.String("receipt", "", "path to the Sentinel lifecycle receipt")
+	id := flags.String("id", "", "stable artifact ID")
+	role := flags.String("role", "", "role that produced the artifact")
+	kind := flags.String("kind", "", "producer-owned artifact kind")
+	artifactPath := flags.String("path", "", "artifact file path relative to the project root")
+	outputPath := flags.String("output", "", "path for the updated receipt; receipt path when empty")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *receiptPath == "" || *id == "" || *role == "" || *kind == "" || *artifactPath == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	if *outputPath == "" {
+		_, err := sentinelrun.UpdateFile(*receiptPath, func(receipt *sentinelrun.Receipt) (bool, error) {
+			if err := receipt.AddFileArtifact(*id, *role, *kind, *artifactPath); err != nil {
+				return false, err
+			}
+			return true, nil
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println("registered:", filepath.Clean(*receiptPath))
+		return 0
+	}
+	receipt, err := sentinelrun.LoadFile(*receiptPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := receipt.AddFileArtifact(*id, *role, *kind, *artifactPath); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := os.MkdirAll(filepath.Dir(*outputPath), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := sentinelrun.SaveFile(*outputPath, receipt); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("registered:", filepath.Clean(*outputPath))
+	return 0
+}
+
+func reportRunCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel run report", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	receiptPath := flags.String("receipt", "", "path to the Sentinel lifecycle receipt")
+	root := flags.String("root", ".", "project root containing receipt file references")
+	outputPath := flags.String("output", "", "path for the operator report; stdout when empty")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *receiptPath == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	document, err := sentinelreport.Build(*receiptPath, *root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *outputPath == "" {
+		if err := sentinelreport.Write(os.Stdout, document); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return document.Audit.ExitCode()
+	}
+	if err := os.MkdirAll(filepath.Dir(*outputPath), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	file, err := os.Create(*outputPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := sentinelreport.Write(file, document); err != nil {
+		_ = file.Close()
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := file.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("created:", filepath.Clean(*outputPath))
+	return document.Audit.ExitCode()
+}
+
+func bootstrapRunCommand(args []string) int {
 	flags := flag.NewFlagSet("sentinel run bootstrap", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	workspacePath := flags.String("workspace", "", "Sentinel workspace manifest")
 	outputPath := flags.String("output", "", "path for the Sentinel lifecycle receipt")
 	runID := flags.String("run-id", "", "optional explicit run ID")
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if *workspacePath == "" || *outputPath == "" || len(flags.Args()) != 0 {
@@ -513,10 +781,71 @@ func runCommand(args []string) int {
 	return 0
 }
 
+func ciResultCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel run ci-result", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	receiptPath := flags.String("receipt", "", "path for the Sentinel lifecycle receipt")
+	outputPath := flags.String("output", "", "path for the Sentinel CI result; stdout when empty")
+	sourceRoot := flags.String("source-root", ".", "source root recorded in the CI result")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *receiptPath == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	auditReport, err := sentinelaudit.Build(*receiptPath, *sourceRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if auditReport.Status == "failed" {
+		fmt.Fprintf(os.Stderr, "Sentinel audit failed: %s\n", auditFailureSummary(auditReport))
+		return auditReport.ExitCode()
+	}
+	artifact, err := sentinelrun.BuildCIResultFile(*receiptPath, *sourceRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *outputPath == "" {
+		if err := ciresult.WriteJSON(os.Stdout, artifact); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(*outputPath), 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if err := ciresult.SaveFile(*outputPath, artifact); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println("created:", filepath.Clean(*outputPath))
+	}
+	return artifact.ExitCode
+}
+
+func auditFailureSummary(report sentinelaudit.Report) string {
+	for _, check := range report.Checks {
+		if check.Status == "failed" {
+			return check.Detail
+		}
+	}
+	return "receipt integrity check failed"
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: sentinel workspace validate <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel workspace capabilities --workspace <path> [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter oracle --workspace <path> [--root <dir>] [--receipt <path>] -- <command> [args...]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter verifier --workspace <path> --oracle <path> --base-url <url> --subject-command <exe> [--subject-arg <arg> ...] [--root <dir>] [--subject-root <dir>] [--ready-path <path>] [--subject-variant <label>] [--output-dir <dir>] [--receipt <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-event --receipt <path> --event <path> [--root <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-events --receipt <path> --events <path> [--root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel run bootstrap --workspace <path> --output <path>")
+	fmt.Fprintln(os.Stderr, "       sentinel run ci-result --receipt <path> [--source-root <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel run audit --receipt <path> [--root <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel run artifact --receipt <path> --id <id> --role <role> --kind <kind> --path <path> [--output <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel run report --receipt <path> [--root <dir>] [--output <path>]")
 }

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -91,6 +94,110 @@ checks:
 	}
 }
 
+func TestRunCollectPersistsFailedRunBeforeReturningFailure(t *testing.T) {
+	workspace := t.TempDir()
+	artifactRoot := filepath.Join(workspace, "artifacts")
+	storeRoot := filepath.Join(workspace, "runs")
+	workflowPath := filepath.Join(workspace, "workflow.yaml")
+	outputPath := filepath.Join(workspace, "failed-run.json")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflowContents := []byte(`schema: ingen.nublar-workflow/v1
+id: cli-failed-workflow
+checks:
+  - id: behavior
+    tool: sorna
+    result: sorna.json
+`)
+	if err := os.WriteFile(workflowPath, workflowContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := ciresult.Artifact{
+		Schema:      ciresult.Schema,
+		Tool:        "sorna",
+		Kind:        "test",
+		Status:      "failed",
+		ExitCode:    1,
+		CreatedAt:   "2026-09-15T12:00:00Z",
+		Source:      ciresult.Source{Root: "."},
+		Report:      []byte(`{"ok":false}`),
+		Explanation: []byte(`{"reason":"assertion failed"}`),
+	}
+	resultContents, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactRoot, "sorna.json"), resultContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	args := []string{
+		"run", "collect",
+		"--workflow", workflowPath,
+		"--root", artifactRoot,
+		"--run-id", "cli-failed-collect-01",
+		"--store", storeRoot,
+		"--output", outputPath,
+	}
+	if exitCode := run(args); exitCode != 1 {
+		t.Fatalf("run(%v) = %d, want producer failure exit code 1", args, exitCode)
+	}
+	stored, err := loadStoredRun(storeRoot, "cli-failed-collect-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "failed" || stored.ExitCode != 1 || stored.Checks[0].Status != "failed" {
+		t.Fatalf("stored failed run = %+v, want failed decision and check", stored)
+	}
+	if _, err := nublarrun.LoadFile(outputPath); err != nil {
+		t.Fatalf("failed run output was not written: %v", err)
+	}
+}
+
+func TestRunCollectPersistsCollectionErrorBeforeReturningError(t *testing.T) {
+	workspace := t.TempDir()
+	artifactRoot := filepath.Join(workspace, "artifacts")
+	storeRoot := filepath.Join(workspace, "runs")
+	workflowPath := filepath.Join(workspace, "workflow.yaml")
+	outputPath := filepath.Join(workspace, "error-run.json")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflowContents := []byte(`schema: ingen.nublar-workflow/v1
+id: cli-error-workflow
+checks:
+  - id: required-behavior
+    tool: sorna
+    result: missing.json
+`)
+	if err := os.WriteFile(workflowPath, workflowContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	args := []string{
+		"run", "collect",
+		"--workflow", workflowPath,
+		"--root", artifactRoot,
+		"--run-id", "cli-error-collect-01",
+		"--store", storeRoot,
+		"--output", outputPath,
+	}
+	if exitCode := run(args); exitCode != 2 {
+		t.Fatalf("run(%v) = %d, want collection error exit code 2", args, exitCode)
+	}
+	stored, err := loadStoredRun(storeRoot, "cli-error-collect-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "error" || stored.ExitCode != 2 || len(stored.Errors) != 1 {
+		t.Fatalf("stored collection error = %+v, want error decision and one error", stored)
+	}
+	if _, err := nublarrun.LoadFile(outputPath); err != nil {
+		t.Fatalf("collection error output was not written: %v", err)
+	}
+}
+
 func TestRunListSucceedsForFailedStoredRun(t *testing.T) {
 	storeRoot := filepath.Join(t.TempDir(), "runs")
 	store, err := nublarstore.New(storeRoot)
@@ -121,6 +228,89 @@ func TestRunListSucceedsForFailedStoredRun(t *testing.T) {
 	}
 	if len(records) != 1 || records[0].RunID != record.RunID || records[0].Status != "failed" {
 		t.Fatalf("listed records = %+v, want stored failed run", records)
+	}
+}
+
+func TestRunListFiltersByStatusAndWorkflow(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed := cliTestRun("cli-filter-passed-01")
+	passed.Workflow.ID = "document-pipeline-ci"
+	failed := cliTestRun("cli-filter-failed-01")
+	failed.Workflow.ID = "webhook-validation-ci"
+	failed.Status = "failed"
+	failed.ExitCode = 1
+	failed.Checks[0].Status = "failed"
+	failed.Checks[0].Result.Artifact.Status = "failed"
+	failed.Checks[0].Result.Artifact.ExitCode = 1
+	if err := store.Save(passed); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(failed); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(t.TempDir(), "filtered.json")
+	args := []string{
+		"run", "list",
+		"--store", storeRoot,
+		"--status", "failed",
+		"--workflow", "webhook-validation-ci",
+		"--output", output,
+	}
+	if exitCode := run(args); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want filtered-list success", args, exitCode)
+	}
+	contents, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records []nublarrun.Run
+	if err := json.Unmarshal(contents, &records); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].RunID != failed.RunID {
+		t.Fatalf("filtered records = %+v, want only failed webhook run", records)
+	}
+}
+
+func TestRunListRejectsUnsupportedStatusFilter(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	args := []string{"run", "list", "--store", storeRoot, "--status", "blocked"}
+	if exitCode := run(args); exitCode != 2 {
+		t.Fatalf("run(%v) = %d, want unsupported-status usage error", args, exitCode)
+	}
+}
+
+func TestRunShowReturnsStoredFailureCodeAndExportsRecord(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := cliTestRun("cli-show-failed-01")
+	record.Status = "failed"
+	record.ExitCode = 1
+	record.Checks[0].Status = "failed"
+	record.Checks[0].Result.Artifact.Status = "failed"
+	record.Checks[0].Result.Artifact.ExitCode = 1
+	if err := store.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "shown-failed.json")
+	args := []string{"run", "show", "--store", storeRoot, "--run-id", record.RunID, "--output", output}
+	if exitCode := run(args); exitCode != 1 {
+		t.Fatalf("run(%v) = %d, want stored failure code", args, exitCode)
+	}
+	shown, err := nublarrun.LoadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shown.RunID != record.RunID || shown.Status != "failed" || shown.ExitCode != 1 {
+		t.Fatalf("shown run = %+v, want failed stored record", shown)
 	}
 }
 
@@ -158,6 +348,39 @@ func TestRunDecisionExportsCompactVersionedProjection(t *testing.T) {
 	}
 }
 
+func TestRunDecisionExportsFailedStatusWithReadSuccess(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := cliTestRun("cli-decision-failed-01")
+	record.Status = "failed"
+	record.ExitCode = 1
+	record.Checks[0].Status = "failed"
+	record.Checks[0].Result.Artifact.Status = "failed"
+	record.Checks[0].Result.Artifact.ExitCode = 1
+	if err := store.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "decision-failed.json")
+	args := []string{"run", "decision", "--store", storeRoot, "--run-id", record.RunID, "--output", output}
+	if exitCode := run(args); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want export success despite failed run", args, exitCode)
+	}
+	contents, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decision nublardelivery.Decision
+	if err := json.Unmarshal(contents, &decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.RunID != record.RunID || decision.Status != "failed" || decision.ExitCode != 1 {
+		t.Fatalf("decision = %+v, want failed provider-neutral projection", decision)
+	}
+}
+
 func TestRunDeliverRejectsInvalidWebhookConfiguration(t *testing.T) {
 	storeRoot := filepath.Join(t.TempDir(), "runs")
 	store, err := nublarstore.New(storeRoot)
@@ -170,6 +393,113 @@ func TestRunDeliverRejectsInvalidWebhookConfiguration(t *testing.T) {
 	args := []string{"run", "deliver", "--store", storeRoot, "--run-id", "cli-deliver-01", "--webhook", "file:///tmp/nublar", "--timeout", "1s"}
 	if exitCode := run(args); exitCode != 2 {
 		t.Fatalf("run(%v) = %d, want invalid-webhook configuration error", args, exitCode)
+	}
+}
+
+func TestRunDeliverWritesAcceptedReceiptFromCLI(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(cliTestRun("cli-deliver-accepted-01")); err != nil {
+		t.Fatal(err)
+	}
+	var received nublardelivery.Decision
+	publisher := publisherFunc(func(_ context.Context, decision nublardelivery.Decision) (nublardelivery.Receipt, error) {
+		received = decision
+		return nublardelivery.Receipt{
+			Schema:      nublardelivery.ReceiptSchema,
+			RunID:       decision.RunID,
+			Transport:   "http-webhook",
+			Status:      "accepted",
+			HTTPStatus:  http.StatusNoContent,
+			AttemptedAt: "2026-09-15T12:00:02Z",
+		}, nil
+	})
+
+	receiptPath := filepath.Join(t.TempDir(), "accepted-receipt.json")
+	args := []string{
+		"run", "deliver",
+		"--store", storeRoot,
+		"--run-id", "cli-deliver-accepted-01",
+		"--webhook", "https://example.test/nublar",
+		"--timeout", "2s",
+		"--receipt", receiptPath,
+	}
+	if exitCode := deliverCommandWithFactory(args[2:], func(_ string, _ []byte) (nublardelivery.Publisher, error) {
+		return publisher, nil
+	}); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want accepted delivery", args, exitCode)
+	}
+	if received.RunID != "cli-deliver-accepted-01" || received.Status != "passed" {
+		t.Fatalf("received decision = %+v, want passed decision for run", received)
+	}
+	contents, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt nublardelivery.Receipt
+	if err := json.Unmarshal(contents, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status != "accepted" || receipt.HTTPStatus != http.StatusNoContent || receipt.RunID != "cli-deliver-accepted-01" {
+		t.Fatalf("receipt = %+v, want accepted 204 receipt", receipt)
+	}
+}
+
+func TestRunDeliverWritesFailedReceiptFromCLI(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(cliTestRun("cli-deliver-failed-01")); err != nil {
+		t.Fatal(err)
+	}
+	publisher := publisherFunc(func(_ context.Context, decision nublardelivery.Decision) (nublardelivery.Receipt, error) {
+		return nublardelivery.Receipt{
+			Schema:      nublardelivery.ReceiptSchema,
+			RunID:       decision.RunID,
+			Transport:   "http-webhook",
+			Status:      "failed",
+			HTTPStatus:  http.StatusBadGateway,
+			AttemptedAt: "2026-09-15T12:00:02Z",
+			Error:       "Nublar webhook returned HTTP 502 Bad Gateway",
+		}, errors.New("Nublar webhook returned HTTP 502 Bad Gateway")
+	})
+
+	receiptPath := filepath.Join(t.TempDir(), "failed-receipt.json")
+	args := []string{
+		"run", "deliver",
+		"--store", storeRoot,
+		"--run-id", "cli-deliver-failed-01",
+		"--webhook", "https://example.test/nublar",
+		"--timeout", "2s",
+		"--receipt", receiptPath,
+	}
+	if exitCode := deliverCommandWithFactory(args[2:], func(_ string, _ []byte) (nublardelivery.Publisher, error) {
+		return publisher, nil
+	}); exitCode != 2 {
+		t.Fatalf("run(%v) = %d, want delivery failure", args, exitCode)
+	}
+	contents, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt nublardelivery.Receipt
+	if err := json.Unmarshal(contents, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status != "failed" || receipt.HTTPStatus != http.StatusBadGateway || receipt.Error == "" || receipt.RunID != "cli-deliver-failed-01" {
+		t.Fatalf("receipt = %+v, want failed 502 receipt", receipt)
+	}
+	stored, err := store.Load("cli-deliver-failed-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "passed" || stored.ExitCode != 0 {
+		t.Fatalf("stored run after failed delivery = %+v, want unchanged passed decision", stored)
 	}
 }
 
@@ -230,4 +560,18 @@ func cliTestRun(runID string) nublarrun.Run {
 			},
 		}},
 	}
+}
+
+func loadStoredRun(storeRoot, runID string) (nublarrun.Run, error) {
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		return nublarrun.Run{}, err
+	}
+	return store.Load(runID)
+}
+
+type publisherFunc func(context.Context, nublardelivery.Decision) (nublardelivery.Receipt, error)
+
+func (f publisherFunc) Publish(ctx context.Context, decision nublardelivery.Decision) (nublardelivery.Receipt, error) {
+	return f(ctx, decision)
 }

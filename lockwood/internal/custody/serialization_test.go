@@ -52,3 +52,43 @@ func TestFilesystemRejectsNonCanonicalRecord(t *testing.T) {
 		t.Fatalf("Get error = %v, want non-canonical JSON", err)
 	}
 }
+
+func TestCanonicalDigestIsStableAndContentSensitive(t *testing.T) {
+	record := testRecord(t, "lockwood-canonical-digest")
+	first, err := CanonicalDigest(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CanonicalDigest(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("canonical digest changed: %s vs %s", first, second)
+	}
+	record.Source.Path = "changed.json"
+	changed, err := CanonicalDigest(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == first {
+		t.Fatal("canonical digest ignored a record change")
+	}
+}
+
+func TestCanonicalDigestNormalizesEmptyParents(t *testing.T) {
+	record := testRecord(t, "lockwood-canonical-digest-empty-parents")
+	record.Parents = nil
+	nilParents, err := CanonicalDigest(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Parents = []Lineage{}
+	emptyParents, err := CanonicalDigest(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nilParents != emptyParents {
+		t.Fatalf("normalized empty-parent digests differ: %s vs %s", nilParents, emptyParents)
+	}
+}

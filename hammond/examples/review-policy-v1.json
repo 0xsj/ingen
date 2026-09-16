@@ -3,8 +3,13 @@
   "id": "single-approval",
   "version": 1,
   "minimum_approvals": 1,
-  "actor_roles": {
-    "reviewer": ["product-reviewer"],
-    "reviewer@example.test": ["product-reviewer"]
+  "authority": {
+    "id": "local-reviewers",
+    "version": 1,
+    "schema": "ingen.hammond-authority/v1",
+    "artifact": {
+      "uri": "hammond/examples/review-authority-v1.json",
+      "sha256": "f478a9d1b32421f22645b2f374feb8cbcf5978aec2ef3317605e92d8322e3c62"
+    }
   }
 }

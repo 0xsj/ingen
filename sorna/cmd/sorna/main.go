@@ -520,15 +520,95 @@ func lifecycleObservationLimitation(access *lifecycle.AccessTelemetry) string {
 }
 
 func evidenceCommand(args []string) int {
-	if len(args) != 2 || args[0] != "verify" {
-		fmt.Fprintln(os.Stderr, "usage: sorna evidence verify <directory>")
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna evidence verify <directory> | replay --oracle <path> --base-url <url> [--output <path>] <directory>")
 		return 2
 	}
-	if err := evidence.Verify(args[1]); err != nil {
+	switch args[0] {
+	case "verify":
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: sorna evidence verify <directory>")
+			return 2
+		}
+		if err := evidence.Verify(args[1]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println("verified:", args[1])
+		return 0
+	case "replay":
+		return replayEvidence(args[1:])
+	default:
+		fmt.Fprintln(os.Stderr, "unknown evidence command:", args[0])
+		return 2
+	}
+}
+
+func replayEvidence(args []string) int {
+	flags := flag.NewFlagSet("evidence replay", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	oraclePath := flags.String("oracle", "", "path to the canonical frozen oracle used by the recorded run")
+	baseURL := flags.String("base-url", "", "absolute URL of an explicitly supplied equivalent subject")
+	outputPath := flags.String("output", "", "optional replay report output path; existing files are not overwritten")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *oraclePath == "" || *baseURL == "" || len(flags.Args()) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: sorna evidence replay --oracle <path> --base-url <url> [--output <path>] <directory>")
+		return 2
+	}
+	artifact, err := oracle.LoadFile(*oraclePath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "load replay oracle:", err)
+		return 1
+	}
+	result, err := evidence.Replay(context.Background(), flags.Args()[0], artifact, runner.Config{BaseURL: *baseURL})
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	fmt.Println("verified:", args[1])
+	encoded, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "encode replay report:", err)
+		return 2
+	}
+	encoded = append(encoded, '\n')
+	if *outputPath == "" {
+		if _, err := os.Stdout.Write(encoded); err != nil {
+			fmt.Fprintln(os.Stderr, "write replay report:", err)
+			return 2
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(*outputPath), 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, "create replay report directory:", err)
+			return 2
+		}
+		file, err := os.OpenFile(*outputPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			if os.IsExist(err) {
+				fmt.Fprintln(os.Stderr, "replay report output already exists:", *outputPath)
+			} else {
+				fmt.Fprintln(os.Stderr, "open replay report:", err)
+			}
+			return 2
+		}
+		if _, err := file.Write(encoded); err != nil {
+			_ = file.Close()
+			fmt.Fprintln(os.Stderr, "write replay report:", err)
+			return 2
+		}
+		if err := file.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "close replay report:", err)
+			return 2
+		}
+		fmt.Printf("replay: %s\nstatus: %s\n", *outputPath, result.Status)
+	}
+	switch result.Status {
+	case "drifted":
+		return 1
+	case "error", "inconclusive":
+		return 2
+	}
 	return 0
 }
 
@@ -706,6 +786,8 @@ func mutationCommand(args []string) int {
 		return validateMutationCatalogue(args[1:])
 	case "plan":
 		return planMutationCampaign(args[1:])
+	case "contract":
+		return mutationContractCommand(args[1:])
 	case "provider":
 		return mutationProviderCommand(args[1:])
 	case "run":
@@ -730,6 +812,8 @@ func mutationCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, "unknown mutation command:", args[0])
 		fmt.Fprintln(os.Stderr, "usage: sorna mutation validate <catalogue> [--contract <path>]")
 		fmt.Fprintln(os.Stderr, "       sorna mutation plan <catalogue> --contract <path> --oracle <path> --baseline-evidence <dir> [--subject-policy <path>] [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation contract inspect <catalogue> --contract <path> --oracle <path> [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation contract ci-result <report> --contract <path> --oracle <path> [--source-root <dir>] [--output <path>]")
 		fmt.Fprintln(os.Stderr, "       sorna mutation provider validate <path>")
 		fmt.Fprintln(os.Stderr, "       sorna mutation provider inspect <plan> --provider <path> [--require-plan-binding] [--format text|json|ci-result] [--output <path>]")
 		fmt.Fprintln(os.Stderr, "       sorna mutation provider preparation <summary> --provider <path> [--format ci-result] [--source-root <dir>] [--output <path>]")
@@ -738,6 +822,133 @@ func mutationCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, "       sorna mutation list <catalogue>")
 		return 2
 	}
+}
+
+func mutationContractCommand(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation contract inspect <catalogue> --contract <path> --oracle <path> [--output <path>]")
+		return 2
+	}
+	switch args[0] {
+	case "inspect":
+		return inspectContractMutations(args[1:])
+	case "ci-result":
+		return contractMutationCIResult(args[1:])
+	default:
+		fmt.Fprintln(os.Stderr, "unknown mutation contract command:", args[0])
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation contract inspect <catalogue> --contract <path> --oracle <path> [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna mutation contract ci-result <report> --contract <path> --oracle <path> [--source-root <dir>] [--output <path>]")
+		return 2
+	}
+}
+
+func inspectContractMutations(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation contract inspect <catalogue> --contract <path> --oracle <path> [--output <path>]")
+		return 2
+	}
+	flags := flag.NewFlagSet("mutation contract inspect", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	contractPath := flags.String("contract", "", "path to the original draft contract")
+	oraclePath := flags.String("oracle", "", "path to the original frozen oracle artifact")
+	outputPath := flags.String("output", "", "optional contract mutation report output path")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 || *contractPath == "" || *oraclePath == "" {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation contract inspect <catalogue> --contract <path> --oracle <path> [--output <path>]")
+		return 2
+	}
+	catalogue, err := mutation.LoadFile(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	document, err := contract.LoadFile(*contractPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if problems := mutation.ValidateAgainstContract(catalogue, document); len(problems) > 0 {
+		fmt.Fprintln(os.Stderr, "invalid contract mutation catalogue binding:")
+		for _, problem := range problems {
+			fmt.Fprintln(os.Stderr, "-", problem)
+		}
+		return 1
+	}
+	contractPathAbsolute, err := filepath.Abs(*contractPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "resolve contract path:", err)
+		return 1
+	}
+	sealed, err := contract.SealAt(document, filepath.Dir(contractPathAbsolute))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "seal original contract:", err)
+		return 1
+	}
+	originalOracle, err := oracle.LoadFile(*oraclePath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	report, err := mutation.AnalyzeContractMutations(sealed, originalOracle, catalogue.Mutations)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	contents, err := mutation.CanonicalContractMutationReport(report)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *outputPath == "" {
+		_, _ = os.Stdout.Write(contents)
+	} else {
+		if err := os.MkdirAll(filepath.Dir(*outputPath), 0o755); err != nil {
+			fmt.Fprintln(os.Stderr, "create contract mutation report directory:", err)
+			return 1
+		}
+		if err := mutation.WriteContractMutationReport(*outputPath, report); err != nil {
+			fmt.Fprintln(os.Stderr, "write contract mutation report:", err)
+			return 1
+		}
+		fmt.Printf("report: %s\nstatus: %s\nvisible: %d\nequivalent: %d\ninvalid: %d\n", *outputPath, report.Status, report.Summary.Visible, report.Summary.Equivalent, report.Summary.Invalid)
+	}
+	if report.Summary.Invalid > 0 {
+		return 1
+	}
+	return 0
+}
+
+func contractMutationCIResult(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation contract ci-result <report> --contract <path> --oracle <path> [--source-root <dir>] [--output <path>]")
+		return 2
+	}
+	flags := flag.NewFlagSet("mutation contract ci-result", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	contractPath := flags.String("contract", "", "path to the original draft contract")
+	oraclePath := flags.String("oracle", "", "path to the original frozen oracle artifact")
+	sourceRoot := flags.String("source-root", ".", "source root used to resolve relative input paths")
+	outputPath := flags.String("output", "", "optional shared CI result output path; existing files are not overwritten")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 || *contractPath == "" || *oraclePath == "" {
+		fmt.Fprintln(os.Stderr, "usage: sorna mutation contract ci-result <report> --contract <path> --oracle <path> [--source-root <dir>] [--output <path>]")
+		return 2
+	}
+	reportPath := args[0]
+	artifact, err := evidence.BuildContractMutationCIResult(reportPath, *contractPath, *oraclePath, *sourceRoot)
+	if err != nil {
+		errorArtifact, artifactErr := evidence.BuildContractMutationCIErrorResult(reportPath, *contractPath, *oraclePath, *sourceRoot, err)
+		if artifactErr != nil {
+			fmt.Fprintln(os.Stderr, "build contract mutation CI error result:", artifactErr)
+			return 2
+		}
+		return emitCIResult(errorArtifact, *outputPath, "contract mutation")
+	}
+	return emitCIResult(artifact, *outputPath, "contract mutation")
 }
 
 func validateMutationCatalogue(args []string) int {
@@ -2025,12 +2236,15 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sorna oracle freeze --contract <path> --policy <path> [--root <dir>] [--output-dir <dir>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation validate <catalogue> [--contract <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation plan <catalogue> --contract <path> --oracle <path> --baseline-evidence <dir> [--subject-policy <path>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  sorna mutation contract inspect <catalogue> --contract <path> --oracle <path> [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  sorna mutation contract ci-result <report> --contract <path> --oracle <path> [--source-root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation provider validate <path>")
 	fmt.Fprintln(os.Stderr, "  sorna mutation provider inspect <plan> --provider <path> [--require-plan-binding] [--format text|json|ci-result] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation provider preparation <summary> --provider <path> [--format ci-result] [--source-root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--require-plan-binding] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation list <catalogue>")
 	fmt.Fprintln(os.Stderr, "  sorna evidence verify <directory>")
+	fmt.Fprintln(os.Stderr, "  sorna evidence replay --oracle <path> --base-url <url> [--output <path>] <directory>")
 	fmt.Fprintln(os.Stderr, "  sorna gate [--minimum-observation-coverage <state>] [--format text|json|ci-result] <evidence-directory>")
 	fmt.Fprintln(os.Stderr, "  sorna run [--oracle <path> | --contract <path>] [--policy <path>] --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--subject-policy <path>] [--baseline-evidence <dir>] [--output-dir <dir>]")
 }

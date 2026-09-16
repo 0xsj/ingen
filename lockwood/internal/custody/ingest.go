@@ -39,11 +39,11 @@ func (e *IntakeError) Unwrap() error {
 }
 
 type Ingestor struct {
-	artifacts *store.Filesystem
-	records   *Filesystem
+	artifacts store.Store
+	records   RecordStore
 }
 
-func NewIngestor(artifacts *store.Filesystem, records *Filesystem) (*Ingestor, error) {
+func NewIngestor(artifacts store.Store, records RecordStore) (*Ingestor, error) {
 	if artifacts == nil {
 		return nil, fmt.Errorf("artifact store is required")
 	}

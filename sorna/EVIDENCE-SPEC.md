@@ -352,6 +352,20 @@ Replay may produce a different result when nondeterminism is part of the
 system. In that case, Sorna must report the divergence rather than replacing
 the original evidence.
 
+The initial replay command follows this boundary explicitly:
+
+```sh
+sorna evidence replay --oracle <frozen-oracle.json> --base-url <equivalent-subject-url> <evidence-directory>
+```
+
+It verifies the stored evidence checksums and semantics before executing the
+caller-supplied canonical oracle. The contract source is not loaded, the
+original subject URL is not selected implicitly, and the evidence directory is
+read-only. Contract-visible rule and verdict changes are outcome drift;
+observation hash changes are reported separately because a different raw
+observation can still satisfy the same contract. A replay that cannot evaluate
+the subject is an execution error or inconclusive result, not behavioral drift.
+
 ## 12. Retention and redaction
 
 Evidence should be retained long enough to investigate regressions and compare

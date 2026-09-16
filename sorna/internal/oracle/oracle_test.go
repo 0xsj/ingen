@@ -93,6 +93,48 @@ func TestLoadRejectsValidButNonCanonicalOracleBytes(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsEmptyOracle(t *testing.T) {
+	artifact := Artifact{
+		Schema:       Schema,
+		Status:       "frozen",
+		Contract:     ContractReference{ID: "empty", Version: 1, SHA256: strings.Repeat("a", 64)},
+		PolicySHA256: strings.Repeat("b", 64),
+	}
+	problems := Validate(artifact)
+	if !containsOracleProblem(problems, "oracle.cases must contain at least one case") {
+		t.Fatalf("problems = %v, want empty-oracle rejection", problems)
+	}
+}
+
+func TestValidateRejectsAmbiguousCaseAndRuleIdentities(t *testing.T) {
+	artifact, err := generateTestOracle(testContract(), strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact.Cases = append(artifact.Cases, artifact.Cases[0])
+	problems := Validate(artifact)
+	if !containsOracleProblem(problems, "case_id duplicates") || !containsOracleProblem(problems, "rule_id duplicates") {
+		t.Fatalf("problems = %v, want duplicate case and rule identity rejections", problems)
+	}
+}
+
+func generateTestOracle(document contract.Document, policyHash string) (Artifact, error) {
+	sealed, err := contract.Seal(document)
+	if err != nil {
+		return Artifact{}, err
+	}
+	return Generate(sealed, policyHash)
+}
+
+func containsOracleProblem(problems []string, fragment string) bool {
+	for _, problem := range problems {
+		if strings.Contains(problem, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
 func testContract() contract.Document {
 	return contract.Document{Contract: map[string]any{
 		"schema":    "ingen.contract/v1",

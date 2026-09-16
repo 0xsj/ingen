@@ -8,12 +8,14 @@ import (
 	"ingen/hammond/internal/governance"
 )
 
+const contractDigest = "6b40dfb15fa67f96c9f3bc79bc46206d45f6d44124197b344757499299e43445"
+
 func TestFileStoreRegistersAppendsAndLists(t *testing.T) {
 	fileStore, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := strings.Repeat("a", 64)
+	digest := contractDigest
 	record := registeredRecord(digest)
 
 	if err := fileStore.Register(record); err != nil {
@@ -68,7 +70,7 @@ func TestFileStoreRejectsDuplicateRegistrationAndDuplicateEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := registeredRecord(strings.Repeat("a", 64))
+	record := registeredRecord(contractDigest)
 	if err := fileStore.Register(record); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +98,7 @@ func TestFileStoreDoesNotPersistInvalidAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := registeredRecord(strings.Repeat("a", 64))
+	record := registeredRecord(contractDigest)
 	if err := fileStore.Register(record); err != nil {
 		t.Fatal(err)
 	}
@@ -128,8 +130,8 @@ func TestFileStoreCreatesAmendmentAndPreservesLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digestOne := strings.Repeat("a", 64)
-	digestTwo := strings.Repeat("b", 64)
+	digestOne := contractDigest
+	digestTwo := contractDigest
 	predecessor := registeredRecord(digestOne)
 	if err := fileStore.Register(predecessor); err != nil {
 		t.Fatal(err)
@@ -224,8 +226,8 @@ func TestFileStoreRejectsAmendmentBeforeSuccessorRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digestOne := strings.Repeat("a", 64)
-	digestTwo := strings.Repeat("b", 64)
+	digestOne := contractDigest
+	digestTwo := contractDigest
 	predecessor := registeredRecord(digestOne)
 	if err := fileStore.Register(predecessor); err != nil {
 		t.Fatal(err)
@@ -295,7 +297,7 @@ func registeredRecord(digest string) governance.Record {
 			Version:   1,
 			Schema:    "sorna.contract/v1",
 			Artifact: governance.Artifact{
-				URI:    "examples/document-pipeline-lab/contract/contract.yaml",
+				URI:    "hammond/examples/document-pipeline/contract-v2.canonical.json",
 				SHA256: digest,
 			},
 		},

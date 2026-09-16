@@ -98,6 +98,37 @@ func TestValidateRequiresResultHash(t *testing.T) {
 	}
 }
 
+func TestLoadFileRejectsUnknownRunFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.json")
+	contents, err := json.MarshalIndent(validRun(), "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = bytes.TrimSpace(contents)
+	contents = append(contents[:len(contents)-1], []byte(",\"unexpected\":true}")...)
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFile(path); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("LoadFile() = %v, want unknown-field error", err)
+	}
+}
+
+func TestLoadFileRejectsMultipleRunValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.json")
+	contents, err := json.Marshal(validRun())
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = append(contents, []byte("\n{}\n")...)
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadFile(path); err == nil || !strings.Contains(err.Error(), "multiple JSON values") {
+		t.Fatalf("LoadFile() = %v, want multiple-value error", err)
+	}
+}
+
 func TestNewIDReturnsDistinctOpaqueIDs(t *testing.T) {
 	first, err := NewID()
 	if err != nil {
@@ -178,6 +209,29 @@ func TestCollectWorkflowRecordsMissingOptionalAndMalformedRequiredResults(t *tes
 	}
 	if err := r.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCollectWorkflowRejectsInvalidDirectInputs(t *testing.T) {
+	document := workflow.Document{
+		Schema: workflow.Schema,
+		ID:     "invalid-workflow",
+		Checks: []workflow.Check{
+			{ID: "duplicate", Tool: "sorna", Result: "first.json"},
+			{ID: "duplicate", Tool: "sorna", Result: "second.json"},
+		},
+	}
+	if _, err := CollectWorkflow(document, fileRef("workflow.yaml"), t.TempDir(), "run-invalid-workflow"); err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("CollectWorkflow() = %v, want invalid-workflow error", err)
+	}
+
+	validDocument := workflow.Document{
+		Schema: workflow.Schema,
+		ID:     "valid-workflow",
+		Checks: []workflow.Check{{ID: "check", Tool: "sorna", Result: "result.json"}},
+	}
+	if _, err := CollectWorkflow(validDocument, ciresult.FileRef{Path: "workflow.yaml"}, t.TempDir(), "run-unbound-workflow"); err == nil || !strings.Contains(err.Error(), "sha256 is required") {
+		t.Fatalf("CollectWorkflow() = %v, want workflow-reference error", err)
 	}
 }
 

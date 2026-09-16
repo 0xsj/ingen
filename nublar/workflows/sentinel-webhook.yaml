@@ -1,0 +1,7 @@
+schema: ingen.nublar-workflow/v1
+id: sentinel-webhook-verifier
+checks:
+  - id: verifier-lifecycle
+    tool: sentinel
+    result: sentinel-webhook-ci-result.json
+    required: true

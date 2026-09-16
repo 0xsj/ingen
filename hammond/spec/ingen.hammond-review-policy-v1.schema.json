@@ -17,13 +17,30 @@
       "uniqueItems": true,
       "items": {"type": "string", "minLength": 1}
     },
-    "actor_roles": {
-      "description": "Explicit actor-to-role grants used by local policy evaluation.",
+    "authority": {
+      "description": "Versioned actor-to-role authority snapshot used by local policy evaluation.",
+      "$ref": "#/$defs/authority-reference"
+    }
+  },
+  "$defs": {
+    "artifact": {
       "type": "object",
-      "additionalProperties": {
-        "type": "array",
-        "uniqueItems": true,
-        "items": {"type": "string", "minLength": 1}
+      "additionalProperties": false,
+      "required": ["uri", "sha256"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "authority-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "schema", "artifact"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "schema": {"const": "ingen.hammond-authority/v1"},
+        "artifact": {"$ref": "#/$defs/artifact"}
       }
     }
   }

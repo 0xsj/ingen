@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"ingen/core/ciresult"
 	"ingen/nublar/internal/aggregate"
 	nublardelivery "ingen/nublar/internal/delivery"
 	nublarwebhook "ingen/nublar/internal/delivery/webhook"
@@ -206,6 +208,8 @@ func listCommand(args []string) int {
 	flags := flag.NewFlagSet("run list", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	storeRoot := flags.String("store", "", "filesystem store root")
+	status := flags.String("status", "", "optional run status filter: passed, failed, or error")
+	workflowID := flags.String("workflow", "", "optional workflow ID filter")
 	output := flags.String("output", "", "path for the JSON run list; stdout when empty")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -224,11 +228,37 @@ func listCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	records, err = filterRuns(records, *status, *workflowID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
 	if err := writeRunList(*output, records); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
 	return 0
+}
+
+func filterRuns(records []nublarrun.Run, status, workflowID string) ([]nublarrun.Run, error) {
+	status = strings.TrimSpace(status)
+	workflowID = strings.TrimSpace(workflowID)
+	if status != "" {
+		if _, err := ciresult.ExitCodeForStatus(status); err != nil {
+			return nil, fmt.Errorf("Nublar run list status filter: %w", err)
+		}
+	}
+	filtered := make([]nublarrun.Run, 0, len(records))
+	for _, record := range records {
+		if status != "" && record.Status != status {
+			continue
+		}
+		if workflowID != "" && record.Workflow.ID != workflowID {
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+	return filtered, nil
 }
 
 func decisionCommand(args []string) int {
@@ -271,7 +301,15 @@ func decisionCommand(args []string) int {
 	return 0
 }
 
+type webhookPublisherFactory func(endpoint string, secret []byte) (nublardelivery.Publisher, error)
+
 func deliverCommand(args []string) int {
+	return deliverCommandWithFactory(args, func(endpoint string, secret []byte) (nublardelivery.Publisher, error) {
+		return nublarwebhook.NewWithSecret(endpoint, nil, secret)
+	})
+}
+
+func deliverCommandWithFactory(args []string, newPublisher webhookPublisherFactory) int {
 	flags := flag.NewFlagSet("run deliver", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	storeRoot := flags.String("store", "", "filesystem store root")
@@ -311,7 +349,7 @@ func deliverCommand(args []string) int {
 		}
 		secret = []byte(value)
 	}
-	publisher, err := nublarwebhook.NewWithSecret(*endpoint, nil, secret)
+	publisher, err := newPublisher(*endpoint, secret)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -375,7 +413,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  nublar workflow validate <path>")
 	fmt.Fprintln(os.Stderr, "  nublar run collect --workflow <path> [--root <dir>] [--run-id <id>] [--store <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run show --store <dir> --run-id <id> [--output <path>]")
-	fmt.Fprintln(os.Stderr, "  nublar run list --store <dir> [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run decision --store <dir> --run-id <id> [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run deliver --store <dir> --run-id <id> --webhook <url> [--timeout <duration>] [--secret-env <name>] [--receipt <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar aggregate [--workflow <path> --root <dir>] [--output <path>] <ci-result> [<ci-result> ...]")

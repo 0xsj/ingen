@@ -7,6 +7,8 @@ The first filesystem-backed read surface has two operations:
 ```text
 run show --store <dir> --run-id <id>  → one validated run record
 run list --store <dir>                → all validated run records
+run list --store <dir> --status failed --workflow document-pipeline-ci
+                                      → matching validated run records
 ```
 
 `run show` addresses one immutable record by its opaque ID. `run list` emits a
@@ -23,8 +25,14 @@ Listing is a read success regardless of the status of an individual run, so a
 stored `failed` or `error` run does not make `run list` return a failure exit
 code. Storage and serialization errors still return exit code `2`.
 
+`run list` may filter by the coordinator `--status` (`passed`, `failed`, or
+`error`) and/or exact `--workflow` ID. Filters are applied after every stored
+record has been validated, preserve the documented ordering, and return `[]`
+when nothing matches. An unsupported status filter is a usage error with exit
+code `2`.
+
 ## Deliberately deferred
 
-The first query surface does not define workflow/status filters, pagination,
-summary-only responses, retention queries, or a hosted API. Those should be
-added when a consumer establishes the required scale and response shape.
+The first query surface does not define pagination, summary-only responses,
+retention queries, or a hosted API. Those should be added when a consumer
+establishes the required scale and response shape.

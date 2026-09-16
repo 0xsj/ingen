@@ -1,0 +1,24 @@
+schema: paddock.architecture/v1
+project: negative-source-selector
+
+source:
+  language: typescript
+  unit: file
+  roots: [src]
+
+components:
+  server:
+    match: src/server/**
+    labels:
+      role: server
+
+rules:
+  - id: server-code-stays-on-server
+    kind: deny-dependencies
+    from:
+      path-not: src/server/**|**/+server.ts|**/+page.server.ts|**/+layout.server.ts|src/hooks.server.ts|src/app.d.ts
+    deny:
+      - {role: server}
+    message: only server source units may import server code
+
+waivers: []

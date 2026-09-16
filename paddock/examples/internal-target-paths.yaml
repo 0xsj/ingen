@@ -1,0 +1,32 @@
+schema: paddock.architecture/v1
+project: internal-target-paths
+
+source:
+  language: typescript
+  unit: file
+  roots: [src]
+
+components:
+  server-root:
+    match: src/server/root.ts
+    labels:
+      role: server-root
+
+rules:
+  - id: adapters-behind-the-server-root
+    kind: deny-dependencies
+    from:
+      path-not: src/server/root.ts
+    deny:
+      - {path: src/adapter/**}
+    message: concrete adapters must be reached through the server root
+
+  - id: memory-adapters-for-roots-and-tests
+    kind: deny-dependencies
+    from:
+      path-not: src/server/root.ts|**/*.spec.ts
+    deny:
+      - {path: src/services/**/*.memory.ts}
+    message: memory adapters belong only to roots and tests
+
+waivers: []

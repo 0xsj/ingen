@@ -38,13 +38,15 @@ lockwood/
 │   ├── integrity/                # Hash and manifest verification
 │   │   ├── verify.go
 │   │   └── verify_test.go
+│   ├── attestation/              # Detached signing, encoding, and publication
 │   └── adapters/
 │       ├── sorna/                # Import Sorna evidence bundles
 │       └── ciresult/             # Import ingen.ci-result/v1
 ├── spec/
 │   ├── lockwood.artifact-v1.schema.json
 │   ├── lockwood.custody-v1.schema.json
-│   └── lockwood.custody-v2.schema.json
+│   ├── lockwood.custody-v2.schema.json
+│   └── lockwood.attestation-v1.schema.json
 ├── examples/
 │   └── custody-record.json
 └── testdata/
@@ -57,18 +59,24 @@ lockwood/
 ├── cmd/lockwood/                 # put, imports, get, inspect, verify, find, recover, reconcile
 ├── internal/
 │   ├── artifact/                 # SHA-256 references
-│   ├── store/                    # filesystem blobs, inventory, reference checks
-│   ├── custody/                  # records, lineage, recovery, serialization, verification
+│   ├── store/                    # filesystem and in-memory blobs, inventory, reference checks
+│   ├── custody/                  # filesystem and in-memory records, lineage, recovery, verification
 │   ├── catalog/                  # deterministic metadata queries
+│   ├── integrity/                # shared streaming hash and size verification
+│   ├── attestation/              # detached sign/verify, encoding, and publication
 │   └── adapters/
 │       ├── ciresult/             # validated ingen.ci-result/v1 intake
 │       └── sorna/                # deterministic verified Sorna bundle intake
-├── spec/                         # artifact-v1, custody-v1, custody-v2
+├── spec/                         # artifact-v1, custody-v1, custody-v2, attestation-v1
 └── testdata/                     # valid and invalid contract fixtures
 ```
 
-The proposed `integrity`, in-memory store, `examples`, and remote/object-store
-areas remain future work rather than missing implementation files.
+The proposed remote/object-store area and signature trust implementation
+remain future work rather than missing implementation files. The detached
+attestation contract and local Ed25519 helper now exist, but they do not
+resolve trusted keys or make authorization decisions. The in-memory stores,
+shared integrity package, and example record are included as lightweight
+development surfaces.
 
 ## Proposed custody root
 
@@ -91,5 +99,5 @@ artifact came from and how it relates to other artifacts.
 ## Deferred areas
 
 The initial slice does not need to include remote/object-storage backends,
-signatures or external attestation, retention deletion and legal holds,
+signature trust and authorization, retention deletion and legal holds,
 redaction workflows, authentication, or a web UI.

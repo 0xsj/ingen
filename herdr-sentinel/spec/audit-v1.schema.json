@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.sentinel-audit-v1.schema.json",
+  "title": "InGen Sentinel audit report v1",
+  "description": "An integrity and lifecycle-completeness report for a Sentinel receipt.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "workspace_id", "receipt_status", "status", "created_at", "checks", "limitations"],
+  "properties": {
+    "schema": {"const": "ingen.sentinel-audit/v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "workspace_id": {"type": "string", "minLength": 1},
+    "receipt_status": {"type": "string", "minLength": 1},
+    "status": {"enum": ["passed", "failed", "error"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "detail"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["passed", "failed", "unavailable"]},
+          "detail": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

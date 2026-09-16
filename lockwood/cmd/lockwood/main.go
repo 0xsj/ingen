@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -14,6 +16,7 @@ import (
 	ciresultadapter "ingen/lockwood/internal/adapters/ciresult"
 	"ingen/lockwood/internal/adapters/sorna"
 	"ingen/lockwood/internal/artifact"
+	"ingen/lockwood/internal/attestation"
 	"ingen/lockwood/internal/catalog"
 	"ingen/lockwood/internal/custody"
 	"ingen/lockwood/internal/store"
@@ -39,6 +42,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGet(args[1:], stdout, stderr)
 	case "inspect":
 		return runInspect(args[1:], stdout, stderr)
+	case "record-digest":
+		return runRecordDigest(args[1:], stdout, stderr)
+	case "verify-attestation":
+		return runVerifyAttestation(args[1:], stdout, stderr)
 	case "verify":
 		return runVerify(args[1:], stdout, stderr)
 	case "find":
@@ -377,6 +384,80 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runRecordDigest(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood record-digest", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" {
+		fmt.Fprintln(stderr, "record-digest requires --root and exactly one custody ID")
+		return 2
+	}
+	_, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	record, err := records.Get(flags.Arg(0))
+	if err != nil {
+		fmt.Fprintf(stderr, "record-digest: %v\n", err)
+		return 1
+	}
+	digest, err := custody.CanonicalDigest(record)
+	if err != nil {
+		fmt.Fprintf(stderr, "record-digest: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, digest)
+	return 0
+}
+
+func runVerifyAttestation(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood verify-attestation", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	custodyID := flags.String("id", "", "target custody record ID")
+	publicKeyPath := flags.String("public-key", "", "base64 Ed25519 public-key file")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" || *custodyID == "" || *publicKeyPath == "" {
+		fmt.Fprintln(stderr, "verify-attestation requires --root, --id, --public-key, and exactly one attestation digest")
+		return 2
+	}
+	publicKey, err := readPublicKeyFile(*publicKeyPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-attestation: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	record, err := custody.VerifyRecord(records, artifacts, *custodyID)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-attestation: verify custody record: %v\n", err)
+		return 1
+	}
+	envelope, err := attestation.Load(artifacts, flags.Arg(0))
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-attestation: %v\n", err)
+		return 1
+	}
+	if err := attestation.Verify(record, envelope, publicKey); err != nil {
+		fmt.Fprintf(stderr, "verify-attestation: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, envelope); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runVerify(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood verify", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -589,6 +670,31 @@ func openStores(root string) (*store.Filesystem, *custody.Filesystem, error) {
 	return artifacts, records, nil
 }
 
+func readPublicKeyFile(path string) (ed25519.PublicKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read public key: %w", err)
+	}
+	encoded := string(data)
+	if strings.HasSuffix(encoded, "\n") {
+		encoded = strings.TrimSuffix(encoded, "\n")
+		if strings.HasSuffix(encoded, "\r") {
+			encoded = strings.TrimSuffix(encoded, "\r")
+		}
+	}
+	if encoded == "" || strings.ContainsAny(encoded, " \t\r\n") {
+		return nil, fmt.Errorf("public key must be base64 with at most one trailing newline")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("decode public key: %w", err)
+	}
+	if len(decoded) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("public key has size %d, want %d", len(decoded), ed25519.PublicKeySize)
+	}
+	return ed25519.PublicKey(decoded), nil
+}
+
 func writeJSON(writer io.Writer, value any) error {
 	encoder := json.NewEncoder(writer)
 	encoder.SetIndent("", "  ")
@@ -668,6 +774,8 @@ func usage(writer io.Writer) {
 	fmt.Fprintln(writer, "  import-ci-result [options] <path> import a validated CI result")
 	fmt.Fprintln(writer, "  get <digest>       retrieve verified bytes")
 	fmt.Fprintln(writer, "  inspect <id>       print one custody record")
+	fmt.Fprintln(writer, "  record-digest <id> print the canonical custody-record digest")
+	fmt.Fprintln(writer, "  verify-attestation verify a published attestation with an explicit public key")
 	fmt.Fprintln(writer, "  verify <digest>    verify stored bytes")
 	fmt.Fprintln(writer, "  verify --id <id>   verify a custody record and its blob")
 	fmt.Fprintln(writer, "  find               query custody records")

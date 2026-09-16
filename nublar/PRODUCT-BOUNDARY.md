@@ -25,8 +25,9 @@ load workflow
 ```
 
 The first workflow is the existing document-pipeline workflow. Producer
-commands remain outside Nublar for this slice: Sorna produces its result
-envelopes, and Nublar collects them.
+commands remain outside Nublar for this slice: Sorna and Sentinel produce
+shared result envelopes, and Nublar collects them. Sentinel's lifecycle receipt
+is adapted to the shared envelope before it reaches Nublar.
 
 The precise producer handoff and execution ownership are documented in
 [`EXECUTION-BOUNDARY.md`](EXECUTION-BOUNDARY.md).
@@ -55,7 +56,7 @@ error > failed > passed
 | Sorna | Contract evaluation, isolation, mutation semantics, evidence production | A producer of validated CI envelopes and opaque reports |
 | Paddock | Architecture policy evaluation and findings | A producer of validated CI envelopes and opaque reports |
 | Lockwood | Artifact custody, retention, lineage, and re-verification | A future storage or custody service |
-| Sentinel | Agent workflow, permissions, workspace, and interactive control | An external workflow or delivery client |
+| Sentinel | Agent workflow, permissions, workspace, lifecycle receipt, and interactive control | A producer of a shared CI envelope; Nublar treats the receipt report as opaque |
 | Amber | Portable provenance and context semantics | A shared library or protocol dependency |
 
 Nublar must not decide whether a mutation was killed, whether an architecture
@@ -84,7 +85,7 @@ producer-owned semantics carried inside the producer envelope and report.
 The first slice will not include:
 
 - launching Sorna, Paddock, or other producers;
-- pull-request comments, status APIs, or webhook delivery;
+- provider-specific pull-request comments, status APIs, or annotations;
 - scheduled or retried execution;
 - a hosted Nublar server;
 - artifact retention or a remote artifact store;
@@ -109,7 +110,7 @@ The implemented run-oriented command is:
 ```sh
 nublar run collect --workflow <path> --root <artifact-root> --output <path>
 nublar run show --store <dir> --run-id <id>
-nublar run list --store <dir>
+nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>]
 nublar run decision --store <dir> --run-id <id>
 nublar run deliver --store <dir> --run-id <id> --webhook <url> [--receipt <path>]
 ```

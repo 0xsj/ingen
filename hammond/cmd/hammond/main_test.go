@@ -14,8 +14,8 @@ import (
 func TestCLIFullGovernanceLifecycle(t *testing.T) {
 	storeDir := t.TempDir()
 	fixtureDir := t.TempDir()
-	digestOne := strings.Repeat("a", 64)
-	digestTwo := strings.Repeat("b", 64)
+	digestOne := "6b40dfb15fa67f96c9f3bc79bc46206d45f6d44124197b344757499299e43445"
+	digestTwo := digestOne
 
 	predecessorPath := writeCLIJSON(t, fixtureDir, "predecessor.json", registeredRecord("document-pipeline-v1", 1, digestOne))
 	successorPath := writeCLIJSON(t, fixtureDir, "successor.json", registeredRecord("document-pipeline-v2", 2, digestTwo))
@@ -67,7 +67,7 @@ func registeredRecord(recordID string, version int, digest string) governance.Re
 			Version:   version,
 			Schema:    "ingen.contract/v1",
 			Artifact: governance.Artifact{
-				URI:    "examples/document-pipeline-lab/contract/contract.yaml",
+				URI:    "hammond/examples/document-pipeline/contract-v2.canonical.json",
 				SHA256: digest,
 			},
 		},

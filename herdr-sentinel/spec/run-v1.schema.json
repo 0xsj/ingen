@@ -49,6 +49,7 @@
       "required": ["sequence", "type", "at"],
       "properties": {
         "sequence": {"type": "integer", "minimum": 1},
+        "source_id": {"type": "string", "minLength": 1},
         "type": {
           "enum": [
             "workspace-created",
@@ -69,6 +70,8 @@
         "at": {"type": "string", "format": "date-time"},
         "role": {"type": "string", "minLength": 1},
         "workspace": {"type": "string", "minLength": 1},
+        "session_id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["created", "running", "completed", "failed", "blocked", "cleaned"]},
         "artifact_ids": {
           "type": "array",
           "items": {"type": "string", "minLength": 1},

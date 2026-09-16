@@ -1,6 +1,6 @@
 # InGen status
 
-As of 2026-09-15
+As of 2026-09-16
 
 ## Current checkpoint
 
@@ -61,6 +61,15 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - The Sentinel oracle adapter's read-only contract probe reached macOS Seatbelt successfully with host permission; without that permission, `sandbox-exec` returns an explicit `Operation not permitted` failure rather than a false pass.
 - The adapter now uses a temporary read-only policy snapshot and can persist `policy-applied`, `sorna-started`, and `sorna-completed` events into the Sentinel receipt; this reduces ordinary drift risk but is not external attestation.
 - The verifier handoff can attach Sorna's opaque `run.json` to the Sentinel receipt; Sentinel records provenance and lifecycle only, while Sorna retains behavioral verdict semantics.
+- Sentinel verifier receipts can now be adapted to the shared `ingen.ci-result/v1` envelope and collected by the Nublar `sentinel-webhook-verifier` workflow; Nublar sees only the envelope status and opaque receipt report.
+- Sentinel now has a provider-neutral `ingen.herdr-event/v1` ingress that binds Herdr callbacks to the active run/workspace, preserves source and session identity, applies optional receipt status atomically, and makes identical retries idempotent.
+- Sentinel now exposes an explicit hashed artifact handoff and root-aware event ingestion rejects missing or drifted artifact bytes before appending a Herdr event.
+- Sentinel now has an audit report that verifies receipt structure, workspace/artifact hashes, and terminal lifecycle completeness without reinterpreting Sorna results or claiming independent Herdr attestation.
+- The Sentinel CI-result command now runs that integrity audit before emitting a terminal shared envelope, so receipt or artifact drift cannot become a passing Nublar check.
+- Sentinel now accepts newline-delimited Herdr event batches and publishes them all-or-nothing against a receipt, preserving idempotent retries without claiming queue or host persistence guarantees.
+- In-place Herdr receipt updates now serialize the read-modify-publish cycle with a local advisory lock, preventing concurrent callback writers from silently dropping accepted events.
+- In-place Sentinel artifact registration now uses the same advisory lock, so artifact handoff cannot silently overwrite a concurrent Herdr receipt update.
+- Sentinel now renders a concise operator report that keeps lifecycle completion, receipt integrity, producer-owned Sorna meaning, artifacts, and limitations separate.
 
 ## Useful entry points
 
@@ -74,6 +83,7 @@ make webhook-alpha
 make webhook-mutation-alpha
 make webhook-go-mutation-alpha
 make nublar-webhook-aggregate-fresh
+make nublar-sentinel-run-collect
 make sentinel-workspace-validate
 make sentinel-run-bootstrap
 make sentinel-capability-plan
@@ -142,12 +152,17 @@ These are candidate directions, not an artificial checklist to complete all at o
 
 ## Recommended next step
 
-The Sorna alpha interface and committed-checkout reproducibility checkpoints
-now pass. The webhook validation lab is the first post-alpha surface and now
-has one campaign-level proof. The Sentinel workspace now reaches both the
-oracle-writer and verifier handoffs; the next deliberate boundary is to bind
-the verifier receipt into the Nublar workflow, then decide where a real Herdr
-event adapter belongs. Mutation-runner delegation remains separate until its
-policy and artifact lineage are explicit.
+The Nublar first slice now has workflow validation, strict CI-envelope and run
+loading, byte-bound collection provenance, immutable filesystem storage,
+deterministic run queries, provider-neutral decision projection, and generic
+webhook delivery with independent receipts. The next Nublar decision should
+come from a concrete consumer: either add the query or metadata it requires,
+or freeze this local contract before a hosted implementation. Producer
+execution, hosted storage, scheduling, and provider-specific delivery remain
+outside the current Nublar boundary.
+
+For Sentinel, the next boundary remains concrete Herdr host integration: the
+provider-neutral event ingress and operator report are ready to exercise now,
+while native plugin binding still waits for Herdr’s actual hook and session API.
 
 This file is a project checkpoint, not a requirement to implement every avenue listed above immediately.

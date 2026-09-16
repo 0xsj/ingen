@@ -135,3 +135,83 @@ func TestExplainSummarizesFindingStatuses(t *testing.T) {
 		t.Fatal("invalid finding status unexpectedly accepted")
 	}
 }
+
+func TestDenyExplanationIncludesDeniedTargets(t *testing.T) {
+	result := &model.Result{
+		Schema: "paddock.report/v1",
+		Rules: []model.RuleSummary{
+			{
+				ID:      "config-is-portable",
+				Kind:    "deny-dependencies",
+				Deny:    []string{"path: src/server/**", "external: $env/**"},
+				Message: "config must remain portable",
+			},
+		},
+		Findings: []*model.Finding{
+			{
+				RuleID:   "config-is-portable",
+				Kind:     "deny-dependencies",
+				Severity: "error",
+				From:     "src/config/runtime.ts",
+				To:       "$env/static/private",
+				Message:  "config must remain portable",
+			},
+		},
+	}
+
+	document := explain.Explain(result)
+	if len(document.Findings) != 1 || len(document.Findings[0].SuggestedActions) != 1 {
+		t.Fatalf("unexpected deny explanation: %#v", document)
+	}
+	action := document.Findings[0].SuggestedActions[0]
+	if !strings.Contains(action, "path: src/server/**") || !strings.Contains(action, "external: $env/**") {
+		t.Fatalf("deny explanation omitted target constraints: %q", action)
+	}
+}
+
+func TestExplainRelatesRulesForTheSameDependencyEdge(t *testing.T) {
+	result := &model.Result{
+		Schema: "paddock.report/v1",
+		Rules: []model.RuleSummary{
+			{ID: "application-not-infrastructure", Kind: "deny-dependencies", Severity: "error"},
+			{ID: "layers-point-inward", Kind: "layer-direction", Severity: "error"},
+		},
+		Findings: []*model.Finding{
+			{
+				RuleID: "application-not-infrastructure",
+				Kind:   "deny-dependencies",
+				From:   "internal/audit/app/query",
+				To:     "internal/audit/infra/postgres",
+				File:   "internal/audit/app/query/ledger.go",
+				Line:   9,
+			},
+			{
+				RuleID: "layers-point-inward",
+				Kind:   "layer-direction",
+				From:   "internal/audit/app/query",
+				To:     "internal/audit/infra/postgres",
+				File:   "internal/audit/app/query/ledger.go",
+				Line:   9,
+			},
+		},
+	}
+
+	document := explain.Explain(result)
+	if len(document.Findings) != 2 {
+		t.Fatalf("finding count = %d, want 2", len(document.Findings))
+	}
+	if got := document.Findings[0].RelatedRules; len(got) != 1 || got[0] != "layers-point-inward" {
+		t.Fatalf("first related rules = %#v", got)
+	}
+	if got := document.Findings[1].RelatedRules; len(got) != 1 || got[0] != "application-not-infrastructure" {
+		t.Fatalf("second related rules = %#v", got)
+	}
+
+	var output bytes.Buffer
+	if err := explain.Text(&output, document); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "Related: also reported by") {
+		t.Fatalf("text explanation omitted related-rule hint:\n%s", output.String())
+	}
+}

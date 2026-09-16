@@ -146,3 +146,27 @@ func TestVerifyLineageAllowsDuplicateAcceptedCustodyRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestVerifyLineageSupportsMemoryRecordStore(t *testing.T) {
+	root := t.TempDir()
+	artifacts, err := store.NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := NewMemory()
+	parent := testRecord(t, "lockwood-lineage-memory-parent")
+	parent.Parents = []Lineage{}
+	parent.Artifact = putLineageArtifact(t, artifacts, "memory-parent")
+	child := testRecord(t, "lockwood-lineage-memory-child")
+	child.Artifact = putLineageArtifact(t, artifacts, "memory-child")
+	child.Parents = []Lineage{{Relation: References, Digest: parent.Artifact.Digest}}
+	if err := records.Put(parent); err != nil {
+		t.Fatal(err)
+	}
+	if err := records.Put(child); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyRecord(records, artifacts, child.CustodyID); err != nil {
+		t.Fatal(err)
+	}
+}

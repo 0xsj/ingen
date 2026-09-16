@@ -492,6 +492,11 @@ The first executable slice uses a canonical `ingen.oracle/v1` JSON artifact:
 - the sealed policy SHA-256 hash;
 - one materialized case for each contract rule.
 
+The executable loader additionally requires at least one case and rejects
+duplicate case IDs, duplicate rule IDs, and unsupported contract strengths.
+These are artifact-integrity checks; they do not establish that the contract or
+oracle is correct.
+
 The `sorna oracle freeze` command seals the identities, prepares a host
 enforcement profile, starts a separate child process, and verifies the
 child-written oracle before producing evidence:

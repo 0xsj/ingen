@@ -12,6 +12,7 @@ import (
 
 	coreciresult "ingen/core/ciresult"
 	"ingen/lockwood/internal/custody"
+	"ingen/lockwood/internal/integrity"
 )
 
 const MediaType = "application/vnd.ingen.ci-result+json"
@@ -106,23 +107,9 @@ func readLimitedFile(path string, maxBytes int64) ([]byte, error) {
 		return nil, err
 	}
 	defer file.Close()
-	reader := io.Reader(file)
-	if maxBytes > 0 {
-		reader = io.LimitReader(file, maxBytes)
-	}
-	data, err := io.ReadAll(reader)
+	data, _, err := integrity.ReadAll(file, maxBytes)
 	if err != nil {
 		return nil, err
-	}
-	if maxBytes > 0 && int64(len(data)) == maxBytes {
-		var extra [1]byte
-		n, readErr := io.ReadFull(file, extra[:])
-		if n > 0 {
-			return nil, fmt.Errorf("CI result exceeds maximum size of %d bytes", maxBytes)
-		}
-		if readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
-			return nil, fmt.Errorf("check CI result size: %w", readErr)
-		}
 	}
 	return data, nil
 }

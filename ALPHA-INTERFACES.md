@@ -25,6 +25,8 @@ schema identities and meanings stable until an intentional interface review:
 | Nublar aggregate | `ingen.nublar-result/v1` | Nublar | Preserved input envelopes plus severity composition. |
 | Nublar decision | `ingen.nublar-decision/v1` | Nublar | Provider-neutral delivery projection without producer reports. |
 | Nublar delivery receipt | `ingen.nublar-delivery-receipt/v1` | Nublar | One delivery attempt outcome, separate from the run decision. |
+| Sentinel lifecycle receipt | `ingen.sentinel-run/v1` | Sentinel | Workspace lifecycle and opaque artifact lineage around a verifier handoff. |
+| Herdr lifecycle event | `ingen.herdr-event/v1` | Sentinel adapter | Idempotent host-event ingress bound to one Sentinel run and workspace. |
 
 The `v1` labels are alpha interfaces, not a claim that every field is already
 ideal. A breaking field or semantic change must be deliberate, documented, and

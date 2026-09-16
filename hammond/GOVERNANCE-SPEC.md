@@ -45,6 +45,11 @@ The artifact digest is the SHA-256 of the canonical contract bytes consumed by
 the governed workflow. A path or URI is useful for retrieval, but it is not an
 identity and must never replace the digest.
 
+At a local ingress boundary, Hammond may load the referenced artifact and
+verify that its bytes produce the recorded digest. This check establishes byte
+integrity only; Sorna remains responsible for contract interpretation,
+canonicalization, sealing, and verification.
+
 The reference should contain:
 
 ```yaml
@@ -54,7 +59,7 @@ contract:
   version: 1
   schema: ingen.contract/v1
   artifact:
-    uri: examples/document-pipeline-lab/contract/contract.yaml
+    uri: hammond/examples/document-pipeline/contract-v2.canonical.json
     sha256: <64 lowercase hexadecimal characters>
 ```
 
@@ -113,9 +118,47 @@ cycle IDs must be unique within a governance record.
 The v1 domain model records decisions and evaluates them against a supplied
 review policy artifact. The default policy requires one approval from one
 distinct actor in the active cycle. A policy may also require named approval
-roles, but the model does not yet verify organization-wide identity or role
-authority; local v1 actor-to-role grants are only verified against the policy
-artifact itself.
+roles and reference a separately versioned, digest-bound local authority
+artifact containing actor-to-role grants. The model does not yet verify
+organization-wide identity or role authority; the local snapshot is only an
+explicit input to policy evaluation. Runtime callers may provide an authority
+verifier, but Hammond v1 does not ship an organization-backed verifier.
+The verifier receives the decision event's UTC timestamp so a future provider
+can evaluate membership as of the historical decision rather than as of load
+time. A normalized membership adapter may use inclusive `valid_from` and
+exclusive `valid_until` windows; revocation and retroactivity remain provider
+policy.
+
+An organization-backed adapter may first normalize its response into a
+versioned membership snapshot. The snapshot carries `issued_at`, effective
+grant windows, an optional `expires_at`, and an optional Ed25519 issuer
+signature. Hammond can verify that response and expose its grants to the
+timestamp-aware authority seam. A caller may enforce maximum age, future clock
+skew, and expiry before doing so; Hammond does not fetch, authenticate, or
+assign meaning to a provider response itself.
+
+An authority artifact may also carry an Ed25519 signature with a `key_id`.
+The signature covers the canonical JSON payload formed from `schema`, `id`,
+`version`, and `actors`, excluding the signature object itself. Signature
+verification is opt-in through a caller-owned trusted key set; a digest proves
+which bytes were loaded, while the signature identifies an issuing key.
+
+The caller-owned trust input may itself be a versioned Hammond trust snapshot.
+It can retain old keys as `revoked` while introducing a new `active` key, so
+rotation rejects signatures made by the revoked key. The trust snapshot is a
+configuration input, not a self-authenticating root of trust.
+
+The caller may keep the root layer as a separate versioned root snapshot.
+`AuthorityRootStore` exposes only its active keys and can verify a replacement
+root snapshot with a bootstrap or predecessor root set. This makes root-key
+rotation explicit and fail-closed for revoked keys; initial root-key delivery,
+approval, and any multi-party rotation rule remain caller-owned.
+
+For a stronger local chain, the trust snapshot may carry its own Ed25519 root
+signature. Hammond verifies that signature with a separately configured root
+key set before exposing active keys to authority-artifact verification. This
+binds key rotation to an approved snapshot but does not define how the root
+key set is delivered.
 
 Policy evaluation must use bytes that have been strictly decoded and whose
 SHA-256 matches the policy reference carried by the governance record.
@@ -204,7 +247,16 @@ The v1 validator must reject:
 - an approval without reviewer, role, decision, digest, or timestamp;
 - an approval or rejection that is not bound to the active review cycle;
 - an approval or rejection whose actor/role pair is not granted by the loaded
-  policy artifact;
+  authority snapshot;
+- an authority verifier error or a decision evaluated without its validated
+  UTC timestamp;
+- an effective-dated authority grant with an invalid or non-UTC time window;
+- a stale, expired, or future-dated membership snapshot when freshness
+  validation is requested;
+- a root snapshot with invalid key material or a signature that is not trusted
+  by the configured bootstrap or predecessor root set;
+- a signed authority artifact with a missing, unknown, malformed, or invalid
+  signature when signature verification is requested;
 - an amendment without a predecessor, successor, kind, reason, or author;
 - an amendment with a self-link or lineage cycle; and
 - an attempt to mutate a superseded or approved historical record.
@@ -228,7 +280,8 @@ provider, or automatic Sorna execution.
 
 The following remain outside v1:
 
-- organization and team identity providers;
+- organization and team identity providers, root-key bootstrap delivery and
+  approval;
 - organization-aware identity, role authority, and advanced quorum rules;
 - hosted registry APIs;
 - artifact blob storage and retention;

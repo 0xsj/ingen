@@ -16,6 +16,10 @@ deliberate structural defect:
 | `feature-sliced-ts` | shared code imports a feature and features cross-import |
 | `monorepo-ts` | a shared workspace package imports an orders domain package |
 | `python-hexagonal` | the domain imports a concrete adapter; its focused proposal variant isolates that boundary without a cycle |
+| `external-package-ts` | an unapproved source unit imports an external package family |
+| `negative-source-selector-ts` | a non-server source unit imports server-only code |
+| `internal-target-path-ts` | a client imports an adapter folder and a memory adapter directly |
+| `config-portability-ts` | configuration imports server, UI, framework, or environment code |
 
 The fixtures should remain small enough that a reviewer can hold the whole
 graph in their head. The cyclic subject intentionally does not compile as a Go
@@ -176,6 +180,46 @@ paddock policy test \
 
 These cases verify that the same policy-test contract reports language-specific
 graphs while preserving stable architecture rule IDs.
+
+The external-package fixture shows package-family matching without following or
+installing the package. Its policy uses `external: "@supabase/*"`, so the
+external import name remains part of the edge evidence while the vendor package
+itself stays outside the source graph:
+
+```sh
+paddock check paddock/examples/services/external-package-ts \
+  --policy paddock/examples/external-package-ownership.yaml
+```
+
+The negative-source-selector fixture covers a server-only boundary with a
+compound `path-not` selector. It deliberately includes route server files and
+special server files that are allowed to import the server component, alongside
+one browser file that must be rejected:
+
+```sh
+paddock check paddock/examples/services/negative-source-selector-ts \
+  --policy paddock/examples/negative-source-selector.yaml
+```
+
+The internal-target-path fixture covers target-side path patterns. It rejects
+two imports from a browser client: a concrete server adapter and a
+`.memory.ts` service adapter. A spec file imports the memory adapter legally,
+so the fixture also proves that source and target path selectors compose:
+
+```sh
+paddock check paddock/examples/services/internal-target-path-ts \
+  --policy paddock/examples/internal-target-paths.yaml
+```
+
+The config-portability fixture combines internal target paths with external
+package-family targets. Its invalid config imports server and component code,
+SvelteKit runtime modules, and environment values; the focused rule must
+attribute the violations to `config-is-portable`:
+
+```sh
+paddock check paddock/examples/services/config-portability-ts \
+  --policy paddock/examples/config-portability.yaml
+```
 
 Layered direction and cycle detection are covered by the remaining Go
 manifests:

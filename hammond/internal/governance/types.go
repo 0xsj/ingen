@@ -9,6 +9,10 @@ import (
 
 const Schema = "ingen.hammond-governance/v1"
 const PolicySchema = "ingen.hammond-review-policy/v1"
+const AuthoritySchema = "ingen.hammond-authority/v1"
+const AuthorityTrustSchema = "ingen.hammond-authority-trust/v1"
+const AuthorityRootSchema = "ingen.hammond-authority-root/v1"
+const MembershipSchema = "ingen.hammond-membership/v1"
 
 type State string
 
@@ -66,6 +70,78 @@ type PolicyReference struct {
 	Version  int      `json:"version"`
 	Schema   string   `json:"schema"`
 	Artifact Artifact `json:"artifact"`
+}
+
+type AuthorityReference struct {
+	ID       string   `json:"id"`
+	Version  int      `json:"version"`
+	Schema   string   `json:"schema"`
+	Artifact Artifact `json:"artifact"`
+}
+
+type AuthorityTrustReference struct {
+	ID       string   `json:"id"`
+	Version  int      `json:"version"`
+	Schema   string   `json:"schema"`
+	Artifact Artifact `json:"artifact"`
+}
+
+type AuthorityRootReference struct {
+	ID       string   `json:"id"`
+	Version  int      `json:"version"`
+	Schema   string   `json:"schema"`
+	Artifact Artifact `json:"artifact"`
+}
+
+type MembershipReference struct {
+	ID       string   `json:"id"`
+	Version  int      `json:"version"`
+	Schema   string   `json:"schema"`
+	Artifact Artifact `json:"artifact"`
+}
+
+func (reference AuthorityReference) Key() string {
+	return fmt.Sprintf("%s:%d:%s:%s", reference.ID, reference.Version, reference.Schema, reference.Artifact.SHA256)
+}
+
+func (reference AuthorityReference) Equal(other AuthorityReference) bool {
+	return reference.ID == other.ID &&
+		reference.Version == other.Version &&
+		reference.Schema == other.Schema &&
+		reference.Artifact.SHA256 == other.Artifact.SHA256
+}
+
+func (reference AuthorityTrustReference) Key() string {
+	return fmt.Sprintf("%s:%d:%s:%s", reference.ID, reference.Version, reference.Schema, reference.Artifact.SHA256)
+}
+
+func (reference AuthorityTrustReference) Equal(other AuthorityTrustReference) bool {
+	return reference.ID == other.ID &&
+		reference.Version == other.Version &&
+		reference.Schema == other.Schema &&
+		reference.Artifact.SHA256 == other.Artifact.SHA256
+}
+
+func (reference AuthorityRootReference) Key() string {
+	return fmt.Sprintf("%s:%d:%s:%s", reference.ID, reference.Version, reference.Schema, reference.Artifact.SHA256)
+}
+
+func (reference AuthorityRootReference) Equal(other AuthorityRootReference) bool {
+	return reference.ID == other.ID &&
+		reference.Version == other.Version &&
+		reference.Schema == other.Schema &&
+		reference.Artifact.SHA256 == other.Artifact.SHA256
+}
+
+func (reference MembershipReference) Key() string {
+	return fmt.Sprintf("%s:%d:%s:%s", reference.ID, reference.Version, reference.Schema, reference.Artifact.SHA256)
+}
+
+func (reference MembershipReference) Equal(other MembershipReference) bool {
+	return reference.ID == other.ID &&
+		reference.Version == other.Version &&
+		reference.Schema == other.Schema &&
+		reference.Artifact.SHA256 == other.Artifact.SHA256
 }
 
 func (reference PolicyReference) Key() string {

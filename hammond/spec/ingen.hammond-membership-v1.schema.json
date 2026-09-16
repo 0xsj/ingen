@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.hammond-membership-v1.schema.json",
+  "title": "Hammond authenticated membership snapshot",
+  "description": "A normalized, versioned provider response containing effective-dated actor-role grants.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "issued_at", "grants"],
+  "properties": {
+    "schema": {"const": "ingen.hammond-membership/v1"},
+    "id": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1},
+    "issued_at": {"type": "string", "format": "date-time", "minLength": 1},
+    "expires_at": {"type": "string", "format": "date-time", "minLength": 1},
+    "grants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actor", "role", "valid_from"],
+        "properties": {
+          "actor": {"type": "string", "minLength": 1},
+          "role": {"type": "string", "minLength": 1},
+          "valid_from": {"type": "string", "format": "date-time", "minLength": 1},
+          "valid_until": {"type": "string", "format": "date-time", "minLength": 1}
+        }
+      }
+    },
+    "signature": {
+      "description": "Optional issuer signature over the canonical membership payload without this signature property.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "key_id", "signature"],
+      "properties": {
+        "algorithm": {"const": "ed25519"},
+        "key_id": {"type": "string", "minLength": 1},
+        "signature": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

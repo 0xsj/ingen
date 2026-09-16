@@ -150,6 +150,16 @@ no trailing newline. Reads reject otherwise valid but non-canonical record
 bytes. This gives local idempotency and stable storage bytes; it is not yet a
 claim of compatibility with an external signing canonicalization standard.
 
+The implementation can derive a `sha256:` digest from those canonical record
+bytes. This is a stable representation identity for local use and detached
+attestation; by itself it authenticates neither the record author nor the
+producer's claims.
+
+The detached attestation helper can sign and verify this canonical digest with
+Ed25519 when the caller supplies the private or public key. It does not resolve
+trusted keys, authorize signers, or turn a valid signature into proof that a
+producer verdict is correct.
+
 The v1 record is a closed contract. Additive fields such as remote source
 locators or a pending lineage status require a versioned contract or a
 separate artifact; they must not be added as unknown v1 fields.
@@ -313,14 +323,21 @@ The first implementation should support these conceptual operations:
 | `put` | Compute identity, verify optional source integrity, and accept bytes. |
 | `get` | Retrieve bytes by digest. |
 | `inspect` | Read custody metadata and lineage without loading the payload. |
+| `record-digest` | Compute the digest of a record's canonical representation. |
 | `verify` | Recompute a blob digest, or verify a custody record's blob digest and declared size. |
 | `find` | Locate artifacts by metadata such as run, producer, media type, or logical name. |
 | `recover` | Re-verify a published blob and retry appending its pending custody record. |
 | `reconcile` | Report orphan blobs, dangling custody references, and corrupt blobs without mutating storage. |
 
 These operations may initially be exposed through a CLI and a filesystem
-backend. A stable public library or remote service API should wait until the
-record and lifecycle semantics have been exercised.
+backend. The artifact and custody-record contracts also have process-local
+in-memory implementations for tests and short-lived workflows; they provide
+no durability guarantees. A stable public library or remote service API
+should wait until the record and lifecycle semantics have been exercised.
+
+Shared integrity helpers perform streaming SHA-256 and optional size-limit
+checks. Adapters remain responsible for interpreting producer-specific
+manifests, such as Sorna checksum lists.
 
 Record-level verification is separate from `inspect`: `inspect` reads custody
 metadata, while `verify` must check the referenced blob exists, its SHA-256
@@ -370,7 +387,7 @@ When those workflows are added:
 
 This specification does not yet define:
 
-- signatures or external attestations;
+- signature trust and authorization, or external attestation workflows;
 - remote object-storage protocols;
 - authentication or authorization policy;
 - retention deletion and legal holds;
@@ -383,8 +400,9 @@ working and its invariants are tested.
 
 ## 10. Known follow-up work
 
-- Define a signature-compatible canonicalization and record identity if
-  custody records themselves become content-addressed or signed.
+- Define trusted-key registry, signer authorization, rotation, and revocation
+  semantics for detached attestations. Canonical record identity and the local
+  Ed25519 signing payload are now drafted and implemented.
 - Define remote retrieval, authentication, and attestation semantics if
   Lockwood later becomes responsible for obtaining remote objects.
 - Define orphan cleanup policy, including a grace period and race-safe

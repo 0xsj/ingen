@@ -1,0 +1,10 @@
+{
+  "schema": "lockwood.attestation/v1",
+  "target": {
+    "kind": "custody-record",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "algorithm": "ed25519",
+  "key_id": "review-key-2026-01",
+  "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+}

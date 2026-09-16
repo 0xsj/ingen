@@ -1,0 +1,27 @@
+schema: paddock.architecture/v1
+project: external-package-ownership
+
+source:
+  language: typescript
+  unit: file
+  roots: [src]
+
+components:
+  adapter:
+    match: src/adapter.ts
+    labels:
+      role: approved-external-owner
+  consumer:
+    match: src/consumer.ts
+    labels:
+      role: consumer
+
+rules:
+  - id: supabase-has-one-owner
+    kind: deny-dependencies
+    from: {role: consumer}
+    deny:
+      - {external: "@supabase/*"}
+    message: only the approved adapter may import the Supabase package family
+
+waivers: []

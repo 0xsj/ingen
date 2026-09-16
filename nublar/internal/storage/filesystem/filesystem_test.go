@@ -99,6 +99,32 @@ func TestStoreListsNewestFirstAndIgnoresNonCanonicalFiles(t *testing.T) {
 	}
 }
 
+func TestStoreListsEqualTimestampsByRunID(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "runs")
+	store, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := testRun("run-z")
+	second := testRun("run-a")
+	first.CreatedAt = "2026-09-15T12:00:00Z"
+	second.CreatedAt = first.CreatedAt
+	if err := store.Save(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(second); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].RunID != "run-a" || records[1].RunID != "run-z" {
+		t.Fatalf("listed runs = %+v, want equal-timestamp run IDs in ascending order", records)
+	}
+}
+
 func TestStoreListsMissingRootAsEmpty(t *testing.T) {
 	store, err := New(filepath.Join(t.TempDir(), "missing"))
 	if err != nil {

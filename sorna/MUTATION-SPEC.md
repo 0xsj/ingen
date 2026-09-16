@@ -371,6 +371,30 @@ The report should identify whether the mutation was detected by:
 Contract mutation testing should not silently treat an implementation that
 already violates the original contract as a valid oracle of the mutation.
 
+Sorna's first contract-plane implementation is deliberately an inspection
+boundary rather than a subject campaign. `sorna mutation contract inspect`
+applies reviewed mutations to a copied contract, re-seals the result, and
+regenerates the oracle using the original policy hash. It compares oracle
+cases by rule ID and records:
+
+- `visible`: the regenerated oracle changed;
+- `equivalent`: the regenerated oracle did not change;
+- `invalid`: the mutation could not produce a valid contract/oracle pair.
+
+The command never launches a subject. This keeps a contract mutation from
+being mistaken for an implementation mutation and makes its result an
+observation about oracle sensitivity, not proof that the contract is correct.
+The initial operators use an explicit `rule:<rule-id>` target:
+
+- `contract.rule.remove`;
+- `contract.rule.strength.replace`;
+- `contract.rule.expect.status.replace`;
+- `contract.rule.expect.required.remove`.
+
+The report is written as `ingen.contract-mutation-result/v1` and preserves the
+original and regenerated contract/oracle hashes plus changed, removed, and
+added rule IDs.
+
 ## 11. Flakiness and nondeterminism
 
 If a mutation changes timing, generated IDs, random ordering, or another

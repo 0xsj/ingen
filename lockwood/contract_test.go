@@ -80,6 +80,13 @@ func TestValidCustodyFixture(t *testing.T) {
 	}
 }
 
+func TestExampleCustodyRecordMatchesDraftSchema(t *testing.T) {
+	schema := compileLockwoodSchema(t, custodySchemaURL, "spec/lockwood.custody-v1.schema.json")
+	if err := schema.Validate(loadJSONDocument(t, "examples/custody-record.json")); err != nil {
+		t.Fatalf("example custody record rejected by draft schema: %v", err)
+	}
+}
+
 func TestInvalidCustodyFixtures(t *testing.T) {
 	for _, name := range []string{
 		"invalid-digest.json",

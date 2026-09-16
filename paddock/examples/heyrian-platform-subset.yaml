@@ -1,0 +1,228 @@
+# Paddock architecture policy translated from a small, representative subset
+# of Heyrian's dependency-cruiser rules. Review before adopting in CI.
+
+schema: paddock.architecture/v1
+project: heyrian-platform-subset
+
+source:
+  language: typescript
+  unit: file
+  roots: [src]
+  include: [src/**/*.ts, src/**/*.svelte]
+  exclude: [src/lib/content/lessons/**/examples/**]
+
+components:
+  kernel:
+    match:
+      - src/lib/kernel/app-error.ts
+      - src/lib/kernel/failure.ts
+      - src/lib/kernel/index.ts
+      - src/lib/kernel/optional.ts
+      - src/lib/kernel/result.ts
+    labels:
+      role: kernel
+
+  http:
+    match:
+      - src/lib/http/envelope.ts
+      - src/lib/http/fetch-client.ts
+      - src/lib/http/index.ts
+      - src/lib/http/memory-client.ts
+      - src/lib/http/port.ts
+      - src/lib/http/response.ts
+    labels:
+      role: http
+
+  services:
+    match: src/lib/services/**
+    labels:
+      role: services
+
+  root:
+    match: src/lib/root/**
+    labels:
+      role: root
+
+  server:
+    match: src/lib/server/**
+    labels:
+      role: server
+
+  query:
+    match: src/lib/query/**
+    labels:
+      role: query
+
+  config:
+    match: src/lib/config/**
+    labels:
+      role: config
+
+  platform-features:
+    match:
+      - src/lib/features/sync/**
+      - src/lib/features/session/**
+      - src/lib/features/preferences/**
+      - src/lib/features/progress/**
+      - src/lib/features/review/**
+      - src/lib/features/engagement/**
+    labels:
+      role: platform-feature
+
+  app:
+    match: src/lib/app/**
+    labels:
+      role: app
+
+  components:
+    match: src/lib/components/**
+    labels:
+      role: components
+
+  content:
+    match: src/lib/content/**
+    labels:
+      role: content
+
+  routes:
+    match: src/routes/**
+    labels:
+      role: routes
+
+rules:
+  - id: kernel-imports-only-kernel
+    kind: allow-dependencies
+    severity: error
+    from: {role: kernel}
+    allow:
+      - {role: kernel}
+    message: kernel code must depend only on kernel code
+
+  - id: http-imports-only-kernel-or-http
+    kind: allow-dependencies
+    severity: error
+    from: {role: http}
+    allow:
+      - {role: kernel}
+      - {role: http}
+    message: http code must depend only on kernel or http code
+
+  - id: services-are-portable
+    kind: deny-dependencies
+    severity: error
+    from: {role: services}
+    deny:
+      - {role: server}
+      - {role: root}
+      - {role: app}
+      - {role: query}
+      - {role: platform-feature}
+      - {role: components}
+      - {role: content}
+      - {role: routes}
+    message: services must not depend on framework, server, root, cache, or UI code
+
+  - id: root-assembles-services-and-kernel
+    kind: allow-dependencies
+    severity: error
+    from: {role: root}
+    allow:
+      - {role: root}
+      - {role: services}
+      - {role: kernel}
+    message: the root may assemble services from stable kernel abstractions
+
+  - id: server-code-stays-on-server
+    kind: deny-dependencies
+    severity: error
+    from:
+      path-not: src/lib/server/**|**/+server.ts|**/+page.server.ts|**/+layout.server.ts|src/hooks.server.ts|src/app.d.ts
+    deny:
+      - {role: server}
+    message: only server source units may import server code
+
+  - id: supabase-has-one-owner
+    kind: deny-dependencies
+    severity: error
+    from:
+      path-not: src/lib/server/supabase/**
+    deny:
+      - {external: "@supabase/**"}
+    message: only the Supabase adapters may import the Supabase package family
+
+  - id: query-library-has-one-owner
+    kind: deny-dependencies
+    severity: error
+    from:
+      path-not: src/lib/query/**
+    deny:
+      - {external: "@tanstack/**"}
+    message: only the query tier may import the TanStack Query package family
+
+  - id: only-the-server-root-builds-a-root
+    kind: deny-dependencies
+    severity: error
+    from:
+      path-not: src/lib/server/root.ts|src/app.d.ts|src/lib/root/**
+    deny:
+      - {role: root}
+    message: only approved roots may import the root composition
+
+  - id: portable-tiers-use-no-node-builtins
+    kind: deny-dependencies
+    severity: error
+    from:
+      - {role: kernel}
+      - {role: http}
+      - {role: services}
+      - {role: root}
+      - {role: query}
+    deny:
+      - {standard-library: approved}
+    message: portable tiers must not depend on Node built-ins
+
+  - id: config-is-portable
+    kind: deny-dependencies
+    severity: error
+    from: {role: config}
+    deny:
+      - {path: src/lib/server/**|src/lib/root/**|src/lib/app/**|src/lib/query/**|src/lib/features/**|src/lib/components/**}
+      - {external: "$app/**"}
+      - {external: "$env/**"}
+      - {external: "svelte/**"}
+      - {external: "@sveltejs/**"}
+    message: config must remain plain data and portable across server and browser runtimes
+
+  - id: adapters-behind-the-server-root
+    kind: deny-dependencies
+    severity: error
+    from:
+      path-not: src/lib/server/root.ts|src/lib/server/supabase/**|src/lib/server/paddle/**
+    deny:
+      - {path: src/lib/server/supabase/**|src/lib/server/paddle/**}
+    message: concrete server adapters must stay behind the server root
+
+  - id: memory-adapters-for-roots-and-tests
+    kind: deny-dependencies
+    severity: error
+    from:
+      path-not: src/lib/root/**|**/*.spec.ts|src/lib/services/*/*.fixtures.ts|src/lib/services/*/index.ts
+    deny:
+      - {path: src/lib/services/**/*.memory.ts}
+    message: memory adapters belong only to roots, fixtures, and tests
+
+  - id: no-platform-cycles
+    kind: no-cycles
+    severity: error
+    from:
+      - {role: kernel}
+      - {role: http}
+      - {role: services}
+      - {role: root}
+      - {role: server}
+      - {role: query}
+      - {role: config}
+      - {role: platform-feature}
+    message: platform tiers must remain acyclic
+
+waivers: []

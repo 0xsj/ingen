@@ -72,9 +72,15 @@ SENTINEL_RUN_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-run.json
 SENTINEL_CAPABILITY_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-capability-plan.json
 SENTINEL_ORACLE_PROBE ?= examples/webhook-validation-lab/contract/contract.yaml
 SENTINEL_VERIFIER_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/sentinel-webhook-verifier
+SENTINEL_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-ci-result.json
+SENTINEL_NUBLAR_WORKFLOW ?= nublar/workflows/sentinel-webhook.yaml
+SENTINEL_NUBLAR_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-nublar-result.json
+SENTINEL_NUBLAR_RUN_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-nublar-run.json
+SENTINEL_NUBLAR_RUN_STORE ?= $(ARTIFACT_ROOT)/sentinel-webhook-nublar-runs
 SANDBOX_ROOT ?= .
 SANDBOX_PROBE_PATH ?= examples/document-pipeline-lab/contract/contract.yaml
 ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-oracle
+REPLAY_BASE_URL ?=
 MUTATION_CATALOGUE ?= examples/document-pipeline-lab/mutations/catalogue.yaml
 MUTATION_PLAN_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-mutation-plan.json
 MUTATION_PROVIDER ?= examples/document-pipeline-lab/mutations/provider.yaml
@@ -108,11 +114,11 @@ MUTATION_SURVIVOR_CAMPAIGN_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipelin
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build test test-race vet check alpha-interface-check \
+.PHONY: help build test test-race vet check alpha-interface-check nublar-check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
-	sorna-external-run evidence-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
+	sorna-external-run evidence-verify sorna-replay oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
 	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha
-	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap sentinel-capability-plan sentinel-adapter-oracle-probe sentinel-adapter-verifier-probe
+	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap sentinel-capability-plan sentinel-adapter-oracle-probe sentinel-adapter-verifier-probe sentinel-ci-result nublar-sentinel-aggregate nublar-sentinel-run-collect
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -134,6 +140,11 @@ check: test vet ## Run the normal test and analysis checks
 alpha-interface-check: ## Run tests and analysis for the current Sorna/Nublar alpha boundary
 	$(GO_CMD) test ./core/... ./sorna/... ./examples/... ./nublar/...
 	$(GO_CMD) vet ./core/... ./sorna/... ./examples/... ./nublar/...
+
+nublar-check: ## Run Nublar tests, analysis, and schema syntax checks
+	$(GO_CMD) test -race ./nublar/...
+	$(GO_CMD) vet ./nublar/...
+	jq empty nublar/spec/*.json
 
 contract-validate: ## Validate the document-pipeline contract
 	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(CONTRACT)"
@@ -273,6 +284,18 @@ sentinel-adapter-oracle-probe: sentinel-run-bootstrap ## Delegate a contract-rea
 sentinel-adapter-verifier-probe: sentinel-run-bootstrap webhook-oracle-freeze webhook-subject-build ## Run the managed webhook subject through Sentinel's verifier handoff
 	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel adapter verifier --workspace "$(SENTINEL_WORKSPACE)" --root . --oracle "$(WEBHOOK_ORACLE_OUTPUT)" --base-url "$(WEBHOOK_SUBJECT_URL)" --subject-command "$(WEBHOOK_SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(WEBHOOK_SUBJECT_ADDR)" --ready-path /healthz --subject-variant clean-baseline --output-dir "$(SENTINEL_VERIFIER_OUTPUT_DIR)" --receipt "$(SENTINEL_RUN_OUTPUT)"
 
+sentinel-ci-result: sentinel-adapter-verifier-probe ## Adapt the Sentinel verifier receipt to the shared CI envelope
+	mkdir -p "$(dir $(SENTINEL_CI_RESULT_OUTPUT))"
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel run ci-result --receipt "$(SENTINEL_RUN_OUTPUT)" --source-root . --output "$(SENTINEL_CI_RESULT_OUTPUT)"
+
+nublar-sentinel-aggregate: sentinel-ci-result ## Aggregate the Sentinel verifier envelope through Nublar
+	mkdir -p "$(dir $(SENTINEL_NUBLAR_RESULT_OUTPUT))"
+	$(GO_CMD) run ./nublar/cmd/nublar aggregate --workflow "$(SENTINEL_NUBLAR_WORKFLOW)" --root "$(ARTIFACT_ROOT)" --output "$(SENTINEL_NUBLAR_RESULT_OUTPUT)"
+
+nublar-sentinel-run-collect: sentinel-ci-result ## Collect the Sentinel verifier envelope as a durable Nublar run
+	mkdir -p "$(dir $(SENTINEL_NUBLAR_RUN_OUTPUT))" "$(SENTINEL_NUBLAR_RUN_STORE)"
+	$(GO_CMD) run ./nublar/cmd/nublar run collect --workflow "$(SENTINEL_NUBLAR_WORKFLOW)" --root "$(ARTIFACT_ROOT)" --store "$(SENTINEL_NUBLAR_RUN_STORE)" --output "$(SENTINEL_NUBLAR_RUN_OUTPUT)"
+
 defect-build: ## Build the controlled status-200-create defect binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
 	$(GO_CMD) build -o "$(DEFECT_BINARY)" ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect
@@ -305,6 +328,9 @@ sorna-external-run: sorna-oracle-freeze ## Freeze the oracle, then run against a
 
 evidence-verify: ## Verify the checksums in RUN_OUTPUT_DIR
 	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(RUN_OUTPUT_DIR)"
+
+sorna-replay: ## Replay RUN_OUTPUT_DIR against an explicitly supplied equivalent subject; set REPLAY_BASE_URL
+	$(GO_CMD) run ./sorna/cmd/sorna evidence replay --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --base-url "$(REPLAY_BASE_URL)" "$(RUN_OUTPUT_DIR)"
 
 sorna-gate: ## Apply the default CI gate to RUN_OUTPUT_DIR; set GATE_MIN_OBSERVATION_COVERAGE for a strict minimum
 	$(GO_CMD) run ./sorna/cmd/sorna gate $(if $(GATE_MIN_OBSERVATION_COVERAGE),--minimum-observation-coverage "$(GATE_MIN_OBSERVATION_COVERAGE)",) "$(RUN_OUTPUT_DIR)"

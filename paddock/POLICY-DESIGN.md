@@ -32,6 +32,21 @@ Every checked source unit should match exactly one component, unless the policy
 explicitly allows an overlap. Unmatched source should be a finding, not an
 implicit exemption.
 
+Rule selectors may also use the reserved `path` and `path-not` keys to match a
+source unit's relative path in addition to component labels. Their values use
+the same `*`, `**`, and `{capture}` patterns as component matches; separate
+alternatives may be joined with `|`. For example, a server-only boundary can
+select every source unit except server directories and server route files:
+
+```yaml
+from:
+  path-not: src/lib/server/**|**/+server.ts|**/+page.server.ts
+```
+
+These keys apply to rule selectors, not component ownership. Component
+classification remains the positive, reviewable vocabulary used by maps and
+findings.
+
 ### Graph edges
 
 The first implementation should analyze source imports. The graph should leave
@@ -157,6 +172,15 @@ dependencies. Cycle rules use `source.roots` and their optional `from` selectors
 to define the nodes included in the cycle check. An empty `from` selector means
 all source units under the configured roots.
 
+Dependency targets may be component label selectors, internal relative path
+patterns, exact import paths, or typed external targets. An internal path target
+uses `{path: pattern}` and supports the same `*`, `**`, and `|` alternatives as
+rule path selectors. `external: approved` matches any external package;
+`external: "@vendor/*"` matches an external package family using segment
+patterns. This makes ownership rules such as “only the Supabase adapter may
+import `@supabase/*`” expressible without expanding external packages into the
+graph.
+
 `component-owns` is a package-level assertion rather than an edge rule. Its
 `allow` values are component names, or label selectors, and its optional `from`
 selector narrows which classified packages are checked. This is useful when a
@@ -242,7 +266,10 @@ agent-facing interpretation of evidence, not a second decision engine. Its
 summary groups findings by rule and reports total, active, blocking, waived,
 and baselined counts. It also provides a deterministic triage outcome:
 `remediate`, `review`, `accepted`, or `clear`. This is an interpretation of
-the selected evidence, not a replacement for the complete report verdict.
+the selected evidence, not a replacement for the complete report verdict. If
+multiple rules report the same dependency edge, each finding retains its own
+rule attribution and adds the other rule IDs in `related_rules`, allowing an
+agent to recognize one boundary issue without losing policy coverage.
 
 ## Tentative common shape
 

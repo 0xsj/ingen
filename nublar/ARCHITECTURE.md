@@ -1,8 +1,8 @@
 # Nublar architecture map
 
-This is the proposed shape for Nublar as it grows beyond the current
-aggregation prototype. The near-term tree is intentionally small; the later
-directories are expansion points, not an implementation checklist.
+This is the implemented near-term shape for Nublar as it grows beyond the
+initial aggregation prototype. The later directories are expansion points,
+not an implementation checklist.
 
 The product ownership and first-slice scope are defined in
 [`PRODUCT-BOUNDARY.md`](PRODUCT-BOUNDARY.md).
@@ -19,31 +19,29 @@ The provider-neutral delivery and optional receipt contracts are defined in
 nublar/
 ├── README.md
 ├── ARCHITECTURE.md
-├── status.md
 ├── cmd/
 │   └── nublar/
-│       └── main.go
+│       ├── main.go
+│       └── main_test.go
 ├── spec/
 │   ├── decision-v1.schema.json
 │   ├── receipt-v1.schema.json
 │   ├── workflow-v1.schema.json
 │   └── run-v1.schema.json
 ├── internal/
-│   ├── workflow/
-│   │   ├── document.go
-│   │   ├── loader.go
-│   │   └── validate.go
-│   ├── run/
-│   │   ├── model.go
-│   │   ├── collect.go
-│   │   └── decision.go
+│   ├── aggregate/
+│   │   └── aggregate.go
 │   ├── artifact/
-│   │   ├── reader.go
-│   │   ├── hasher.go
-│   │   └── provenance.go
+│   │   └── artifact.go
+│   ├── workflow/
+│   │   └── workflow.go
+│   ├── run/
+│   │   ├── run.go
+│   │   └── collect.go
 │   ├── storage/
 │   │   ├── store.go
 │   │   └── filesystem/
+│   │       └── filesystem.go
 │   ├── delivery/
 │   │   ├── projection.go
 │   │   ├── publisher.go
@@ -52,11 +50,17 @@ nublar/
 │   └── output/
 │       └── output.go
 ├── workflows/
-│   └── document-pipeline.yaml
+│   ├── document-pipeline.yaml
+│   ├── sentinel-webhook.yaml
+│   └── webhook-validation.yaml
 └── testdata/
     ├── workflows/
     └── ci-results/
 ```
+
+The compatibility `aggregate` package and the implemented run path share the
+same workflow and artifact boundaries. Tests live beside each package, with a
+mixed-producer integration fixture under `testdata/`.
 
 The first product-shaped flow is:
 

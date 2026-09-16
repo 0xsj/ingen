@@ -176,3 +176,53 @@ func TestBuildRejectsBaselineThatDoesNotMatchOracle(t *testing.T) {
 		t.Fatalf("Build() = %v, want baseline oracle mismatch", err)
 	}
 }
+
+func TestBuildRejectsContractPlaneForExecutableCampaign(t *testing.T) {
+	contractHash := strings.Repeat("a", 64)
+	oracleArtifact := oracle.Artifact{
+		Schema:       oracle.Schema,
+		Status:       "frozen",
+		Contract:     oracle.ContractReference{ID: "contract", Version: 1, SHA256: contractHash},
+		PolicySHA256: strings.Repeat("b", 64),
+		Cases:        []oracle.Case{{CaseID: "case-0001", RuleID: "rule", Strength: "must"}},
+	}
+	oracleHash, err := oracle.Hash(oracleArtifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Build(BuildRequest{
+		CataloguePath:   "catalogue.yaml",
+		CatalogueSHA256: strings.Repeat("c", 64),
+		Catalogue: mutation.Catalogue{
+			Schema:          mutation.Schema,
+			ID:              "catalogue",
+			Version:         1,
+			ContractID:      "contract",
+			ContractVersion: 1,
+			Mutations: []mutation.Spec{{
+				ID:              "remove-rule",
+				Plane:           "contract",
+				Operator:        "contract.rule.remove",
+				Target:          "rule:rule",
+				Description:     "remove the rule",
+				Change:          map[string]any{"rule_id": "rule"},
+				ExpectedRuleIDs: []string{"rule"},
+				Status:          "candidate",
+			}},
+		},
+		Contract: contract.Document{Contract: map[string]any{
+			"id": "contract", "version": int64(1), "rules": []any{map[string]any{"id": "rule"}},
+		}},
+		ContractSHA256: contractHash,
+		Oracle:         oracleArtifact,
+		Baseline: runner.BaselineReference{
+			EvidencePath: "baseline",
+			RunID:        "run-clean",
+			Contract:     runner.ContractReference{ID: "contract", Version: 1, SHA256: contractHash},
+			Oracle:       &runner.OracleReference{Schema: oracle.Schema, SHA256: oracleHash},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "campaign plan cannot execute contract-plane mutation") {
+		t.Fatalf("Build() = %v, want explicit contract-plane execution boundary", err)
+	}
+}

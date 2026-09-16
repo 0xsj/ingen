@@ -6,7 +6,7 @@ import (
 	"ingen/lockwood/internal/store"
 )
 
-func VerifyRecord(records *Filesystem, artifacts *store.Filesystem, custodyID string) (Record, error) {
+func VerifyRecord(records RecordStore, artifacts store.Store, custodyID string) (Record, error) {
 	if records == nil {
 		return Record{}, fmt.Errorf("custody record store is required")
 	}

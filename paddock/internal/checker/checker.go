@@ -2,6 +2,7 @@ package checker
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -254,6 +255,9 @@ func summarizeTargets(targets policy.Targets) []string {
 }
 
 func targetDescription(target policy.Target) string {
+	if target.Path != "" {
+		return "path:" + target.Path
+	}
 	if target.Literal != "" {
 		return target.Literal
 	}
@@ -486,6 +490,20 @@ func selectorsMatch(selectors policy.Selectors, pkg *model.Package) bool {
 	for _, selector := range selectors {
 		matches := true
 		for key, expected := range selector {
+			switch key {
+			case "path":
+				if !matchesPathAlternatives(expected, pkg.RelPath) {
+					matches = false
+					break
+				}
+				continue
+			case "path-not":
+				if matchesPathAlternatives(expected, pkg.RelPath) {
+					matches = false
+					break
+				}
+				continue
+			}
 			if expected == "same" || expected == "different" {
 				continue
 			}
@@ -495,6 +513,15 @@ func selectorsMatch(selectors policy.Selectors, pkg *model.Package) bool {
 			}
 		}
 		if matches {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesPathAlternatives(pattern, value string) bool {
+	for _, alternative := range strings.Split(pattern, "|") {
+		if _, ok := matchPattern(strings.TrimSpace(alternative), value); ok {
 			return true
 		}
 	}
@@ -511,6 +538,9 @@ func anyTargetMatches(targets policy.Targets, edge *model.Edge, from, to *model.
 }
 
 func targetMatches(target policy.Target, edge *model.Edge, from, to *model.Package) bool {
+	if target.Path != "" {
+		return to != nil && matchesPathAlternatives(target.Path, to.RelPath)
+	}
 	if target.Literal != "" {
 		if strings.HasPrefix(target.Literal, "standard-library:") {
 			return edge.TargetKind == "standard-library" && edge.ToImportPath == strings.TrimPrefix(target.Literal, "standard-library:")
@@ -523,6 +553,13 @@ func targetMatches(target policy.Target, edge *model.Edge, from, to *model.Packa
 	if target.Kind != "" {
 		if edge.TargetKind != target.Kind {
 			return false
+		}
+		if target.Kind == "external" {
+			if target.Value == "" || target.Value == "approved" {
+				return true
+			}
+			_, ok := matchPattern(target.Value, edge.ToImportPath)
+			return ok
 		}
 		return target.Value == "" || target.Value == "approved" || edge.ToImportPath == target.Value
 	}
@@ -792,7 +829,10 @@ func matchPatternParts(pattern, value []string, captures map[string]string) bool
 		return false
 	}
 	if segment != "*" && segment != value[0] {
-		return false
+		matched, err := path.Match(segment, value[0])
+		if err != nil || !matched {
+			return false
+		}
 	}
 	return matchPatternParts(pattern[1:], value[1:], captures)
 }

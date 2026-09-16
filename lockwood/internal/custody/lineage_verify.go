@@ -10,7 +10,7 @@ import (
 // VerifyLineage checks every reachable accepted parent and its blob. The
 // starting record's own blob is checked by VerifyRecord; this function is
 // responsible for extending that check through the record's parent graph.
-func VerifyLineage(records *Filesystem, artifacts *store.Filesystem, record Record) error {
+func VerifyLineage(records RecordStore, artifacts store.Store, record Record) error {
 	if records == nil {
 		return fmt.Errorf("custody record store is required")
 	}

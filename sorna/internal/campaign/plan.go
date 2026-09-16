@@ -119,6 +119,9 @@ func Build(request BuildRequest) (Plan, error) {
 
 	entries := make([]MutationEntry, 0, len(request.Catalogue.Mutations))
 	for index, spec := range request.Catalogue.Mutations {
+		if spec.Plane != "implementation" {
+			return Plan{}, fmt.Errorf("campaign plan cannot execute %s-plane mutation %q; use sorna mutation contract inspect for contract mutations", spec.Plane, spec.ID)
+		}
 		entries = append(entries, MutationEntry{Sequence: index + 1, Spec: spec})
 	}
 	plan := Plan{
@@ -204,6 +207,9 @@ func Validate(plan Plan) []string {
 	for index, entry := range plan.Mutations {
 		if entry.Sequence != index+1 {
 			problems = append(problems, fmt.Sprintf("plan.mutations[%d].sequence must be %d", index, index+1))
+		}
+		if entry.Spec.Plane != "implementation" {
+			problems = append(problems, fmt.Sprintf("plan.mutations[%d].spec.plane must be implementation; contract mutations use sorna mutation contract inspect", index))
 		}
 		specs = append(specs, entry.Spec)
 	}

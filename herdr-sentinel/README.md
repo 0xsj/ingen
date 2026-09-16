@@ -72,4 +72,80 @@ This produces the Sorna run bundle under
 Sentinel receipt. Sentinel records the handoff and artifact lineage; Sorna
 retains responsibility for enforcement and behavioral evidence.
 
-The `plugin/` directory remains a placeholder for the future Herdr integration.
+Expose the completed Sentinel lifecycle to Nublar through the shared CI
+envelope with:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel run ci-result \
+  --receipt .artifacts/sentinel-webhook-run.json \
+  --source-root . --output .artifacts/sentinel-webhook-ci-result.json
+```
+
+The matching Nublar proof is `make nublar-sentinel-run-collect`.
+
+The future Herdr event placement and translation boundary is documented in
+[`sentinel-herdr-event-adapter-boundary.md`](../notes/modules/sentinel-herdr-event-adapter-boundary.md).
+
+Until Herdr exposes its native plugin hooks, a provider-neutral event fixture
+can exercise that translation boundary:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel adapter herdr-event \
+  --receipt .artifacts/sentinel-webhook-run.json \
+  --event .artifacts/herdr-event.json
+```
+
+For a callback stream, use newline-delimited events. The whole batch is
+validated before the updated receipt is published:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel adapter herdr-events \
+  --receipt .artifacts/sentinel-webhook-run.json \
+  --events .artifacts/herdr-events.jsonl
+```
+
+Register a produced file before sending an event that references it:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel run artifact \
+  --receipt .artifacts/sentinel-webhook-run.json \
+  --id verifier-run --role verifier --kind sorna-run \
+  --path .artifacts/sentinel-webhook-verifier/run.json
+```
+
+The adapter binds the callback to the receipt's run and workspace, preserves
+the Herdr event ID and session reference, and is safe to retry with the same
+event ID. An event may also carry an explicit `receipt_status`; Sentinel
+validates and applies it atomically with the event. It accepts only lifecycle
+event types and artifact IDs already understood by Sentinel. With `--root`, it
+also verifies referenced artifact bytes before appending the event. This is an
+ingress contract for a future native Herdr plugin, not an attestation of the
+host application's callback stream.
+
+Audit a receipt before exposing it as a completed workflow:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel run audit \
+  --receipt .artifacts/sentinel-webhook-run.json \
+  --root . --output .artifacts/sentinel-webhook-audit.json
+```
+
+The audit verifies the workspace and artifact hashes and distinguishes a
+terminal, integrity-checked receipt from an incomplete or tampered one. It
+does not reinterpret Sorna results or claim independent attestation. The
+`run ci-result` command applies the same integrity gate to terminal receipts
+before emitting a shared envelope.
+
+Render the same receipt and audit as a concise operator view:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel run report \
+  --receipt .artifacts/sentinel-webhook-run.json \
+  --root .
+```
+
+The report keeps lifecycle completion, audit integrity, producer-owned Sorna
+meaning, events, artifacts, and evidence limitations visibly separate.
+
+The `plugin/` directory remains the place for native Herdr bindings once the
+host application's plugin API is available.

@@ -60,6 +60,7 @@ type FindingSummary struct {
 type FindingExplanation struct {
 	Finding          *model.Finding     `json:"finding"`
 	Rule             *model.RuleSummary `json:"rule,omitempty"`
+	RelatedRules     []string           `json:"related_rules,omitempty"`
 	Status           string             `json:"status"`
 	Observation      string             `json:"observation"`
 	Why              string             `json:"why"`
@@ -85,11 +86,13 @@ func Explain(result *model.Result) Document {
 		Summary:      summarizeFindings(result.Findings, rules),
 		Findings:     make([]FindingExplanation, 0, len(result.Findings)),
 	}
-	for _, finding := range result.Findings {
+	relatedRules := relatedRulesByFinding(result.Findings)
+	for index, finding := range result.Findings {
 		rule := rules[finding.RuleID]
 		document.Findings = append(document.Findings, FindingExplanation{
 			Finding:          finding,
 			Rule:             rule,
+			RelatedRules:     relatedRules[index],
 			Status:           findingStatus(finding),
 			Observation:      observation(finding),
 			Why:              finding.Message,
@@ -139,6 +142,11 @@ func Text(w io.Writer, document Document) error {
 		if _, err := fmt.Fprintf(w, "   Observed: %s\n", finding.Observation); err != nil {
 			return err
 		}
+		if len(finding.RelatedRules) > 0 {
+			if _, err := fmt.Fprintf(w, "   Related: also reported by %s\n", strings.Join(finding.RelatedRules, ", ")); err != nil {
+				return err
+			}
+		}
 		if _, err := fmt.Fprintf(w, "   Why: %s\n", finding.Why); err != nil {
 			return err
 		}
@@ -149,6 +157,46 @@ func Text(w io.Writer, document Document) error {
 		}
 	}
 	return nil
+}
+
+// relatedRulesByFinding identifies duplicate policy signals for the same
+// dependency edge without collapsing the underlying findings. A dependency
+// edge is keyed by its source/target and source location, so two imports of
+// the same package from different lines remain separate issues.
+func relatedRulesByFinding(findings []*model.Finding) map[int][]string {
+	type edgeKey struct {
+		from string
+		to   string
+		file string
+		line int
+	}
+
+	rulesByEdge := make(map[edgeKey]map[string]struct{})
+	for _, finding := range findings {
+		if finding == nil || finding.To == "" {
+			continue
+		}
+		key := edgeKey{from: finding.From, to: finding.To, file: finding.File, line: finding.Line}
+		if rulesByEdge[key] == nil {
+			rulesByEdge[key] = make(map[string]struct{})
+		}
+		rulesByEdge[key][finding.RuleID] = struct{}{}
+	}
+
+	result := make(map[int][]string)
+	for index, finding := range findings {
+		if finding == nil || finding.To == "" {
+			continue
+		}
+		key := edgeKey{from: finding.From, to: finding.To, file: finding.File, line: finding.Line}
+		for ruleID := range rulesByEdge[key] {
+			if ruleID != finding.RuleID {
+				result[index] = append(result[index], ruleID)
+			}
+		}
+		sort.Strings(result[index])
+	}
+	return result
 }
 
 func summarizeFindings(findings []*model.Finding, rules map[string]*model.RuleSummary) []FindingSummary {
@@ -373,7 +421,11 @@ func suggestedActions(finding *model.Finding, rule *model.RuleSummary) []string 
 		}
 		return []string{"Move the dependency behind an approved architectural boundary."}
 	case "deny-dependencies":
-		return []string{"Remove the dependency or introduce a boundary that avoids the denied target."}
+		action := "Remove the dependency or introduce a boundary that avoids the denied target."
+		if len(rule.Deny) > 0 {
+			return []string{action + " Denied targets include: " + strings.Join(rule.Deny, ", ") + "."}
+		}
+		return []string{action}
 	case "layer-direction":
 		return []string{"Reverse the dependency so it points " + directionText(rule.Direction) + "."}
 	case "no-cross-context":

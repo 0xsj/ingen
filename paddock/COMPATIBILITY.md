@@ -45,6 +45,9 @@ artifact contract. They follow the same versioning rules below.
   graph-request fields are additive v1 scope controls. Older adapters may
   ignore unknown request fields, but Paddock still applies the requested scope
   to returned graph evidence.
+- The reserved rule-selector keys `path` and `path-not`, including `|`-joined
+  path alternatives, are additive v1 policy vocabulary. Existing label
+  selectors and component matching remain unchanged.
 - A changed meaning, field type, identifier, exit-code contract, or capability
   interpretation requires a new version.
 - Graph adapters own language analysis, not policy semantics. New edge kinds or

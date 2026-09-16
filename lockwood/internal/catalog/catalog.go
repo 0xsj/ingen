@@ -23,10 +23,10 @@ type Query struct {
 }
 
 type Catalog struct {
-	records *custody.Filesystem
+	records custody.RecordStore
 }
 
-func New(records *custody.Filesystem) (*Catalog, error) {
+func New(records custody.RecordStore) (*Catalog, error) {
 	if records == nil {
 		return nil, fmt.Errorf("custody record store is required")
 	}
