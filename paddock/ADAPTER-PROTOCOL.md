@@ -47,6 +47,31 @@ The adapter is selected by the user or CI configuration. It is not discovered
 or executed implicitly, which keeps the supply chain and execution boundary
 visible in a build configuration.
 
+## Reusable profiles
+
+When the same adapter is used by several commands, store its executable and
+arguments in a `paddock.adapter-profile/v1` file:
+
+```yaml
+schema: paddock.adapter-profile/v1
+name: rust-example
+executable: python3
+args:
+  - "{{profile_dir}}/adapter.py"
+  - --workspace
+  - "{{root}}"
+```
+
+Use it with `--adapter-config profile.yaml` on `graph`, `check`, `map`,
+`init`, `baseline`, `ci`, `adapter validate`, and policy test/diff/review
+commands. `{{root}}` is expanded per source root, including each case in a
+policy-test manifest. `{{profile_dir}}` is expanded relative to the profile,
+which keeps helper paths portable. A profile cannot be combined with explicit
+`--adapter` or `--adapter-arg` flags.
+
+The profile schema is
+[`spec/paddock.adapter-profile-v1.schema.json`](spec/paddock.adapter-profile-v1.schema.json).
+
 ## Request
 
 The request has this shape:
@@ -71,12 +96,15 @@ The machine-readable request contract is
 [`spec/paddock.graph-request-v1.schema.json`](spec/paddock.graph-request-v1.schema.json).
 
 `root` and `language` are required. `source_unit`, `roots`, `include`, and
-`exclude` come from the policy when a policy is supplied. Include and exclude
-patterns are relative slash-separated paths; adapters should use them to limit
-discovery, and Paddock applies the same boundary to the returned graph as a
-safety measure. `required_capabilities` is the negotiation surface; Paddock
-currently requires a matching source unit when the policy declares one and
-leaves edge-kind selection open for future rule vocabulary.
+`exclude` come from the policy when a policy is supplied. A language-only
+`paddock graph` request uses the language default source unit unless the caller
+passes `--unit`; this is `file` for Python and TypeScript/JavaScript and
+`package` otherwise. Include and exclude patterns are relative
+slash-separated paths; adapters should use them to limit discovery, and Paddock
+applies the same boundary to the returned graph as a safety measure.
+`required_capabilities` is the negotiation surface; Paddock currently requires
+a matching source unit when one is selected and leaves edge-kind selection open
+for future rule vocabulary.
 
 ## Response
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -80,8 +81,19 @@ func TestHerdrEventAdapterCommandAppendsAndReplays(t *testing.T) {
 		t.Fatalf("same-path receipt = %+v, want one appended event", inPlace)
 	}
 
+	beforeReplay, err := os.ReadFile(updatedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if code := run([]string{"adapter", "herdr-event", "--receipt", updatedPath, "--event", eventPath}); code != 0 {
 		t.Fatalf("replay adapter command exit code = %d, want 0", code)
+	}
+	afterReplay, err := os.ReadFile(updatedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(afterReplay, beforeReplay) {
+		t.Fatalf("receipt bytes changed after idempotent replay: before=%q after=%q", beforeReplay, afterReplay)
 	}
 	replayed, err := sentinelrun.LoadFile(updatedPath)
 	if err != nil {
@@ -173,6 +185,63 @@ func TestArtifactCommandUpdatesReceiptInPlace(t *testing.T) {
 	}
 	if len(loaded.Artifacts) != 1 || loaded.Artifacts[0].ID != "result" {
 		t.Fatalf("artifacts = %+v, want in-place registration", loaded.Artifacts)
+	}
+}
+
+func TestArtifactCommandRejectsSymlinkEscapeWithoutPublishing(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "workspace.yaml"), []byte("workspace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(outside, "result.json")
+	if err := os.WriteFile(outsidePath, []byte("result"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(root, "result.json")); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	receiptPath := filepath.Join(".artifacts", "receipt.json")
+	receipt := sentinelrun.Receipt{
+		Schema: sentinelrun.Schema,
+		RunID:  "run-artifact-symlink-cli-test",
+		Workspace: sentinelrun.WorkspaceRef{
+			ID:      "webhook-validation",
+			Version: 1,
+			File:    ciresult.FileRef{Path: "workspace.yaml", SHA256: strings.Repeat("a", 64)},
+		},
+		Status:    "created",
+		CreatedAt: "2026-01-02T03:04:05Z",
+		UpdatedAt: "2026-01-02T03:04:05Z",
+		Events:    []sentinelrun.Event{{Sequence: 1, Type: "workspace-created", At: "2026-01-02T03:04:05Z"}},
+	}
+	if err := os.MkdirAll(filepath.Dir(receiptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := sentinelrun.SaveFile(receiptPath, receipt); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"run", "artifact", "--receipt", receiptPath, "--id", "result", "--role", "verifier", "--kind", "sorna-run", "--path", "result.json"}); code != 1 {
+		t.Fatalf("artifact symlink exit code = %d, want rejection", code)
+	}
+	after, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("receipt bytes changed after artifact symlink rejection: before=%q after=%q", before, after)
+	}
+	loaded, err := sentinelrun.LoadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Artifacts) != 0 {
+		t.Fatalf("artifacts after symlink rejection = %+v, want none", loaded.Artifacts)
 	}
 }
 
@@ -383,6 +452,84 @@ func TestHerdrEventBatchCommandPublishesAllEvents(t *testing.T) {
 	}
 	if len(inPlace.Events) != 3 || inPlace.Status != "completed" {
 		t.Fatalf("same-path batch receipt = %+v, want two appended events", inPlace)
+	}
+}
+
+func TestHerdrEventBatchCommandRejectsConflictWithoutPublishing(t *testing.T) {
+	t.Chdir(t.TempDir())
+	receiptPath := filepath.Join(".artifacts", "receipt.json")
+	eventsPath := filepath.Join(".artifacts", "events.jsonl")
+	receipt := sentinelrun.Receipt{
+		Schema: sentinelrun.Schema,
+		RunID:  "run-herdr-batch-conflict-test",
+		Workspace: sentinelrun.WorkspaceRef{
+			ID:      "webhook-validation",
+			Version: 1,
+			File:    ciresult.FileRef{Path: "workspace.yaml", SHA256: strings.Repeat("a", 64)},
+		},
+		Status:    "created",
+		CreatedAt: "2026-01-02T03:04:05Z",
+		UpdatedAt: "2026-01-02T03:04:05Z",
+		Events:    []sentinelrun.Event{{Sequence: 1, Type: "workspace-created", At: "2026-01-02T03:04:05Z"}},
+	}
+	if err := os.MkdirAll(filepath.Dir(receiptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := sentinelrun.SaveFile(receiptPath, receipt); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := []map[string]any{
+		{
+			"schema":            "ingen.herdr-event/v1",
+			"event_id":          "herdr-cli-conflict",
+			"run_id":            receipt.RunID,
+			"workspace_id":      receipt.Workspace.ID,
+			"workspace_version": receipt.Workspace.Version,
+			"type":              "role-launched",
+			"at":                "2026-01-02T03:04:06Z",
+		},
+		{
+			"schema":            "ingen.herdr-event/v1",
+			"event_id":          "herdr-cli-conflict",
+			"run_id":            receipt.RunID,
+			"workspace_id":      receipt.Workspace.ID,
+			"workspace_version": receipt.Workspace.Version,
+			"type":              "role-completed",
+			"at":                "2026-01-02T03:04:07Z",
+		},
+	}
+	stream := make([]byte, 0)
+	for _, event := range events {
+		data, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stream = append(stream, data...)
+		stream = append(stream, '\n')
+	}
+	if err := os.WriteFile(eventsPath, stream, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"adapter", "herdr-events", "--receipt", receiptPath, "--events", eventsPath, "--output", receiptPath}); code != 1 {
+		t.Fatalf("conflicting batch exit code = %d, want rejection", code)
+	}
+	after, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatalf("receipt bytes changed after conflicting batch: before=%q after=%q", before, after)
+	}
+	loaded, err := sentinelrun.LoadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Events) != 1 || loaded.Status != "created" {
+		t.Fatalf("receipt after conflicting batch = %+v, want unchanged receipt", loaded)
 	}
 }
 

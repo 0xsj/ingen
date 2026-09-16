@@ -108,6 +108,12 @@ explicit expectations, so intentional reds are counted as matched regression
 cases rather than being confused with an infrastructure error. The aggregate
 only passes when all expected classifications match.
 
+The document-pipeline expectations now live in the versioned
+`sorna.replay-matrix-manifest/v1` YAML file under the example. The manifest is
+hashed into the aggregate as `matrix_manifest`, which keeps the reviewed
+expectations bound to the generated report instead of hiding them in a shell
+recipe. JSON manifests are accepted as the same language-neutral shape.
+
 The saved aggregate has a separate verification path:
 `sorna evidence replay matrix verify`. This is deliberately independent of
 creation. It re-hashes the member envelopes, revalidates each nested replay

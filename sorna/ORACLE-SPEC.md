@@ -141,6 +141,12 @@ previous oracle result.
 
 ## 4. Oracle structure
 
+The structural cross-language schema for the frozen artifact is
+[`spec/ingen.oracle-v1.schema.json`](spec/ingen.oracle-v1.schema.json). It
+fixes the `ingen.oracle/v1` identity, contract/policy lineage, and materialized
+case envelope; runtime validation remains authoritative for unique case and
+rule IDs and canonical bytes.
+
 A Sorna oracle is composed of six explicit parts:
 
 ### 4.1 Input model

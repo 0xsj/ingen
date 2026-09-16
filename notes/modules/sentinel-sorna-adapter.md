@@ -24,11 +24,15 @@ Before delegation, Sentinel validates the plan and rechecks the workspace and
 oracle-policy bytes against the plan references, copies the verified policy to
 a temporary read-only snapshot, and invokes `sorna sandbox exec --policy ...`
 against that snapshot. Policy loading, Seatbelt profile generation, process
-restrictions, and enforcement evidence remain Sorna responsibilities.
+restrictions, and enforcement evidence remain Sorna responsibilities. The
+workspace, policy, and frozen-oracle references are resolved under the supplied
+root with symlink escapes rejected before a handoff is prepared.
 
 The verifier adapter composes Sorna's managed `run` command separately. It
 binds a frozen oracle plus distinct oracle and subject-policy snapshots, then
 passes subject lifecycle arguments through without reinterpreting them.
+Before launch, its subject root must resolve within the supplied project root;
+an escaping or unresolved subject root fails preparation.
 
 When given a Sentinel receipt, the adapter records the policy handoff and
 Sorna start before launch, then records Sorna completion and the process

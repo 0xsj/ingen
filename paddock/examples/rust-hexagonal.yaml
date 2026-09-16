@@ -1,0 +1,51 @@
+schema: paddock.architecture/v1
+project: rust-hexagonal
+
+source:
+  language: rust
+  unit: file
+  roots: [src]
+
+components:
+  composition:
+    match: src/lib.rs
+    labels:
+      role: composition
+
+  domain:
+    match: src/domain/**
+    labels:
+      role: domain
+
+  application:
+    match: src/app/**
+    labels:
+      role: application
+
+  port:
+    match: src/ports/**
+    labels:
+      role: port
+
+  adapter:
+    match: src/adapters/**
+    labels:
+      role: adapter
+
+rules:
+  - id: domain-is-pure
+    kind: allow-dependencies
+    from: {role: domain}
+    allow:
+      - standard-library:std
+      - {role: domain}
+      - {role: port}
+    message: Rust domain code must depend on stable abstractions, not adapters
+
+  - id: no-cycles
+    kind: no-cycles
+    message: Rust architecture must remain acyclic
+
+  - id: complete-classification
+    kind: coverage
+    message: every Rust source file must belong to a declared component

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.oracle-v1.schema.json",
+  "title": "InGen frozen behavioral oracle",
+  "description": "Materialized contract cases bound to a sealed contract and generation policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "contract", "policy_sha256", "cases"],
+  "properties": {
+    "schema": {"const": "ingen.oracle/v1"},
+    "status": {"const": "frozen"},
+    "contract": {"$ref": "#/$defs/contract"},
+    "policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "rule_id", "strength"],
+      "properties": {
+        "case_id": {"type": "string", "minLength": 1},
+        "rule_id": {"type": "string", "minLength": 1},
+        "strength": {"enum": ["must", "must_not", "may", "should", "unspecified"]},
+        "subject": {"type": "string", "minLength": 1},
+        "given": {"type": "object"},
+        "expect": {"type": "object"}
+      }
+    }
+  }
+}

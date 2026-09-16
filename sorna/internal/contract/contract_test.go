@@ -170,6 +170,33 @@ func TestValidationRequiresBooleanAdditionalProperties(t *testing.T) {
 	}
 }
 
+func TestValidationRejectsUnknownSchema(t *testing.T) {
+	document := minimalDocument()
+	document.Contract["schema"] = "sorna.contract/v1"
+
+	problems := Validate(document)
+	if !containsProblem(problems, "contract.schema must be ingen.contract/v1") {
+		t.Fatalf("problems = %v, want contract schema identity error", problems)
+	}
+}
+
+func TestValidationChecksEventExpectationShape(t *testing.T) {
+	document := minimalDocument()
+	document.Contract["rules"] = []any{map[string]any{
+		"id":       "event-rule",
+		"strength": "must",
+		"subject":  "POST /documents",
+		"expect": map[string]any{
+			"events": map[string]any{"required": []any{}},
+		},
+	}}
+
+	problems := Validate(document)
+	if !containsProblem(problems, "events.required must contain at least one event") {
+		t.Fatalf("problems = %v, want empty event list problem", problems)
+	}
+}
+
 func TestMaterializeExpandsNestedRepeatValuesWithoutMutatingInput(t *testing.T) {
 	input := map[string]any{
 		"name": "large.txt",

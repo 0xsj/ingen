@@ -94,7 +94,11 @@ func New(workspacePath string, now time.Time) (Receipt, error) {
 	if err := validateRelativePath("workspace file", workspacePath); err != nil {
 		return Receipt{}, err
 	}
-	contents, err := os.ReadFile(workspacePath)
+	resolvedWorkspacePath, err := ResolveFileRefUnderRoot(".", ciresult.FileRef{Path: workspacePath})
+	if err != nil {
+		return Receipt{}, fmt.Errorf("resolve Sentinel workspace %s: %w", workspacePath, err)
+	}
+	contents, err := os.ReadFile(resolvedWorkspacePath)
 	if err != nil {
 		return Receipt{}, fmt.Errorf("read Sentinel workspace %s: %w", workspacePath, err)
 	}
@@ -313,7 +317,11 @@ func fileArtifact(id, role, kind, path string) (ArtifactRef, error) {
 	if err := validateRelativePath("artifact file", path); err != nil {
 		return ArtifactRef{}, err
 	}
-	contents, err := os.ReadFile(path)
+	resolvedPath, err := ResolveFileRefUnderRoot(".", ciresult.FileRef{Path: path})
+	if err != nil {
+		return ArtifactRef{}, fmt.Errorf("resolve Sentinel artifact %s: %w", path, err)
+	}
+	contents, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return ArtifactRef{}, fmt.Errorf("read Sentinel artifact %s: %w", path, err)
 	}
@@ -454,6 +462,40 @@ func validateRelativePath(name, raw string) error {
 		return fmt.Errorf("Sentinel run %s path must stay inside the project root: %q", name, raw)
 	}
 	return nil
+}
+
+// ResolveFileRefUnderRoot resolves a validated relative file reference under
+// root and rejects symlink resolution that escapes that root. Callers should
+// read the returned path so the containment decision and the subsequent read
+// refer to the same resolved location.
+func ResolveFileRefUnderRoot(root string, ref ciresult.FileRef) (string, error) {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	if err := validateRelativePath("rooted file", ref.Path); err != nil {
+		return "", err
+	}
+	rootPath, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve artifact root %q: %w", root, err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(rootPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve artifact root %q: %w", root, err)
+	}
+	path := filepath.Join(rootPath, filepath.Clean(ref.Path))
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve rooted file %q: %w", ref.Path, err)
+	}
+	relative, err := filepath.Rel(resolvedRoot, resolvedPath)
+	if err != nil {
+		return "", fmt.Errorf("compare rooted file %q with root %q: %w", ref.Path, root, err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", fmt.Errorf("rooted file %q escapes root %q", ref.Path, root)
+	}
+	return resolvedPath, nil
 }
 
 func parseTimestamp(name, value string) (time.Time, error) {

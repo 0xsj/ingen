@@ -87,12 +87,8 @@ func (s *FileStore) appendEvent(identity governance.ContractIdentity, expectedRe
 		return governance.Record{}, err
 	}
 	if expectedRevision != "" {
-		actualRevision, err := RecordRevision(record)
-		if err != nil {
-			return governance.Record{}, fmt.Errorf("calculate Hammond record revision: %w", err)
-		}
-		if actualRevision != expectedRevision {
-			return governance.Record{}, fmt.Errorf("%w: expected %s, current %s", ErrConflict, expectedRevision, actualRevision)
+		if err := requireRevision(record, expectedRevision); err != nil {
+			return governance.Record{}, err
 		}
 	}
 	if !record.Contract.Identity().Equal(identity) {
@@ -117,6 +113,17 @@ func (s *FileStore) appendEvent(identity governance.ContractIdentity, expectedRe
 	return updated, nil
 }
 
+func requireRevision(record governance.Record, expectedRevision string) error {
+	actualRevision, err := RecordRevision(record)
+	if err != nil {
+		return fmt.Errorf("calculate Hammond record revision: %w", err)
+	}
+	if actualRevision != expectedRevision {
+		return fmt.Errorf("%w: expected %s, current %s", ErrConflict, expectedRevision, actualRevision)
+	}
+	return nil
+}
+
 // Supersede marks an approved predecessor as superseded after its approved
 // successor has been linked by an amendment event.
 func (s *FileStore) Supersede(identity governance.ContractIdentity, successor governance.ContractIdentity, event governance.Event) (governance.Record, error) {
@@ -128,9 +135,35 @@ func (s *FileStore) Supersede(identity governance.ContractIdentity, successor go
 	}
 	defer unlock()
 
+	return s.supersede(identity, "", successor, event)
+}
+
+// SupersedeIfRevision supersedes a predecessor only when it still has the
+// caller's revision.
+func (s *FileStore) SupersedeIfRevision(identity governance.ContractIdentity, expectedRevision string, successor governance.ContractIdentity, event governance.Event) (governance.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lockFile(false)
+	if err != nil {
+		return governance.Record{}, err
+	}
+	defer unlock()
+
+	if expectedRevision == "" {
+		return governance.Record{}, fmt.Errorf("expected Hammond record revision is required")
+	}
+	return s.supersede(identity, expectedRevision, successor, event)
+}
+
+func (s *FileStore) supersede(identity governance.ContractIdentity, expectedRevision string, successor governance.ContractIdentity, event governance.Event) (governance.Record, error) {
 	predecessor, err := s.get(identity)
 	if err != nil {
 		return governance.Record{}, err
+	}
+	if expectedRevision != "" {
+		if err := requireRevision(predecessor, expectedRevision); err != nil {
+			return governance.Record{}, err
+		}
 	}
 	storedSuccessor, err := s.get(successor)
 	if err != nil {
@@ -170,9 +203,35 @@ func (s *FileStore) CreateAmendment(identity governance.ContractIdentity, succes
 	}
 	defer unlock()
 
+	return s.createAmendment(identity, "", successor, event)
+}
+
+// CreateAmendmentIfRevision publishes an amendment only when the predecessor
+// still has the caller's revision.
+func (s *FileStore) CreateAmendmentIfRevision(identity governance.ContractIdentity, expectedRevision string, successor governance.Record, event governance.Event) (governance.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lockFile(false)
+	if err != nil {
+		return governance.Record{}, err
+	}
+	defer unlock()
+
+	if expectedRevision == "" {
+		return governance.Record{}, fmt.Errorf("expected Hammond record revision is required")
+	}
+	return s.createAmendment(identity, expectedRevision, successor, event)
+}
+
+func (s *FileStore) createAmendment(identity governance.ContractIdentity, expectedRevision string, successor governance.Record, event governance.Event) (governance.Record, error) {
 	predecessor, err := s.get(identity)
 	if err != nil {
 		return governance.Record{}, err
+	}
+	if expectedRevision != "" {
+		if err := requireRevision(predecessor, expectedRevision); err != nil {
+			return governance.Record{}, err
+		}
 	}
 	if err := validateRegistration(successor); err != nil {
 		return governance.Record{}, fmt.Errorf("validate successor registration: %w", err)

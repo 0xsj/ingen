@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // DecodeRecord parses one strict JSON governance record and applies domain
@@ -245,6 +247,9 @@ func LoadContractArtifact(reference ContractReference) ([]byte, error) {
 }
 
 func readLocalArtifact(uri string) ([]byte, error) {
+	if err := validateLocalArtifactURI(uri); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(uri)
 	if err == nil || filepath.IsAbs(uri) {
 		return data, err
@@ -269,6 +274,21 @@ func readLocalArtifact(uri string) ([]byte, error) {
 		}
 	}
 	return nil, err
+}
+
+func validateLocalArtifactURI(uri string) error {
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return fmt.Errorf("Hammond local artifact path is required")
+	}
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return fmt.Errorf("Hammond local artifact path is invalid: %w", err)
+	}
+	if parsed.Scheme != "" || parsed.Host != "" {
+		return fmt.Errorf("Hammond artifact URI must be a local filesystem path")
+	}
+	return nil
 }
 
 func decodeStrict(data []byte, target any) error {

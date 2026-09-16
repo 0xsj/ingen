@@ -1,0 +1,11 @@
+schema: paddock.policy-tests/v1
+
+cases:
+  - name: rust-hexagonal-good
+    root: services/rust-hexagonal/good
+    expect: pass
+
+  - name: rust-hexagonal-violating
+    root: services/rust-hexagonal/violating
+    expect: fail
+    require_rules: [domain-is-pure, no-cycles]

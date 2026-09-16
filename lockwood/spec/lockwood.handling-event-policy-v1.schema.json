@@ -1,0 +1,35 @@
+{
+  "$id": "https://ingen.example/spec/lockwood.handling-event-policy-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lockwood handling-event authorization policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "rules"],
+  "properties": {
+    "schema": {"const": "lockwood.handling-event-policy/v1"},
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key_id", "event_types"],
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+          },
+          "event_types": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["redaction", "retention-classified", "legal-hold-placed", "legal-hold-released"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -14,10 +14,11 @@ run list --store <dir> --external-system github-actions \
                                       → one external attempt, when present
 ```
 
-`run show` addresses one immutable record by its opaque ID. `run list` emits a
-JSON array of complete `ingen.nublar-run/v1` records, including the preserved
-producer artifacts. It orders records newest first by `created_at`, with
-ascending `run_id` as the deterministic tie-breaker.
+`run show` addresses one immutable record by its opaque ID, writes the
+validated record, and returns that record's stored decision exit code. `run
+list` emits a JSON array of complete `ingen.nublar-run/v1` records, including
+the preserved producer artifacts. It orders records newest first by
+`created_at`, with ascending `run_id` as the deterministic tie-breaker.
 
 An uncreated or empty store lists as `[]`. Temporary files and files that do
 not have the canonical content-addressed filename shape are ignored. A

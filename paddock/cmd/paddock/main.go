@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"ingen/core/ciresult"
+	paddockadapterprofile "ingen/paddock/internal/adapterprofile"
 	paddockadaptertest "ingen/paddock/internal/adaptertest"
 	paddockartifact "ingen/paddock/internal/artifact"
 	paddockbaseline "ingen/paddock/internal/baseline"
@@ -152,6 +153,7 @@ func check(args []string) error {
 	graphInputPath := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	baselinePath := ""
 	format := "text"
 	rootSet := false
@@ -200,6 +202,12 @@ func check(args []string) error {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a profile path", arg)
+			}
+			index++
+			adapterProfilePath = args[index]
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return fmt.Errorf("unknown option %q", arg)
@@ -210,6 +218,11 @@ func check(args []string) error {
 			root = arg
 			rootSet = true
 		}
+	}
+	var err error
+	adapterExecutable, adapterArgs, err = resolveAdapterProfile(root, adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return err
 	}
 	if policyPath == "" && policyLockPath == "" {
 		return fmt.Errorf("check requires --policy <path> or --policy-lock <path>")
@@ -267,10 +280,12 @@ type graphDocument = paddockgraph.Document
 func graphCommand(args []string) error {
 	root := "."
 	language := ""
+	unitOverride := ""
 	policyPath := ""
 	graphInputPath := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	format := "text"
 	rootSet := false
 	var scopeInclude, scopeExclude []string
@@ -283,6 +298,12 @@ func graphCommand(args []string) error {
 			}
 			index++
 			language = args[index]
+		case "--unit", "--source-unit":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a source unit", arg)
+			}
+			index++
+			unitOverride = args[index]
 		case "--policy", "-p":
 			if index+1 >= len(args) {
 				return fmt.Errorf("%s requires a path", arg)
@@ -307,6 +328,12 @@ func graphCommand(args []string) error {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a profile path", arg)
+			}
+			index++
+			adapterProfilePath = args[index]
 		case "--format", "-f":
 			if index+1 >= len(args) {
 				return fmt.Errorf("%s requires text or json", arg)
@@ -323,6 +350,11 @@ func graphCommand(args []string) error {
 			root = arg
 			rootSet = true
 		}
+	}
+	var err error
+	adapterExecutable, adapterArgs, err = resolveAdapterProfile(root, adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return err
 	}
 	if graphInputPath != "" && adapterExecutable != "" {
 		return fmt.Errorf("graph accepts either --input/--graph or --adapter, not both")
@@ -350,6 +382,9 @@ func graphCommand(args []string) error {
 		}
 		if language != "" && language != document.Language {
 			return fmt.Errorf("graph language %q does not match input language %q", language, document.Language)
+		}
+		if unitOverride != "" && document.Unit != "" && unitOverride != document.Unit {
+			return fmt.Errorf("graph source unit %q does not match input source unit %q", unitOverride, document.Unit)
 		}
 		language = document.Language
 		unit = document.Unit
@@ -381,6 +416,9 @@ func graphCommand(args []string) error {
 			if language != "" && language != config.Source.Language {
 				return fmt.Errorf("graph language %q does not match policy language %q", language, config.Source.Language)
 			}
+			if unitOverride != "" && unitOverride != config.Source.Unit {
+				return fmt.Errorf("graph source unit %q does not match policy source unit %q", unitOverride, config.Source.Unit)
+			}
 			language = config.Source.Language
 			request.Unit = config.Source.Unit
 			request.Roots = append([]string(nil), config.Source.Roots...)
@@ -389,6 +427,11 @@ func graphCommand(args []string) error {
 		}
 		if language == "" {
 			return fmt.Errorf("graph requires --language <language>, --policy <path>, or --input <graph.json>")
+		}
+		if unitOverride != "" {
+			request.Unit = unitOverride
+		} else if request.Unit == "" {
+			request.Unit = sourceUnit(language)
 		}
 		if adapterExecutable != "" {
 			requiredCapabilities := paddockgraph.Capabilities{}
@@ -528,6 +571,7 @@ func componentMapCommand(args []string) error {
 	graphInputPath := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	format := "text"
 	rootSet := false
 	for index := 0; index < len(args); index++ {
@@ -562,6 +606,12 @@ func componentMapCommand(args []string) error {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a profile path", args[index])
+			}
+			index++
+			adapterProfilePath = args[index]
 		case "--format", "-f":
 			if index+1 >= len(args) {
 				return fmt.Errorf("%s requires text or json", args[index])
@@ -578,6 +628,10 @@ func componentMapCommand(args []string) error {
 			root = args[index]
 			rootSet = true
 		}
+	}
+	adapterExecutable, adapterArgs, err := resolveAdapterProfile(root, adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return err
 	}
 	if policyPath == "" && policyLockPath == "" {
 		return fmt.Errorf("map requires --policy <policy.yaml> or --policy-lock <lock.json>")
@@ -635,6 +689,7 @@ func initCommand(args []string) error {
 	graphInputPath := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	template := ""
 	outputPath := "paddock.yaml"
 	format := "text"
@@ -673,6 +728,12 @@ func initCommand(args []string) error {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a profile path", arg)
+			}
+			index++
+			adapterProfilePath = args[index]
 		case "--template", "-t":
 			if index+1 >= len(args) {
 				return fmt.Errorf("%s requires a template", arg)
@@ -703,6 +764,10 @@ func initCommand(args []string) error {
 			root = arg
 			rootSet = true
 		}
+	}
+	adapterExecutable, adapterArgs, err := resolveAdapterProfile(root, adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return err
 	}
 	if graphInputPath != "" && adapterExecutable != "" {
 		return fmt.Errorf("init accepts either --graph/--input or --adapter, not both")
@@ -1046,6 +1111,7 @@ func testPolicy(args []string) (int, error) {
 	casesPath := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	format := "text"
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
@@ -1074,6 +1140,12 @@ func testPolicy(args []string) (int, error) {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a profile path", args[index])
+			}
+			index++
+			adapterProfilePath = args[index]
 		case "--format", "-f":
 			if index+1 >= len(args) {
 				return 0, fmt.Errorf("%s requires text or json", arg)
@@ -1083,6 +1155,10 @@ func testPolicy(args []string) (int, error) {
 		default:
 			return 0, fmt.Errorf("unknown option %q", arg)
 		}
+	}
+	adapterExecutable, adapterArgs, err := resolveAdapterProfileTemplate(adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return 0, err
 	}
 	if policyPath == "" || casesPath == "" {
 		return 0, fmt.Errorf("policy test requires --policy <path> and --cases <manifest.yaml>")
@@ -1121,6 +1197,7 @@ func diffPolicies(args []string) (int, error) {
 	casesPath := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	format := "text"
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
@@ -1155,6 +1232,12 @@ func diffPolicies(args []string) (int, error) {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a profile path", args[index])
+			}
+			index++
+			adapterProfilePath = args[index]
 		case "--format", "-f":
 			if index+1 >= len(args) {
 				return 0, fmt.Errorf("%s requires text or json", arg)
@@ -1164,6 +1247,10 @@ func diffPolicies(args []string) (int, error) {
 		default:
 			return 0, fmt.Errorf("unknown option %q", arg)
 		}
+	}
+	adapterExecutable, adapterArgs, err := resolveAdapterProfileTemplate(adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return 0, err
 	}
 	if beforePath == "" || afterPath == "" {
 		return 0, fmt.Errorf("policy diff requires --before <policy.yaml> and --after <policy.yaml>")
@@ -1239,6 +1326,7 @@ func reviewPolicy(args []string) (int, error) {
 	casesPath := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	outputPath := ""
 	format := "text"
 	for index := 0; index < len(args); index++ {
@@ -1274,6 +1362,12 @@ func reviewPolicy(args []string) (int, error) {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a profile path", args[index])
+			}
+			index++
+			adapterProfilePath = args[index]
 		case "--output", "-o":
 			if index+1 >= len(args) {
 				return 0, fmt.Errorf("%s requires an output path", arg)
@@ -1289,6 +1383,10 @@ func reviewPolicy(args []string) (int, error) {
 		default:
 			return 0, fmt.Errorf("unknown option %q", arg)
 		}
+	}
+	adapterExecutable, adapterArgs, err := resolveAdapterProfileTemplate(adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return 0, err
 	}
 	if beforePath == "" || afterPath == "" || casesPath == "" || outputPath == "" {
 		return 0, fmt.Errorf("policy review requires --before <policy.yaml>, --after <policy.yaml>, --cases <manifest.yaml>, and --output <review.json>")
@@ -1521,6 +1619,34 @@ func loadExternalGraph(root string, config paddockpolicy.Policy, executable stri
 	return loaded, err
 }
 
+func resolveAdapterProfile(root, profilePath, executable string, args []string) (string, []string, error) {
+	if profilePath == "" {
+		return executable, args, nil
+	}
+	if executable != "" || len(args) > 0 {
+		return "", nil, fmt.Errorf("--adapter-config cannot be combined with --adapter or --adapter-arg")
+	}
+	profile, err := paddockadapterprofile.Load(profilePath)
+	if err != nil {
+		return "", nil, err
+	}
+	return profile.Resolve(root)
+}
+
+func resolveAdapterProfileTemplate(profilePath, executable string, args []string) (string, []string, error) {
+	if profilePath == "" {
+		return executable, args, nil
+	}
+	if executable != "" || len(args) > 0 {
+		return "", nil, fmt.Errorf("--adapter-config cannot be combined with --adapter or --adapter-arg")
+	}
+	profile, err := paddockadapterprofile.Load(profilePath)
+	if err != nil {
+		return "", nil, err
+	}
+	return profile.ResolveTemplate()
+}
+
 func loadExternalGraphDocument(root string, config paddockpolicy.Policy, executable string, args []string) (*model.Graph, paddockgraph.Document, error) {
 	return loadExternalGraphRequest(root, config.Source.Language, config.Source.Unit, config.Source.Roots, config.Source.Include, config.Source.Exclude, executable, args)
 }
@@ -1642,6 +1768,7 @@ func createBaseline(args []string) error {
 	graphInputPath := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	outputPath := ""
 	rootSet := false
 	for index := 0; index < len(args); index++ {
@@ -1671,6 +1798,12 @@ func createBaseline(args []string) error {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return fmt.Errorf("%s requires a profile path", arg)
+			}
+			index++
+			adapterProfilePath = args[index]
 		case "--output", "-o":
 			if index+1 >= len(args) {
 				return fmt.Errorf("%s requires a path", arg)
@@ -1687,6 +1820,10 @@ func createBaseline(args []string) error {
 			root = arg
 			rootSet = true
 		}
+	}
+	adapterExecutable, adapterArgs, err := resolveAdapterProfile(root, adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return err
 	}
 	if policyPath == "" {
 		return fmt.Errorf("baseline requires --policy <path>")
@@ -1740,6 +1877,7 @@ func createCIArtifact(args []string) (int, error) {
 	graphOutputPath := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	baselinePath := ""
 	outputPath := ""
 	rootSet := false
@@ -1782,6 +1920,12 @@ func createCIArtifact(args []string) (int, error) {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a profile path", arg)
+			}
+			index++
+			adapterProfilePath = args[index]
 		case "--baseline":
 			if index+1 >= len(args) {
 				return 0, fmt.Errorf("%s requires a path", arg)
@@ -1804,6 +1948,10 @@ func createCIArtifact(args []string) (int, error) {
 			root = arg
 			rootSet = true
 		}
+	}
+	adapterExecutable, adapterArgs, err := resolveAdapterProfile(root, adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return 0, err
 	}
 	if policyPath == "" && policyLockPath == "" {
 		return 0, fmt.Errorf("ci requires --policy <path> or --policy-lock <path>")
@@ -1966,6 +2114,7 @@ func validateAdapter(args []string) (int, error) {
 	unit := ""
 	adapterExecutable := ""
 	adapterArgs := []string(nil)
+	adapterProfilePath := ""
 	format := "text"
 	rootSet := false
 	for index := 0; index < len(args); index++ {
@@ -1994,6 +2143,12 @@ func validateAdapter(args []string) (int, error) {
 			}
 			index++
 			adapterArgs = append(adapterArgs, args[index])
+		case "--adapter-config":
+			if index+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a profile path", args[index])
+			}
+			index++
+			adapterProfilePath = args[index]
 		case "--format", "-f":
 			if index+1 >= len(args) {
 				return 0, fmt.Errorf("%s requires text or json", args[index])
@@ -2010,6 +2165,11 @@ func validateAdapter(args []string) (int, error) {
 			root = args[index]
 			rootSet = true
 		}
+	}
+	var err error
+	adapterExecutable, adapterArgs, err = resolveAdapterProfile(root, adapterProfilePath, adapterExecutable, adapterArgs)
+	if err != nil {
+		return 0, err
 	}
 	if language == "" {
 		return 0, fmt.Errorf("adapter validate requires --language <language>")
@@ -2540,23 +2700,23 @@ func releaseCommand(args []string) (int, error) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: paddock check <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--baseline <file>] [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock graph <source-root> [--policy <policy.yaml> | --language <language> | --input <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock map <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock init <source-root> [--language <language>] [--unit package|file] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] [--template <name>] [--output paddock.yaml] [--format text|json] [--force]")
+	fmt.Fprintln(os.Stderr, "usage: paddock check <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] [--baseline <file>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock graph <source-root> [--policy <policy.yaml> | --language <language> [--unit package|file] | --input <graph.json> | --adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock map <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock init <source-root> [--language <language>] [--unit package|file] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] [--template <name>] [--output paddock.yaml] [--format text|json] [--force]")
 	fmt.Fprintln(os.Stderr, "       paddock policy validate --policy <policy.yaml> [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock policy diff --before <policy.yaml> --after <policy.yaml> [--cases <manifest.yaml>] [--adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock policy review --before <policy.yaml> --after <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...]] --output <review.json> [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock policy diff --before <policy.yaml> --after <policy.yaml> [--cases <manifest.yaml>] [--adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock policy review --before <policy.yaml> --after <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] --output <review.json> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy review verify --input <review.json> [--files] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock policy seal --input <policy.yaml> --output <policy.lock.json> [--force]")
 	fmt.Fprintln(os.Stderr, "       paddock policy verify --policy <policy.yaml> --lock <policy.lock.json>")
 	fmt.Fprintln(os.Stderr, "       paddock policy test validate --cases <manifest.yaml> [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock policy test --policy <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...]] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock policy test --policy <policy.yaml> --cases <manifest.yaml> [--adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock release verify --manifest <release-manifest.json> [--directory <dir>] [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock baseline <source-root> --policy <policy.yaml> [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...]] --output <baseline.json>")
-	fmt.Fprintln(os.Stderr, "       paddock ci <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] --graph-output <graph.json>] [--baseline <file>] --output <ci-result.json>")
+	fmt.Fprintln(os.Stderr, "       paddock baseline <source-root> --policy <policy.yaml> [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] --output <baseline.json>")
+	fmt.Fprintln(os.Stderr, "       paddock ci <source-root> [--policy <policy.yaml> | --policy-lock <lock.json>] [--graph <graph.json> | --adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml> --graph-output <graph.json>] [--baseline <file>] --output <ci-result.json>")
 	fmt.Fprintln(os.Stderr, "       paddock ci validate --input <ci-result.json> [--format text|json]")
-	fmt.Fprintln(os.Stderr, "       paddock adapter validate <source-root> --language <language> [--unit package|file] --adapter <program> [--adapter-arg <arg>...] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       paddock adapter validate <source-root> --language <language> [--unit package|file] [--adapter <program> [--adapter-arg <arg>...] | --adapter-config <profile.yaml>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock adapter test --cases <manifest.yaml> [--output <result.json>] [--ci-result <ci-result.json>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock adapter test validate --cases <manifest.yaml> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       paddock adapter test verify --input <adapter-test-result.json> [--files] [--format text|json]")

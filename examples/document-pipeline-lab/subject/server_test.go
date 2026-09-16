@@ -22,6 +22,10 @@ func TestDocumentWorkflowExposesContractedStatesAndResult(t *testing.T) {
 	if create.Code != http.StatusAccepted {
 		t.Fatalf("create status = %d, want %d", create.Code, http.StatusAccepted)
 	}
+	events := create.Header().Values("X-InGen-Event")
+	if len(events) != 2 || events[0] != "document.accepted" || events[1] != "document.queued" {
+		t.Fatalf("create event headers = %#v, want accepted then queued", events)
+	}
 
 	var accepted struct {
 		ID     string `json:"id"`

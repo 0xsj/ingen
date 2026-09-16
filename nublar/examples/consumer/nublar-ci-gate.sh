@@ -125,6 +125,14 @@ case "$decision_code_from_output" in
     exit 2
     ;;
 esac
+expected_collect_process_code=0
+if [[ "$decision_code_from_output" -ne 0 ]]; then
+  expected_collect_process_code=1
+fi
+if [[ "$collect_code" -ne "$expected_collect_process_code" ]]; then
+  echo "Nublar collect process code=$collect_code disagrees with persisted exit_code=$decision_code_from_output" >&2
+  exit 2
+fi
 
 if [[ "$output" == *.json ]]; then
   decision_output="${output%.json}.decision.json"

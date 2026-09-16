@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.replay-matrix-explanation-v1.schema.json",
+  "title": "Sorna replay matrix explanation",
+  "description": "Compact explanation of replay matrix classification mismatches.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "total", "matched", "mismatched"],
+  "properties": {
+    "schema": {"const": "sorna.replay-matrix-explanation/v1"},
+    "status": {"enum": ["passed", "failed"]},
+    "total": {"type": "integer", "minimum": 1},
+    "matched": {"type": "integer", "minimum": 0},
+    "mismatched": {"type": "integer", "minimum": 0},
+    "failures": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/failure"}
+    }
+  },
+  "$defs": {
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "expected_ci_status",
+        "actual_ci_status",
+        "expected_replay_state",
+        "actual_replay_state",
+        "differences"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "expected_ci_status": {"enum": ["passed", "failed", "error"]},
+        "actual_ci_status": {"enum": ["passed", "failed", "error"]},
+        "expected_replay_state": {"enum": ["matched", "drifted", "error", "inconclusive"]},
+        "actual_replay_state": {"enum": ["matched", "drifted", "error", "inconclusive"]},
+        "differences": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

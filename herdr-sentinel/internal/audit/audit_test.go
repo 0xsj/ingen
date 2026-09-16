@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +76,48 @@ func TestBuildReportsReferenceMismatchAsFailure(t *testing.T) {
 	}
 	if report.Status != "failed" || report.ExitCode() != 1 {
 		t.Fatalf("report = %+v, want failed integrity audit", report)
+	}
+}
+
+func TestBuildReportsArtifactSymlinkEscapeAsFailure(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "workspace.yaml"), []byte("workspace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(outside, "artifact.json")
+	if err := os.WriteFile(outsidePath, []byte("artifact"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(root, "artifact.json")); err != nil {
+		t.Fatal(err)
+	}
+	receipt := auditReceipt(t, "failed")
+	receipt.Artifacts = []sentinelrun.ArtifactRef{{
+		ID:   "result",
+		Role: "verifier",
+		Kind: "sorna-run",
+		Ref:  ciresult.FileRef{Path: "artifact.json", SHA256: digest("artifact")},
+	}}
+	if err := receipt.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	report, err := BuildReceipt(receipt, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != "failed" || report.ExitCode() != 1 {
+		t.Fatalf("report = %+v, want failed symlink-containment audit", report)
+	}
+	var artifactCheck Check
+	for _, check := range report.Checks {
+		if check.ID == "artifact-result" {
+			artifactCheck = check
+			break
+		}
+	}
+	if artifactCheck.Status != "failed" || !strings.Contains(artifactCheck.Detail, "escapes root") {
+		t.Fatalf("artifact check = %+v, want root-containment failure", artifactCheck)
 	}
 }
 

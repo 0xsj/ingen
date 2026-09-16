@@ -322,7 +322,8 @@ policy handles it. Read-only `reconcile --orphan-grace <duration>` may
 classify valid orphans whose blob modification time is at least that old as
 `cleanup_candidates`; this is an age signal, not a deletion decision. The
 `--as-of` option makes the classification time explicit for reproducible
-reports. Published detached artifacts, such as attestation envelopes, are
+reports. Published detached artifacts, such as attestation envelopes and
+handling-event signature envelopes, are
 protected from orphan classification when their media type is explicitly
 recognized by the reconciliation caller; their reference metadata and blob
 are still verified. Ordinary unreferenced artifacts remain candidates.
@@ -339,6 +340,14 @@ The first implementation should support these conceptual operations:
 | `lineage-status` | Report reachable lineage resolution and diagnostic issues without changing custody status. |
 | `append-event` | Append a validated immutable redaction, retention, or legal-hold handling event. |
 | `list-events` | List handling events for a custody record in deterministic recorded-time order. |
+| `handling-status` | Project recorded handling state without mutating custody or enforcing policy. |
+| `check-handling-guard` | Report whether a visible legal hold blocks a redact/delete operation; never performs it. |
+| `register-redaction` | Verify a caller-produced resulting artifact and append its redaction event without deleting the original. |
+| `promote-redaction` | Create a new accepted custody record for a registered result with explicit `derived-from` lineage. |
+| `sign-handling-event` | Sign and publish a detached envelope for an exact handling event. |
+| `verify-handling-event` | Verify a published handling-event envelope with an explicit public key. |
+| `verify-handling-event-trusted` | Verify a published handling-event envelope through an explicit trust-registry snapshot. |
+| `verify-handling-event-authorized` | Verify a handling-event envelope and authorize its key/type pair through explicit snapshots. |
 | `inspect-attestation` | Read a known detached envelope by artifact digest without asserting signer trust. |
 | `inspect-attestation-link` | Report the typed detached link to a custody-record representation without adding lineage. |
 | `find-attestation` | Find persisted detached envelopes by target digest or key ID without asserting signer trust. |
@@ -412,11 +421,67 @@ rejected. Events do not edit custody records or artifact bytes. The `actor`
 field is a descriptive caller claim and is not authenticated by this
 contract. `append-event` and `list-events` are the initial CLI surfaces.
 
+`handling-status` is a read-only projection over the record and its events. It
+reports the record artifact digest, event count, last event time, effective
+recorded retention class, redaction history, and legal holds that have been
+placed without a later release in the visible stream. It does not assert that
+a resulting redaction artifact exists or that a hold or retention policy is
+being enforced.
+
+An optional detached `lockwood.handling-event-attestation/v1` envelope signs
+the canonical handling-event digest and binds its custody ID and event ID.
+The envelope is stored as a separate artifact and does not alter the event,
+custody record, or payload. The existing explicit trust registry can resolve
+its signing key. This authenticates control of a key at verification time; it
+does not establish human identity, authorize the action, or prove that a
+redaction, retention, or legal hold was actually enforced.
+
+Action authorization is a separate canonical
+`lockwood.handling-event-policy/v1` snapshot. Its rules explicitly map a
+trusted `key_id` to one or more handling-event types; there are no wildcards.
+Authorized verification first resolves the key through the trust registry and
+verifies the signature, then checks the key/type pair against the policy. The
+receipt includes both registry and policy digests. A policy decision is an
+authorization result for the signed key/action combination, not proof of a
+human identity or evidence that the action was executed.
+
 The implementation still does not perform deletion, redact payloads, enforce
 retention, or enforce legal holds. Those workflows require a separate policy,
 authorization, and race-safe storage decision.
 
-When those workflows are added:
+`check-handling-guard` is the first non-destructive enforcement boundary. It
+returns `blocked` for `redact` and `delete` when the visible handling stream
+contains an active legal hold. `not-blocked` means only that this guard found
+no active hold; it is not permission to mutate or delete and does not evaluate
+retention age, actor identity, action authorization, or storage capability.
+
+`register-redaction` is the first redaction data boundary. The caller must
+publish the resulting artifact separately, then supply both its digest and the
+current source digest. Lockwood verifies both blobs, requires the source to be
+the custody artifact or the latest registered redaction result, requires event
+time to advance, checks the legal-hold guard, and appends the event. It never
+rewrites or deletes the original and does not change the custody record. The
+resulting artifact is not automatically a new custody record; its artifact
+digest remains available for later custody intake if needed. The built-in
+memory and filesystem stores serialize handling-event mutations per custody ID,
+so concurrent registrations cannot both commit from the same current source.
+On flock-capable local platforms, filesystem coordination uses a local
+advisory lock for processes sharing one root; it is not distributed locking.
+The portability fallback is process-local, external file mutations remain
+outside the contract, and custom event stores that do not provide the internal
+coordination boundary retain their own concurrency responsibility.
+
+`promote-redaction` creates a separate accepted custody record for a registered
+result. The caller supplies the result's complete artifact reference and new
+record metadata; Lockwood verifies both the source and result artifacts,
+requires an accepted custody record for the event's source digest, and adds a
+single `derived-from` parent for that source digest. The source custody record,
+source blob, and handling event remain unchanged. Repeating identical promotion
+metadata is idempotent through the record-store contract. The new record does
+not prove that Lockwood performed the payload transformation; it only anchors
+the already published result and its declared lineage.
+
+When payload-changing or destructive workflows are added:
 
 - redaction must produce a new artifact or an explicitly versioned derivative;
 - the original digest must remain in custody history unless policy requires
@@ -429,11 +494,11 @@ When those workflows are added:
 
 This specification does not yet define:
 
-- human signer identity, access authorization, or external attestation workflows;
+- human signer identity, action authorization, or external attestation workflows;
 - remote object-storage protocols;
 - authentication or authorization policy;
 - retention deletion and legal-hold enforcement;
-- authenticated handling-event actors and authorization policy;
+- human handling-event identity and action-authorization policy;
 - a search index implementation;
 - a web interface;
 - a new verification or CI verdict model.

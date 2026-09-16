@@ -46,7 +46,9 @@ hammond/
 │   │
 │   └── store/
 │       ├── store.go          # persistence and conditional revision interface
+│       ├── artifacts.go      # local content-addressed artifact blobs
 │       ├── filesystem.go     # atomic local writes and process-shared locking
+│       ├── artifacts_test.go
 │       └── filesystem_test.go
 │
 ├── spec/
@@ -88,7 +90,8 @@ deferred until this model is stable.
 
 The current CLI can register a record, append validated events, create a linked
 amendment, supersede a predecessor after successor approval, inspect stored
-records, list the registry, and validate lineage:
+records, list the registry, validate lineage, and expose revision tokens for
+conditional mutations:
 
 ```sh
 STORE=/tmp/hammond-records
@@ -110,6 +113,11 @@ go run ./hammond/cmd/hammond append-event \
 go run ./hammond/cmd/hammond lineage --store "$STORE"
 ```
 
+Use `hammond revision --store "$STORE" --record <path>` to obtain the current
+record revision. Pass it as `--if-revision <revision>` to `append-event`,
+`amend`, or `supersede`; a stale token fails with a conflict and should be
+replaced after rereading the record.
+
 The store and CLI use the explicit v1 default policy: one approval from one
 distinct actor in the active review cycle. Library callers can also require
 named approval roles, a higher overall threshold, or distinct-actor
@@ -125,11 +133,14 @@ membership without changing record or lifecycle validation. Callers that need
 issuer attribution can additionally load signed
 authority artifacts with a trusted `AuthoritySignatureVerifier` key set.
 `AuthorityTrustStore` provides a versioned active/revoked key-set adapter for
-rotation. `AuthorityRootStore` provides the caller-delivered root-key layer: a
+rotation; its successor helper preserves the trust ID and rejects equal or
+older versions. `AuthorityRootStore` provides the caller-delivered root-key
+layer: a
 replacement root snapshot can be signed by an active predecessor, while
 revoked roots are excluded from the next verifier. The initial bootstrap and
-approval of root keys remain outside Hammond. A trust snapshot can be
-root-signed and verified before its active keys are used.
+approval of root keys remain outside Hammond. The initial bootstrap pins the
+expected root ID, version, and public keys. A trust snapshot can be root-signed
+and verified before its active keys are used.
 `TimeScopedAuthority` is available for normalized membership data with
 effective and expiry timestamps. `MembershipSnapshot` adds a digest-bound,
 optionally signed provider-response envelope around those grants; callers can

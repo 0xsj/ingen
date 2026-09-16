@@ -99,7 +99,10 @@ paddock/examples/adapter/conformance-adapter.py
 
 With these variables, `gate` passes the adapter and repeated
 `--adapter-arg` values to Paddock, then writes `PADDOCK_GRAPH_OUTPUT`. Set
-either `PADDOCK_GRAPH` or `PADDOCK_ADAPTER`, not both.
+either `PADDOCK_GRAPH` or an external adapter/profile, not both. When a
+versioned profile already contains the executable and arguments, set
+`PADDOCK_ADAPTER_CONFIG` instead; it cannot be combined with the executable
+or args-file variables.
 
 Alternatively, a CI job can let Paddock invoke the adapter and persist the
 graph in one command:
@@ -110,6 +113,33 @@ paddock ci . --policy-lock paddock.lock.json \
   --graph-output paddock-graph.json \
   --output paddock-ci-result.json
 ```
+
+The adapter-test and gate phases can run in the same provider-neutral job. The
+Rust fixture demonstrates the complete sequence with a committed conformance
+manifest and the same external adapter used for architecture enforcement:
+
+```sh
+export PADDOCK_POLICY=paddock/examples/rust-hexagonal.yaml
+export PADDOCK_LOCK=paddock-rust-hexagonal.lock.json
+export PADDOCK_SOURCE_ROOT=paddock/examples/services/rust-hexagonal/good
+export PADDOCK_ADAPTER_CONFIG=paddock/examples/rust-use-adapter.yaml
+export PADDOCK_ADAPTER_TESTS=paddock/examples/rust-use-adapter-tests.yaml
+export PADDOCK_ADAPTER_TEST_RESULT=paddock-rust-adapter-test-result.json
+export PADDOCK_ADAPTER_CI_RESULT=paddock-rust-adapter-ci-result.json
+export PADDOCK_GRAPH_OUTPUT=paddock-rust-graph.json
+export PADDOCK_RESULT=paddock-rust-ci-result.json
+
+sh paddock/examples/ci/paddock-gate.sh adapter-test
+sh paddock/examples/ci/paddock-gate.sh seal
+sh paddock/examples/ci/paddock-gate.sh verify
+sh paddock/examples/ci/paddock-gate.sh gate
+paddock ci validate --input "$PADDOCK_RESULT"
+```
+
+The conformance phase validates the adapter independently, including its
+rejection of a non-Rust request. The gate phase then evaluates the sealed
+hexagonal policy, persists the adapter-produced graph, and records its hash in
+the shared CI artifact.
 
 The gate always writes an `ingen.ci-result/v1` artifact when evaluation starts,
 including failed architecture checks. Its exit code is `0` for a pass, `1` for

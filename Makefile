@@ -16,6 +16,15 @@ MALCOLM_SORNA_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-healthz-run
 MALCOLM_FLOW_EXAMPLE ?= malcolm/examples/document_flow.malcolm
 MALCOLM_FLOW_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-flow.ir.json
 MALCOLM_FLOW_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-flow-contract.json
+MALCOLM_FLOW_ORACLE_POLICY ?= malcolm/examples/document_flow/oracle-policy.yaml
+MALCOLM_FLOW_SUBJECT_POLICY ?= malcolm/examples/document_flow/subject-policy.yaml
+MALCOLM_FLOW_SEALED_DIR ?= $(ARTIFACT_ROOT)/malcolm-flow-contract-sealed
+MALCOLM_FLOW_ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-flow-oracle
+MALCOLM_FLOW_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-flow-run
+MALCOLM_FLOW_EVENT_DEFECT_BINARY ?= $(ARTIFACT_ROOT)/document-pipeline-subject/malcolm-flow-event-defect
+MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-flow-event-defect-run
+MALCOLM_FLOW_EVENT_DEFECT_ADDR ?= $(SUBJECT_ADDR)
+MALCOLM_FLOW_EVENT_DEFECT_URL ?= $(SUBJECT_URL)
 CONTRACT ?= examples/document-pipeline-lab/contract/contract.yaml
 POLICY ?= examples/document-pipeline-lab/policy/isolation.yaml
 SEALED_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-contract
@@ -104,6 +113,7 @@ REPLAY_PERSISTENCE_DEFECT_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline
 REPLAY_REMOVE_NAME_DEFECT_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-remove-name-defect-ci-result.json
 REPLAY_ACCEPTS_PNG_DEFECT_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-accepts-png-defect-ci-result.json
 REPLAY_MATRIX_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-matrix-ci-result.json
+REPLAY_MATRIX_MANIFEST ?= examples/document-pipeline-lab/replay/matrix.yaml
 REPLAY_MATRIX_SOURCE_ROOT ?= .
 REPLAY_FIXTURE_STARTUP_TIMEOUT ?= 10s
 MUTATION_CATALOGUE ?= examples/document-pipeline-lab/mutations/catalogue.yaml
@@ -139,11 +149,11 @@ MUTATION_SURVIVOR_CAMPAIGN_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipelin
 
 .DEFAULT_GOAL := help
 
-.PHONY: malcolm-sorna-contract malcolm-sorna-flow-contract malcolm-sorna-seal malcolm-sorna-oracle-freeze malcolm-sorna-run
+.PHONY: malcolm-sorna-contract malcolm-sorna-flow-contract malcolm-sorna-seal malcolm-sorna-oracle-freeze malcolm-sorna-run malcolm-sorna-flow-seal malcolm-sorna-flow-oracle-freeze malcolm-sorna-flow-run malcolm-sorna-flow-event-defect-build malcolm-sorna-flow-event-defect-run
 
-.PHONY: help build test test-race vet check alpha-interface-check nublar-check nublar-consumer-check \
+.PHONY: help build test test-race vet check alpha-interface-check nublar-check nublar-consumer-check nublar-freeze-check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
-	sorna-external-run evidence-verify sorna-replay sorna-replay-ci-result sorna-replay-fresh sorna-replay-defect-fresh sorna-replay-stateful-defect-fresh sorna-replay-process-defect-fresh sorna-replay-persistence-defect-fresh sorna-replay-remove-name-defect-fresh sorna-replay-accepts-png-defect-fresh sorna-replay-regression sorna-replay-matrix-ci-result sorna-replay-matrix-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
+	sorna-external-run evidence-verify sorna-replay sorna-replay-ci-result sorna-replay-fresh sorna-replay-defect-fresh sorna-replay-stateful-defect-fresh sorna-replay-process-defect-fresh sorna-replay-persistence-defect-fresh sorna-replay-remove-name-defect-fresh sorna-replay-accepts-png-defect-fresh sorna-replay-regression sorna-replay-matrix-ci-result sorna-replay-matrix-verify sorna-replay-matrix-ci-result-fresh sorna-alpha-check oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
 	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap sentinel-capability-plan sentinel-adapter-oracle-probe sentinel-adapter-verifier-probe sentinel-ci-result nublar-sentinel-aggregate nublar-sentinel-run-collect nublar-sentinel-run-collect-fresh sentinel-adapter-verifier-failure-probe sentinel-ci-result-failure nublar-sentinel-run-collect-failure nublar-sentinel-run-collect-failure-fresh
 
 help: ## Show the available development commands
@@ -175,6 +185,9 @@ nublar-check: ## Run Nublar tests, analysis, and schema syntax checks
 nublar-consumer-check: ## Verify the provider-neutral Nublar CI gate example
 	bash nublar/examples/consumer/check.sh
 
+nublar-freeze-check: nublar-check nublar-consumer-check ## Run the complete local Nublar contract freeze gate
+	git diff --check
+
 contract-validate: ## Validate the document-pipeline contract
 	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(CONTRACT)"
 
@@ -189,6 +202,26 @@ malcolm-sorna-flow-contract: ## Compile the Malcolm request-body/stateful exampl
 	cargo run --manifest-path malcolm/Cargo.toml -- "$(MALCOLM_FLOW_EXAMPLE)" > "$(MALCOLM_FLOW_IR_OUTPUT)"
 	$(GO_CMD) run ./sorna/cmd/sorna-malcolm "$(MALCOLM_FLOW_IR_OUTPUT)" --output "$(MALCOLM_FLOW_CONTRACT_OUTPUT)"
 	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(MALCOLM_FLOW_CONTRACT_OUTPUT)"
+
+malcolm-sorna-flow-seal: malcolm-sorna-flow-contract ## Seal the Malcolm request-body/stateful contract
+	mkdir -p "$(MALCOLM_FLOW_SEALED_DIR)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract seal "$(MALCOLM_FLOW_CONTRACT_OUTPUT)" --output-dir "$(MALCOLM_FLOW_SEALED_DIR)"
+
+malcolm-sorna-flow-oracle-freeze: malcolm-sorna-flow-seal ## Freeze an oracle from the Malcolm request-body/stateful contract
+	$(GO_CMD) run ./sorna/cmd/sorna oracle freeze --contract "$(MALCOLM_FLOW_CONTRACT_OUTPUT)" --policy "$(MALCOLM_FLOW_ORACLE_POLICY)" --root . --output-dir "$(MALCOLM_FLOW_ORACLE_OUTPUT_DIR)"
+
+malcolm-sorna-flow-run: malcolm-sorna-flow-oracle-freeze subject-build ## Run the Malcolm request-body/stateful/event oracle against the managed document subject
+	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(MALCOLM_FLOW_ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(MALCOLM_FLOW_ORACLE_POLICY)" --subject-policy "$(MALCOLM_FLOW_SUBJECT_POLICY)" --subject-root . --base-url "$(SUBJECT_URL)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant malcolm-flow --output-dir "$(MALCOLM_FLOW_RUN_OUTPUT_DIR)"
+	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(MALCOLM_FLOW_RUN_OUTPUT_DIR)"
+
+malcolm-sorna-flow-event-defect-build: ## Build the controlled Malcolm event-removal defect subject
+	mkdir -p "$(dir $(MALCOLM_FLOW_EVENT_DEFECT_BINARY))"
+	$(GO_CMD) build -trimpath -o "$(MALCOLM_FLOW_EVENT_DEFECT_BINARY)" ./examples/document-pipeline-lab/defects/omit-accepted-event/cmd/document-pipeline-defect
+
+malcolm-sorna-flow-event-defect-run: malcolm-sorna-flow-run malcolm-sorna-flow-event-defect-build ## Prove the Malcolm event assertion kills an event-removal mutation
+	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(MALCOLM_FLOW_ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(MALCOLM_FLOW_ORACLE_POLICY)" --subject-policy "$(MALCOLM_FLOW_SUBJECT_POLICY)" --subject-root . --baseline-evidence "$(MALCOLM_FLOW_RUN_OUTPUT_DIR)" --base-url "$(MALCOLM_FLOW_EVENT_DEFECT_URL)" --subject-command "$(MALCOLM_FLOW_EVENT_DEFECT_BINARY)" --subject-arg=-addr --subject-arg "$(MALCOLM_FLOW_EVENT_DEFECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant malcolm-flow-event-removed --mutation-id malcolm-flow-remove-accepted-event --mutation-plane implementation --mutation-description "remove the document.accepted event signal" --expected-rule create_document.requirement.3 --output-dir "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)"
+	jq -e '(.mutation.outcome == "killed") and any(.rules[]; (.rule_id == "create_document.requirement.3") and (.status == "fail") and any(.assertions[]; (.path == "events.document.accepted") and (.status == "fail")))' "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)/run.json"
+	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)"
 
 malcolm-sorna-seal: malcolm-sorna-contract ## Seal the Malcolm-generated Sorna contract
 	mkdir -p "$(MALCOLM_SORNA_SEALED_DIR)"
@@ -453,16 +486,26 @@ sorna-replay-regression: sorna-replay-defect-fresh sorna-replay-stateful-defect-
 
 sorna-replay-matrix-ci-result: sorna-replay-regression ## Aggregate the replay regression envelopes into one Sorna CI result
 	mkdir -p "$(dir $(REPLAY_MATRIX_CI_RESULT_OUTPUT))"
-	$(GO_CMD) run ./sorna/cmd/sorna evidence replay matrix --source-root "$(REPLAY_MATRIX_SOURCE_ROOT)" --output "$(REPLAY_MATRIX_CI_RESULT_OUTPUT)" \
-		--case "unsupported-type-500=$(REPLAY_DEFECT_CI_RESULT_OUTPUT)|failed|drifted" \
-		--case "status-200-create=$(REPLAY_STATEFUL_DEFECT_CI_RESULT_OUTPUT)|error|inconclusive" \
-		--case "process-stays-queued=$(REPLAY_PROCESS_DEFECT_CI_RESULT_OUTPUT)|error|inconclusive" \
-		--case "persistence-wrong-key=$(REPLAY_PERSISTENCE_DEFECT_CI_RESULT_OUTPUT)|error|inconclusive" \
-		--case "remove-name-create=$(REPLAY_REMOVE_NAME_DEFECT_CI_RESULT_OUTPUT)|failed|drifted" \
-		--case "accepts-png=$(REPLAY_ACCEPTS_PNG_DEFECT_CI_RESULT_OUTPUT)|failed|drifted"
+	$(GO_CMD) run ./sorna/cmd/sorna evidence replay matrix --manifest "$(REPLAY_MATRIX_MANIFEST)" --source-root "$(REPLAY_MATRIX_SOURCE_ROOT)" --output "$(REPLAY_MATRIX_CI_RESULT_OUTPUT)"
 
 sorna-replay-matrix-verify: ## Verify the saved replay matrix and all available member inputs
 	$(GO_CMD) run ./sorna/cmd/sorna evidence replay matrix verify --source-root "$(REPLAY_MATRIX_SOURCE_ROOT)" "$(REPLAY_MATRIX_CI_RESULT_OUTPUT)"
+
+sorna-replay-matrix-ci-result-fresh: ## Rebuild and independently verify the replay matrix in a fresh temporary workspace
+	workspace=$$(mktemp -d /private/tmp/ingen-sorna-replay-matrix-workspace.XXXXXX); \
+	trap 'printf "workspace: %s\nartifact root: %s\n" "$$workspace" "$$workspace/.artifacts"' EXIT; \
+	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
+	$(MAKE) -C "$$workspace" ARTIFACT_ROOT=.artifacts GO_CACHE="$(abspath $(GO_CACHE))" GO_MOD_CACHE="$(abspath $(GO_MOD_CACHE))" sorna-replay-matrix-ci-result; status=$$?; \
+	if test "$$status" -eq 0; then \
+		$(MAKE) -C "$$workspace" ARTIFACT_ROOT=.artifacts GO_CACHE="$(abspath $(GO_CACHE))" GO_MOD_CACHE="$(abspath $(GO_MOD_CACHE))" sorna-replay-matrix-verify; status=$$?; \
+	fi; \
+	exit $$status
+
+sorna-alpha-check: ## Run the complete Sorna package, schema, and fresh replay readiness checks
+	$(GO_CMD) test ./sorna/...
+	$(GO_CMD) vet ./sorna/...
+	jq empty sorna/spec/*.json
+	$(MAKE) sorna-replay-matrix-ci-result-fresh
 
 sorna-gate: ## Apply the default CI gate to RUN_OUTPUT_DIR; set GATE_MIN_OBSERVATION_COVERAGE for a strict minimum
 	$(GO_CMD) run ./sorna/cmd/sorna gate $(if $(GATE_MIN_OBSERVATION_COVERAGE),--minimum-observation-coverage "$(GATE_MIN_OBSERVATION_COVERAGE)",) "$(RUN_OUTPUT_DIR)"

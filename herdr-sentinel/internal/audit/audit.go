@@ -117,7 +117,10 @@ func BuildReceipt(receipt sentinelrun.Receipt, root string) (Report, error) {
 }
 
 func verifyFile(root string, ref ciresult.FileRef) Check {
-	path := filepath.Join(root, filepath.Clean(ref.Path))
+	path, err := sentinelrun.ResolveFileRefUnderRoot(root, ref)
+	if err != nil {
+		return Check{Status: "failed", Detail: fmt.Sprintf("read %s: %v", ref.Path, err)}
+	}
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return Check{Status: "failed", Detail: fmt.Sprintf("read %s: %v", ref.Path, err)}

@@ -121,7 +121,7 @@ func TestAccessCaptureCanMissShortLivedTransitionBetweenSamples(t *testing.T) {
 		processIDs:       make(map[int]struct{}),
 		samplingInterval: 500 * time.Millisecond,
 	}
-	command := exec.Command("/bin/sh", "-c", "sleep 0.05; exec /bin/sleep 0.05")
+	command := exec.Command("/bin/sh", "-c", "sleep 0.25; exec /bin/sleep 0.05")
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}

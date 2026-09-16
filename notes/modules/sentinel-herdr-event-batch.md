@@ -20,6 +20,10 @@ whole batch succeeds. Empty lines are ignored and errors identify the source
 line. Identical event IDs remain idempotent, so a retried batch can contain
 events already present in the receipt.
 
+The CLI's same-path update is covered too: a batch that appends one event and
+then encounters a conflicting event ID returns a rejection and leaves the
+receipt bytes unchanged.
+
 ## Why
 
 The alternative—loading and saving the receipt once per callback—creates a

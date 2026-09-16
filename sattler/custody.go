@@ -35,6 +35,8 @@ type LockwoodCustodyComparison struct {
 	CompatibilityReasons []string               `json:"compatibility_reasons,omitempty"`
 	Before               LockwoodCustodySummary `json:"before"`
 	After                LockwoodCustodySummary `json:"after"`
+	Transition           StateTransition        `json:"transition"`
+	ChangeIDFilter       []string               `json:"change_id_filter,omitempty"`
 	Changes              []Change               `json:"changes,omitempty"`
 	ChangeSummary        ChangeSummary          `json:"change_summary"`
 }
@@ -88,8 +90,13 @@ func WriteLockwoodJSON(w io.Writer, report LockwoodCustodyComparison) error {
 
 // WriteLockwoodText writes a compact custody comparison.
 func WriteLockwoodText(w io.Writer, report LockwoodCustodyComparison) error {
-	if _, err := fmt.Fprintf(w, "Sattler Lockwood custody comparison\n  before: %s (%s)\n  after:  %s (%s)\n  compatible: %t\n", report.Before.Path, report.Before.Status, report.After.Path, report.After.Status, report.Compatible); err != nil {
+	if _, err := fmt.Fprintf(w, "Sattler Lockwood custody comparison\n  before: %s (%s)\n  after:  %s (%s)\n  compatible: %t\n  transition: %s\n", report.Before.Path, report.Before.Status, report.After.Path, report.After.Status, report.Compatible, report.Transition); err != nil {
 		return err
+	}
+	if len(report.ChangeIDFilter) > 0 {
+		if _, err := fmt.Fprintf(w, "  change ID filter: %s\n", strings.Join(report.ChangeIDFilter, ", ")); err != nil {
+			return err
+		}
 	}
 	if _, err := fmt.Fprintf(w, "  received: %s -> %s\n", report.Before.ReceivedAt, report.After.ReceivedAt); err != nil {
 		return err
@@ -119,7 +126,7 @@ func WriteLockwoodText(w io.Writer, report LockwoodCustodyComparison) error {
 		if change.Identity != "" {
 			identity = " [" + string(change.Identity) + "]"
 		}
-		if _, err := fmt.Fprintf(w, "    - %s %s%s: %s -> %s\n", change.Category, change.Field, identity, displayValue(change.Before), displayValue(change.After)); err != nil {
+		if _, err := fmt.Fprintf(w, "    - %s %s%s (id=%s): %s -> %s\n", change.Category, change.Field, identity, change.StableID(), displayValue(change.Before), displayValue(change.After)); err != nil {
 			return err
 		}
 	}
@@ -166,11 +173,14 @@ func compareLockwoodCustody(before, after lockwoodCustodyDocument) LockwoodCusto
 		comparison.CompatibilityReasons = append(comparison.CompatibilityReasons, fmt.Sprintf("producer kind changed from %q to %q", before.Producer.Kind, after.Producer.Kind))
 	}
 	comparison.Compatible = len(comparison.CompatibilityReasons) == 0
+	comparison.Transition = NewStateTransition("status", before.Status, after.Status, comparison.Compatible)
 	add := func(category, field string, oldValue, newValue any, identity ArtifactIdentityRelation) {
 		if valuesEqual(oldValue, newValue) {
 			return
 		}
-		comparison.Changes = append(comparison.Changes, Change{Category: category, Field: field, Before: oldValue, After: newValue, Identity: identity})
+		change := NewChange(category, field, oldValue, newValue)
+		change.Identity = identity
+		comparison.Changes = append(comparison.Changes, change)
 	}
 	add("custody", "status", before.Status, after.Status, "")
 	add("artifact", "artifact.digest", before.Artifact.Digest, after.Artifact.Digest, CompareArtifactDigests(before.Artifact.Digest, after.Artifact.Digest))

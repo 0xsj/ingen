@@ -38,8 +38,13 @@ workspace, reject unknown event types or out-of-order transitions, and fail
 closed when an artifact reference is not already present in the receipt. The
 artifact-registration path remains responsible for hashing and byte-level
 verification; this event ingress does not trust a callback to introduce a new
-file hash. Pane text, agent self-report, and process exit alone must not be
-promoted to a verified Sorna result.
+file hash. Rooted verification also resolves the registered path and rejects a
+symlink escape outside the supplied root. The same rooted resolver is used by
+the Sentinel audit, so the terminal CI gate and event ingress apply one
+containment rule. Workspace bootstrap and artifact registration use that
+resolver when establishing new file references as well. Pane text, agent
+self-report, and process exit alone must not be promoted to a verified Sorna
+result.
 
 The current alpha transition guard is intentionally narrow: event timestamps
 must be monotonic, and a terminal receipt cannot regress to a non-terminal
@@ -61,7 +66,9 @@ The event input is versioned as
 [`herdr-event-v1.schema.json`](../../herdr-sentinel/spec/herdr-event-v1.schema.json).
 The adapter requires a stable `event_id`, binds the event to the receipt's
 run/workspace identity, and treats identical replays as idempotent no-ops.
-Reusing an event ID with different content is rejected.
+Reusing an event ID with different content is rejected. The CLI regression also
+checks the durable boundary: an identical retry leaves the receipt bytes
+unchanged, so idempotency is not merely an in-memory event-count property.
 
 The failed-terminal path is covered as well: a `sorna-completed` callback with
 `receipt_status: failed` closes the receipt, an identical retry is a no-op, and

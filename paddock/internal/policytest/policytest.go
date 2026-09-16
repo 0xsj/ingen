@@ -303,11 +303,12 @@ func checkCase(root, policyPath string, config policy.Policy, options Options) (
 	if options.AdapterExecutable == "" {
 		return checker.CheckPolicy(root, policyPath, config)
 	}
+	adapterArgs := expandAdapterArgs(options.AdapterArgs, root)
 	requiredCapabilities := graph.Capabilities{}
 	if config.Source.Unit != "" {
 		requiredCapabilities.SourceUnits = []string{config.Source.Unit}
 	}
-	dependencyGraph, _, err := graph.LoadExternal(context.Background(), options.AdapterExecutable, options.AdapterArgs, graph.Request{
+	dependencyGraph, _, err := graph.LoadExternal(context.Background(), options.AdapterExecutable, adapterArgs, graph.Request{
 		Schema:               graph.RequestSchema,
 		Language:             config.Source.Language,
 		Unit:                 config.Source.Unit,
@@ -321,6 +322,14 @@ func checkCase(root, policyPath string, config policy.Policy, options Options) (
 		return nil, err
 	}
 	return checker.CheckGraph(root, policyPath, config, dependencyGraph)
+}
+
+func expandAdapterArgs(args []string, root string) []string {
+	expanded := make([]string, len(args))
+	for index, arg := range args {
+		expanded[index] = strings.ReplaceAll(arg, "{{root}}", root)
+	}
+	return expanded
 }
 
 func Text(w io.Writer, document Document) error {

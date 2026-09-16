@@ -33,6 +33,8 @@ var allowedNetworkModes = map[string]bool{
 	"unrestricted": true,
 }
 
+const Schema = "ingen.policy/v1"
+
 // Document is the machine-readable capability policy. The body remains
 // map-backed so policy versions can add controls without changing Go types.
 type Document struct {
@@ -130,8 +132,11 @@ func Validate(document Document) []string {
 			problems = append(problems, "policy."+field+" is required")
 		}
 	}
-	if value, ok := body["schema"]; ok && !nonEmptyString(value) {
-		problems = append(problems, "policy.schema must be a non-empty string")
+	if value, ok := body["schema"]; ok {
+		schema, valid := value.(string)
+		if !valid || schema != Schema {
+			problems = append(problems, "policy.schema must be ingen.policy/v1")
+		}
 	}
 	if value, ok := body["id"]; ok && !nonEmptyString(value) {
 		problems = append(problems, "policy.id must be a non-empty string")

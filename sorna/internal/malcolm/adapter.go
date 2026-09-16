@@ -79,6 +79,7 @@ var (
 	statusExpression = regexp.MustCompile("^response\\.status\\s*==\\s*([0-9]+)$")
 	bodyExists       = regexp.MustCompile("^response\\.body\\.([A-Za-z_][A-Za-z0-9_]*)\\s+exists$")
 	bodyEquals       = regexp.MustCompile("^response\\.body\\.([A-Za-z_][A-Za-z0-9_]*)\\s*==\\s*(.+)$")
+	eventEmit        = regexp.MustCompile("^emit\\s+\"([A-Za-z_][A-Za-z0-9_.:-]*)\"$")
 	bodySelector     = regexp.MustCompile("^body\\.([A-Za-z_][A-Za-z0-9_]*)$")
 )
 
@@ -292,9 +293,9 @@ func Translate(ir IR) (contract.Document, error) {
 		}
 
 		for index, requirement := range scenario.Requirements {
-			if requirement.Kind != "must" {
+			if requirement.Kind != "must" && requirement.Kind != "must_not" {
 				return contract.Document{}, fmt.Errorf(
-					"scenario %q requirement %d uses %q; Sorna lowering does not support must_not yet",
+					"scenario %q requirement %d uses unsupported kind %q",
 					scenario.Name,
 					index+1,
 					requirement.Kind,
@@ -311,7 +312,7 @@ func Translate(ir IR) (contract.Document, error) {
 			}
 			rule := map[string]any{
 				"id":       fmt.Sprintf("%s.requirement.%d", scenario.Name, index+1),
-				"strength": "must",
+				"strength": requirement.Kind,
 				"subject":  subject,
 				"expect":   expect,
 			}
@@ -519,8 +520,15 @@ func lowerExpression(expression string) (map[string]any, error) {
 			},
 		}, nil
 	}
+	if match := eventEmit.FindStringSubmatch(expression); match != nil {
+		return map[string]any{
+			"events": map[string]any{
+				"required": []any{match[1]},
+			},
+		}, nil
+	}
 	return nil, fmt.Errorf(
-		"expression %q is not lowerable; supported forms are response.status == N, response.body.FIELD exists, and response.body.FIELD == VALUE",
+		"expression %q is not lowerable; supported forms are response.status == N, response.body.FIELD exists, response.body.FIELD == VALUE, and emit \"event.name\"",
 		expression,
 	)
 }

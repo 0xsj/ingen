@@ -3,6 +3,7 @@ package adapter
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -261,6 +262,75 @@ func TestApplyHerdrEventWithRootRejectsArtifactDrift(t *testing.T) {
 	}
 }
 
+func TestApplyHerdrEventWithRootRejectsMissingArtifact(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("artifact.json", []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	receipt := sentinelReceipt(t)
+	if err := receipt.AddFileArtifact("result", "verifier", "sorna-run", "artifact.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove("artifact.json"); err != nil {
+		t.Fatal(err)
+	}
+	event := HerdrEvent{
+		Schema:           HerdrEventSchema,
+		EventID:          "herdr-event-missing-artifact",
+		RunID:            receipt.RunID,
+		WorkspaceID:      receipt.Workspace.ID,
+		WorkspaceVersion: receipt.Workspace.Version,
+		Type:             "artifact-produced",
+		At:               "2026-01-02T03:04:06Z",
+		ArtifactIDs:      []string{"result"},
+	}
+	if _, err := ApplyHerdrEventWithRoot(&receipt, event, "."); err == nil || !strings.Contains(err.Error(), "read artifact") {
+		t.Fatalf("missing artifact = %v, want rejection", err)
+	}
+	if len(receipt.Events) != 1 {
+		t.Fatalf("events = %d, want unchanged receipt", len(receipt.Events))
+	}
+}
+
+func TestApplyHerdrEventWithRootRejectsArtifactSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	outsidePath := filepath.Join(outside, "artifact.json")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(root, "artifact.json")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	receipt := sentinelReceipt(t)
+	if err := receipt.AddArtifact(sentinelrun.ArtifactRef{
+		ID:   "result",
+		Role: "verifier",
+		Kind: "sorna-run",
+		Ref:  ciresult.FileRef{Path: "artifact.json", SHA256: strings.Repeat("a", 64)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	event := HerdrEvent{
+		Schema:           HerdrEventSchema,
+		EventID:          "herdr-event-symlink-escape",
+		RunID:            receipt.RunID,
+		WorkspaceID:      receipt.Workspace.ID,
+		WorkspaceVersion: receipt.Workspace.Version,
+		Type:             "artifact-produced",
+		At:               "2026-01-02T03:04:06Z",
+		ArtifactIDs:      []string{"result"},
+	}
+	if _, err := ApplyHerdrEventWithRoot(&receipt, event, "."); err == nil || !strings.Contains(err.Error(), "escapes root") {
+		t.Fatalf("symlink escape = %v, want root-containment rejection", err)
+	}
+	if len(receipt.Events) != 1 {
+		t.Fatalf("events = %d, want unchanged receipt", len(receipt.Events))
+	}
+}
+
 func TestApplyHerdrEventsWithRootIsAtomic(t *testing.T) {
 	receipt := sentinelReceipt(t)
 	events := []HerdrEvent{
@@ -289,6 +359,36 @@ func TestApplyHerdrEventsWithRootIsAtomic(t *testing.T) {
 	}
 	if len(receipt.Events) != 1 || receipt.Status != "created" {
 		t.Fatalf("receipt mutated after failed batch: %+v", receipt)
+	}
+}
+
+func TestApplyHerdrEventsWithRootRejectsConflictingReplayAtomically(t *testing.T) {
+	receipt := sentinelReceipt(t)
+	events := []HerdrEvent{
+		{
+			Schema:           HerdrEventSchema,
+			EventID:          "herdr-conflict-batch",
+			RunID:            receipt.RunID,
+			WorkspaceID:      receipt.Workspace.ID,
+			WorkspaceVersion: receipt.Workspace.Version,
+			Type:             "role-launched",
+			At:               "2026-01-02T03:04:06Z",
+		},
+		{
+			Schema:           HerdrEventSchema,
+			EventID:          "herdr-conflict-batch",
+			RunID:            receipt.RunID,
+			WorkspaceID:      receipt.Workspace.ID,
+			WorkspaceVersion: receipt.Workspace.Version,
+			Type:             "role-completed",
+			At:               "2026-01-02T03:04:07Z",
+		},
+	}
+	if _, err := ApplyHerdrEventsWithRoot(&receipt, events, "."); err == nil || !strings.Contains(err.Error(), "event 2") || !strings.Contains(err.Error(), "different content") {
+		t.Fatalf("conflicting batch = %v, want indexed conflict rejection", err)
+	}
+	if len(receipt.Events) != 1 || receipt.Status != "created" {
+		t.Fatalf("receipt mutated after conflicting batch: %+v", receipt)
 	}
 }
 

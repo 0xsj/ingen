@@ -19,6 +19,9 @@ func TestCompareLockwoodCustodyReportsArtifactAndSourceChanges(t *testing.T) {
 	if !report.Compatible {
 		t.Fatal("custody records with the same producer identity were marked incompatible")
 	}
+	if report.Transition.Classification != TransitionChanged || report.Transition.Field != "status" {
+		t.Fatalf("transition = %+v, want changed status transition", report.Transition)
+	}
 	if report.Before.ReceivedAt != "2026-09-16T12:00:00Z" {
 		t.Fatalf("before received_at = %q, want fixture timestamp", report.Before.ReceivedAt)
 	}

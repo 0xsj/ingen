@@ -118,6 +118,10 @@ The external consumer handoff is documented in
 [`CONSUMER-GUIDE.md`](CONSUMER-GUIDE.md).
 The current local contract checkpoint is documented in
 [`CONTRACT-CHECKPOINT.md`](CONTRACT-CHECKPOINT.md).
+The local freeze boundary and change rule are recorded in
+[`FREEZE-RECORD.md`](FREEZE-RECORD.md).
+The template for proposing the next concrete consumer requirement is
+[`CONSUMER-REQUEST-TEMPLATE.md`](CONSUMER-REQUEST-TEMPLATE.md).
 The provider-neutral CI gate example is documented in
 [`examples/consumer/README.md`](examples/consumer/README.md).
 The first Sentinel verifier handoff into Nublar is documented in
@@ -154,4 +158,13 @@ schema files without running any producer workflow.
 The provider-neutral consumer smoke check is `make nublar-consumer-check`; it
 exercises the example CI gate against fixed passed, failed, missing-artifact,
 and malformed-envelope fixtures and verifies the persisted runs, decision
-projections, correlation metadata, and expected exit codes.
+projections, correlation metadata, expected exit codes, and read-only history
+queries. The Nublar CLI delivery path is separately covered with accepted and
+failed receipt-store regressions, while the end-to-end consumer test proves
+repeated delivery keeps one run identity and separate receipt outcomes.
+The history contract distinguishes successful listing from `run show`, which
+returns the selected run's stored decision code.
+
+Run `make nublar-freeze-check` to execute both the focused Nublar gate and the
+provider-neutral consumer check, then validate diff whitespace, as one local
+contract-freeze command.

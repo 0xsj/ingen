@@ -27,3 +27,8 @@ producers, deliver to a network endpoint, or change the Nublar run contract.
 Run `make nublar-consumer-check` from the repository root to exercise the
 failed, passed, missing-artifact, and malformed-envelope paths against
 checked-in fixtures.
+
+The check also stores two attempts together and verifies `run list` filtering
+and `run show` retrieval through the read-only history surface. `run list`
+returns success while listing a failed run; `run show` still writes that run and
+returns its stored decision code.

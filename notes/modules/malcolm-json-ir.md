@@ -13,10 +13,11 @@ contracts.
 
 `compile` validates a `Specification` and maps it into an explicit
 `IntermediateRepresentation` tagged `malcolm.ir/v1`. The representation
-contains the specification metadata, scenarios, `given` text, a required
-`when` method/path pair, and requirements whose kinds are serialized as
-`must` or `must_not`. `to_json` emits deterministic JSON with a fixed field
-order and fixed array order.
+contains the specification metadata, scenarios, free-form `given` text,
+optional typed request bodies and stateful setup data, a required `when`
+method/path pair, and requirements whose kinds are serialized as `must` or
+`must_not`. `to_json` emits deterministic JSON with a fixed field order and
+fixed array order.
 
 ## Why
 
@@ -25,7 +26,9 @@ tag and explicit fields makes version negotiation and cross-language testing
 possible. Running validation before mapping prevents an incomplete AST from
 being turned into a misleading artifact. Keeping expressions as strings
 preserves the current language boundary: Sorna can receive the contract shape
-before Malcolm has committed to an expression evaluator.
+before Malcolm has committed to an expression evaluator. Typed request
+literals are the deliberate exception because Sorna must execute their JSON
+values rather than interpret prose.
 
 The serializer is handwritten because this first IR has only strings, arrays,
 objects, and nulls, and the crate currently has no dependencies. That choice is

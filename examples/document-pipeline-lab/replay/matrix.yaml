@@ -1,0 +1,28 @@
+schema: sorna.replay-matrix-manifest/v1
+id: document-pipeline-replay-regressions
+version: 1
+cases:
+  - id: unsupported-type-500
+    path: .artifacts/document-pipeline-replay-defect-ci-result.json
+    expected_ci_status: failed
+    expected_replay_state: drifted
+  - id: status-200-create
+    path: .artifacts/document-pipeline-replay-stateful-defect-ci-result.json
+    expected_ci_status: error
+    expected_replay_state: inconclusive
+  - id: process-stays-queued
+    path: .artifacts/document-pipeline-replay-process-defect-ci-result.json
+    expected_ci_status: error
+    expected_replay_state: inconclusive
+  - id: persistence-wrong-key
+    path: .artifacts/document-pipeline-replay-persistence-defect-ci-result.json
+    expected_ci_status: error
+    expected_replay_state: inconclusive
+  - id: remove-name-create
+    path: .artifacts/document-pipeline-replay-remove-name-defect-ci-result.json
+    expected_ci_status: failed
+    expected_replay_state: drifted
+  - id: accepts-png
+    path: .artifacts/document-pipeline-replay-accepts-png-defect-ci-result.json
+    expected_ci_status: failed
+    expected_replay_state: drifted

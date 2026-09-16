@@ -36,10 +36,18 @@ type authorityRootSigningDocument struct {
 // snapshot. It must come from deployment configuration or another approved
 // out-of-band channel, not from the root snapshot being verified.
 type AuthorityRootBootstrap struct {
-	Keys map[string]ed25519.PublicKey
+	ID      string
+	Version int
+	Keys    map[string]ed25519.PublicKey
 }
 
 func (bootstrap AuthorityRootBootstrap) Validate() error {
+	if strings.TrimSpace(bootstrap.ID) == "" {
+		return fmt.Errorf("authority root bootstrap id is required")
+	}
+	if bootstrap.Version < 1 {
+		return fmt.Errorf("authority root bootstrap version must be at least 1")
+	}
 	if len(bootstrap.Keys) == 0 {
 		return fmt.Errorf("authority root bootstrap keys are required")
 	}
@@ -106,6 +114,27 @@ func (store AuthorityRootStore) SignatureVerifier() Ed25519AuthoritySignatureVer
 	return Ed25519AuthoritySignatureVerifier{Keys: keys}
 }
 
+// Rotate verifies and accepts a successor root snapshot signed by this
+// store's active keys. Root identity must remain stable and versions must
+// increase strictly, so a valid old snapshot cannot be replayed as a
+// replacement.
+func (store AuthorityRootStore) Rotate(data []byte, reference AuthorityRootReference) (AuthorityRootStore, error) {
+	if err := store.Validate(); err != nil {
+		return AuthorityRootStore{}, fmt.Errorf("validate current Hammond authority root: %w", err)
+	}
+	replacement, err := DecodeAuthorityRootStoreWithSignatureVerifier(data, reference, store.SignatureVerifier())
+	if err != nil {
+		return AuthorityRootStore{}, err
+	}
+	if replacement.Reference.ID != store.Reference.ID {
+		return AuthorityRootStore{}, fmt.Errorf("authority root rotation must retain root id")
+	}
+	if replacement.Reference.Version <= store.Reference.Version {
+		return AuthorityRootStore{}, fmt.Errorf("authority root rotation version must increase")
+	}
+	return replacement, nil
+}
+
 // DecodeAuthorityRootStore strictly decodes a versioned root-key snapshot and
 // binds its exact bytes to the supplied reference.
 func DecodeAuthorityRootStore(data []byte, reference AuthorityRootReference) (AuthorityRootStore, error) {
@@ -128,7 +157,17 @@ func DecodeAuthorityRootStoreWithBootstrap(data []byte, reference AuthorityRootR
 	if err != nil {
 		return AuthorityRootStore{}, err
 	}
-	return DecodeAuthorityRootStoreWithSignatureVerifier(data, reference, verifier)
+	store, err := DecodeAuthorityRootStoreWithSignatureVerifier(data, reference, verifier)
+	if err != nil {
+		return AuthorityRootStore{}, err
+	}
+	if store.Reference.ID != bootstrap.ID {
+		return AuthorityRootStore{}, fmt.Errorf("authority root bootstrap id does not match root snapshot")
+	}
+	if store.Reference.Version != bootstrap.Version {
+		return AuthorityRootStore{}, fmt.Errorf("authority root bootstrap version does not match root snapshot")
+	}
+	return store, nil
 }
 
 func decodeAuthorityRootStore(data []byte, reference AuthorityRootReference, verifier AuthoritySignatureVerifier) (AuthorityRootStore, error) {

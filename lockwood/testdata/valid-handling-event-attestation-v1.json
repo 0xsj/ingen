@@ -1,0 +1,12 @@
+{
+  "schema": "lockwood.handling-event-attestation/v1",
+  "target": {
+    "kind": "handling-event",
+    "custody_id": "lockwood-handling-event-record",
+    "event_id": "event-redaction-0001",
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "algorithm": "ed25519",
+  "key_id": "handling-key-2026-01",
+  "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+}

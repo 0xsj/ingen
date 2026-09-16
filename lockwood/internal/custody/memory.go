@@ -11,9 +11,11 @@ import (
 // validation, canonical-value, conflict, and deterministic-list semantics as
 // the filesystem store, but provides no durability guarantees.
 type Memory struct {
-	mu      sync.RWMutex
-	records map[string]Record
-	events  map[string]map[string]HandlingEvent
+	mu           sync.RWMutex
+	records      map[string]Record
+	events       map[string]map[string]HandlingEvent
+	eventLocksMu sync.Mutex
+	eventLocks   map[string]*sync.Mutex
 }
 
 var _ RecordStore = (*Filesystem)(nil)
@@ -90,7 +92,9 @@ func (s *Memory) List() ([]Record, error) {
 
 func cloneRecord(record Record) Record {
 	if record.Parents != nil {
-		record.Parents = append([]Lineage(nil), record.Parents...)
+		parents := make([]Lineage, len(record.Parents))
+		copy(parents, record.Parents)
+		record.Parents = parents
 	}
 	if record.Integrity.VerifiedAt != nil {
 		verifiedAt := *record.Integrity.VerifiedAt

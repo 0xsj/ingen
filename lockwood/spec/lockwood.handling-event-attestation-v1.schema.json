@@ -1,0 +1,44 @@
+{
+  "$id": "https://ingen.example/spec/lockwood.handling-event-attestation-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lockwood handling-event attestation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target", "algorithm", "key_id", "signature"],
+  "properties": {
+    "schema": {"const": "lockwood.handling-event-attestation/v1"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "custody_id", "event_id", "digest"],
+      "properties": {
+        "kind": {"const": "handling-event"},
+        "custody_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "event_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "algorithm": {"const": "ed25519"},
+    "key_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 88,
+      "maxLength": 88,
+      "pattern": "^[A-Za-z0-9+/]{86}={1,2}$"
+    }
+  }
+}

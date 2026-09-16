@@ -10,6 +10,7 @@ source_root=${PADDOCK_SOURCE_ROOT:-.}
 graph_input=${PADDOCK_GRAPH:-}
 graph_output=${PADDOCK_GRAPH_OUTPUT:-paddock-graph.json}
 adapter=${PADDOCK_ADAPTER:-}
+adapter_config=${PADDOCK_ADAPTER_CONFIG:-}
 adapter_args_file=${PADDOCK_ADAPTER_ARGS_FILE:-}
 diff_output=${PADDOCK_DIFF:-paddock-policy-diff.json}
 policy_cases=${PADDOCK_CASES:-}
@@ -23,12 +24,16 @@ adapter_tests=${PADDOCK_ADAPTER_TESTS:-}
 adapter_test_result=${PADDOCK_ADAPTER_TEST_RESULT:-paddock-adapter-test-result.json}
 adapter_ci_result=${PADDOCK_ADAPTER_CI_RESULT:-}
 
-if [ -n "$graph_input" ] && [ -n "$adapter" ]; then
-	echo "PADDOCK_GRAPH and PADDOCK_ADAPTER cannot both be set" >&2
+if [ -n "$graph_input" ] && { [ -n "$adapter" ] || [ -n "$adapter_config" ]; }; then
+	echo "PADDOCK_GRAPH cannot be combined with an external adapter or adapter profile" >&2
 	exit 2
 fi
 if [ -n "$adapter_args_file" ] && [ -z "$adapter" ]; then
 	echo "PADDOCK_ADAPTER_ARGS_FILE requires PADDOCK_ADAPTER" >&2
+	exit 2
+fi
+if [ -n "$adapter_config" ] && { [ -n "$adapter" ] || [ -n "$adapter_args_file" ]; }; then
+	echo "PADDOCK_ADAPTER_CONFIG cannot be combined with PADDOCK_ADAPTER or PADDOCK_ADAPTER_ARGS_FILE" >&2
 	exit 2
 fi
 if [ -n "$adapter_args_file" ] && [ ! -f "$adapter_args_file" ]; then
@@ -49,7 +54,9 @@ review)
 			--after "$proposed_policy" \
 			--cases "$policy_cases" \
 			--output "$review_output"
-		if [ -n "$adapter" ]; then
+		if [ -n "$adapter_config" ]; then
+			set -- "$@" --adapter-config "$adapter_config"
+		elif [ -n "$adapter" ]; then
 			set -- "$@" --adapter "$adapter"
 			if [ -n "$adapter_args_file" ]; then
 				while IFS= read -r adapter_arg || [ -n "$adapter_arg" ]; do
@@ -109,18 +116,23 @@ gate)
 			--policy-lock "$lock" \
 			--graph "$graph_input" \
 			--output "$result_output"
-	elif [ -n "$adapter" ]; then
+	elif [ -n "$adapter" ] || [ -n "$adapter_config" ]; then
 		set -- "$paddock" ci "$source_root" \
 			--policy-lock "$lock" \
-			--adapter "$adapter"
-		if [ -n "$adapter_args_file" ]; then
-			while IFS= read -r adapter_arg || [ -n "$adapter_arg" ]; do
-				if [ -n "$adapter_arg" ]; then
-					set -- "$@" --adapter-arg "$adapter_arg"
-				fi
-			done < "$adapter_args_file"
+			--graph-output "$graph_output" \
+			--output "$result_output"
+		if [ -n "$adapter_config" ]; then
+			set -- "$@" --adapter-config "$adapter_config"
+		else
+			set -- "$@" --adapter "$adapter"
+			if [ -n "$adapter_args_file" ]; then
+				while IFS= read -r adapter_arg || [ -n "$adapter_arg" ]; do
+					if [ -n "$adapter_arg" ]; then
+						set -- "$@" --adapter-arg "$adapter_arg"
+					fi
+				done < "$adapter_args_file"
+			fi
 		fi
-		set -- "$@" --graph-output "$graph_output" --output "$result_output"
 		"$@"
 	else
 		"$paddock" ci "$source_root" \

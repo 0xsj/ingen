@@ -21,9 +21,13 @@ The optional local receipt persistence boundary is defined in
 nublar/
 ├── README.md
 ├── ARCHITECTURE.md
+├── CONTRACT-CHECKPOINT.md
+├── CONSUMER-REQUEST-TEMPLATE.md
+├── FREEZE-RECORD.md
 ├── examples/
 │   └── consumer/
 │       ├── README.md
+│       ├── check.sh
 │       └── nublar-ci-gate.sh
 ├── cmd/
 │   └── nublar/
@@ -62,7 +66,12 @@ nublar/
 │   └── webhook-validation.yaml
 └── testdata/
     ├── workflows/
+    │   ├── malformed-producer.yaml
+    │   ├── missing-producer.yaml
+    │   ├── mixed-producers.yaml
+    │   └── passed-producer.yaml
     └── ci-results/
+        └── malformed.json
 ```
 
 The compatibility `aggregate` package and the implemented run path share the

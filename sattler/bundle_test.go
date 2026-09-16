@@ -54,15 +54,66 @@ func TestCompareBundleFileCombinesDeclaredArtifactPairs(t *testing.T) {
 	if report.Summary.Subsystems["ci_result"].ChangeSummary.Total != 2 {
 		t.Fatalf("CI subsystem summary = %+v, want two changes", report.Summary.Subsystems["ci_result"])
 	}
+	if len(report.Correlations) != 4 || report.Correlations[0].Relation != BundleCorrelationExactMatch || report.Correlations[1].Relation != BundleCorrelationExactMatch {
+		t.Fatalf("bundle correlations = %+v, want custody matches and Amber observations", report.Correlations)
+	}
+	if report.Correlations[2].Kind != BundleCorrelationKindNublarAmber || report.Correlations[2].Relation != BundleCorrelationUnknown || report.Correlations[3].Relation != BundleCorrelationUnknown {
+		t.Fatalf("Amber correlations = %+v, want unknown observations without Nublar correlation IDs", report.Correlations[2:])
+	}
 
 	var output bytes.Buffer
 	if err := WriteBundleText(&output, report); err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{"Sattler bundle comparison", "ci result:", "nublar run:", "custody:", "provenance:"} {
+	for _, fragment := range []string{"Sattler bundle comparison", "ci result:", "nublar run:", "custody:", "provenance:", "correlations:", "exact-match"} {
 		if !strings.Contains(output.String(), fragment) {
 			t.Fatalf("bundle text = %q, missing %q", output.String(), fragment)
 		}
+	}
+}
+
+func TestCorrelateBundleMatchesNublarAndAmberCorrelationIDs(t *testing.T) {
+	report := BundleComparison{
+		NublarRun: &NublarRunComparison{
+			Before: NublarRunSummary{Correlation: &NublarCorrelationSummary{ID: "correlation-before"}},
+			After:  NublarRunSummary{Correlation: &NublarCorrelationSummary{ID: "correlation-after"}},
+		},
+		Provenance: &AmberProvenanceComparison{
+			Before: AmberProvenanceSummary{CorrelationID: "correlation-before"},
+			After:  AmberProvenanceSummary{CorrelationID: "other-correlation"},
+		},
+	}
+
+	correlations := CorrelateBundle(report)
+	if len(correlations) != 2 {
+		t.Fatalf("correlations = %+v, want two Amber observations", correlations)
+	}
+	if correlations[0].Relation != BundleCorrelationExactMatch || correlations[1].Relation != BundleCorrelationMismatch {
+		t.Fatalf("Amber relations = %+v, want exact-match then mismatch", correlations)
+	}
+}
+
+func TestCorrelateBundlePreservesMismatchAndUnknown(t *testing.T) {
+	report := BundleComparison{
+		NublarRun: &NublarRunComparison{
+			Before: NublarRunSummary{RunID: "run-before"},
+			After:  NublarRunSummary{RunID: "run-after"},
+		},
+		Custody: &LockwoodCustodyComparison{
+			Before: LockwoodCustodySummary{SourceRunID: "other-run"},
+			After:  LockwoodCustodySummary{},
+		},
+	}
+
+	correlations := CorrelateBundle(report)
+	if len(correlations) != 2 {
+		t.Fatalf("correlations = %+v, want before and after observations", correlations)
+	}
+	if correlations[0].Relation != BundleCorrelationMismatch {
+		t.Fatalf("before relation = %q, want mismatch", correlations[0].Relation)
+	}
+	if correlations[1].Relation != BundleCorrelationUnknown {
+		t.Fatalf("after relation = %q, want unknown", correlations[1].Relation)
 	}
 }
 
@@ -91,6 +142,43 @@ func TestSummarizeBundlePrefixesCompatibilityReasons(t *testing.T) {
 	}
 	if len(summary.Subsystems) != 2 {
 		t.Fatalf("subsystem summaries = %+v, want two entries", summary.Subsystems)
+	}
+}
+
+func TestWriteBundleSummaryOmitsAdapterDetails(t *testing.T) {
+	report := BundleComparison{
+		Manifest: "comparison.json",
+		CIResult: &Comparison{
+			Compatible: true,
+			Transition: NewStateTransition("status", "passed", "failed", true),
+			Changes:    []Change{NewChange("verdict", "status", "passed", "failed")},
+		},
+	}
+	var output bytes.Buffer
+	if err := WriteBundleSummaryJSON(&output, report); err != nil {
+		t.Fatal(err)
+	}
+	var document BundleSummaryReport
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Schema != bundleSummarySchema || document.Summary.ChangeSummary.Total != 1 {
+		t.Fatalf("summary report = %+v, want compact summary schema and one change", document)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(output.Bytes(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fields["ci_result"]; ok {
+		t.Fatalf("summary report unexpectedly contains adapter detail: %s", output.String())
+	}
+
+	output.Reset()
+	if err := WriteBundleSummaryText(&output, report); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "Sattler comparison") || !strings.Contains(output.String(), "Sattler bundle summary") {
+		t.Fatalf("summary text = %q, want compact heading without adapter detail", output.String())
 	}
 }
 

@@ -20,6 +20,17 @@ semantics. Native Herdr host binding should remain a separate future boundary.
   decision while keeping the receipt report opaque.
 - Terminal CLI emission audits one validated receipt snapshot before writing
   the shared envelope.
+- Rooted Herdr artifact verification and the terminal Sentinel audit share one
+  symlink-aware path resolver, so an artifact cannot escape the supplied root
+  in one boundary while passing through the other.
+- Workspace bootstrap and artifact registration apply the same resolver when
+  creating new receipt file references.
+- Capability-plan loading and the Sorna oracle/verifier handoffs use the same
+  resolver for workspace, policy, and frozen-oracle inputs.
+- Verifier preparation resolves the subject root under the supplied project
+  root before Sorna launch.
+- This rooted reference rule is now an explicit cross-boundary alpha invariant
+  in ALPHA-INTERFACES.md.
 
 ## Why freeze this now
 
@@ -48,6 +59,9 @@ GOCACHE=/private/tmp/ingen-sentinel-go-cache go test -race ./herdr-sentinel/... 
 
 The expected-failure target uses the controlled webhook duplicate-idempotency
 defect and succeeds only when the final Nublar run is `failed/1`.
+The latest host-enabled positive and expected-failure runs were inspected in
+`/private/tmp/ingen-sentinel-workspace.fqFUDU` and
+`/private/tmp/ingen-sentinel-failure-workspace.aoumsG`.
 
 ## Verification caveat
 

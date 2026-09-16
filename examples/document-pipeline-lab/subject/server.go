@@ -114,11 +114,11 @@ func (h *handler) createDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	h.store.mu.Unlock()
 
-	writeJSON(w, http.StatusAccepted, map[string]string{
+	writeJSONWithEvents(w, http.StatusAccepted, map[string]string{
 		"id":     id,
 		"name":   name,
 		"status": "queued",
-	})
+	}, "document.accepted", "document.queued")
 }
 
 func (h *handler) documentRoute(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +223,13 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeJSONWithEvents(w http.ResponseWriter, status int, value any, events ...string) {
+	for _, event := range events {
+		w.Header().Add("X-InGen-Event", event)
+	}
+	writeJSON(w, status, value)
 }
 
 func writeError(w http.ResponseWriter, status int, code string) {

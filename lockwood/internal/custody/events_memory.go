@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"sync"
 )
 
 // AppendEvent preserves the same validation, canonical-value, idempotency,
@@ -12,6 +13,12 @@ func (s *Memory) AppendEvent(event HandlingEvent) error {
 	if s == nil {
 		return fmt.Errorf("memory custody store is required")
 	}
+	return s.withHandlingEventLock(event.CustodyID, func() error {
+		return s.appendHandlingEvent(event)
+	})
+}
+
+func (s *Memory) appendHandlingEvent(event HandlingEvent) error {
 	event.RecordedAt = event.RecordedAt.UTC()
 	encoded, err := MarshalCanonicalHandlingEvent(event)
 	if err != nil {
@@ -37,6 +44,31 @@ func (s *Memory) AppendEvent(event HandlingEvent) error {
 	}
 	s.events[event.CustodyID][event.EventID] = event
 	return nil
+}
+
+func (s *Memory) withHandlingEventLock(custodyID string, fn func() error) error {
+	if s == nil {
+		return fmt.Errorf("memory custody store is required")
+	}
+	if !custodyIDPattern.MatchString(custodyID) {
+		return fmt.Errorf("invalid handling event custody id %q", custodyID)
+	}
+	if fn == nil {
+		return fmt.Errorf("handling-event lock callback is required")
+	}
+	s.eventLocksMu.Lock()
+	if s.eventLocks == nil {
+		s.eventLocks = make(map[string]*sync.Mutex)
+	}
+	lock := s.eventLocks[custodyID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		s.eventLocks[custodyID] = lock
+	}
+	s.eventLocksMu.Unlock()
+	lock.Lock()
+	defer lock.Unlock()
+	return fn()
 }
 
 func (s *Memory) GetEvent(custodyID, eventID string) (HandlingEvent, error) {

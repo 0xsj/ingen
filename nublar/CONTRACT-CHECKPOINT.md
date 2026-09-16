@@ -5,6 +5,11 @@ filesystem-backed coordinator. It collects already-produced CI envelopes,
 records one immutable run, exposes a read-only history, and projects a
 provider-neutral delivery decision.
 
+The resulting freeze boundary and change rule are recorded in
+[`FREEZE-RECORD.md`](FREEZE-RECORD.md).
+Use [`CONSUMER-REQUEST-TEMPLATE.md`](CONSUMER-REQUEST-TEMPLATE.md) to capture
+the next concrete consumer requirement before changing this checkpoint.
+
 ## Stable boundaries
 
 | Boundary | Schema | Current contract |
@@ -46,7 +51,10 @@ composable, and read-only.
 - Receipt history is strict-loaded and supports exact, composable filters by
   run ID, status, and transport.
 - The end-to-end consumer test covers collection, storage, projection, and
-  generic webhook delivery with an in-memory transport.
+  generic webhook delivery with an in-memory transport, while the CLI delivery
+  regressions cover accepted and failed receipts and unchanged run state after
+  delivery failure. Repeating the same delivery keeps the same idempotency key
+  and records independent receipt outcomes.
 
 ## Verification
 
@@ -62,7 +70,11 @@ The provider-neutral local consumer example is
 same collect/store/decision path from a CI-style shell boundary.
 Run `make nublar-consumer-check` to verify that example against the checked-in
 fixtures, including persisted run and decision outputs for failed, passed,
-missing-artifact, and malformed-envelope paths.
+missing-artifact, and malformed-envelope paths, plus filtered `run list` and
+exact `run show` history reads. The consumer check also confirms that listing
+a failed run succeeds while showing it returns the stored `failed/1` code.
+Run `make nublar-freeze-check` to execute this consumer check together with
+the race, vet, schema, and diff-whitespace gates.
 
 ## Deferred until a concrete consumer requires them
 

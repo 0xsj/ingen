@@ -18,9 +18,14 @@ exclusive lock for registration and all coordinated mutations. `Get` and
 publication. The existing temporary-file-plus-rename write remains the guard
 against partial record contents.
 
-Callers that read before appending can use `RecordRevision` and
-`AppendEventIfRevision`. Hammond compares the revision while holding the
-mutation lock and returns `ErrConflict` if another update committed first.
+Callers that read before mutating can use `RecordRevision` with the conditional
+append, amendment, and supersession operations. Hammond compares the revision
+while holding the mutation lock and returns `ErrConflict` if another update
+committed first.
+
+The CLI exposes the same contract through `revision` and the optional
+`--if-revision` flag, so an operator can make a stale-read failure visible
+without needing to calculate the token in a separate integration.
 
 ## Why
 
@@ -50,6 +55,8 @@ and deliberately retry or surface the conflict.
 - `hammond/internal/store/filesystem.go`
 - `hammond/internal/store/filesystem_test.go`
 - `hammond/internal/store/store.go`
+- `hammond/cmd/hammond/main.go`
+- `hammond/cmd/hammond/main_test.go`
 
 ## Related
 

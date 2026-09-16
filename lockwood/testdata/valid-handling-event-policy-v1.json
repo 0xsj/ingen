@@ -1,0 +1,9 @@
+{
+  "schema": "lockwood.handling-event-policy/v1",
+  "rules": [
+    {
+      "key_id": "handling-key-2026-01",
+      "event_types": ["redaction", "retention-classified"]
+    }
+  ]
+}

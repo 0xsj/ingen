@@ -1,0 +1,7 @@
+schema: paddock.adapter-profile/v1
+name: rust-use-example
+executable: python3
+args:
+  - "{{profile_dir}}/adapter/rust-use-adapter.py"
+  - --workspace
+  - "{{root}}"

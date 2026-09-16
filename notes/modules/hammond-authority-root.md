@@ -12,12 +12,15 @@ turning the artifact into a self-authenticating root of trust.
 
 ## What
 
-`AuthorityRootBootstrap` validates the caller's pinned initial keys and uses
-them to load a digest-bound root snapshot. A signed replacement may then be
-checked with a predecessor root set; after loading, only entries marked
-`active` are exposed to verify the next root or authority trust snapshot.
+`AuthorityRootBootstrap` validates the caller's pinned initial root ID,
+version, and keys, then uses the keys to load a digest-bound root snapshot. A
+signed replacement may then be checked with a predecessor root set; after
+loading, only entries marked `active` are exposed to verify the next root or
+authority trust snapshot.
 Entries marked `revoked` remain auditable in the artifact but cannot verify new
-signatures.
+signatures. `AuthorityRootStore.Rotate` additionally requires the same root ID
+and a strictly increasing version, preventing a replayed snapshot from
+replacing the current root.
 
 `LoadAuthorityTrustStoreWithRootStore` connects the active root set to a
 root-signed authority trust snapshot. Canonical signing sorts key entries by
@@ -48,10 +51,13 @@ keeping operational trust decisions outside the governance record validator.
 - `AuthorityRootBootstrap` must be supplied from deployment configuration or
   another approved out-of-band channel. A local URI and SHA-256 prove which
   root bytes were loaded, not who approved the first root key.
+- The bootstrap's root ID and initial version are pins, not values Hammond
+  discovers from the root artifact. Deployments must update them deliberately
+  when selecting a different initial root snapshot.
 - A predecessor must sign the replacement while its key is still trusted; a
   revoked root cannot authorize a later snapshot.
-- Version monotonicity, quorum approval, secure delivery, and recovery from a
-  compromised root remain caller or deployment policy.
+- Quorum approval, secure delivery, and recovery from a compromised root
+  remain caller or deployment policy.
 - A root signature authenticates the root snapshot only; it does not
   authenticate an organization provider or its membership semantics.
 

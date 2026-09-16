@@ -245,6 +245,31 @@ func TestPrepareVerifierRejectsInvalidBaseURL(t *testing.T) {
 	}
 }
 
+func TestPrepareVerifierRejectsSubjectRootEscape(t *testing.T) {
+	plan := capability.Plan{
+		Schema: capability.Schema,
+		Workspace: capability.WorkspaceRef{
+			ID:            "webhook-validation",
+			Version:       1,
+			Manifest:      ciresult.FileRef{Path: "workspace.yaml", SHA256: digest("manifest")},
+			OraclePolicy:  ciresult.FileRef{Path: "oracle-policy.yaml", SHA256: digest("oracle policy")},
+			SubjectPolicy: ciresult.FileRef{Path: "subject-policy.yaml", SHA256: digest("subject policy")},
+		},
+		ImplementationRoots: []string{"subject"},
+		Enforcement:         "declaration-only",
+		Assurance:           "unverified",
+		Roles: []capability.Role{{
+			ID:        "verifier",
+			Kind:      "verifier",
+			Workspace: ".sentinel/verifier",
+		}},
+	}
+	_, err := PrepareVerifier(plan, ".", "oracle.json", "http://127.0.0.1:8090", "../outside", "subject", "/healthz", "clean", ".artifacts/run", nil, []string{"sorna"})
+	if err == nil || !strings.Contains(err.Error(), "must stay inside the project root") {
+		t.Fatalf("PrepareVerifier() = %v, want subject-root containment error", err)
+	}
+}
+
 func writeFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {

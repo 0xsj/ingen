@@ -9,6 +9,8 @@ spec document_flow v2 {
     when POST "/documents"
     must response.status == 202
     must response.body.id exists
+    must emit "document.accepted"
+    must emit "document.queued"
   }
 
   scenario read_document {
@@ -26,5 +28,6 @@ spec document_flow v2 {
     when GET "/documents/{document_id}"
     must response.status == 200
     must response.body.status == "queued"
+    must_not response.body.error exists
   }
 }

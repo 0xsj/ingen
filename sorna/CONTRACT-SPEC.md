@@ -47,11 +47,17 @@ explain a rule but must not contradict its strength.
 The canonical representation is YAML or JSON. Serialization rules must be
 stable so the sealed contract can be hashed.
 
+The structural cross-language schema is
+[`spec/ingen.contract-v1.schema.json`](spec/ingen.contract-v1.schema.json).
+It fixes the outer shape and `ingen.contract/v1` identity; Sorna's runtime
+validator remains authoritative for semantic rules such as duplicate IDs,
+stateful setup completeness, generated-value limits, and fixture hashes.
+
 Illustrative contract:
 
 ```yaml
 contract:
-  schema: sorna.contract/v1
+  schema: ingen.contract/v1
   id: todo-api
   version: 1
   status: draft
@@ -178,6 +184,19 @@ deliberately; required-field checks alone do not prohibit undocumented output.
 Rules must identify observable subjects. A rule such as “uses a repository
 transaction” is not a contract rule unless the transaction is externally
 observable through a supported interface.
+
+For the HTTP/JSON adapter, a domain event may be represented by an explicit
+response signal such as:
+
+~~~yaml
+expect:
+  events:
+    required: [document.accepted]
+~~~
+
+The signal and its transport must be part of the public subject contract.
+Sorna lifecycle events and host-access telemetry are verifier-owned evidence;
+they do not prove that the subject emitted a domain event.
 
 ## 6. Inputs and boundaries
 

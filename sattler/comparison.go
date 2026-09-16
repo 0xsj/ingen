@@ -23,6 +23,7 @@ const Schema = "ingen.sattler-comparison/v0"
 // Before and After are intentionally small JSON values so the report remains
 // useful without exposing producer-owned report semantics.
 type Change struct {
+	ID       string                   `json:"id"`
 	Category string                   `json:"category"`
 	Field    string                   `json:"field"`
 	Before   any                      `json:"before"`
@@ -56,6 +57,8 @@ type Comparison struct {
 	CompatibilityReasons []string                    `json:"compatibility_reasons,omitempty"`
 	Before               ArtifactSummary             `json:"before"`
 	After                ArtifactSummary             `json:"after"`
+	Transition           StateTransition             `json:"transition"`
+	ChangeIDFilter       []string                    `json:"change_id_filter,omitempty"`
 	Changes              []Change                    `json:"changes,omitempty"`
 	ChangeSummary        ChangeSummary               `json:"change_summary"`
 	Warnings             []string                    `json:"warnings,omitempty"`
@@ -76,17 +79,13 @@ func Compare(before, after ciresult.Artifact) Comparison {
 		report.CompatibilityReasons = append(report.CompatibilityReasons, fmt.Sprintf("kind changed from %q to %q", before.Kind, after.Kind))
 	}
 	report.Compatible = len(report.CompatibilityReasons) == 0
+	report.Transition = NewStateTransition("status", before.Status, after.Status, report.Compatible)
 
 	add := func(category, field string, oldValue, newValue any) {
 		if valuesEqual(oldValue, newValue) {
 			return
 		}
-		report.Changes = append(report.Changes, Change{
-			Category: category,
-			Field:    field,
-			Before:   oldValue,
-			After:    newValue,
-		})
+		report.Changes = append(report.Changes, NewChange(category, field, oldValue, newValue))
 	}
 
 	add("context", "tool", before.Tool, after.Tool)
@@ -99,13 +98,9 @@ func Compare(before, after ciresult.Artifact) Comparison {
 		if valuesEqual(oldRef, newRef) {
 			return
 		}
-		report.Changes = append(report.Changes, Change{
-			Category: category,
-			Field:    field,
-			Before:   fileRefValue(oldRef),
-			After:    fileRefValue(newRef),
-			Identity: CompareArtifactIdentity(oldRef, newRef),
-		})
+		change := NewChange(category, field, fileRefValue(oldRef), fileRefValue(newRef))
+		change.Identity = CompareArtifactIdentity(oldRef, newRef)
+		report.Changes = append(report.Changes, change)
 	}
 	addFileRef("input", "policy", before.Policy, after.Policy)
 	addFileRef("input", "policy_lock", before.PolicyLock, after.PolicyLock)
@@ -166,8 +161,13 @@ func WriteJSON(w io.Writer, report Comparison) error {
 
 // WriteText writes a compact operator-oriented comparison report.
 func WriteText(w io.Writer, report Comparison) error {
-	if _, err := fmt.Fprintf(w, "Sattler comparison\n  before: %s (%s/%s, %s)\n  after:  %s (%s/%s, %s)\n  compatible: %t\n", report.Before.Path, report.Before.Tool, report.Before.Kind, report.Before.Status, report.After.Path, report.After.Tool, report.After.Kind, report.After.Status, report.Compatible); err != nil {
+	if _, err := fmt.Fprintf(w, "Sattler comparison\n  before: %s (%s/%s, %s)\n  after:  %s (%s/%s, %s)\n  compatible: %t\n  transition: %s\n", report.Before.Path, report.Before.Tool, report.Before.Kind, report.Before.Status, report.After.Path, report.After.Tool, report.After.Kind, report.After.Status, report.Compatible, report.Transition); err != nil {
 		return err
+	}
+	if len(report.ChangeIDFilter) > 0 {
+		if _, err := fmt.Fprintf(w, "  change ID filter: %s\n", strings.Join(report.ChangeIDFilter, ", ")); err != nil {
+			return err
+		}
 	}
 	if _, err := fmt.Fprintf(w, "  created: %s -> %s\n", report.Before.CreatedAt, report.After.CreatedAt); err != nil {
 		return err
@@ -207,7 +207,7 @@ func WriteText(w io.Writer, report Comparison) error {
 		if change.Identity != "" {
 			identity = " [" + string(change.Identity) + "]"
 		}
-		if _, err := fmt.Fprintf(w, "    - %s %s%s: %s -> %s\n", change.Category, change.Field, identity, displayValue(change.Before), displayValue(change.After)); err != nil {
+		if _, err := fmt.Fprintf(w, "    - %s %s%s (id=%s): %s -> %s\n", change.Category, change.Field, identity, change.StableID(), displayValue(change.Before), displayValue(change.After)); err != nil {
 			return err
 		}
 	}

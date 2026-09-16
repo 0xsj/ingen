@@ -35,10 +35,12 @@ type Store interface {
 	List() ([]governance.Record, error)
 }
 
-// ConditionalStore adds optimistic concurrency to the normal append path.
+// ConditionalStore adds optimistic concurrency to Hammond mutation paths.
 // Callers obtain a revision from Get and must retry from a fresh record after
 // ErrConflict; Hammond does not invent a semantic event merge.
 type ConditionalStore interface {
 	Store
 	AppendEventIfRevision(identity governance.ContractIdentity, expectedRevision string, event governance.Event) (governance.Record, error)
+	CreateAmendmentIfRevision(identity governance.ContractIdentity, expectedRevision string, successor governance.Record, event governance.Event) (governance.Record, error)
+	SupersedeIfRevision(identity governance.ContractIdentity, expectedRevision string, successor governance.ContractIdentity, event governance.Event) (governance.Record, error)
 }

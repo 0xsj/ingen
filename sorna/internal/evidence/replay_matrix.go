@@ -18,10 +18,10 @@ const replayMatrixExplanationSchema = "sorna.replay-matrix-explanation/v1"
 // matrix expects from it. Expected classifications make intentional red
 // fixtures reviewable without treating every non-passed input as equivalent.
 type ReplayMatrixCase struct {
-	ID                  string
-	Path                string
-	ExpectedCIStatus    string
-	ExpectedReplayState string
+	ID                  string `json:"id" yaml:"id"`
+	Path                string `json:"path" yaml:"path"`
+	ExpectedCIStatus    string `json:"expected_ci_status" yaml:"expected_ci_status"`
+	ExpectedReplayState string `json:"expected_replay_state" yaml:"expected_replay_state"`
 }
 
 type ReplayMatrixReport struct {

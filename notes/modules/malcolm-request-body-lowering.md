@@ -68,12 +68,13 @@ document.
 - A `state` label requires at least one setup; otherwise it would be metadata
   with no executable way to establish the state.
 - Each setup needs a request, at least one positive lowerable requirement, and
-  unique capture names. `must_not` remains rejected by the adapter.
+  unique capture names. Target-rule must_not is now supported for the same
+  lowerable expressions; negative setup requirements remain rejected.
 - Sorna runs setup once per generated rule case. Repeating a setup for separate
   requirements is deliberate because each rule remains an independent oracle
   case.
-- The generated contract is validated here, but this slice does not yet run
-  the stateful Malcolm example under a dedicated subject policy.
+- The generated contract is validated by the flow target; behavioral execution
+  belongs to the separate flow-run target and its dedicated policies.
 
 ## Used in
 

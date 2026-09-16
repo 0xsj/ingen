@@ -31,8 +31,8 @@ Herdr plugin execution; those remain separate boundaries.
 
 ## Proof
 
-The host-enabled proof completed on 2026-09-16 in
-`/private/tmp/ingen-sentinel-workspace.RYOpy3`. It produced a passed
+The latest host-enabled proof completed on 2026-09-16 in
+`/private/tmp/ingen-sentinel-workspace.fqFUDU`. It produced a passed
 `ingen.nublar-run/v1` result, with Sorna reporting four passed rules and the
 preserved Sentinel explanation reporting `audit_status: passed`. The temporary
 workspace remains available for inspection.

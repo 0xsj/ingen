@@ -24,6 +24,8 @@ var (
 	digestPattern    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
+const Schema = "ingen.contract/v1"
+
 // Document is the machine-readable contract document. The contract body is
 // deliberately map-backed because rules contain extensible, nested predicates.
 type Document struct {
@@ -97,8 +99,11 @@ func Validate(document Document) []string {
 		}
 	}
 
-	if value, ok := body["schema"]; ok && !nonEmptyString(value) {
-		problems = append(problems, "contract.schema must be a non-empty string")
+	if value, ok := body["schema"]; ok {
+		schema, valid := value.(string)
+		if !valid || schema != Schema {
+			problems = append(problems, "contract.schema must be ingen.contract/v1")
+		}
 	}
 	if value, ok := body["id"]; ok && !nonEmptyString(value) {
 		problems = append(problems, "contract.id must be a non-empty string")
@@ -538,6 +543,35 @@ func validateExpectationShape(value any, path string, problems *[]string) {
 	}
 	if body, present := expect["body"]; present {
 		validateShapeSpec(body, path+".body", problems)
+	}
+	if events, present := expect["events"]; present {
+		validateEventSpec(events, path+".events", problems)
+	}
+}
+
+func validateEventSpec(value any, path string, problems *[]string) {
+	spec, ok := value.(map[string]any)
+	if !ok {
+		*problems = append(*problems, path+" must be an object")
+		return
+	}
+	rawRequired, present := spec["required"]
+	if !present {
+		*problems = append(*problems, path+".required is required")
+		return
+	}
+	required, ok := rawRequired.([]any)
+	if !ok {
+		*problems = append(*problems, path+".required must be a list")
+		return
+	}
+	if len(required) == 0 {
+		*problems = append(*problems, path+".required must contain at least one event")
+	}
+	for index, value := range required {
+		if !nonEmptyString(value) {
+			*problems = append(*problems, fmt.Sprintf("%s.required[%d] must be a non-empty string", path, index))
+		}
 	}
 }
 

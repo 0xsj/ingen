@@ -1,0 +1,36 @@
+schema: paddock.adapter-tests/v1
+
+adapter:
+  executable: python3
+  args:
+    - "{{manifest_dir}}/adapter/rust-use-adapter.py"
+    - --workspace
+    - "{{root}}"
+
+cases:
+  - name: rust-hexagonal-good
+    root: services/rust-hexagonal/good
+    language: rust
+    source_unit: file
+    roots: [src]
+    required_edge_kinds: [import]
+    expect: pass
+    package_count: 9
+    edge_count: 13
+
+  - name: rust-hexagonal-violating-graph
+    root: services/rust-hexagonal/violating
+    language: rust
+    source_unit: file
+    roots: [src]
+    required_edge_kinds: [import]
+    expect: pass
+    package_count: 9
+    edge_count: 14
+
+  - name: unsupported-language
+    root: services/rust-hexagonal/good
+    language: go
+    source_unit: file
+    expect: error
+    error_contains: supports language rust

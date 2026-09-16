@@ -21,6 +21,9 @@ schema identities and meanings stable until an intentional interface review:
 | Preparation summary | `ingen.mutation-preparation/v1` | Provider | Changed files, target resolution, hashes, and prepared variants before execution. |
 | Campaign result | `ingen.mutation-campaign-result/v1` | Sorna | One clean comparison and one outcome for each planned mutation. |
 | CI result envelope | `ingen.ci-result/v1` | InGen core | Language-neutral status, exit code, source identity, input hashes, and opaque producer report. |
+| Replay matrix report | `sorna.replay-matrix/v1` | Sorna | Expected-versus-observed classifications for a set of behavioral replay CI envelopes. |
+| Replay matrix explanation | `sorna.replay-matrix-explanation/v1` | Sorna | Compact mismatch summary paired with the replay matrix report. |
+| Replay matrix manifest | `sorna.replay-matrix-manifest/v1` | Sorna | Reviewable paths and expected classifications used to produce a replay matrix. |
 | Nublar workflow | `ingen.nublar-workflow/v1` | Nublar | Required/optional CI result paths resolved under an artifact root. |
 | Nublar aggregate | `ingen.nublar-result/v1` | Nublar | Preserved input envelopes plus severity composition. |
 | Nublar run | `ingen.nublar-run/v1` | Nublar | Immutable collection attempt with check-level provenance, decision state, and optional provider-neutral external correlation. |
@@ -88,6 +91,19 @@ These are the important guarantees of the current slice:
 16. A terminal Sentinel envelope emitted by the CLI is based on one validated
     receipt snapshot and passes the receipt/artifact integrity audit first, so
     drift cannot become a passing Nublar check.
+17. A replay matrix records explicit expected classifications, preserves each
+    member envelope by path and hash, and passes only when every nested replay
+    result matches its declared expectation. Independent verification rechecks
+    those member bytes, reports, explanations, lineage, and—when present—the
+    manifest that declared the expectations.
+18. Sentinel file references are relative to the supplied project root;
+    workspace bootstrap, capability-plan loading, artifact registration, Sorna
+    handoff, Herdr ingress, and terminal audit resolve symlinks and reject
+    paths that escape that root before creating, mutating, or passing an
+    artifact reference.
+19. The verifier subject root is resolved under the supplied project root
+    before Sorna is launched; an escaping or unresolved subject root is a
+    preparation failure, not a delegated execution.
 
 ## What is deliberately not frozen
 

@@ -215,11 +215,19 @@ Paddock. The policy language and source unit must match the graph document.
 An external adapter can be invoked with `--adapter` and repeated
 `--adapter-arg` flags; its stdin/stdout contract is documented in
 [`ADAPTER-PROTOCOL.md`](ADAPTER-PROTOCOL.md).
+For repeatable use, `--adapter-config <profile.yaml>` loads a versioned
+`paddock.adapter-profile/v1` profile containing the executable and arguments.
+Profile arguments may use `{{root}}` for the current source root and
+`{{profile_dir}}` for the profile's directory; the explicit executable and
+argument flags cannot be combined with a profile.
 `check` can invoke an adapter directly. `ci` can do the same when
 `--graph-output` names the durable graph file whose hash is recorded in the
 CI artifact. Graph evidence also records optional adapter identity and
 non-secret invocation digests; CI-derived explanations surface that metadata
 through provenance when the graph file is available.
+When `graph` is used with `--language` and no policy, Paddock supplies the
+language's default source unit (`file` for Python and TypeScript/JavaScript,
+otherwise `package`); use `--unit` to override it for an external adapter.
 
 `map` provides a compact review view after policy classification. It emits the
 `paddock.component-map/v1` shape with component package counts, cross-component

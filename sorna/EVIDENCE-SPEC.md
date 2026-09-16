@@ -378,6 +378,14 @@ For CI consumers, the replay report is preserved inside the shared
 Multiple replay envelopes may be combined with the replay-matrix command:
 
 ```sh
+sorna evidence replay matrix --manifest <manifest.yaml> \
+  [--source-root <dir>] [--output <ci-result-path>]
+```
+
+The manifest uses the versioned `sorna.replay-matrix-manifest/v1` shape. A
+manifest is also equivalent to repeating explicit cases:
+
+```sh
 sorna evidence replay matrix \
   --case <id=ci-result-path|expected-ci-status|expected-replay-status> \
   [--case ...] [--source-root <dir>] [--output <ci-result-path>]
@@ -389,6 +397,10 @@ classifications with explicit expectations. This makes deliberate negative
 fixtures reviewable: an expected behavioral red can make the matrix pass,
 while an unexpected red or an infrastructure error makes the matrix fail or
 error respectively.
+
+When a manifest is used, its path and SHA-256 are also preserved as the
+`matrix_manifest` input and independent verification checks that its cases
+still agree with the generated report.
 
 The saved matrix can be independently verified with:
 

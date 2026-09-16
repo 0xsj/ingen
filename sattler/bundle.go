@@ -34,8 +34,9 @@ type ComparisonManifest struct {
 // BundleSubsystemSummary records one adapter's compatibility and change
 // counts without collapsing its detailed report.
 type BundleSubsystemSummary struct {
-	Compatible    bool          `json:"compatible"`
-	ChangeSummary ChangeSummary `json:"change_summary"`
+	Compatible    bool            `json:"compatible"`
+	Transition    StateTransition `json:"transition"`
+	ChangeSummary ChangeSummary   `json:"change_summary"`
 }
 
 // BundleSummary is the navigation layer for a combined comparison. It is a
@@ -51,16 +52,28 @@ type BundleSummary struct {
 // BundleComparison combines the independent adapter reports. A missing
 // subsystem is represented by a nil report rather than an invented result.
 type BundleComparison struct {
-	Schema     string                     `json:"schema"`
-	Manifest   string                     `json:"manifest,omitempty"`
-	Summary    BundleSummary              `json:"summary"`
-	CIResult   *Comparison                `json:"ci_result,omitempty"`
-	NublarRun  *NublarRunComparison       `json:"nublar_run,omitempty"`
-	Custody    *LockwoodCustodyComparison `json:"custody,omitempty"`
-	Provenance *AmberProvenanceComparison `json:"provenance,omitempty"`
+	Schema         string                     `json:"schema"`
+	Manifest       string                     `json:"manifest,omitempty"`
+	Summary        BundleSummary              `json:"summary"`
+	Correlations   []BundleCorrelation        `json:"correlations,omitempty"`
+	ChangeIDFilter []string                   `json:"change_id_filter,omitempty"`
+	CIResult       *Comparison                `json:"ci_result,omitempty"`
+	NublarRun      *NublarRunComparison       `json:"nublar_run,omitempty"`
+	Custody        *LockwoodCustodyComparison `json:"custody,omitempty"`
+	Provenance     *AmberProvenanceComparison `json:"provenance,omitempty"`
 }
 
 const bundleComparisonSchema = "ingen.sattler-bundle-comparison/v0"
+const bundleSummarySchema = "ingen.sattler-bundle-summary/v0"
+
+// BundleSummaryReport is the compact, detail-free projection of a bundle.
+type BundleSummaryReport struct {
+	Schema         string              `json:"schema"`
+	Manifest       string              `json:"manifest,omitempty"`
+	Summary        BundleSummary       `json:"summary"`
+	Correlations   []BundleCorrelation `json:"correlations,omitempty"`
+	ChangeIDFilter []string            `json:"change_id_filter,omitempty"`
+}
 
 // CompareBundleFile loads a comparison manifest and its declared artifact
 // pairs. Every declared pair must have both before and after paths.
@@ -117,6 +130,7 @@ func CompareBundleFile(manifestPath string) (BundleComparison, error) {
 		report.Provenance = &comparison
 	}
 	report.Summary = SummarizeBundle(report)
+	report.Correlations = CorrelateBundle(report)
 	return report, nil
 }
 
@@ -129,10 +143,11 @@ func SummarizeBundle(report BundleComparison) BundleSummary {
 	}
 	var allChanges []Change
 	included := false
-	add := func(name string, compatible bool, reasons []string, changes []Change, warnings []string) {
+	add := func(name string, compatible bool, transition StateTransition, reasons []string, changes []Change, warnings []string) {
 		included = true
 		summary.Subsystems[name] = BundleSubsystemSummary{
 			Compatible:    compatible,
+			Transition:    transition,
 			ChangeSummary: SummarizeChanges(changes),
 		}
 		if !compatible {
@@ -147,16 +162,16 @@ func SummarizeBundle(report BundleComparison) BundleSummary {
 		allChanges = append(allChanges, changes...)
 	}
 	if report.CIResult != nil {
-		add("ci_result", report.CIResult.Compatible, report.CIResult.CompatibilityReasons, report.CIResult.Changes, report.CIResult.Warnings)
+		add("ci_result", report.CIResult.Compatible, report.CIResult.Transition, report.CIResult.CompatibilityReasons, report.CIResult.Changes, report.CIResult.Warnings)
 	}
 	if report.NublarRun != nil {
-		add("nublar_run", report.NublarRun.Compatible, report.NublarRun.CompatibilityReasons, report.NublarRun.Changes, nil)
+		add("nublar_run", report.NublarRun.Compatible, report.NublarRun.Transition, report.NublarRun.CompatibilityReasons, report.NublarRun.Changes, nil)
 	}
 	if report.Custody != nil {
-		add("custody", report.Custody.Compatible, report.Custody.CompatibilityReasons, report.Custody.Changes, nil)
+		add("custody", report.Custody.Compatible, report.Custody.Transition, report.Custody.CompatibilityReasons, report.Custody.Changes, nil)
 	}
 	if report.Provenance != nil {
-		add("provenance", report.Provenance.Compatible, report.Provenance.CompatibilityReasons, report.Provenance.Changes, nil)
+		add("provenance", report.Provenance.Compatible, report.Provenance.Transition, report.Provenance.CompatibilityReasons, report.Provenance.Changes, nil)
 	}
 	if !included {
 		summary.Compatible = false
@@ -165,9 +180,85 @@ func SummarizeBundle(report BundleComparison) BundleSummary {
 	return summary
 }
 
+// NewBundleSummaryReport creates the compact projection used by summary-only
+// consumers.
+func NewBundleSummaryReport(report BundleComparison) BundleSummaryReport {
+	return BundleSummaryReport{
+		Schema:         bundleSummarySchema,
+		Manifest:       report.Manifest,
+		Summary:        SummarizeBundle(report),
+		Correlations:   CorrelateBundle(report),
+		ChangeIDFilter: append([]string(nil), report.ChangeIDFilter...),
+	}
+}
+
+// WriteBundleSummaryJSON writes the compact machine-readable bundle report.
+func WriteBundleSummaryJSON(w io.Writer, report BundleComparison) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(NewBundleSummaryReport(report))
+}
+
+// WriteBundleSummaryText writes the compact operator-oriented bundle report.
+func WriteBundleSummaryText(w io.Writer, report BundleComparison) error {
+	compact := NewBundleSummaryReport(report)
+	if _, err := fmt.Fprintf(w, "Sattler bundle summary\n  manifest: %s\n  compatible: %t\n  change summary: %s\n", compact.Manifest, compact.Summary.Compatible, compact.Summary.ChangeSummary); err != nil {
+		return err
+	}
+	if len(compact.ChangeIDFilter) > 0 {
+		if _, err := fmt.Fprintf(w, "  change ID filter: %s\n", strings.Join(compact.ChangeIDFilter, ", ")); err != nil {
+			return err
+		}
+	}
+	if len(compact.Summary.CompatibilityReasons) > 0 {
+		if _, err := fmt.Fprintln(w, "  compatibility reasons:"); err != nil {
+			return err
+		}
+		for _, reason := range compact.Summary.CompatibilityReasons {
+			if _, err := fmt.Fprintf(w, "    - %s\n", reason); err != nil {
+				return err
+			}
+		}
+	}
+	if len(compact.Summary.Warnings) > 0 {
+		if _, err := fmt.Fprintln(w, "  warnings:"); err != nil {
+			return err
+		}
+		for _, warning := range compact.Summary.Warnings {
+			if _, err := fmt.Fprintf(w, "    - %s\n", warning); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := fmt.Fprintln(w, "  subsystems:"); err != nil {
+		return err
+	}
+	for _, name := range []string{"ci_result", "nublar_run", "custody", "provenance"} {
+		detail, ok := compact.Summary.Subsystems[name]
+		if !ok {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "    - %s: compatible=%t, transition=%s, changes=%s\n", name, detail.Compatible, detail.Transition, detail.ChangeSummary); err != nil {
+			return err
+		}
+	}
+	if len(compact.Correlations) > 0 {
+		if _, err := fmt.Fprintln(w, "  correlations:"); err != nil {
+			return err
+		}
+		for _, correlation := range compact.Correlations {
+			if err := writeBundleCorrelationText(w, correlation); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // WriteBundleJSON writes a provisional machine-readable bundle comparison.
 func WriteBundleJSON(w io.Writer, report BundleComparison) error {
 	report.Summary = SummarizeBundle(report)
+	report.Correlations = CorrelateBundle(report)
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(report)
@@ -176,8 +267,14 @@ func WriteBundleJSON(w io.Writer, report BundleComparison) error {
 // WriteBundleText writes the independent subsystem reports under one heading.
 func WriteBundleText(w io.Writer, report BundleComparison) error {
 	report.Summary = SummarizeBundle(report)
+	report.Correlations = CorrelateBundle(report)
 	if _, err := fmt.Fprintf(w, "Sattler bundle comparison\n  manifest: %s\n  compatible: %t\n  change summary: %s\n", report.Manifest, report.Summary.Compatible, report.Summary.ChangeSummary); err != nil {
 		return err
+	}
+	if len(report.ChangeIDFilter) > 0 {
+		if _, err := fmt.Fprintf(w, "  change ID filter: %s\n", strings.Join(report.ChangeIDFilter, ", ")); err != nil {
+			return err
+		}
 	}
 	if len(report.Summary.CompatibilityReasons) > 0 {
 		if _, err := fmt.Fprintln(w, "  compatibility reasons:"); err != nil {
@@ -207,8 +304,18 @@ func WriteBundleText(w io.Writer, report BundleComparison) error {
 		if !ok {
 			continue
 		}
-		if _, err := fmt.Fprintf(w, "    - %s: compatible=%t, changes=%s\n", name, detail.Compatible, detail.ChangeSummary); err != nil {
+		if _, err := fmt.Fprintf(w, "    - %s: compatible=%t, transition=%s, changes=%s\n", name, detail.Compatible, detail.Transition, detail.ChangeSummary); err != nil {
 			return err
+		}
+	}
+	if len(report.Correlations) > 0 {
+		if _, err := fmt.Fprintln(w, "  correlations:"); err != nil {
+			return err
+		}
+		for _, correlation := range report.Correlations {
+			if err := writeBundleCorrelationText(w, correlation); err != nil {
+				return err
+			}
 		}
 	}
 	sections := []struct {

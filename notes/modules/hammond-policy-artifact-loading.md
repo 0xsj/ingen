@@ -28,8 +28,8 @@ meaning of an existing governance record.
 - Strict decoding rejects unknown policy fields and trailing JSON.
 - Loading a policy proves byte and shape agreement, not that the actor is
   authorized to publish or use it.
-- Organization identity, role authority, and remote policy distribution remain
-  outside this local loader.
+- The local loader accepts filesystem paths only; organization identity, role
+  authority, and remote policy distribution remain outside it.
 
 ## Used in
 

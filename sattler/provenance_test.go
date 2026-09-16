@@ -30,6 +30,9 @@ func TestCompareAmberProvenanceReportsRetryTransition(t *testing.T) {
 	if !report.Compatible {
 		t.Fatal("retry of the same logical work was marked incompatible")
 	}
+	if report.Transition.Classification != TransitionChanged || report.Transition.Field != "mode.kind" {
+		t.Fatalf("transition = %+v, want changed mode transition", report.Transition)
+	}
 	if got, want := len(report.Changes), 5; got != want {
 		t.Fatalf("change count = %d, want %d: %+v", got, want, report.Changes)
 	}

@@ -40,6 +40,9 @@ func TestCompareNublarRunsReportsWorkflowAndCheckChanges(t *testing.T) {
 	if !report.Compatible {
 		t.Fatal("runs with the same workflow identity were marked incompatible")
 	}
+	if report.Transition.Classification != TransitionChanged || report.Transition.Field != "status" {
+		t.Fatalf("transition = %+v, want changed status transition", report.Transition)
+	}
 	if got, want := len(report.Changes), 4; got != want {
 		t.Fatalf("change count = %d, want %d: %+v", got, want, report.Changes)
 	}
@@ -49,6 +52,24 @@ func TestCompareNublarRunsReportsWorkflowAndCheckChanges(t *testing.T) {
 	assertChange(t, report.Changes[3], "check", "checks.sentinel")
 	if _, ok := report.After.Checks["sentinel"]; !ok {
 		t.Fatal("after summary omitted newly introduced check")
+	}
+}
+
+func TestCompareNublarRunsPreservesOptionalCorrelation(t *testing.T) {
+	before := strings.Replace(nublarFixture("run-before", strings.Repeat("a", 64)), `"status":"passed"`, `"correlation":{"system":"ci","id":"correlation-1","attempt":1},"status":"passed"`, 1)
+	after := strings.Replace(nublarFixture("run-after", strings.Repeat("a", 64)), `"status":"passed"`, `"correlation":{"system":"ci","id":"correlation-1","attempt":2},"status":"passed"`, 1)
+	beforePath := writeNublarFixture(t, before)
+	afterPath := writeNublarFixture(t, after)
+
+	report, err := CompareNublarRunFiles(beforePath, afterPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Before.Correlation == nil || report.Before.Correlation.ID != "correlation-1" || report.After.Correlation.Attempt != 2 {
+		t.Fatalf("correlation summaries = %+v -> %+v, want parsed optional correlation", report.Before.Correlation, report.After.Correlation)
+	}
+	if len(report.Changes) != 1 || report.Changes[0].Field != "correlation" {
+		t.Fatalf("correlation changes = %+v, want one correlation change", report.Changes)
 	}
 }
 

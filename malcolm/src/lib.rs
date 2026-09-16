@@ -1,8 +1,9 @@
 //! Malcolm's first executable-specification slice.
 //!
 //! This crate currently parses the small, declarative core described in the
-//! project README. Execution, evidence, and mutation support will build on
-//! these typed values in later slices.
+//! project README, including typed request bodies and stateful setup data.
+//! Execution, evidence, and mutation support will build on these typed values
+//! in later slices.
 
 mod ir;
 mod parser;
@@ -94,8 +95,8 @@ pub use ast::{
     SetupClause, Specification, WhenClause,
 };
 pub use ir::{
-    compile, IntermediateRepresentation, RequirementIr, ScenarioIr, SpecificationIr, WhenIr,
-    IR_SCHEMA,
+    compile, BodyFieldIr, CaptureIr, IntermediateRepresentation, RequestIr, RequirementIr,
+    ScenarioIr, SetupIr, SpecificationIr, WhenIr, IR_SCHEMA,
 };
 pub use parser::{parse, ParseError};
 pub use semantic::{validate, ValidationError};

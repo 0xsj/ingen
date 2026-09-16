@@ -54,6 +54,17 @@ func (store AuthorityTrustStore) Validate() error {
 	if err := validateAuthoritySignature(store.Signature); err != nil {
 		return err
 	}
+	if store.Keys == nil {
+		return fmt.Errorf("authority trust keys are required")
+	}
+	for keyID, publicKey := range store.Keys {
+		if strings.TrimSpace(keyID) == "" {
+			return fmt.Errorf("authority trust key id is required")
+		}
+		if len(publicKey) != ed25519.PublicKeySize {
+			return fmt.Errorf("authority trust key %q has invalid length", keyID)
+		}
+	}
 	return nil
 }
 
@@ -65,6 +76,37 @@ func (store AuthorityTrustStore) SignatureVerifier() Ed25519AuthoritySignatureVe
 		keys[keyID] = append(ed25519.PublicKey(nil), publicKey...)
 	}
 	return Ed25519AuthoritySignatureVerifier{Keys: keys}
+}
+
+// Rotate verifies and accepts a successor trust snapshot signed by the
+// caller-supplied root verifier. Trust identity must remain stable and
+// versions must increase strictly, so a valid old snapshot cannot be replayed
+// as a replacement.
+func (store AuthorityTrustStore) Rotate(data []byte, reference AuthorityTrustReference, verifier AuthoritySignatureVerifier) (AuthorityTrustStore, error) {
+	if err := store.Validate(); err != nil {
+		return AuthorityTrustStore{}, fmt.Errorf("validate current Hammond authority trust: %w", err)
+	}
+	replacement, err := DecodeAuthorityTrustStoreWithSignatureVerifier(data, reference, verifier)
+	if err != nil {
+		return AuthorityTrustStore{}, err
+	}
+	if replacement.Reference.ID != store.Reference.ID {
+		return AuthorityTrustStore{}, fmt.Errorf("authority trust rotation must retain trust id")
+	}
+	if replacement.Reference.Version <= store.Reference.Version {
+		return AuthorityTrustStore{}, fmt.Errorf("authority trust rotation version must increase")
+	}
+	return replacement, nil
+}
+
+// RotateWithRootStore verifies and accepts a successor trust snapshot using
+// the active keys of a validated Hammond authority root. This keeps the
+// intended root-to-trust chain explicit at the call site.
+func (store AuthorityTrustStore) RotateWithRootStore(data []byte, reference AuthorityTrustReference, roots AuthorityRootStore) (AuthorityTrustStore, error) {
+	if err := roots.Validate(); err != nil {
+		return AuthorityTrustStore{}, fmt.Errorf("validate Hammond authority root: %w", err)
+	}
+	return store.Rotate(data, reference, roots.SignatureVerifier())
 }
 
 // DecodeAuthorityTrustStore strictly decodes a versioned trust snapshot and
@@ -97,7 +139,7 @@ func decodeAuthorityTrustStore(data []byte, reference AuthorityTrustReference, v
 	if hex.EncodeToString(digest[:]) != reference.Artifact.SHA256 {
 		return AuthorityTrustStore{}, fmt.Errorf("authority trust bytes do not match reference artifact.sha256")
 	}
-	if document.Keys == nil {
+	if len(document.Keys) == 0 {
 		return AuthorityTrustStore{}, fmt.Errorf("authority trust keys are required")
 	}
 	if verifier != nil {

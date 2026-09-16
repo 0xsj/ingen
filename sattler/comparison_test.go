@@ -22,10 +22,16 @@ func TestCompareReportsVerdictAndInputChangesDeterministically(t *testing.T) {
 	if !report.Compatible {
 		t.Fatal("comparison is incompatible despite stable producer and source identity")
 	}
+	if report.Transition.Classification != TransitionChanged || report.Transition.Field != "status" {
+		t.Fatalf("transition = %+v, want changed status transition", report.Transition)
+	}
 	if got, want := len(report.Changes), 5; got != want {
 		t.Fatalf("change count = %d, want %d: %+v", got, want, report.Changes)
 	}
 	assertChange(t, report.Changes[0], "verdict", "status")
+	if report.Changes[0].ID != "verdict.status" {
+		t.Fatalf("first change ID = %q, want verdict.status", report.Changes[0].ID)
+	}
 	assertChange(t, report.Changes[1], "verdict", "exit_code")
 	assertChange(t, report.Changes[2], "contract", "inputs.contract")
 	assertChange(t, report.Changes[3], "producer-report", "report")
@@ -66,6 +72,9 @@ func TestCompareExplainsIncompatibleProducerIdentity(t *testing.T) {
 	report := Compare(before, after)
 	if report.Compatible {
 		t.Fatal("comparison marked different producers compatible")
+	}
+	if report.Transition.Classification != TransitionIncompatible {
+		t.Fatalf("transition = %+v, want incompatible classification", report.Transition)
 	}
 	if len(report.CompatibilityReasons) != 1 || !strings.Contains(report.CompatibilityReasons[0], "tool changed") {
 		t.Fatalf("compatibility reasons = %+v, want tool-change explanation", report.CompatibilityReasons)
@@ -197,6 +206,9 @@ func assertChange(t *testing.T, change Change, category, field string) {
 	t.Helper()
 	if change.Category != category || change.Field != field {
 		t.Fatalf("change = %+v, want %s/%s", change, category, field)
+	}
+	if change.ID != StableChangeID(category, field) {
+		t.Fatalf("change ID = %q, want %q", change.ID, StableChangeID(category, field))
 	}
 }
 

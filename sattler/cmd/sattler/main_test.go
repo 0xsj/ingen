@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"ingen/sattler"
@@ -32,6 +33,35 @@ func TestBundleCompareCommandReportsJSONManifestErrors(t *testing.T) {
 	}
 }
 
+func TestBundleCompareCommandSummaryOnly(t *testing.T) {
+	root := t.TempDir()
+	workflowHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	run := `{"schema":"ingen.nublar-run/v1","run_id":"run-1","workflow":{"id":"workflow","file":{"path":"workflow.yaml","sha256":"` + workflowHash + `"}},"status":"passed","exit_code":0,"checks":[{"id":"check","tool":"sorna","required":true,"status":"passed"}]}`
+	if err := os.WriteFile(filepath.Join(root, "before.json"), []byte(run), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	afterRun := strings.Replace(run, `"status":"passed"`, `"status":"failed"`, 1)
+	if err := os.WriteFile(filepath.Join(root, "after.json"), []byte(afterRun), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"schema":"ingen.sattler-comparison-input/v0","before":{"nublar_run":"before.json"},"after":{"nublar_run":"after.json"}}`
+	manifestPath := filepath.Join(root, "comparison.json")
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := captureStdout(t, func() int {
+		return bundleCompareCommand([]string{"compare", "--summary-only", "--format", "json", "--change-id", "verdict.status", manifestPath})
+	})
+	var document sattler.BundleSummaryReport
+	if err := json.Unmarshal([]byte(stdout), &document); err != nil {
+		t.Fatalf("stdout = %q, decode error = %v", stdout, err)
+	}
+	if document.Schema != "ingen.sattler-bundle-summary/v0" || document.Summary.ChangeSummary.Total != 1 || len(document.ChangeIDFilter) != 1 || document.ChangeIDFilter[0] != "verdict.status" {
+		t.Fatalf("summary document = %+v, want filtered summary-only output", document)
+	}
+}
+
 func captureStderr(t *testing.T, run func() int) string {
 	t.Helper()
 	read, write, err := os.Pipe()
@@ -54,6 +84,32 @@ func captureStderr(t *testing.T, run func() int) string {
 	}
 	if code != 1 {
 		t.Fatalf("command exit code = %d, want 1", code)
+	}
+	return string(contents)
+}
+
+func captureStdout(t *testing.T, run func() int) string {
+	t.Helper()
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stdout
+	os.Stdout = write
+	code := run()
+	if closeErr := write.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	os.Stdout = previous
+	contents, readErr := io.ReadAll(read)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if closeErr := read.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if code != 0 {
+		t.Fatalf("command exit code = %d, want 0", code)
 	}
 	return string(contents)
 }

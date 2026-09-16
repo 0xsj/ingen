@@ -113,6 +113,22 @@ func TestNewAppendAndLoadReceipt(t *testing.T) {
 	}
 }
 
+func TestNewRejectsWorkspaceSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	outsidePath := filepath.Join(outside, "workspace.yaml")
+	if err := os.WriteFile(outsidePath, []byte(workspaceFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(root, "workspace.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	if _, err := New("workspace.yaml", time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)); err == nil || !strings.Contains(err.Error(), "escapes root") {
+		t.Fatalf("New() = %v, want workspace root-containment rejection", err)
+	}
+}
+
 func TestRegisterFileArtifactIsIdempotentButRejectsConflicts(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile("workspace.yaml", []byte(workspaceFixture), 0o644); err != nil {
@@ -144,6 +160,33 @@ func TestRegisterFileArtifactIsIdempotentButRejectsConflicts(t *testing.T) {
 	}
 	if len(receipt.Artifacts) != 1 {
 		t.Fatalf("artifacts after conflict = %d, want one", len(receipt.Artifacts))
+	}
+}
+
+func TestRegisterFileArtifactRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "workspace.yaml"), []byte(workspaceFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(outside, "artifact.json")
+	if err := os.WriteFile(outsidePath, []byte("result"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(root, "artifact.json")); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	receipt, err := New("workspace.yaml", time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := receipt.RegisterFileArtifact("result", "verifier", "sorna-run", "artifact.json")
+	if err == nil || changed || !strings.Contains(err.Error(), "escapes root") {
+		t.Fatalf("RegisterFileArtifact() = %v, %v; want root-containment rejection", changed, err)
+	}
+	if len(receipt.Artifacts) != 0 {
+		t.Fatalf("artifacts after symlink rejection = %d, want none", len(receipt.Artifacts))
 	}
 }
 

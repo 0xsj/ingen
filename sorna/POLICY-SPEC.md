@@ -76,6 +76,12 @@ Required top-level fields are `schema`, `id`, `version`, `status`, `purpose`,
 `enforcement`, `filesystem`, `network`, and `process`. The process object
 requires `subject_id` and `can_invoke_subject`.
 
+The structural cross-language schema is
+[`spec/ingen.policy-v1.schema.json`](spec/ingen.policy-v1.schema.json).
+It fixes the outer shape and `ingen.policy/v1` identity; Sorna's runtime
+validator remains authoritative for path overlap, mode-dependent network
+rules, duplicate tools, and sealing behavior.
+
 ## 4. Filesystem policy
 
 Each `read`, `write`, and `deny` entry has:

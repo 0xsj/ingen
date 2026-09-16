@@ -52,8 +52,8 @@ the following against the real Herdr hook or callback implementation:
 2. An identical delivery retry is a no-op; reusing an event ID with different
    content is rejected and surfaced to the host.
 3. A callback for another run or workspace is rejected before receipt mutation.
-4. An event that references an unknown, missing, or drifted artifact is
-   rejected before receipt mutation.
+4. An event that references an unknown, missing, drifted, or root-escaping
+   artifact is rejected before receipt mutation.
 5. An older callback timestamp and a terminal-to-running update are rejected;
    a terminal cleanup event follows the explicit cleanup rule.
 6. A multi-event delivery cannot publish a partial receipt when a later event
@@ -65,9 +65,10 @@ the following against the real Herdr hook or callback implementation:
    authenticity.
 
 The existing provider-neutral proofs cover items 1–6 at the Sentinel boundary,
-including rejection of callbacks with the wrong run or workspace context before
-receipt mutation. Items 7–8 remain intentionally unclaimed until Herdr supplies
-the corresponding host semantics.
+including rejection of callbacks with the wrong run or workspace context,
+missing or drifted artifact bytes, and conflicting event IDs before receipt
+mutation, including through the locked same-path CLI update. Items 7–8 remain
+intentionally unclaimed until Herdr supplies the corresponding host semantics.
 
 ## Explicit non-goals
 

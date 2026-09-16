@@ -1,0 +1,39 @@
+policy:
+  schema: ingen.policy/v1
+  id: malcolm-flow-subject
+  version: 1
+  status: draft
+  purpose: managed-subject-public-boundary
+  enforcement: host-enforced
+
+  filesystem:
+    read:
+      - path: .artifacts/document-pipeline-subject
+        reason: compiled document subject binary
+    write: []
+    deny:
+      - path: malcolm
+        reason: subject must not read Malcolm source or contract inputs
+      - path: examples/document-pipeline-lab/contract
+        reason: subject must not read the source contract
+      - path: examples/document-pipeline-lab/defects
+        reason: clean subject must not inspect mutation source
+      - path: .artifacts/malcolm-flow-contract.json
+        reason: subject must not read the translated contract
+      - path: .artifacts/malcolm-flow-oracle
+        reason: subject must not read frozen oracle evidence
+      - path: .git
+        reason: repository history and metadata are outside the subject boundary
+
+  network:
+    mode: allowlist
+    allow:
+      - host: localhost
+        ports:
+          - 8080
+        direction: inbound
+        purpose: Sorna readiness and public HTTP requests
+
+  process:
+    subject_id: document_flow
+    can_invoke_subject: false

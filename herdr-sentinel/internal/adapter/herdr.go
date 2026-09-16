@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -227,8 +226,11 @@ func verifyEventArtifacts(receipt *sentinelrun.Receipt, artifactIDs []string, ro
 		if reference == nil {
 			return fmt.Errorf("event references unknown artifact %q", artifactID)
 		}
-		path := filepath.Join(root, filepath.Clean(reference.Ref.Path))
-		contents, err := os.ReadFile(path)
+		resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(root, reference.Ref)
+		if err != nil {
+			return fmt.Errorf("read artifact %q at %s: %w", artifactID, reference.Ref.Path, err)
+		}
+		contents, err := os.ReadFile(resolvedPath)
 		if err != nil {
 			return fmt.Errorf("read artifact %q at %s: %w", artifactID, reference.Ref.Path, err)
 		}

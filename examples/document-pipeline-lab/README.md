@@ -96,13 +96,21 @@ To turn that six-case regression run into one reviewable Sorna envelope, use:
 make sorna-replay-matrix-ci-result
 ```
 
-It writes `.artifacts/document-pipeline-replay-matrix-ci-result.json` with
-the expected classifications and hashes for all six member results.
+The target reads [`replay/matrix.yaml`](replay/matrix.yaml) and writes
+`.artifacts/document-pipeline-replay-matrix-ci-result.json` with the expected
+classifications and hashes for all six member results.
 
 To verify that aggregate later, use:
 
 ```sh
 make sorna-replay-matrix-verify
+```
+
+To rebuild the matrix from source-only inputs and verify it in a separate
+temporary workspace, use:
+
+```sh
+make sorna-replay-matrix-ci-result-fresh
 ```
 
 The temporary fixture provider maps the three prebuilt defect binaries to the

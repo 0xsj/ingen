@@ -20,6 +20,14 @@ type NublarWorkflowSummary struct {
 	File ciresult.FileRef `json:"file"`
 }
 
+// NublarCorrelationSummary identifies the external attempt associated with a
+// Nublar run when the coordinator records one.
+type NublarCorrelationSummary struct {
+	System  string `json:"system"`
+	ID      string `json:"id"`
+	Attempt int64  `json:"attempt"`
+}
+
 // NublarCheckSummary contains the coordinator-owned state of one check.
 // Nested producer results remain opaque to this adapter.
 type NublarCheckSummary struct {
@@ -35,6 +43,7 @@ type NublarRunSummary struct {
 	Schema      string                        `json:"schema"`
 	RunID       string                        `json:"run_id"`
 	Workflow    NublarWorkflowSummary         `json:"workflow"`
+	Correlation *NublarCorrelationSummary     `json:"correlation,omitempty"`
 	Status      string                        `json:"status"`
 	ExitCode    int                           `json:"exit_code"`
 	CreatedAt   string                        `json:"created_at,omitempty"`
@@ -50,6 +59,8 @@ type NublarRunComparison struct {
 	CompatibilityReasons []string         `json:"compatibility_reasons,omitempty"`
 	Before               NublarRunSummary `json:"before"`
 	After                NublarRunSummary `json:"after"`
+	Transition           StateTransition  `json:"transition"`
+	ChangeIDFilter       []string         `json:"change_id_filter,omitempty"`
 	Changes              []Change         `json:"changes,omitempty"`
 	ChangeSummary        ChangeSummary    `json:"change_summary"`
 }
@@ -63,6 +74,11 @@ type nublarRunDocument struct {
 		ID   string           `json:"id"`
 		File ciresult.FileRef `json:"file"`
 	} `json:"workflow"`
+	Correlation *struct {
+		System  string `json:"system"`
+		ID      string `json:"id"`
+		Attempt int64  `json:"attempt"`
+	} `json:"correlation,omitempty"`
 	Status      string `json:"status"`
 	ExitCode    int    `json:"exit_code"`
 	CreatedAt   string `json:"created_at"`
@@ -101,8 +117,13 @@ func WriteNublarJSON(w io.Writer, report NublarRunComparison) error {
 
 // WriteNublarText writes a compact Nublar run comparison.
 func WriteNublarText(w io.Writer, report NublarRunComparison) error {
-	if _, err := fmt.Fprintf(w, "Sattler Nublar run comparison\n  before: %s (%s)\n  after:  %s (%s)\n  compatible: %t\n", report.Before.Path, report.Before.Status, report.After.Path, report.After.Status, report.Compatible); err != nil {
+	if _, err := fmt.Fprintf(w, "Sattler Nublar run comparison\n  before: %s (%s)\n  after:  %s (%s)\n  compatible: %t\n  transition: %s\n", report.Before.Path, report.Before.Status, report.After.Path, report.After.Status, report.Compatible, report.Transition); err != nil {
 		return err
+	}
+	if len(report.ChangeIDFilter) > 0 {
+		if _, err := fmt.Fprintf(w, "  change ID filter: %s\n", strings.Join(report.ChangeIDFilter, ", ")); err != nil {
+			return err
+		}
 	}
 	if _, err := fmt.Fprintf(w, "  time: %s -> %s; completed: %s -> %s\n", report.Before.CreatedAt, report.After.CreatedAt, report.Before.CompletedAt, report.After.CompletedAt); err != nil {
 		return err
@@ -128,7 +149,7 @@ func WriteNublarText(w io.Writer, report NublarRunComparison) error {
 		return err
 	}
 	for _, change := range report.Changes {
-		if _, err := fmt.Fprintf(w, "    - %s %s: %s -> %s\n", change.Category, change.Field, displayValue(change.Before), displayValue(change.After)); err != nil {
+		if _, err := fmt.Fprintf(w, "    - %s %s (id=%s): %s -> %s\n", change.Category, change.Field, change.StableID(), displayValue(change.Before), displayValue(change.After)); err != nil {
 			return err
 		}
 	}
@@ -155,6 +176,11 @@ func loadNublarRun(path string) (nublarRunDocument, error) {
 	}
 	if strings.TrimSpace(document.Workflow.File.SHA256) == "" {
 		return nublarRunDocument{}, fmt.Errorf("Nublar run %s needs a workflow file sha256", path)
+	}
+	if document.Correlation != nil {
+		if strings.TrimSpace(document.Correlation.System) == "" || strings.TrimSpace(document.Correlation.ID) == "" || document.Correlation.Attempt < 1 {
+			return nublarRunDocument{}, fmt.Errorf("Nublar run %s has an invalid correlation", path)
+		}
 	}
 	if len(document.Checks) == 0 {
 		return nublarRunDocument{}, fmt.Errorf("Nublar run %s needs at least one check", path)
@@ -184,14 +210,16 @@ func compareNublarRuns(before, after nublarRunDocument) NublarRunComparison {
 		comparison.CompatibilityReasons = append(comparison.CompatibilityReasons, fmt.Sprintf("workflow id changed from %q to %q", before.Workflow.ID, after.Workflow.ID))
 	}
 	comparison.Compatible = len(comparison.CompatibilityReasons) == 0
+	comparison.Transition = NewStateTransition("status", before.Status, after.Status, comparison.Compatible)
 	add := func(category, field string, oldValue, newValue any) {
 		if valuesEqual(oldValue, newValue) {
 			return
 		}
-		comparison.Changes = append(comparison.Changes, Change{Category: category, Field: field, Before: oldValue, After: newValue})
+		comparison.Changes = append(comparison.Changes, NewChange(category, field, oldValue, newValue))
 	}
 	add("context", "workflow.id", before.Workflow.ID, after.Workflow.ID)
 	add("context", "workflow.file", before.Workflow.File, after.Workflow.File)
+	add("context", "correlation", before.Correlation, after.Correlation)
 	add("verdict", "status", before.Status, after.Status)
 	add("verdict", "exit_code", before.ExitCode, after.ExitCode)
 
@@ -232,10 +260,22 @@ func summarizeNublarRun(document nublarRunDocument) NublarRunSummary {
 		Schema:      document.Schema,
 		RunID:       document.RunID,
 		Workflow:    NublarWorkflowSummary{ID: document.Workflow.ID, File: document.Workflow.File},
+		Correlation: summarizeNublarCorrelation(document.Correlation),
 		Status:      document.Status,
 		ExitCode:    document.ExitCode,
 		CreatedAt:   document.CreatedAt,
 		CompletedAt: document.CompletedAt,
 		Checks:      checks,
 	}
+}
+
+func summarizeNublarCorrelation(correlation *struct {
+	System  string `json:"system"`
+	ID      string `json:"id"`
+	Attempt int64  `json:"attempt"`
+}) *NublarCorrelationSummary {
+	if correlation == nil {
+		return nil
+	}
+	return &NublarCorrelationSummary{System: correlation.System, ID: correlation.ID, Attempt: correlation.Attempt}
 }

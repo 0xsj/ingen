@@ -1,8 +1,8 @@
-# Lockwood detached attestation draft
+# Lockwood detached attestation and handling-event signature draft
 
 Status: draft contract with a local Ed25519 helper and explicit local trust
-registry. It does not add authentication, human identity, or access
-authorization to Lockwood.
+registry. It authenticates control of a signing key when explicitly verified,
+but does not establish human identity or access authorization.
 
 ## Purpose
 
@@ -29,6 +29,24 @@ The attestation envelope is detached from the custody record:
 `target.digest` is the digest returned by `custody.CanonicalDigest`. The
 artifact digest inside the custody record remains the identity of the stored
 payload; the target digest identifies the custody-record representation.
+
+Handling-event signatures use a separate envelope and target kind so a record
+attestation cannot be replayed as an action-history signature:
+
+```json
+{
+  "schema": "lockwood.handling-event-attestation/v1",
+  "target": {
+    "kind": "handling-event",
+    "custody_id": "lockwood-...",
+    "event_id": "event-...",
+    "digest": "sha256:..."
+  },
+  "algorithm": "ed25519",
+  "key_id": "handling-key-2026-01",
+  "signature": "<standard-base64-ed25519-signature>"
+}
+```
 
 ## Signing payload
 
@@ -97,11 +115,11 @@ ID and retains the old ID as revoked; IDs must not be reused by governance.
 Old envelopes are never mutated and remain available for direct
 cryptographic verification even after a key is revoked or expires.
 
-The registry makes a key-status decision for detached-attestation verification
-only. It is not a signer directory, an access-control list, or proof of a
-producer claim. The `verify-attestation-trusted` CLI requires this registry
-explicitly and reports its canonical snapshot digest and evaluation time in a
-transient receipt.
+The registry makes a key-status decision for detached record-attestation and
+handling-event-signature verification. It is not a signer directory, an
+access-control list, or proof of a producer claim. The trusted verification
+CLIs require this registry explicitly and report its canonical snapshot digest
+and evaluation time in transient receipts.
 
 The read-only `verify-attestation` CLI path accepts one explicit
 standard-base64 Ed25519 public-key file. It is an operator-supplied
@@ -158,6 +176,32 @@ typed `attests-custody-record` inspection relation makes the boundary explicit
 without adding a `verifies` lineage edge: current custody lineage digests
 identify stored payload artifacts, while `target.digest` identifies a
 custody-record representation. Custody records remain unchanged.
+
+## Handling-event signatures
+
+The handling-event signing payload is the exact UTF-8 bytes of this
+domain-separated message, constructed with one final newline:
+
+```text
+lockwood.handling-event-attestation/v1
+handling-event
+handling-key-2026-01
+lockwood-...
+event-...
+sha256:<canonical-handling-event-digest>
+```
+
+The envelope binds the event's custody ID, event ID, and canonical digest.
+`sign-handling-event` loads an existing immutable event and publishes only
+the detached envelope; it does not append, edit, or delete the event. The
+read-only verification commands load the event by custody ID and event ID,
+verify the detached artifact, and either use an explicit public key or resolve
+the key through the trust registry.
+
+Successful verification receipts are transient operational evidence. They
+authenticate the signature under the selected key snapshot but do not prove
+that the actor named in the event is a human, that the event was authorized,
+or that any redaction, retention, or legal-hold effect was enforced.
 
 ## Open decisions
 

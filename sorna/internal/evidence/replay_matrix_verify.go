@@ -45,6 +45,9 @@ func VerifyReplayMatrixCIResult(path, sourceRoot string) error {
 	if artifact.Status != report.Status {
 		return fmt.Errorf("matrix CI status %q does not match report status %q", artifact.Status, report.Status)
 	}
+	if err := verifyReplayMatrixManifestBinding(artifact, report, sourceRoot); err != nil {
+		return err
+	}
 
 	explanation, err := decodeReplayMatrixExplanation(artifact.Explanation)
 	if err != nil {
@@ -53,8 +56,14 @@ func VerifyReplayMatrixCIResult(path, sourceRoot string) error {
 	if err := ValidateReplayMatrixExplanation(explanation, report); err != nil {
 		return fmt.Errorf("validate replay matrix explanation: %w", err)
 	}
-	if len(artifact.Inputs) != len(report.Entries) {
-		return fmt.Errorf("matrix CI inputs count %d does not match report entries %d", len(artifact.Inputs), len(report.Entries))
+	memberInputs := 0
+	for name := range artifact.Inputs {
+		if strings.HasPrefix(name, "replay:") {
+			memberInputs++
+		}
+	}
+	if memberInputs != len(report.Entries) {
+		return fmt.Errorf("matrix CI member input count %d does not match report entries %d", memberInputs, len(report.Entries))
 	}
 
 	for _, entry := range report.Entries {
@@ -126,7 +135,7 @@ func ValidateReplayMatrixExplanation(explanation ReplayMatrixExplanation, report
 
 func verifyReplayMatrixInputHashes(artifact ciresult.Artifact, sourceRoot string) error {
 	for name, ref := range artifact.Inputs {
-		if !strings.HasPrefix(name, "replay:") || strings.TrimPrefix(name, "replay:") == "" {
+		if name != "matrix_manifest" && (!strings.HasPrefix(name, "replay:") || strings.TrimPrefix(name, "replay:") == "") {
 			return fmt.Errorf("matrix CI input %q is not a replay member", name)
 		}
 		if !validReplayDigest(ref.SHA256) {
@@ -139,6 +148,34 @@ func verifyReplayMatrixInputHashes(artifact ciresult.Artifact, sourceRoot string
 		}
 		if hash != ref.SHA256 {
 			return fmt.Errorf("matrix CI input %q hash changed", name)
+		}
+	}
+	return nil
+}
+
+func verifyReplayMatrixManifestBinding(artifact ciresult.Artifact, report ReplayMatrixReport, sourceRoot string) error {
+	ref, ok := artifact.Inputs["matrix_manifest"]
+	if !ok {
+		return nil
+	}
+	manifest, err := LoadReplayMatrixManifest(replayMatrixManifestPath(ref.Path, sourceRoot))
+	if err != nil {
+		return fmt.Errorf("load replay matrix manifest: %w", err)
+	}
+	if len(manifest.Cases) != len(report.Entries) {
+		return fmt.Errorf("replay matrix manifest case count %d does not match report entries %d", len(manifest.Cases), len(report.Entries))
+	}
+	entries := make(map[string]ReplayMatrixEntry, len(report.Entries))
+	for _, entry := range report.Entries {
+		entries[entry.ID] = entry
+	}
+	for _, item := range manifest.Cases {
+		entry, ok := entries[item.ID]
+		if !ok {
+			return fmt.Errorf("replay matrix manifest case %q is missing from report", item.ID)
+		}
+		if item.Path != entry.Path || item.ExpectedCIStatus != entry.ExpectedCIStatus || item.ExpectedReplayState != entry.ExpectedReplayState {
+			return fmt.Errorf("replay matrix manifest case %q does not match report expectations", item.ID)
 		}
 	}
 	return nil

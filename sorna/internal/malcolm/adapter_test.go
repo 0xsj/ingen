@@ -55,6 +55,42 @@ func TestTranslateHealthcheckIRToValidSornaContract(t *testing.T) {
 	}
 }
 
+func TestTranslateLowersMustNotRequirement(t *testing.T) {
+	ir := validIR(func(s *Scenario) {
+		s.Requirements[0].Kind = "must_not"
+	})
+	document, err := Translate(ir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := contract.Validate(document); len(problems) > 0 {
+		t.Fatalf("translated contract is invalid: %v", problems)
+	}
+	rule := document.Contract["rules"].([]any)[0].(map[string]any)
+	if rule["strength"] != "must_not" {
+		t.Fatalf("strength = %v, want must_not", rule["strength"])
+	}
+}
+
+func TestTranslateLowersEventRequirement(t *testing.T) {
+	ir := validIR(func(s *Scenario) {
+		s.Requirements[0].Expression = "emit \"document.accepted\""
+	})
+	document, err := Translate(ir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := contract.Validate(document); len(problems) > 0 {
+		t.Fatalf("translated contract is invalid: %v", problems)
+	}
+	rule := document.Contract["rules"].([]any)[0].(map[string]any)
+	expect := rule["expect"].(map[string]any)
+	events := expect["events"].(map[string]any)
+	if got := events["required"].([]any); len(got) != 1 || got[0] != "document.accepted" {
+		t.Fatalf("event expectation = %#v, want document.accepted", events)
+	}
+}
+
 func TestTranslateLowersRequestBodyAndStatefulSetup(t *testing.T) {
 	ir := validIR(func(s *Scenario) {
 		s.State = stringPointer("document_accepted")
@@ -130,16 +166,26 @@ func TestTranslateRejectsMeaningItCannotLower(t *testing.T) {
 			want: "free-form given",
 		},
 		{
-			name: "negative requirement",
+			name: "stateful setup negative requirement",
 			ir: validIR(func(s *Scenario) {
-				s.Requirements[0].Kind = "must_not"
+				s.Setups = []Setup{{
+					Name: "prepare",
+					When: When{
+						Method: "POST",
+						Path:   "/documents",
+					},
+					Requirements: []Requirement{{
+						Kind:       "must_not",
+						Expression: "response.status == 500",
+					}},
+				}}
 			}),
-			want: "must_not",
+			want: "stateful setup only supports must",
 		},
 		{
 			name: "unknown expression",
 			ir: validIR(func(s *Scenario) {
-				s.Requirements[0].Expression = "emit \"document.accepted\""
+				s.Requirements[0].Expression = "response.header.X-InGen-Event exists"
 			}),
 			want: "not lowerable",
 		},

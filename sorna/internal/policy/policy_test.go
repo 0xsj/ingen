@@ -67,6 +67,16 @@ func TestValidateReportsOverlappingFilesystemPathsAndNetworkErrors(t *testing.T)
 	}
 }
 
+func TestValidationRejectsUnknownSchema(t *testing.T) {
+	document := validPolicy()
+	document.Policy["schema"] = "sorna.policy/v1"
+
+	problems := strings.Join(Validate(document), "\n")
+	if !strings.Contains(problems, "policy.schema must be ingen.policy/v1") {
+		t.Fatalf("validation problems = %s, want policy schema identity error", problems)
+	}
+}
+
 func TestSealRejectsNonDraftPolicy(t *testing.T) {
 	document := validPolicy()
 	document.Policy["status"] = "sealed"

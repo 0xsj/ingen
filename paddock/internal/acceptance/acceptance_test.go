@@ -395,6 +395,11 @@ func TestPolicyTestManifestSchemaContract(t *testing.T) {
 func TestAdapterTestSchemasContract(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	assertSchemaContract(t,
+		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-profile-v1.schema.json"),
+		"adapter profile",
+		[]string{"schema", "name", "executable"},
+	)
+	assertSchemaContract(t,
 		filepath.Join(repoRoot, "paddock", "spec", "paddock.adapter-tests-v1.schema.json"),
 		"adapter-test manifest",
 		[]string{"schema", "adapter", "cases"},
@@ -710,6 +715,316 @@ func TestCLIExternalGraphAdapter(t *testing.T) {
 	}
 	if ciArtifact.Graph == nil || ciArtifact.Graph.Path != generatedGraphPath || ciArtifact.Graph.SHA256 == "" {
 		t.Fatalf("direct adapter CI omitted graph evidence: %#v", ciArtifact)
+	}
+}
+
+func TestCLIExternalPythonASTAdapter(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "python-hexagonal.yaml")
+	adapterPath := filepath.Join(repoRoot, "paddock", "examples", "adapter", "python-ast-adapter.py")
+	goodSource := filepath.Join(repoRoot, "paddock", "examples", "services", "python-hexagonal", "good")
+	violatingSource := filepath.Join(repoRoot, "paddock", "examples", "services", "python-hexagonal", "violating")
+
+	output, exitCode := runCLI(t, cli, repoRoot,
+		"adapter", "validate", goodSource,
+		"--language", "python", "--unit", "file",
+		"--adapter", "python3",
+		"--adapter-arg", adapterPath,
+		"--adapter-arg", "--workspace",
+		"--adapter-arg", goodSource,
+		"--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("Python AST adapter validation exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var graphDocument graph.Document
+	if err := json.Unmarshal([]byte(output), &graphDocument); err != nil {
+		t.Fatalf("decode Python AST graph: %v\n%s", err, output)
+	}
+	if graphDocument.Adapter == nil || graphDocument.Adapter.Kind != "external" || graphDocument.Adapter.Name != "paddock-python-ast" || graphDocument.Adapter.Version != "1.0.0" || graphDocument.Adapter.Executable != "python3" || graphDocument.Adapter.ArgsSHA256 == "" || graphDocument.Adapter.ExecutableSHA256 == "" {
+		t.Fatalf("Python AST graph omitted adapter provenance: %#v", graphDocument.Adapter)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"graph", goodSource, "--language", "python",
+		"--adapter", "python3",
+		"--adapter-arg", adapterPath,
+		"--adapter-arg", "--workspace",
+		"--adapter-arg", goodSource,
+		"--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("language-only Python AST graph exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var languageOnlyGraph graph.Document
+	if err := json.Unmarshal([]byte(output), &languageOnlyGraph); err != nil {
+		t.Fatalf("decode language-only Python AST graph: %v\n%s", err, output)
+	}
+	if languageOnlyGraph.Unit != "file" || languageOnlyGraph.Adapter == nil || languageOnlyGraph.Adapter.Name != "paddock-python-ast" {
+		t.Fatalf("language-only graph did not negotiate the default unit and adapter: %#v", languageOnlyGraph)
+	}
+
+	for _, test := range []struct {
+		name         string
+		source       string
+		wantExitCode int
+		wantFindings int
+		wantRule     string
+	}{
+		{name: "good", source: goodSource, wantExitCode: 0, wantFindings: 0},
+		{name: "violating", source: violatingSource, wantExitCode: 1, wantFindings: 2, wantRule: "domain-is-pure"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output, exitCode := runCLI(t, cli, repoRoot,
+				"check", test.source, "--policy", policyPath,
+				"--adapter", "python3",
+				"--adapter-arg", adapterPath,
+				"--adapter-arg", "--workspace",
+				"--adapter-arg", test.source,
+				"--format", "json",
+			)
+			if exitCode != test.wantExitCode {
+				t.Fatalf("Python AST check exit code = %d, want %d; output:\n%s", exitCode, test.wantExitCode, output)
+			}
+			var result model.Result
+			if err := json.Unmarshal([]byte(output), &result); err != nil {
+				t.Fatalf("decode Python AST report: %v\n%s", err, output)
+			}
+			if len(result.Findings) != test.wantFindings {
+				t.Fatalf("Python AST finding count = %d, want %d: %#v", len(result.Findings), test.wantFindings, result.Findings)
+			}
+			if test.wantRule != "" {
+				foundRule := false
+				for _, finding := range result.Findings {
+					if finding.RuleID == test.wantRule {
+						foundRule = true
+						break
+					}
+				}
+				if !foundRule {
+					t.Fatalf("Python AST findings = %#v, want rule %q", result.Findings, test.wantRule)
+				}
+			}
+		})
+	}
+
+	directory := t.TempDir()
+	graphPath := filepath.Join(directory, "python-ast-graph.json")
+	ciPath := filepath.Join(directory, "python-ast-ci-result.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"ci", goodSource, "--policy", policyPath,
+		"--adapter", "python3",
+		"--adapter-arg", adapterPath,
+		"--adapter-arg", "--workspace",
+		"--adapter-arg", goodSource,
+		"--graph-output", graphPath, "--output", ciPath,
+	)
+	if exitCode != 0 {
+		t.Fatalf("Python AST CI exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	ciArtifact, err := artifact.Load(ciPath)
+	if err != nil || ciArtifact.Graph == nil || ciArtifact.Graph.SHA256 == "" {
+		t.Fatalf("Python AST CI artifact omitted graph evidence: err=%v artifact=%#v", err, ciArtifact)
+	}
+	if _, document, err := graph.LoadDocument(graphPath); err != nil || document.Adapter == nil || document.Adapter.Name != "paddock-python-ast" || document.Adapter.Version != "1.0.0" {
+		t.Fatalf("Python AST CI graph omitted adapter identity: err=%v document=%#v", err, document)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "explain", ciPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("Python AST CI explanation exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var explanation explain.Document
+	if err := json.Unmarshal([]byte(output), &explanation); err != nil {
+		t.Fatalf("decode Python AST CI explanation: %v\n%s", err, output)
+	}
+	if explanation.Provenance == nil || explanation.Provenance.Adapter == nil || explanation.Provenance.Adapter.Name != "paddock-python-ast" || explanation.Provenance.Adapter.Version != "1.0.0" {
+		t.Fatalf("Python AST explanation omitted adapter identity: %#v", explanation.Provenance)
+	}
+}
+
+func TestCLIExternalRustUseAdapter(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "rust-hexagonal.yaml")
+	adapterPath := filepath.Join(repoRoot, "paddock", "examples", "adapter", "rust-use-adapter.py")
+	profilePath := filepath.Join(repoRoot, "paddock", "examples", "rust-use-adapter.yaml")
+	policyTestsPath := filepath.Join(repoRoot, "paddock", "examples", "rust-hexagonal.policy-tests.yaml")
+	goodSource := filepath.Join(repoRoot, "paddock", "examples", "services", "rust-hexagonal", "good")
+	violatingSource := filepath.Join(repoRoot, "paddock", "examples", "services", "rust-hexagonal", "violating")
+
+	adapterArgs := func(source string) []string {
+		return []string{
+			"--adapter", "python3",
+			"--adapter-arg", adapterPath,
+			"--adapter-arg", "--workspace",
+			"--adapter-arg", source,
+		}
+	}
+
+	validateArgs := []string{
+		"adapter", "validate", goodSource,
+		"--language", "rust", "--unit", "file",
+		"--format", "json",
+	}
+	validateArgs = append(validateArgs, adapterArgs(goodSource)...)
+	output, exitCode := runCLI(t, cli, repoRoot, validateArgs...)
+	if exitCode != 0 {
+		t.Fatalf("Rust use adapter validation exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var graphDocument graph.Document
+	if err := json.Unmarshal([]byte(output), &graphDocument); err != nil {
+		t.Fatalf("decode Rust use graph: %v\n%s", err, output)
+	}
+	if graphDocument.Language != "rust" || graphDocument.Unit != "file" || graphDocument.PackageCount != 9 || graphDocument.EdgeCount != 13 {
+		t.Fatalf("unexpected Rust use graph shape: %#v", graphDocument)
+	}
+	if graphDocument.Adapter == nil || graphDocument.Adapter.Kind != "external" || graphDocument.Adapter.Name != "paddock-rust-use" || graphDocument.Adapter.Version != "1.0.0" || graphDocument.Adapter.Executable != "python3" || graphDocument.Adapter.ArgsSHA256 == "" || graphDocument.Adapter.ExecutableSHA256 == "" {
+		t.Fatalf("Rust use graph omitted adapter provenance: %#v", graphDocument.Adapter)
+	}
+	profileValidateArgs := []string{
+		"adapter", "validate", goodSource,
+		"--language", "rust", "--unit", "file",
+		"--adapter-config", profilePath,
+		"--format", "json",
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, profileValidateArgs...)
+	if exitCode != 0 {
+		t.Fatalf("Rust adapter profile validation exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var profileGraph graph.Document
+	if err := json.Unmarshal([]byte(output), &profileGraph); err != nil {
+		t.Fatalf("decode Rust adapter profile graph: %v\n%s", err, output)
+	}
+	if profileGraph.Adapter == nil || profileGraph.Adapter.Name != "paddock-rust-use" || profileGraph.PackageCount != 9 || profileGraph.EdgeCount != 13 {
+		t.Fatalf("Rust adapter profile graph is incomplete: %#v", profileGraph)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"graph", goodSource, "--language", "rust", "--unit", "file",
+		"--adapter-config", profilePath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("Rust adapter profile graph command exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var graphFromProfile graph.Document
+	if err := json.Unmarshal([]byte(output), &graphFromProfile); err != nil {
+		t.Fatalf("decode Rust adapter profile graph command: %v\n%s", err, output)
+	}
+	if graphFromProfile.Adapter == nil || graphFromProfile.Adapter.Name != "paddock-rust-use" || graphFromProfile.PackageCount != 9 || graphFromProfile.EdgeCount != 13 {
+		t.Fatalf("Rust adapter profile graph command is incomplete: %#v", graphFromProfile)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"check", goodSource, "--policy", policyPath,
+		"--adapter-config", profilePath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("Rust adapter profile check exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var profileCheck model.Result
+	if err := json.Unmarshal([]byte(output), &profileCheck); err != nil {
+		t.Fatalf("decode Rust adapter profile check: %v\n%s", err, output)
+	}
+	if len(profileCheck.Findings) != 0 {
+		t.Fatalf("Rust adapter profile check reported findings: %#v", profileCheck.Findings)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"policy", "test", "--policy", policyPath, "--cases", policyTestsPath,
+		"--adapter-config", profilePath, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("Rust adapter profile policy test exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var profilePolicyTests policytest.Document
+	if err := json.Unmarshal([]byte(output), &profilePolicyTests); err != nil {
+		t.Fatalf("decode Rust adapter profile policy tests: %v\n%s", err, output)
+	}
+	if profilePolicyTests.Status != "PASS" || profilePolicyTests.Passed != 2 || profilePolicyTests.Failed != 0 {
+		t.Fatalf("Rust adapter profile policy tests are incomplete: %#v", profilePolicyTests)
+	}
+
+	manifestPath := filepath.Join(repoRoot, "paddock", "examples", "rust-use-adapter-tests.yaml")
+	output, exitCode = runCLI(t, cli, repoRoot, "adapter", "test", "validate", "--cases", manifestPath)
+	if exitCode != 0 {
+		t.Fatalf("Rust use adapter manifest validation exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	resultPath := filepath.Join(t.TempDir(), "rust-use-adapter-test-result.json")
+	output, exitCode = runCLI(t, cli, repoRoot, "adapter", "test", "--cases", manifestPath, "--output", resultPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("Rust use adapter manifest execution exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var adapterResult adaptertest.Document
+	if err := json.Unmarshal([]byte(output), &adapterResult); err != nil {
+		t.Fatalf("decode Rust use adapter test result: %v\n%s", err, output)
+	}
+	if adapterResult.Status != "PASS" || adapterResult.Passed != 3 || adapterResult.Failed != 0 || len(adapterResult.Cases) != 3 || adapterResult.Cases[2].ErrorCode != "process-failure" {
+		t.Fatalf("unexpected Rust use adapter test result: %#v", adapterResult)
+	}
+
+	for _, test := range []struct {
+		name         string
+		source       string
+		wantExitCode int
+		wantFindings int
+		wantRule     string
+	}{
+		{name: "good", source: goodSource, wantExitCode: 0, wantFindings: 0},
+		{name: "violating", source: violatingSource, wantExitCode: 1, wantFindings: 2, wantRule: "domain-is-pure"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			checkArgs := []string{"check", test.source, "--policy", policyPath, "--format", "json"}
+			checkArgs = append(checkArgs, adapterArgs(test.source)...)
+			output, exitCode := runCLI(t, cli, repoRoot, checkArgs...)
+			if exitCode != test.wantExitCode {
+				t.Fatalf("Rust use check exit code = %d, want %d; output:\n%s", exitCode, test.wantExitCode, output)
+			}
+			var result model.Result
+			if err := json.Unmarshal([]byte(output), &result); err != nil {
+				t.Fatalf("decode Rust use report: %v\n%s", err, output)
+			}
+			if len(result.Findings) != test.wantFindings {
+				t.Fatalf("Rust use finding count = %d, want %d: %#v", len(result.Findings), test.wantFindings, result.Findings)
+			}
+			if test.wantRule != "" {
+				foundRule := false
+				for _, finding := range result.Findings {
+					if finding.RuleID == test.wantRule {
+						foundRule = true
+						break
+					}
+				}
+				if !foundRule {
+					t.Fatalf("Rust use findings = %#v, want rule %q", result.Findings, test.wantRule)
+				}
+			}
+		})
+	}
+
+	directory := t.TempDir()
+	graphPath := filepath.Join(directory, "rust-use-graph.json")
+	ciPath := filepath.Join(directory, "rust-use-ci-result.json")
+	ciArgs := []string{"ci", goodSource, "--policy", policyPath, "--graph-output", graphPath, "--output", ciPath, "--adapter-config", profilePath}
+	output, exitCode = runCLI(t, cli, repoRoot, ciArgs...)
+	if exitCode != 0 {
+		t.Fatalf("Rust use CI exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	ciArtifact, err := artifact.Load(ciPath)
+	if err != nil || ciArtifact.Graph == nil || ciArtifact.Graph.SHA256 == "" {
+		t.Fatalf("Rust use CI artifact omitted graph evidence: err=%v artifact=%#v", err, ciArtifact)
+	}
+	if _, document, err := graph.LoadDocument(graphPath); err != nil || document.Adapter == nil || document.Adapter.Name != "paddock-rust-use" || document.Adapter.Version != "1.0.0" {
+		t.Fatalf("Rust use CI graph omitted adapter identity: err=%v document=%#v", err, document)
+	}
+
+	output, exitCode = runCLI(t, cli, repoRoot, "explain", ciPath, "--format", "json")
+	if exitCode != 0 {
+		t.Fatalf("Rust use CI explanation exit code = %d, want 0; output:\n%s", exitCode, output)
+	}
+	var explanation explain.Document
+	if err := json.Unmarshal([]byte(output), &explanation); err != nil {
+		t.Fatalf("decode Rust use CI explanation: %v\n%s", err, output)
+	}
+	if explanation.Provenance == nil || explanation.Provenance.Adapter == nil || explanation.Provenance.Adapter.Name != "paddock-rust-use" || explanation.Provenance.Adapter.Version != "1.0.0" {
+		t.Fatalf("Rust use explanation omitted adapter identity: %#v", explanation.Provenance)
 	}
 }
 
@@ -2260,6 +2575,101 @@ cases:
 	}
 	if handoffExplanation.Provenance == nil || handoffExplanation.Provenance.Adapter == nil || handoffExplanation.Provenance.Adapter.Name != "paddock-conformance-python" || handoffExplanation.Provenance.Adapter.Version != "1.0.0" || handoffExplanation.Provenance.Adapter.ArgsSHA256 == "" {
 		t.Fatalf("failing external handoff explanation omitted adapter provenance: %#v", handoffExplanation.Provenance)
+	}
+}
+
+func TestPortableCIWorkflowWithRustAdapter(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	workflow := filepath.Join(repoRoot, "paddock", "examples", "ci", "paddock-gate.sh")
+	policyPath := filepath.Join(repoRoot, "paddock", "examples", "rust-hexagonal.yaml")
+	profilePath := filepath.Join(repoRoot, "paddock", "examples", "rust-use-adapter.yaml")
+	adapterTestsPath := filepath.Join(repoRoot, "paddock", "examples", "rust-use-adapter-tests.yaml")
+	goodSource := filepath.Join(repoRoot, "paddock", "examples", "services", "rust-hexagonal", "good")
+	violatingSource := filepath.Join(repoRoot, "paddock", "examples", "services", "rust-hexagonal", "violating")
+	directory := t.TempDir()
+	lockPath := filepath.Join(directory, "rust-hexagonal.lock.json")
+	adapterTestResultPath := filepath.Join(directory, "rust-adapter-test-result.json")
+	adapterCIResultPath := filepath.Join(directory, "rust-adapter-ci-result.json")
+	graphPath := filepath.Join(directory, "rust-graph.json")
+	resultPath := filepath.Join(directory, "rust-ci-result.json")
+	failingGraphPath := filepath.Join(directory, "rust-violating-graph.json")
+	failingResultPath := filepath.Join(directory, "rust-violating-ci-result.json")
+
+	workflowEnv := func(source, graphOutput, resultOutput string) []string {
+		return []string{
+			"PADDOCK=" + cli,
+			"PADDOCK_POLICY=" + policyPath,
+			"PADDOCK_LOCK=" + lockPath,
+			"PADDOCK_SOURCE_ROOT=" + source,
+			"PADDOCK_ADAPTER_CONFIG=" + profilePath,
+			"PADDOCK_GRAPH_OUTPUT=" + graphOutput,
+			"PADDOCK_RESULT=" + resultOutput,
+			"PADDOCK_ADAPTER_TESTS=" + adapterTestsPath,
+			"PADDOCK_ADAPTER_TEST_RESULT=" + adapterTestResultPath,
+			"PADDOCK_ADAPTER_CI_RESULT=" + adapterCIResultPath,
+		}
+	}
+
+	env := workflowEnv(goodSource, graphPath, resultPath)
+	output, exitCode := runWorkflow(t, workflow, repoRoot, env, "adapter-test")
+	if exitCode != 0 || !strings.Contains(output, "ADAPTER-TEST PASS") || !strings.Contains(output, "VERIFIED "+adapterTestResultPath+" (PASS)") {
+		t.Fatalf("Rust adapter conformance workflow failed: exit=%d output:\n%s", exitCode, output)
+	}
+	adapterTestDocument, err := adaptertest.LoadResult(adapterTestResultPath)
+	if err != nil || adapterTestDocument.Status != "PASS" || adapterTestDocument.Passed != 3 {
+		t.Fatalf("Rust adapter conformance result is invalid: err=%v document=%#v", err, adapterTestDocument)
+	}
+	adapterCIResult, err := ciresult.LoadFile(adapterCIResultPath)
+	if err != nil || adapterCIResult.Kind != "adapter-conformance" || adapterCIResult.Status != "passed" {
+		t.Fatalf("Rust adapter conformance CI result is invalid: err=%v artifact=%#v", err, adapterCIResult)
+	}
+
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "seal")
+	if exitCode != 0 || !strings.Contains(output, "SEALED") {
+		t.Fatalf("Rust adapter policy seal failed: exit=%d output:\n%s", exitCode, output)
+	}
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "verify")
+	if exitCode != 0 || !strings.Contains(output, "VERIFIED") {
+		t.Fatalf("Rust adapter policy verification failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	output, exitCode = runWorkflow(t, workflow, repoRoot, env, "gate")
+	if exitCode != 0 {
+		t.Fatalf("Rust adapter passing gate failed: exit=%d output:\n%s", exitCode, output)
+	}
+	workflowArtifact, err := artifact.Load(resultPath)
+	if err != nil {
+		t.Fatalf("load Rust adapter CI artifact: %v", err)
+	}
+	if workflowArtifact.Status != "passed" || workflowArtifact.Report == nil || len(workflowArtifact.Report.Findings) != 0 || workflowArtifact.Graph == nil || workflowArtifact.Graph.SHA256 == "" {
+		t.Fatalf("Rust adapter passing CI artifact is incomplete: %#v", workflowArtifact)
+	}
+	if _, document, err := graph.LoadDocument(graphPath); err != nil || document.Language != "rust" || document.Unit != "file" || document.PackageCount != 9 || document.EdgeCount != 13 {
+		t.Fatalf("Rust adapter passing graph is invalid: err=%v document=%#v", err, document)
+	} else if document.Adapter == nil || document.Adapter.Kind != "external" || document.Adapter.Name != "paddock-rust-use" || document.Adapter.Version != "1.0.0" || document.Adapter.Executable != "python3" || document.Adapter.ArgsSHA256 == "" || document.Adapter.ExecutableSHA256 == "" {
+		t.Fatalf("Rust adapter passing graph omitted metadata: %#v", document.Adapter)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "ci", "validate", "--input", resultPath)
+	if exitCode != 0 || !strings.Contains(output, "CI-RESULT VALID") {
+		t.Fatalf("Rust adapter passing CI result validation failed: exit=%d output:\n%s", exitCode, output)
+	}
+
+	failingEnv := workflowEnv(violatingSource, failingGraphPath, failingResultPath)
+	output, exitCode = runWorkflow(t, workflow, repoRoot, failingEnv, "gate")
+	if exitCode != 1 {
+		t.Fatalf("Rust adapter violating gate exit code = %d, want 1; output:\n%s", exitCode, output)
+	}
+	failingArtifact, err := artifact.Load(failingResultPath)
+	if err != nil {
+		t.Fatalf("load Rust adapter failing CI artifact: %v", err)
+	}
+	if failingArtifact.Status != "failed" || failingArtifact.Report == nil || len(failingArtifact.Report.Findings) != 2 || failingArtifact.Graph == nil || failingArtifact.Graph.SHA256 == "" {
+		t.Fatalf("Rust adapter failing CI artifact is incomplete: %#v", failingArtifact)
+	}
+	output, exitCode = runCLI(t, cli, repoRoot, "ci", "validate", "--input", failingResultPath)
+	if exitCode != 0 || !strings.Contains(output, "CI-RESULT VALID") {
+		t.Fatalf("Rust adapter failing CI result validation failed: exit=%d output:\n%s", exitCode, output)
 	}
 }
 

@@ -2,6 +2,7 @@ package capability
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -70,6 +71,21 @@ func TestFromFilePreservesManifestAndRoleCapabilities(t *testing.T) {
 	}
 	if plan.Workspace.Manifest.SHA256 == "" {
 		t.Fatal("plan did not preserve a manifest hash")
+	}
+}
+
+func TestFromFileRejectsWorkspaceSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "workspace.yaml"), []byte(workspaceFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "workspace.yaml"), filepath.Join(root, "workspace.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	if _, err := FromFile("workspace.yaml"); err == nil || !strings.Contains(err.Error(), "escapes root") {
+		t.Fatalf("FromFile() = %v, want workspace root-containment rejection", err)
 	}
 }
 

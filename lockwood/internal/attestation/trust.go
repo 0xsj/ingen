@@ -33,8 +33,9 @@ type TrustedKey struct {
 }
 
 // TrustRegistry is a versioned, canonical description of public keys trusted
-// for Lockwood detached-attestation verification. It is not an access-control
-// list and does not identify a human or authorize unrelated actions.
+// for Lockwood detached record and handling-event signature verification. It
+// is not an access-control list and does not identify a human or authorize
+// unrelated actions.
 type TrustRegistry struct {
 	Schema string       `json:"schema"`
 	Keys   []TrustedKey `json:"keys"`

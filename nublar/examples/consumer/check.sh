@@ -6,6 +6,13 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/../../.." && pwd)"
 cd -- "$repo_root"
 
+if [[ -z "${GOCACHE:-}" ]]; then
+  export GOCACHE="$repo_root/.cache/go-build"
+fi
+if [[ -z "${GOMODCACHE:-}" ]]; then
+  export GOMODCACHE="$repo_root/.cache/go-mod"
+fi
+
 check_root="$(mktemp -d "${TMPDIR:-/tmp}/nublar-consumer-check.XXXXXX")"
 trap 'rm -rf -- "$check_root"' EXIT
 
@@ -154,4 +161,81 @@ jq -e '
   ([.checks[] | has("artifact")] | any) == false
 ' "$check_root/malformed-run.decision.json" >/dev/null
 
-echo "Nublar consumer example passed failed/1, passed/0, and error/2 paths"
+set +e
+bash nublar/examples/consumer/nublar-ci-gate.sh \
+  --workflow nublar/testdata/workflows/mixed-producers.yaml \
+  --root nublar/testdata/ci-results \
+  --store "$check_root/history-runs" \
+  --output "$check_root/history-failed-run.json" \
+  --run-id nublar-consumer-history-failed \
+  --external-system github-actions \
+  --external-id build-42 \
+  --attempt 3
+history_failed_code=$?
+
+bash nublar/examples/consumer/nublar-ci-gate.sh \
+  --workflow nublar/testdata/workflows/passed-producer.yaml \
+  --root nublar/testdata/ci-results \
+  --store "$check_root/history-runs" \
+  --output "$check_root/history-passed-run.json" \
+  --run-id nublar-consumer-history-passed \
+  --external-system github-actions \
+  --external-id build-43 \
+  --attempt 1
+history_passed_code=$?
+set -e
+
+if [[ "$history_failed_code" -ne 1 || "$history_passed_code" -ne 0 ]]; then
+  echo "history setup codes=$history_failed_code/$history_passed_code, want 1/0" >&2
+  exit 1
+fi
+
+go run ./nublar/cmd/nublar run list \
+  --store "$check_root/history-runs" \
+  --status failed \
+  --workflow mixed-producers-ci \
+  --external-system github-actions \
+  --external-id build-42 \
+  --attempt 3 \
+  --output "$check_root/history-filtered.json"
+
+jq -e '
+  length == 1 and
+  .[0].run_id == "nublar-consumer-history-failed" and
+  .[0].status == "failed" and
+  .[0].correlation == {system: "github-actions", id: "build-42", attempt: 3}
+' "$check_root/history-filtered.json" >/dev/null
+
+go run ./nublar/cmd/nublar run show \
+  --store "$check_root/history-runs" \
+  --run-id nublar-consumer-history-passed \
+  --output "$check_root/history-shown.json"
+
+jq -e '
+  .schema == "ingen.nublar-run/v1" and
+  .run_id == "nublar-consumer-history-passed" and
+  .status == "passed" and
+  (.checks | length) == 1
+' "$check_root/history-shown.json" >/dev/null
+
+set +e
+go run ./nublar/cmd/nublar run show \
+  --store "$check_root/history-runs" \
+  --run-id nublar-consumer-history-failed \
+  --output "$check_root/history-failed-shown.json"
+failed_show_code=$?
+set -e
+
+if [[ "$failed_show_code" -ne 1 ]]; then
+  echo "run show exit code=$failed_show_code, want stored failed decision code 1" >&2
+  exit 1
+fi
+
+jq -e '
+  .schema == "ingen.nublar-run/v1" and
+  .run_id == "nublar-consumer-history-failed" and
+  .status == "failed" and
+  .exit_code == 1
+' "$check_root/history-failed-shown.json" >/dev/null
+
+echo "Nublar consumer example passed decision, strict-ingestion, and history paths"

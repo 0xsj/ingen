@@ -106,6 +106,19 @@ func TestValidateRejectsEmptyOracle(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnknownSchema(t *testing.T) {
+	artifact, err := generateTestOracle(testContract(), strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact.Schema = "sorna.oracle/v1"
+
+	problems := Validate(artifact)
+	if !containsOracleProblem(problems, "oracle.schema must be ingen.oracle/v1") {
+		t.Fatalf("validation problems = %v, want oracle schema identity error", problems)
+	}
+}
+
 func TestValidateRejectsAmbiguousCaseAndRuleIdentities(t *testing.T) {
 	artifact, err := generateTestOracle(testContract(), strings.Repeat("c", 64))
 	if err != nil {

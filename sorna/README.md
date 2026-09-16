@@ -9,11 +9,20 @@ implementation slices. The contract package and CLI can load, validate,
 canonicalize, and seal a contract locally or in CI without Herdr. Sorna can
 also freeze a deterministic oracle in a sandbox and checksum its evidence.
 
+The current document-pipeline alpha stopping point is recorded in
+[`ALPHA-READINESS.md`](ALPHA-READINESS.md). Run the complete Sorna readiness
+check with:
+
+```sh
+make sorna-alpha-check
+```
+
 Malcolm can hand its JSON IR slice to Sorna through the small `sorna-malcolm`
 adapter. The adapter intentionally accepts only meaning it can lower without
 loss: typed top-level request bodies, stateful setup requests with positive
-status/body assertions, top-level response field equality/presence, and
-captures of top-level response fields. The repeatable repository example is:
+status/body assertions, top-level response field equality/presence, captures
+of top-level response fields, and explicit `X-InGen-Event` event signals. The
+repeatable repository example is:
 
 ~~~sh
 make malcolm-sorna-contract
@@ -33,6 +42,22 @@ make malcolm-sorna-flow-contract
 It compiles malcolm/examples/document_flow.malcolm and validates the generated
 contract, including executable `given.body`, `given.setup`, `given.state`, and
 capture data.
+
+The flow also includes `must emit "document.accepted"`. The adapter lowers
+this to `expect.events.required`, and the HTTP/JSON runner observes event names
+from the subject's `X-InGen-Event` response header. This is a public subject
+signal, separate from Sorna lifecycle and host-access telemetry.
+
+The full stateful and event behavioral proof is:
+
+~~~sh
+make malcolm-sorna-flow-run
+~~~
+
+This seals the generated contract, freezes its oracle under a dedicated
+oracle policy, runs the managed document subject under a separate subject
+policy, and verifies the resulting evidence bundle under
+.artifacts/malcolm-flow-run.
 
 The full first behavioral proof is available with:
 
@@ -116,6 +141,14 @@ The document-pipeline replay regressions can be collected into one CI result:
 make sorna-replay-matrix-ci-result
 ```
 
+The Make target reads the reviewable manifest at
+`examples/document-pipeline-lab/replay/matrix.yaml`. Other CI systems can use
+the same interface directly:
+
+```sh
+sorna evidence replay matrix --manifest <path> [--source-root <dir>] [--output <path>]
+```
+
 The resulting `kind: behavioral-replay-matrix` artifact binds each member
 envelope by path and SHA-256, checks its nested replay report, and passes only
 when every expected `passed`, `failed`, or `error` / `matched`, `drifted`, or
@@ -126,6 +159,18 @@ Verify the saved aggregate and its member inputs independently with:
 ```sh
 sorna evidence replay matrix verify [--source-root <dir>] <ci-result>
 ```
+
+To regenerate the complete six-case regression matrix without using local
+artifacts, use:
+
+```sh
+make sorna-replay-matrix-ci-result-fresh
+```
+
+This copies source-only inputs into a temporary workspace, rebuilds every
+member, creates the matrix, and independently verifies it there. The temporary
+workspace path is printed when the target exits so its artifacts can be
+inspected.
 
 Saved replay reports can be checked independently before they are consumed:
 

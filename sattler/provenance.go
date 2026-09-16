@@ -34,6 +34,8 @@ type AmberProvenanceComparison struct {
 	CompatibilityReasons []string               `json:"compatibility_reasons,omitempty"`
 	Before               AmberProvenanceSummary `json:"before"`
 	After                AmberProvenanceSummary `json:"after"`
+	Transition           StateTransition        `json:"transition"`
+	ChangeIDFilter       []string               `json:"change_id_filter,omitempty"`
 	Changes              []Change               `json:"changes,omitempty"`
 	ChangeSummary        ChangeSummary          `json:"change_summary"`
 }
@@ -79,8 +81,13 @@ func WriteAmberProvenanceJSON(w io.Writer, report AmberProvenanceComparison) err
 
 // WriteAmberProvenanceText writes a compact provenance comparison.
 func WriteAmberProvenanceText(w io.Writer, report AmberProvenanceComparison) error {
-	if _, err := fmt.Fprintf(w, "Sattler Amber provenance comparison\n  before: %s (%s)\n  after:  %s (%s)\n  compatible: %t\n", report.Before.Path, report.Before.ExecutionID, report.After.Path, report.After.ExecutionID, report.Compatible); err != nil {
+	if _, err := fmt.Fprintf(w, "Sattler Amber provenance comparison\n  before: %s (%s)\n  after:  %s (%s)\n  compatible: %t\n  transition: %s\n", report.Before.Path, report.Before.ExecutionID, report.After.Path, report.After.ExecutionID, report.Compatible, report.Transition); err != nil {
 		return err
+	}
+	if len(report.ChangeIDFilter) > 0 {
+		if _, err := fmt.Fprintf(w, "  change ID filter: %s\n", strings.Join(report.ChangeIDFilter, ", ")); err != nil {
+			return err
+		}
 	}
 	if _, err := fmt.Fprintf(w, "  change summary: %s\n", report.ChangeSummary); err != nil {
 		return err
@@ -103,7 +110,7 @@ func WriteAmberProvenanceText(w io.Writer, report AmberProvenanceComparison) err
 		return err
 	}
 	for _, change := range report.Changes {
-		if _, err := fmt.Fprintf(w, "    - %s %s: %s -> %s\n", change.Category, change.Field, displayValue(change.Before), displayValue(change.After)); err != nil {
+		if _, err := fmt.Fprintf(w, "    - %s %s (id=%s): %s -> %s\n", change.Category, change.Field, change.StableID(), displayValue(change.Before), displayValue(change.After)); err != nil {
 			return err
 		}
 	}
@@ -149,11 +156,12 @@ func compareAmberProvenance(before, after amberProvenanceDocument) AmberProvenan
 		comparison.CompatibilityReasons = append(comparison.CompatibilityReasons, fmt.Sprintf("correlation id changed from %q to %q", before.CorrelationID, after.CorrelationID))
 	}
 	comparison.Compatible = len(comparison.CompatibilityReasons) == 0
+	comparison.Transition = NewStateTransition("mode.kind", before.Mode.Kind, after.Mode.Kind, comparison.Compatible)
 	add := func(category, field string, oldValue, newValue any) {
 		if valuesEqual(oldValue, newValue) {
 			return
 		}
-		comparison.Changes = append(comparison.Changes, Change{Category: category, Field: field, Before: oldValue, After: newValue})
+		comparison.Changes = append(comparison.Changes, NewChange(category, field, oldValue, newValue))
 	}
 	add("identity", "work_id", before.WorkID, after.WorkID)
 	add("identity", "execution_id", before.ExecutionID, after.ExecutionID)

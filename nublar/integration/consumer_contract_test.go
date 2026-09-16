@@ -48,17 +48,27 @@ func TestConsumerContractCollectsStoresProjectsAndDelivers(t *testing.T) {
 
 	var received delivery.Decision
 	var receivedKey string
+	var receivedKeys []string
+	requests := 0
 	transport := integrationRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
 		receivedKey = request.Header.Get("Idempotency-Key")
+		receivedKeys = append(receivedKeys, receivedKey)
 		if request.Method != http.MethodPost || request.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("request = %s %s, want JSON POST", request.Method, request.URL)
 		}
 		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
 			t.Errorf("decode webhook decision: %v", err)
 		}
+		statusCode := http.StatusNoContent
+		status := "204 No Content"
+		if requests == 2 {
+			statusCode = http.StatusBadGateway
+			status = "502 Bad Gateway"
+		}
 		return &http.Response{
-			StatusCode: http.StatusNoContent,
-			Status:     "204 No Content",
+			StatusCode: statusCode,
+			Status:     status,
 			Body:       io.NopCloser(strings.NewReader("")),
 			Header:     make(http.Header),
 		}, nil
@@ -76,6 +86,54 @@ func TestConsumerContractCollectsStoresProjectsAndDelivers(t *testing.T) {
 	}
 	if received.RunID != record.RunID || received.Status != decision.Status || received.Correlation == nil || *received.Correlation != *correlation {
 		t.Fatalf("received decision = %+v, want correlated delivery decision", received)
+	}
+	receiptStore, err := nublarstore.NewReceiptStore(filepath.Join(t.TempDir(), "receipts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := receiptStore.Save(receipt); err != nil {
+		t.Fatal(err)
+	}
+	storedReceipts, err := receiptStore.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(storedReceipts) != 1 || storedReceipts[0].Status != "accepted" || storedReceipts[0].RunID != record.RunID {
+		t.Fatalf("stored receipts = %+v, want accepted receipt for %q", storedReceipts, record.RunID)
+	}
+	failedReceipt, publishErr := publisher.Publish(context.Background(), decision)
+	if publishErr == nil {
+		t.Fatal("second delivery succeeded, want controlled webhook failure")
+	}
+	if failedReceipt.Status != "failed" || failedReceipt.HTTPStatus != http.StatusBadGateway || failedReceipt.Error == "" || receivedKey != record.RunID {
+		t.Fatalf("failed receipt = %+v, idempotency key = %q, want failed delivery for %q", failedReceipt, receivedKey, record.RunID)
+	}
+	if err := receiptStore.Save(failedReceipt); err != nil {
+		t.Fatal(err)
+	}
+	storedReceipts, err = receiptStore.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(storedReceipts) != 2 {
+		t.Fatalf("stored receipts after retry = %+v, want two delivery attempts", storedReceipts)
+	}
+	statuses := map[string]bool{}
+	for _, storedReceipt := range storedReceipts {
+		if storedReceipt.RunID != record.RunID {
+			t.Fatalf("stored receipt = %+v, want receipt for %q", storedReceipt, record.RunID)
+		}
+		statuses[storedReceipt.Status] = true
+	}
+	if !statuses["accepted"] || !statuses["failed"] || len(receivedKeys) != 2 || receivedKeys[0] != record.RunID || receivedKeys[1] != record.RunID {
+		t.Fatalf("retry evidence statuses=%+v keys=%v, want accepted/failed and repeated run ID", statuses, receivedKeys)
+	}
+	storedRun, err := store.Load(record.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedRun.Status != "failed" || storedRun.ExitCode != 1 {
+		t.Fatalf("stored run after delivery retry = %+v, want unchanged failed run", storedRun)
 	}
 	encoded, err := json.Marshal(received)
 	if err != nil {

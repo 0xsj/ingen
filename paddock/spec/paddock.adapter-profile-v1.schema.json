@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paddock.dev/schema/paddock.adapter-profile-v1.schema.json",
+  "title": "Paddock external adapter profile",
+  "description": "Reusable executable and argument configuration for an external Paddock graph adapter.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "executable"],
+  "properties": {
+    "schema": {"const": "paddock.adapter-profile/v1"},
+    "name": {"type": "string", "minLength": 1},
+    "executable": {"type": "string", "minLength": 1},
+    "args": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

@@ -70,6 +70,7 @@ func (capture *darwinAccessCapture) Attach(processID int) error {
 	if processID <= 0 {
 		return fmt.Errorf("access capture process ID must be positive")
 	}
+	var initialSampleDone chan struct{}
 	capture.mu.Lock()
 	capture.processIDs[processID] = struct{}{}
 	if capture.samplingInterval <= 0 {
@@ -82,12 +83,18 @@ func (capture *darwinAccessCapture) Attach(processID int) error {
 		capture.samplerStarted = true
 		capture.samplerStop = make(chan struct{})
 		capture.samplerDone = make(chan struct{})
-		go capture.sampleProcessTree(processID)
+		initialSampleDone = make(chan struct{})
 	}
 	capture.mu.Unlock()
+	if initialSampleDone != nil {
+		go capture.sampleProcessTree(processID, initialSampleDone)
+	}
 	// Take one synchronous sample before returning so a short-lived process
 	// cannot finish before the asynchronous sampler gets its first turn.
 	capture.extendProcessTree(processID)
+	if initialSampleDone != nil {
+		close(initialSampleDone)
+	}
 	return nil
 }
 
@@ -213,7 +220,7 @@ func (capture *darwinAccessCapture) snapshotExecutableSampling() (int, time.Dura
 	return capture.executableSamples, capture.samplingInterval, capture.samplingStartedAt, capture.samplingStoppedAt
 }
 
-func (capture *darwinAccessCapture) sampleProcessTree(rootProcessID int) {
+func (capture *darwinAccessCapture) sampleProcessTree(rootProcessID int, initialSampleDone <-chan struct{}) {
 	defer close(capture.samplerDone)
 	capture.mu.Lock()
 	interval := capture.samplingInterval
@@ -221,6 +228,13 @@ func (capture *darwinAccessCapture) sampleProcessTree(rootProcessID int) {
 		interval = executableSamplingInterval
 	}
 	capture.mu.Unlock()
+	select {
+	case <-initialSampleDone:
+	case <-capture.samplerStop:
+		return
+	case <-capture.ctx.Done():
+		return
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {

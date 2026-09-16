@@ -43,7 +43,10 @@ project_id + contract_id + version + artifact_sha256
 
 The artifact digest is the SHA-256 of the canonical contract bytes consumed by
 the governed workflow. A path or URI is useful for retrieval, but it is not an
-identity and must never replace the digest.
+identity and must never replace the digest. The local contract, policy, and
+authority loaders accept filesystem paths only; they do not turn URL schemes
+into network requests. Membership HTTP transport is a separate, explicit
+boundary.
 
 At a local ingress boundary, Hammond may load the referenced artifact and
 verify that its bytes produce the recorded digest. This check establishes byte
@@ -165,13 +168,20 @@ which bytes were loaded, while the signature identifies an issuing key.
 The caller-owned trust input may itself be a versioned Hammond trust snapshot.
 It can retain old keys as `revoked` while introducing a new `active` key, so
 rotation rejects signatures made by the revoked key. The trust snapshot is a
-configuration input, not a self-authenticating root of trust.
+configuration input, not a self-authenticating root of trust. Its rotation
+helper preserves the trust ID and requires a strictly increasing version,
+preventing a previously valid trust snapshot from being replayed.
+When the root layer is available, callers can bind that rotation directly to
+the active keys of a validated `AuthorityRootStore`.
 
 The caller may keep the root layer as a separate versioned root snapshot.
 `AuthorityRootStore` exposes only its active keys and can verify a replacement
 root snapshot with a bootstrap or predecessor root set. This makes root-key
 rotation explicit and fail-closed for revoked keys; initial root-key delivery,
-approval, and any multi-party rotation rule remain caller-owned.
+approval, and any multi-party rotation rule remain caller-owned. The bootstrap
+must pin the expected root ID, initial version, and public keys; a snapshot
+that differs from those pins is rejected. Its rotation helper also requires a
+stable root ID and strictly increasing version.
 
 For a stronger local chain, the trust snapshot may carry its own Ed25519 root
 signature. Hammond verifies that signature with a separately configured root
@@ -279,6 +289,7 @@ The v1 validator must reject:
   validation is requested;
 - a root snapshot with invalid key material or a signature that is not trusted
   by the configured bootstrap or predecessor root set;
+- an authority trust snapshot with no keys or invalid active-key material;
 - a signed authority artifact with a missing, unknown, malformed, or invalid
   signature when signature verification is requested;
 - an amendment without a predecessor, successor, kind, reason, or author;

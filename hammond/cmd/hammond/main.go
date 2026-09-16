@@ -31,6 +31,8 @@ func run(args []string) int {
 		return supersedeCommand(args[1:])
 	case "show":
 		return showCommand(args[1:])
+	case "revision":
+		return revisionCommand(args[1:])
 	case "list":
 		return listCommand(args[1:])
 	case "lineage":
@@ -74,6 +76,7 @@ func appendEventCommand(args []string) int {
 	root := flags.String("store", "", "directory for Hammond records")
 	recordPath := flags.String("record", "", "JSON file identifying the stored contract")
 	eventPath := flags.String("event", "", "JSON file containing one governance event")
+	expectedRevision := flags.String("if-revision", "", "append only if the stored record has this revision")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -93,7 +96,12 @@ func appendEventCommand(args []string) int {
 	if err != nil {
 		return printError(err)
 	}
-	updated, err := fileStore.AppendEvent(record.Contract.Identity(), event)
+	var updated governance.Record
+	if *expectedRevision == "" {
+		updated, err = fileStore.AppendEvent(record.Contract.Identity(), event)
+	} else {
+		updated, err = fileStore.AppendEventIfRevision(record.Contract.Identity(), *expectedRevision, event)
+	}
 	if err != nil {
 		return printError(err)
 	}
@@ -111,6 +119,7 @@ func amendCommand(args []string) int {
 	at := flags.String("at", "", "RFC3339 UTC amendment timestamp")
 	kind := flags.String("kind", "", "amendment kind")
 	reason := flags.String("reason", "", "reason for the amendment")
+	expectedRevision := flags.String("if-revision", "", "amend only if the predecessor has this revision")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -138,7 +147,12 @@ func amendCommand(args []string) int {
 	if err != nil {
 		return printError(err)
 	}
-	updated, err := fileStore.CreateAmendment(predecessor.Contract.Identity(), successor, event)
+	var updated governance.Record
+	if *expectedRevision == "" {
+		updated, err = fileStore.CreateAmendment(predecessor.Contract.Identity(), successor, event)
+	} else {
+		updated, err = fileStore.CreateAmendmentIfRevision(predecessor.Contract.Identity(), *expectedRevision, successor, event)
+	}
 	if err != nil {
 		return printError(err)
 	}
@@ -157,6 +171,7 @@ func supersedeCommand(args []string) int {
 	eventID := flags.String("event-id", "", "stable supersession event ID")
 	actor := flags.String("actor", "", "actor superseding the predecessor")
 	at := flags.String("at", "", "RFC3339 UTC supersession timestamp")
+	expectedRevision := flags.String("if-revision", "", "supersede only if the predecessor has this revision")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -188,7 +203,12 @@ func supersedeCommand(args []string) int {
 	if err != nil {
 		return printError(err)
 	}
-	updated, err := fileStore.Supersede(predecessor.Contract.Identity(), successor.Contract.Identity(), event)
+	var updated governance.Record
+	if *expectedRevision == "" {
+		updated, err = fileStore.Supersede(predecessor.Contract.Identity(), successor.Contract.Identity(), event)
+	} else {
+		updated, err = fileStore.SupersedeIfRevision(predecessor.Contract.Identity(), *expectedRevision, successor.Contract.Identity(), event)
+	}
 	if err != nil {
 		return printError(err)
 	}
@@ -220,6 +240,39 @@ func showCommand(args []string) int {
 		return printError(err)
 	}
 	return writeJSON(stored)
+}
+
+func revisionCommand(args []string) int {
+	flags := flag.NewFlagSet("revision", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("store", "", "directory for Hammond records")
+	recordPath := flags.String("record", "", "JSON file identifying the stored contract")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *root == "" || *recordPath == "" {
+		fmt.Fprintln(os.Stderr, "usage: hammond revision --store <dir> --record <path>")
+		return 2
+	}
+	record, err := loadRecord(*recordPath)
+	if err != nil {
+		return printError(err)
+	}
+	fileStore, err := store.NewFileStore(*root)
+	if err != nil {
+		return printError(err)
+	}
+	stored, err := fileStore.Get(record.Contract.Identity())
+	if err != nil {
+		return printError(err)
+	}
+	revision, err := store.RecordRevision(stored)
+	if err != nil {
+		return printError(fmt.Errorf("calculate Hammond record revision: %w", err))
+	}
+	return writeJSON(struct {
+		Revision string `json:"revision"`
+	}{Revision: revision})
 }
 
 func listCommand(args []string) int {
@@ -335,10 +388,11 @@ func printError(err error) int {
 func usage() {
 	message := `usage:
   hammond register --store <dir> --record <path>
-  hammond append-event --store <dir> --record <path> --event <path>
-  hammond amend --store <dir> --record <path> --successor <path> --event-id <id> --actor <actor> --at <RFC3339 UTC> --kind <kind> --reason <text>
-  hammond supersede --store <dir> --record <path> --successor <path> --event-id <id> --actor <actor> --at <RFC3339 UTC>
+  hammond append-event --store <dir> --record <path> --event <path> [--if-revision <revision>]
+  hammond amend --store <dir> --record <path> --successor <path> --event-id <id> --actor <actor> --at <RFC3339 UTC> --kind <kind> --reason <text> [--if-revision <revision>]
+  hammond supersede --store <dir> --record <path> --successor <path> --event-id <id> --actor <actor> --at <RFC3339 UTC> [--if-revision <revision>]
   hammond show --store <dir> --record <path>
+  hammond revision --store <dir> --record <path>
   hammond list --store <dir>
   hammond lineage --store <dir>`
 	fmt.Fprintln(os.Stderr, strings.TrimSpace(message))

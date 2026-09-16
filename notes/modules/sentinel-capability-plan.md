@@ -35,6 +35,9 @@ those policies into behavioral rules.
 - The oracle rule is checked against the workspace's top-level
   `implementation_roots`, including defect and mutation-source roots that may
   not be writable by the implementation role.
+- Workspace manifests and policy references are resolved under the current
+  project root when the plan is created; symlink escapes are rejected before
+  their bytes are hashed into the plan.
 - Host-specific policy syntax, process launch, access telemetry, and signed
   attestations remain outside this slice.
 

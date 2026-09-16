@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"ingen/core/ciresult"
+	sentinelrun "ingen/herdr-sentinel/internal/run"
 	"ingen/herdr-sentinel/internal/workspace"
 )
 
@@ -54,7 +55,11 @@ func FromFile(path string) (Plan, error) {
 	if err := validateRelativePath("workspace manifest", path); err != nil {
 		return Plan{}, err
 	}
-	contents, err := os.ReadFile(path)
+	resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(".", ciresult.FileRef{Path: path})
+	if err != nil {
+		return Plan{}, fmt.Errorf("resolve Sentinel workspace %s: %w", path, err)
+	}
+	contents, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return Plan{}, fmt.Errorf("read Sentinel workspace %s: %w", path, err)
 	}
@@ -260,7 +265,11 @@ func fileReference(path string) (ciresult.FileRef, error) {
 	if err := validateRelativePath("policy", path); err != nil {
 		return ciresult.FileRef{}, err
 	}
-	contents, err := os.ReadFile(path)
+	resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(".", ciresult.FileRef{Path: path})
+	if err != nil {
+		return ciresult.FileRef{}, fmt.Errorf("resolve Sentinel policy %s: %w", path, err)
+	}
+	contents, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return ciresult.FileRef{}, fmt.Errorf("read Sentinel policy %s: %w", path, err)
 	}

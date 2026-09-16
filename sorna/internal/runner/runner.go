@@ -135,6 +135,7 @@ type Request struct {
 
 type Observation struct {
 	Status   int             `json:"status"`
+	Events   []string        `json:"events,omitempty"`
 	Body     json.RawMessage `json:"body,omitempty"`
 	BodyText string          `json:"body_text,omitempty"`
 }
@@ -408,6 +409,27 @@ func executeCase(ctx context.Context, base *url.URL, client *http.Client, index 
 		return result
 	}
 	result.Assertions = assertions
+	if testCase.Strength == "must_not" {
+		if len(assertions) == 0 {
+			result.Reason = "must_not rule has no executable expectation"
+			return result
+		}
+		prohibited := true
+		for _, assertion := range assertions {
+			if assertion.Status != "pass" {
+				prohibited = false
+				break
+			}
+		}
+		if prohibited {
+			result.Status = "fail"
+			result.Reason = "prohibited expectation matched the observation"
+		} else {
+			result.Status = "pass"
+			result.Reason = "prohibited expectation did not match the observation"
+		}
+		return result
+	}
 	result.Status = "pass"
 	for _, assertion := range assertions {
 		if assertion.Status != "pass" {
@@ -643,7 +665,10 @@ func readObservation(response *http.Response) (Observation, error) {
 	if err != nil {
 		return Observation{}, err
 	}
-	observation := Observation{Status: response.StatusCode}
+	observation := Observation{
+		Status: response.StatusCode,
+		Events: responseEvents(response.Header),
+	}
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 {
 		observation.Body = json.RawMessage("null")
@@ -660,6 +685,27 @@ func readObservation(response *http.Response) (Observation, error) {
 	}
 	observation.Body = json.RawMessage(compact.Bytes())
 	return observation, nil
+}
+
+const subjectEventHeader = "X-InGen-Event"
+
+func responseEvents(headers http.Header) []string {
+	events := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, value := range headers.Values(subjectEventHeader) {
+		for _, rawEvent := range strings.Split(value, ",") {
+			event := strings.TrimSpace(rawEvent)
+			if event == "" {
+				continue
+			}
+			if _, exists := seen[event]; exists {
+				continue
+			}
+			seen[event] = struct{}{}
+			events = append(events, event)
+		}
+	}
+	return events
 }
 
 func observationHash(observation Observation) string {
@@ -709,6 +755,17 @@ func evaluate(expect map[string]any, observation Observation) ([]Assertion, erro
 	if expectedStatus, present := expect["status"]; present {
 		assertions = append(assertions, equalityAssertion("status", expectedStatus, observation.Status))
 	}
+	if expectedEvents, present := expect["events"]; present {
+		spec, ok := expectedEvents.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("expect.events must be an object")
+		}
+		eventAssertions, err := evaluateEvents(spec, observation.Events)
+		if err != nil {
+			return nil, err
+		}
+		assertions = append(assertions, eventAssertions...)
+	}
 	if expectedBody, present := expect["body"]; present {
 		spec, ok := expectedBody.(map[string]any)
 		if !ok {
@@ -728,6 +785,45 @@ func evaluate(expect map[string]any, observation Observation) ([]Assertion, erro
 		assertions = append(assertions, evaluateExactObject("body.error", errorValue, spec)...)
 	}
 	return assertions, nil
+}
+
+func evaluateEvents(spec map[string]any, actual []string) ([]Assertion, error) {
+	rawRequired, present := spec["required"]
+	if !present {
+		return nil, fmt.Errorf("expect.events.required is required")
+	}
+	required, ok := rawRequired.([]any)
+	if !ok {
+		return nil, fmt.Errorf("expect.events.required must be a list")
+	}
+	actualSet := make(map[string]struct{}, len(actual))
+	for _, event := range actual {
+		actualSet[event] = struct{}{}
+	}
+	assertions := make([]Assertion, 0, len(required))
+	for _, rawEvent := range required {
+		event, ok := rawEvent.(string)
+		if !ok || strings.TrimSpace(event) == "" {
+			return nil, fmt.Errorf("expect.events.required entries must be non-empty strings")
+		}
+		event = strings.TrimSpace(event)
+		_, exists := actualSet[event]
+		assertions = append(assertions, Assertion{
+			Path:     "events." + event,
+			Expected: "present",
+			Actual:   existenceValue(exists),
+			Status:   statusFor(exists),
+			Reason:   eventMissingReason(exists),
+		})
+	}
+	return assertions, nil
+}
+
+func eventMissingReason(exists bool) string {
+	if exists {
+		return ""
+	}
+	return "event was not emitted"
 }
 
 func evaluateShape(path string, actual any, spec map[string]any) []Assertion {

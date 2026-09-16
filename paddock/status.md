@@ -133,6 +133,8 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
   deterministic path-pattern validation and external-adapter propagation.
 - Python file graph adapter.
 - External adapter protocol with capability negotiation.
+- Reusable `paddock.adapter-profile/v1` files with per-root argument
+  expansion for direct commands and policy-test workflows.
 - Adapter conformance validation without policy evaluation.
 - Structured adapter validation diagnostics for process, graph, language,
   source-unit, and capability failures.
@@ -145,6 +147,9 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 - Adapter-test results can be wrapped as shared `ingen.ci-result/v1` artifacts.
 - Portable CI workflow mode for adapter conformance checks.
 - Optional shared CI-result envelopes for adapter conformance evidence.
+- The portable workflow now has a real Rust example that runs adapter
+  conformance, policy sealing/verification, and both passing and failing
+  external-adapter gates with durable graph and CI-result validation.
 - Component classification and language-neutral policy format.
 - Layer direction, allow/deny dependency, cross-context, cycle, coverage,
   required-dependency, component ownership, and unresolved-import rules.
@@ -250,6 +255,14 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 - Go, TypeScript, and Python service examples.
 - TypeScript good/violating boundary fixture.
 - Dependency-free Python external-adapter conformance fixture.
+- Dependency-free Python AST adapter example that discovers and resolves real
+  local imports, with good/violating policy checks and CI provenance coverage.
+- Dependency-free Rust `use`/`mod` adapter example that proves an unsupported
+  language can provide a real file graph, pass a hexagonal policy, and surface
+  purity/cycle findings through the same external-adapter seam. It is
+  intentionally a constrained parser, not a complete Rust front end. Its
+  committed adapter-test manifest covers both graph shapes and rejects a
+  non-Rust request.
 - Overwatch backend review policy, lock, and policy tests.
 - Overwatch UI draft policy, layered proposal, lock, and policy tests.
 - Architecture-boundary Go fixtures covering approved shared-kernel and inward

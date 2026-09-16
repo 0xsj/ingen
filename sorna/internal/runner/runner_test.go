@@ -242,6 +242,147 @@ func TestExecuteUsesOnlyTheHTTPBoundaryAndExecutesStateSetup(t *testing.T) {
 	}
 }
 
+func TestExecuteHonorsMustNotRuleStrength(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus string
+	}{
+		{
+			name:       "prohibited field is absent",
+			body:       `{"status":"ok"}`,
+			wantStatus: "pass",
+		},
+		{
+			name:       "prohibited field is present",
+			body:       `{"error":{"code":"unexpected"}}`,
+			wantStatus: "fail",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sealed := sealForTest(t, []any{map[string]any{
+				"id":       "health.no-error",
+				"strength": "must_not",
+				"subject":  "GET /healthz",
+				"expect": map[string]any{
+					"body": map[string]any{
+						"required": []any{"error"},
+					},
+				},
+			}})
+			record, err := Execute(context.Background(), sealed, Config{
+				BaseURL: "http://subject.invalid",
+				Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					return responseFor(request, 200, test.body), nil
+				})},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if record.Rules[0].Status != test.wantStatus {
+				t.Fatalf("rule result = %+v, want status %s", record.Rules[0], test.wantStatus)
+			}
+		})
+	}
+}
+
+func TestExecuteEvaluatesSubjectEventAssertions(t *testing.T) {
+	tests := []struct {
+		name       string
+		strength   string
+		header     string
+		wantStatus string
+	}{
+		{
+			name:       "must event is emitted",
+			strength:   "must",
+			header:     "document.accepted",
+			wantStatus: "pass",
+		},
+		{
+			name:       "must event is missing",
+			strength:   "must",
+			wantStatus: "fail",
+		},
+		{
+			name:       "must_not event is missing",
+			strength:   "must_not",
+			wantStatus: "pass",
+		},
+		{
+			name:       "must_not event is emitted",
+			strength:   "must_not",
+			header:     "document.accepted",
+			wantStatus: "fail",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sealed := sealForTest(t, []any{map[string]any{
+				"id":       "document.event",
+				"strength": test.strength,
+				"subject":  "POST /documents",
+				"expect": map[string]any{
+					"events": map[string]any{
+						"required": []any{"document.accepted"},
+					},
+				},
+			}})
+			record, err := Execute(context.Background(), sealed, Config{
+				BaseURL: "http://subject.invalid",
+				Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					response := responseFor(request, 202, `{"status":"queued"}`)
+					if test.header != "" {
+						response.Header.Set(subjectEventHeader, test.header)
+					}
+					return response, nil
+				})},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rule := record.Rules[0]
+			if rule.Status != test.wantStatus {
+				t.Fatalf("rule result = %+v, want status %s", rule, test.wantStatus)
+			}
+			if len(rule.Observation.Events) != boolToInt(test.header != "") {
+				t.Fatalf("observed events = %#v, want header-derived event", rule.Observation.Events)
+			}
+		})
+	}
+}
+
+func TestResponseEventsNormalizesMultipleHeaderValues(t *testing.T) {
+	headers := make(http.Header)
+	headers.Add(subjectEventHeader, "document.accepted, document.queued")
+	headers.Add(subjectEventHeader, "document.accepted")
+
+	got := responseEvents(headers)
+	if strings.Join(got, ",") != "document.accepted,document.queued" {
+		t.Fatalf("normalized events = %#v, want accepted then queued once", got)
+	}
+}
+
+func TestEvaluateChecksMultipleRequiredEvents(t *testing.T) {
+	assertions, err := evaluate(map[string]any{
+		"events": map[string]any{
+			"required": []any{"document.accepted", "document.queued"},
+		},
+	}, Observation{
+		Events: []string{"document.accepted", "document.queued"},
+		Body:   json.RawMessage("null"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assertions) != 2 || assertions[0].Status != "pass" || assertions[1].Status != "pass" {
+		t.Fatalf("event assertions = %#v, want two passes", assertions)
+	}
+}
+
 func TestExecuteMaterializesRepeatGeneratorAndReportsFailedAssertions(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		var body struct {
@@ -444,6 +585,13 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func responseFor(request *http.Request, status int, body string) *http.Response {

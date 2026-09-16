@@ -89,6 +89,18 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - The focused Sentinel/Nublar/core race slice passes; the broader alpha checkpoint is currently held by the existing macOS timing-sensitive Sorna sandbox telemetry test, documented in the Sentinel alpha checkpoint note.
 - The native Herdr binding intake is now explicit: callback identity, delivery acknowledgement, persistence ownership, artifact handoff, callback provenance, and shutdown semantics must be supplied before implementation; the acceptance gate is documented in the host-binding note.
 - The provider-neutral Herdr adapter regression now rejects a callback bound to the wrong workspace as well as the wrong run, with no receipt mutation; the focused adapter/CLI/Nublar/core race checks pass.
+- The rooted Herdr adapter proof now also rejects a callback whose registered artifact has disappeared, preserving the receipt unchanged before publication.
+- Herdr event batches now have an explicit conflicting-ID atomicity regression: a later conflict rejects the entire batch, including an earlier otherwise-valid event.
+- The same-path Herdr batch CLI path now proves that conflicting input leaves the receipt bytes unchanged, not merely the in-memory receipt state.
+- The single-event Herdr CLI retry path now also proves byte-level idempotency: an identical replay returns success without rewriting the receipt.
+- Rooted Herdr artifact verification now resolves registered paths and rejects symlink escapes outside the supplied root, with the receipt left unchanged.
+- Sentinel's terminal audit now uses the same symlink-aware rooted resolver as Herdr ingress, keeping artifact containment consistent before CI emission.
+- Workspace bootstrap and file-artifact registration now use that resolver at reference creation time, rejecting symlink escapes before they enter a receipt.
+- The symlink-aware rooted-reference guarantee is now frozen as cross-boundary invariant 18 in ALPHA-INTERFACES.md.
+- The `sentinel run artifact` CLI now proves the same rejection is publish-safe: an escaping path returns failure without changing the locked receipt bytes.
+- Capability-plan loading and Sorna oracle/verifier handoffs now use the same rooted resolver for workspace, policy, and frozen-oracle inputs.
+- Verifier preparation now rejects a subject root that escapes the supplied project root before Sorna is launched; the guarantee is frozen as alpha invariant 19.
+- The latest host-enabled fresh positive and expected-failure proofs passed after the rooted capability/handoff change, in `/private/tmp/ingen-sentinel-workspace.fqFUDU` and `/private/tmp/ingen-sentinel-failure-workspace.aoumsG`.
 
 ## Useful entry points
 
@@ -186,9 +198,23 @@ decision export, and Nublar exit-code propagation without launching producers
 or contacting a webhook. It is covered by the fixture-backed
 `make nublar-consumer-check` target, which verifies both the failed/1 and
 passed/0 decision paths plus missing-artifact and malformed-envelope
-collection-error/2 persistence and projection.
-The local Nublar slice is ready to freeze. The next Nublar work should be driven
-by a concrete consumer using this surface before any hosted implementation.
+collection-error/2 persistence and projection. It also verifies filtered
+`run list` and exact `run show` reads over a shared history store.
+The CLI delivery path now has receipt regressions covering accepted and failed
+receipts while proving that delivery failure leaves the stored run unchanged;
+the end-to-end consumer test also persists accepted and failed retry receipts,
+reuses the run ID as the idempotency key, and leaves the run unchanged.
+The complete local freeze gate is now available as `make nublar-freeze-check`,
+combining the focused Nublar test/analysis/schema gate, the consumer check, and
+diff-whitespace validation.
+The resulting boundary is recorded in
+[nublar/FREEZE-RECORD.md](nublar/FREEZE-RECORD.md); future Nublar changes should
+be driven by a concrete consumer need and rerun that gate.
+The consumer brief can be captured with
+[nublar/CONSUMER-REQUEST-TEMPLATE.md](nublar/CONSUMER-REQUEST-TEMPLATE.md).
+The local Nublar slice is frozen at this checkpoint. Any next Nublar work should
+be driven by a concrete consumer using this surface before any hosted
+implementation.
 Producer execution, hosted storage, scheduling, and provider-specific delivery
 remain outside the current Nublar boundary.
 

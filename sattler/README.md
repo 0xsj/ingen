@@ -123,6 +123,10 @@ go run ./sattler/cmd/sattler run compare before-run.json after-run.json
 go run ./sattler/cmd/sattler custody compare before-custody.json after-custody.json
 go run ./sattler/cmd/sattler provenance compare before-provenance.json after-provenance.json
 go run ./sattler/cmd/sattler bundle compare comparison.json
+go run ./sattler/cmd/sattler bundle compare --summary-only --format json comparison.json
+go run ./sattler/cmd/sattler bundle compare --change-id verdict.status comparison.json
+go run ./sattler/cmd/sattler series compare series.json
+go run ./sattler/cmd/sattler series compare --change-id verdict.status series.json
 ```
 
 The comparison report is currently `ingen.sattler-comparison/v0`; it is a
@@ -165,6 +169,59 @@ The bundle also emits a top-level summary with aggregate compatibility,
 subsystem-qualified compatibility reasons, total/category change counts, and
 per-subsystem change counts. This summary is navigation metadata, not a
 quality score or causal conclusion.
+
+Use `--summary-only` to emit the compact `ingen.sattler-bundle-summary/v0`
+projection containing the bundle summary and correlations without the full
+adapter reports. The default bundle schema remains
+`ingen.sattler-bundle-comparison/v0`.
+
+Use repeatable or comma-separated `--change-id` values to retain only selected
+boundary changes, such as `verdict.status` or `inputs.contract`. Filtered
+reports recalculate their summaries and record the active IDs in
+`change_id_filter`; producer-owned mutation details are not filtered by this
+boundary selector.
+
+When both Nublar and Lockwood inputs are present, the bundle records explicit
+before/after observations relating Nublar `run_id` to Lockwood
+`source.run_id`. Relations are `exact-match`, `mismatch`, or `unknown` when an
+identifier is unavailable; they are identity observations, not causation
+claims.
+
+When Nublar records its optional external correlation and Amber provenance is
+present, Sattler also relates Nublar `correlation.id` to Amber
+`correlation_id` using the same relationship states.
+
+Each adapter comparison also exposes a primary state transition. CI results,
+Nublar runs, and custody records use `status`; Amber provenance uses
+`mode.kind`. The classification is `unchanged`, `changed`, or `incompatible`,
+and deliberately does not label a transition as an improvement or regression.
+
+Observable changes include stable IDs such as `verdict.status` and
+`inputs.contract`. These IDs identify the changed field category across runs;
+they do not encode the before/after values.
+
+The same `--change-id` selector is available on every standalone comparison
+command. Filtered standalone reports recalculate `change_summary` and record
+the selected IDs in `change_id_filter`.
+
+An ordered history can aggregate existing bundle manifests:
+
+```json
+{
+  "schema": "ingen.sattler-comparison-series-input/v0",
+  "entries": [
+    {"id": "attempt-1", "label": "first attempt", "manifest": "first/comparison.json"},
+    {"id": "attempt-2", "label": "second attempt", "manifest": "second/comparison.json"}
+  ]
+}
+```
+
+`sattler series compare series.json` preserves entry order and emits
+`ingen.sattler-comparison-series/v0` with compatible/incompatible counts,
+aggregate change totals, and `changes_by_id` frequencies. It does not infer a
+trend direction or causation.
+Series filters use the same stable IDs and are recorded in
+`change_id_filter`.
 
 Manifests are validated before any artifact is opened. Wrong schemas,
 incomplete pairs, and empty manifests produce stable issue codes such as

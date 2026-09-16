@@ -13,6 +13,12 @@ import (
 // Repeating the same event is idempotent; reusing an event ID with different
 // bytes is rejected.
 func (s *Filesystem) AppendEvent(event HandlingEvent) error {
+	return s.withHandlingEventLock(event.CustodyID, func() error {
+		return s.appendHandlingEvent(event)
+	})
+}
+
+func (s *Filesystem) appendHandlingEvent(event HandlingEvent) error {
 	event.RecordedAt = event.RecordedAt.UTC()
 	encoded, err := MarshalCanonicalHandlingEvent(event)
 	if err != nil {
@@ -67,6 +73,23 @@ func (s *Filesystem) AppendEvent(event HandlingEvent) error {
 		return fmt.Errorf("sync handling event directory: %w", err)
 	}
 	return nil
+}
+
+func (s *Filesystem) withHandlingEventLock(custodyID string, fn func() error) error {
+	if s == nil {
+		return fmt.Errorf("custody handling-event store is required")
+	}
+	if !custodyIDPattern.MatchString(custodyID) {
+		return fmt.Errorf("invalid handling event custody id %q", custodyID)
+	}
+	if fn == nil {
+		return fmt.Errorf("handling-event lock callback is required")
+	}
+	path := filepath.Join(s.root, "locks", "handling-events", custodyID+".lock")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create handling-event lock directory: %w", err)
+	}
+	return withExclusiveHandlingLock(path, fn)
 }
 
 func (s *Filesystem) GetEvent(custodyID, eventID string) (HandlingEvent, error) {

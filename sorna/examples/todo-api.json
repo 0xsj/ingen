@@ -1,6 +1,6 @@
 {
   "contract": {
-    "schema": "sorna.contract/v1",
+    "schema": "ingen.contract/v1",
     "id": "todo-api",
     "version": 1,
     "status": "draft",

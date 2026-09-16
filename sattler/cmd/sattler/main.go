@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"ingen/sattler"
 )
@@ -28,6 +29,8 @@ func run(args []string) int {
 		return provenanceCompareCommand(args[1:])
 	case "bundle":
 		return bundleCompareCommand(args[1:])
+	case "series":
+		return seriesCompareCommand(args[1:])
 	default:
 		usage()
 		return 2
@@ -39,6 +42,8 @@ func compareCommand(args []string) int {
 	flags.SetOutput(os.Stderr)
 	format := flags.String("format", "text", "output format: text or json")
 	output := flags.String("output", "", "output path; stdout when empty")
+	var changeIDs stringListFlag
+	flags.Var(&changeIDs, "change-id", "include only this stable change ID; repeatable or comma-separated")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -55,6 +60,7 @@ func compareCommand(args []string) int {
 	if err != nil {
 		return reportOperationError(*format, "compare", err)
 	}
+	report = sattler.FilterComparisonChanges(report, changeIDs)
 
 	var writer = os.Stdout
 	var file *os.File
@@ -87,6 +93,8 @@ func runCompareCommand(args []string) int {
 	flags.SetOutput(os.Stderr)
 	format := flags.String("format", "text", "output format: text or json")
 	output := flags.String("output", "", "output path; stdout when empty")
+	var changeIDs stringListFlag
+	flags.Var(&changeIDs, "change-id", "include only this stable change ID; repeatable or comma-separated")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -103,6 +111,7 @@ func runCompareCommand(args []string) int {
 	if err != nil {
 		return reportOperationError(*format, "run compare", err)
 	}
+	report = sattler.FilterNublarRunChanges(report, changeIDs)
 
 	var writer = os.Stdout
 	var file *os.File
@@ -135,6 +144,8 @@ func custodyCompareCommand(args []string) int {
 	flags.SetOutput(os.Stderr)
 	format := flags.String("format", "text", "output format: text or json")
 	output := flags.String("output", "", "output path; stdout when empty")
+	var changeIDs stringListFlag
+	flags.Var(&changeIDs, "change-id", "include only this stable change ID; repeatable or comma-separated")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -151,6 +162,7 @@ func custodyCompareCommand(args []string) int {
 	if err != nil {
 		return reportOperationError(*format, "custody compare", err)
 	}
+	report = sattler.FilterLockwoodCustodyChanges(report, changeIDs)
 
 	var writer = os.Stdout
 	var file *os.File
@@ -183,6 +195,8 @@ func provenanceCompareCommand(args []string) int {
 	flags.SetOutput(os.Stderr)
 	format := flags.String("format", "text", "output format: text or json")
 	output := flags.String("output", "", "output path; stdout when empty")
+	var changeIDs stringListFlag
+	flags.Var(&changeIDs, "change-id", "include only this stable change ID; repeatable or comma-separated")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -199,6 +213,7 @@ func provenanceCompareCommand(args []string) int {
 	if err != nil {
 		return reportOperationError(*format, "provenance compare", err)
 	}
+	report = sattler.FilterAmberProvenanceChanges(report, changeIDs)
 
 	var writer = os.Stdout
 	var file *os.File
@@ -231,6 +246,9 @@ func bundleCompareCommand(args []string) int {
 	flags.SetOutput(os.Stderr)
 	format := flags.String("format", "text", "output format: text or json")
 	output := flags.String("output", "", "output path; stdout when empty")
+	summaryOnly := flags.Bool("summary-only", false, "emit only the bundle summary")
+	var changeIDs stringListFlag
+	flags.Var(&changeIDs, "change-id", "include only this stable change ID; repeatable or comma-separated")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -247,6 +265,7 @@ func bundleCompareCommand(args []string) int {
 	if err != nil {
 		return reportOperationError(*format, "bundle compare", err)
 	}
+	report = sattler.FilterBundleChanges(report, changeIDs)
 
 	var writer = os.Stdout
 	var file *os.File
@@ -259,13 +278,67 @@ func bundleCompareCommand(args []string) int {
 		writer = file
 	}
 
-	if *format == "json" {
+	if *summaryOnly && *format == "json" {
+		err = sattler.WriteBundleSummaryJSON(writer, report)
+	} else if *summaryOnly {
+		err = sattler.WriteBundleSummaryText(writer, report)
+	} else if *format == "json" {
 		err = sattler.WriteBundleJSON(writer, report)
 	} else {
 		err = sattler.WriteBundleText(writer, report)
 	}
 	if err != nil {
 		return reportOperationError(*format, "bundle compare", err)
+	}
+	return 0
+}
+
+func seriesCompareCommand(args []string) int {
+	if len(args) == 0 || args[0] != "compare" {
+		usage()
+		return 2
+	}
+	flags := flag.NewFlagSet("series compare", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	format := flags.String("format", "text", "output format: text or json")
+	output := flags.String("output", "", "output path; stdout when empty")
+	var changeIDs stringListFlag
+	flags.Var(&changeIDs, "change-id", "include only this stable change ID; repeatable or comma-separated")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 1 {
+		fmt.Fprintln(os.Stderr, "series compare requires one comparison series manifest path")
+		return 2
+	}
+	if *format != "text" && *format != "json" {
+		fmt.Fprintln(os.Stderr, "--format must be text or json")
+		return 2
+	}
+
+	series, err := sattler.CompareSeriesManifestFileWithChanges(flags.Arg(0), changeIDs)
+	if err != nil {
+		return reportOperationError(*format, "series compare", err)
+	}
+
+	var writer = os.Stdout
+	var file *os.File
+	if *output != "" {
+		file, err = os.Create(*output)
+		if err != nil {
+			return reportOperationError(*format, "series compare", err)
+		}
+		defer file.Close()
+		writer = file
+	}
+
+	if *format == "json" {
+		err = sattler.WriteSeriesJSON(writer, series)
+	} else {
+		err = sattler.WriteSeriesText(writer, series)
+	}
+	if err != nil {
+		return reportOperationError(*format, "series compare", err)
 	}
 	return 0
 }
@@ -280,10 +353,28 @@ func reportOperationError(format, operation string, err error) int {
 	return 1
 }
 
+type stringListFlag []string
+
+func (flag *stringListFlag) String() string {
+	return strings.Join(*flag, ",")
+}
+
+func (flag *stringListFlag) Set(value string) error {
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			return fmt.Errorf("change ID cannot be empty")
+		}
+		*flag = append(*flag, item)
+	}
+	return nil
+}
+
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: sattler compare [--format text|json] [--output path] BEFORE AFTER")
-	fmt.Fprintln(os.Stderr, "       sattler run compare [--format text|json] [--output path] BEFORE AFTER")
-	fmt.Fprintln(os.Stderr, "       sattler custody compare [--format text|json] [--output path] BEFORE AFTER")
-	fmt.Fprintln(os.Stderr, "       sattler provenance compare [--format text|json] [--output path] BEFORE AFTER")
-	fmt.Fprintln(os.Stderr, "       sattler bundle compare [--format text|json] [--output path] MANIFEST")
+	fmt.Fprintln(os.Stderr, "usage: sattler compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
+	fmt.Fprintln(os.Stderr, "       sattler run compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
+	fmt.Fprintln(os.Stderr, "       sattler custody compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
+	fmt.Fprintln(os.Stderr, "       sattler provenance compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
+	fmt.Fprintln(os.Stderr, "       sattler bundle compare [--format text|json] [--summary-only] [--change-id id] [--output path] MANIFEST")
+	fmt.Fprintln(os.Stderr, "       sattler series compare [--format text|json] [--change-id id] [--output path] MANIFEST")
 }

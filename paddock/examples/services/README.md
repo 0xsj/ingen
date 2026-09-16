@@ -16,6 +16,7 @@ deliberate structural defect:
 | `feature-sliced-ts` | shared code imports a feature and features cross-import |
 | `monorepo-ts` | a shared workspace package imports an orders domain package |
 | `python-hexagonal` | the domain imports a concrete adapter; its focused proposal variant isolates that boundary without a cycle |
+| `rust-hexagonal` | the domain imports a concrete adapter; the external adapter example proves the same boundary without a Rust toolchain |
 | `external-package-ts` | an unapproved source unit imports an external package family |
 | `negative-source-selector-ts` | a non-server source unit imports server-only code |
 | `internal-target-path-ts` | a client imports an adapter folder and a memory adapter directly |
@@ -45,6 +46,13 @@ paddock policy test \
 
 paddock check paddock/examples/services/python-hexagonal/violating \
   --policy paddock/examples/python-hexagonal.yaml
+
+paddock check paddock/examples/services/rust-hexagonal/violating \
+  --policy paddock/examples/rust-hexagonal.yaml \
+  --adapter python3 \
+  --adapter-arg paddock/examples/adapter/rust-use-adapter.py \
+  --adapter-arg --workspace \
+  --adapter-arg "$PWD/paddock/examples/services/rust-hexagonal/violating"
 ```
 
 Policy proposals can be regression-tested as a group:

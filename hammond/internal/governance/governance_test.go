@@ -1212,6 +1212,50 @@ func TestLoadAuthorityTrustStoreSupportsKeyRotation(t *testing.T) {
 	}
 }
 
+func TestDecodeAuthorityTrustStoreRejectsEmptyAndInvalidKeysets(t *testing.T) {
+	for _, keys := range []([]authorityTrustKeyDocument){
+		{},
+		{{ID: "authority-key", Algorithm: AuthoritySignatureAlgorithmEd25519, PublicKey: "invalid", Status: AuthorityTrustKeyActive}},
+	} {
+		document := authorityTrustDocument{
+			Schema:  AuthorityTrustSchema,
+			ID:      "authority-keys",
+			Version: 1,
+			Keys:    keys,
+		}
+		data, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(data)
+		reference := AuthorityTrustReference{
+			ID:      document.ID,
+			Version: document.Version,
+			Schema:  AuthorityTrustSchema,
+			Artifact: Artifact{
+				URI:    "authority-trust.json",
+				SHA256: hex.EncodeToString(digest[:]),
+			},
+		}
+		if _, err := DecodeAuthorityTrustStore(data, reference); err == nil {
+			t.Fatalf("keyset %+v decoded successfully, want rejection", keys)
+		}
+	}
+
+	reference := AuthorityTrustReference{
+		ID:      "authority-keys",
+		Version: 1,
+		Schema:  AuthorityTrustSchema,
+		Artifact: Artifact{
+			URI:    "authority-trust.json",
+			SHA256: strings.Repeat("a", 64),
+		},
+	}
+	if err := (AuthorityTrustStore{Reference: reference}).Validate(); err == nil || !strings.Contains(err.Error(), "authority trust keys are required") {
+		t.Fatalf("missing direct keyset error = %v, want keyset validation error", err)
+	}
+}
+
 func TestLoadAuthorityTrustStoreWithRootSignature(t *testing.T) {
 	rootPublicKey, rootPrivateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -1344,13 +1388,62 @@ func TestLoadAuthorityRootStoreSupportsBootstrapRotationAndTrustChain(t *testing
 			SHA256: hex.EncodeToString(rootDigest[:]),
 		},
 	}
-	bootstrap := AuthorityRootBootstrap{Keys: map[string]ed25519.PublicKey{"root-old": oldRootPublicKey}}
+	bootstrap := AuthorityRootBootstrap{
+		ID:      rootDocument.ID,
+		Version: rootDocument.Version,
+		Keys:    map[string]ed25519.PublicKey{"root-old": oldRootPublicKey},
+	}
 	roots, err := LoadAuthorityRootStoreWithBootstrap(rootReference, bootstrap)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadAuthorityRootStoreWithBootstrap(rootReference, AuthorityRootBootstrap{}); err == nil || !strings.Contains(err.Error(), "bootstrap keys are required") {
+	if _, err := LoadAuthorityRootStoreWithBootstrap(rootReference, AuthorityRootBootstrap{}); err == nil || !strings.Contains(err.Error(), "bootstrap id is required") {
 		t.Fatalf("empty bootstrap error = %v, want bootstrap validation error", err)
+	}
+	wrongBootstrap := bootstrap
+	wrongBootstrap.ID = "different-root"
+	if _, err := LoadAuthorityRootStoreWithBootstrap(rootReference, wrongBootstrap); err == nil || !strings.Contains(err.Error(), "bootstrap id does not match") {
+		t.Fatalf("wrong bootstrap id error = %v, want identity mismatch", err)
+	}
+	wrongBootstrap = bootstrap
+	wrongBootstrap.Version++
+	if _, err := LoadAuthorityRootStoreWithBootstrap(rootReference, wrongBootstrap); err == nil || !strings.Contains(err.Error(), "bootstrap version does not match") {
+		t.Fatalf("wrong bootstrap version error = %v, want version mismatch", err)
+	}
+
+	replacementDocument := rootDocument
+	replacementDocument.Version = 3
+	replacementPayload, err := json.Marshal(authorityRootSigningDocument{
+		Schema:  replacementDocument.Schema,
+		ID:      replacementDocument.ID,
+		Version: replacementDocument.Version,
+		Keys:    replacementDocument.Keys,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementDocument.Signature = &AuthoritySignature{
+		Algorithm: AuthoritySignatureAlgorithmEd25519,
+		KeyID:     "root-new",
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(newRootPrivateKey, replacementPayload)),
+	}
+	replacementData, err := json.Marshal(replacementDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementDigest := sha256.Sum256(replacementData)
+	replacementReference := rootReference
+	replacementReference.Version = replacementDocument.Version
+	replacementReference.Artifact.SHA256 = hex.EncodeToString(replacementDigest[:])
+	rotatedRoots, err := roots.Rotate(replacementData, replacementReference)
+	if err != nil {
+		t.Fatalf("root rotation error = %v", err)
+	}
+	if rotatedRoots.Reference.Version != 3 {
+		t.Fatalf("rotated root version = %d, want 3", rotatedRoots.Reference.Version)
+	}
+	if _, err := rotatedRoots.Rotate(replacementData, replacementReference); err == nil || !strings.Contains(err.Error(), "version must increase") {
+		t.Fatalf("replayed root rotation error = %v, want monotonicity failure", err)
 	}
 
 	rotationVerifier := roots.SignatureVerifier()
@@ -1409,6 +1502,44 @@ func TestLoadAuthorityRootStoreSupportsBootstrapRotationAndTrustChain(t *testing
 	if err := trustStore.SignatureVerifier().VerifySignature("authority-active", rotationPayload, ed25519.Sign(authorityPrivateKey, rotationPayload)); err != nil {
 		t.Fatalf("authority verification through rotated root chain = %v", err)
 	}
+
+	nextTrustDocument := trustDocument
+	nextTrustDocument.Version = 4
+	nextTrustPayload, err := json.Marshal(authorityTrustSigningDocument{
+		Schema:  nextTrustDocument.Schema,
+		ID:      nextTrustDocument.ID,
+		Version: nextTrustDocument.Version,
+		Keys:    nextTrustDocument.Keys,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextTrustDocument.Signature = &AuthoritySignature{
+		Algorithm: AuthoritySignatureAlgorithmEd25519,
+		KeyID:     "root-new",
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(newRootPrivateKey, nextTrustPayload)),
+	}
+	nextTrustData, err := json.Marshal(nextTrustDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextTrustDigest := sha256.Sum256(nextTrustData)
+	nextTrustReference := trustReference
+	nextTrustReference.Version = nextTrustDocument.Version
+	nextTrustReference.Artifact.SHA256 = hex.EncodeToString(nextTrustDigest[:])
+	rotatedTrust, err := trustStore.RotateWithRootStore(nextTrustData, nextTrustReference, roots)
+	if err != nil {
+		t.Fatalf("authority trust rotation error = %v", err)
+	}
+	if rotatedTrust.Reference.Version != 4 {
+		t.Fatalf("rotated authority trust version = %d, want 4", rotatedTrust.Reference.Version)
+	}
+	if _, err := rotatedTrust.RotateWithRootStore(nextTrustData, nextTrustReference, roots); err == nil || !strings.Contains(err.Error(), "version must increase") {
+		t.Fatalf("replayed authority trust rotation error = %v, want monotonicity failure", err)
+	}
+	if _, err := trustStore.RotateWithRootStore(nextTrustData, nextTrustReference, AuthorityRootStore{}); err == nil || !strings.Contains(err.Error(), "authority root") {
+		t.Fatalf("invalid root rotation error = %v, want root validation failure", err)
+	}
 }
 
 func TestLoadContractArtifactVerifiesContractBytes(t *testing.T) {
@@ -1434,6 +1565,19 @@ func TestLoadContractArtifactVerifiesContractBytes(t *testing.T) {
 	}
 	if _, err := LoadContractArtifact(reference); err == nil || !strings.Contains(err.Error(), "do not match reference artifact.sha256") {
 		t.Fatalf("error = %v, want contract digest error", err)
+	}
+}
+
+func TestLoadContractArtifactRejectsNonLocalURIs(t *testing.T) {
+	for _, uri := range []string{
+		"https://contracts.example.test/contract.json",
+		"file:///tmp/contract.json",
+	} {
+		reference := contractReference(strings.Repeat("a", 64), 1)
+		reference.Artifact.URI = uri
+		if _, err := LoadContractArtifact(reference); err == nil || !strings.Contains(err.Error(), "must be a local filesystem path") {
+			t.Fatalf("URI %q error = %v, want local-path rejection", uri, err)
+		}
 	}
 }
 

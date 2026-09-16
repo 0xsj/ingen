@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.replay-matrix-manifest-v1.schema.json",
+  "title": "Sorna replay matrix manifest",
+  "description": "Reviewable expected classifications for a set of behavioral replay CI results.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "cases"],
+  "properties": {
+    "schema": {"const": "sorna.replay-matrix-manifest/v1"},
+    "id": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1},
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "expected_ci_status", "expected_replay_state"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "expected_ci_status": {"enum": ["passed", "failed", "error"]},
+        "expected_replay_state": {"enum": ["matched", "drifted", "error", "inconclusive"]}
+      }
+    }
+  }
+}

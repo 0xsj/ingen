@@ -27,8 +27,10 @@ meaning.
 
 - The loader verifies bytes, not contract syntax, sealing, behavior, or
   evidence.
-- The URI is a local locator in the current slice; remote retrieval is not
-  implied.
+- The local loader accepts a filesystem path, not an `http://`, `https://`, or
+  `file://` URI; remote retrieval is not implied.
+- Membership HTTP transport is a separate explicit boundary and does not make
+  contract, policy, or authority loading network-capable.
 - Callers must use the loader at their ingress boundary; pure domain
   validation intentionally remains backend-independent.
 

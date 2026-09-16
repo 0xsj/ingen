@@ -37,9 +37,12 @@ this records provenance only and does not fetch or attest remote objects.
 
 The initial local CLI exposes `put`, `import-sorna`, `import-ci-result`,
 `import-attestation`, `get`, `inspect`, `lineage-status`, `append-event`,
-`list-events`, `inspect-attestation`, `inspect-attestation-link`,
+`list-events`, `handling-status`, `check-handling-guard`, `register-redaction`, `promote-redaction`, `inspect-attestation`, `inspect-attestation-link`,
 `find-attestation`, `record-digest`, `sign-attestation`,
+`sign-handling-event`,
 `verify-attestation`, `verify-attestation-trusted`, `find-trusted-attestation`,
+`verify-handling-event`, `verify-handling-event-trusted`,
+`verify-handling-event-authorized`,
 `verify`, `find`, `recover`, and read-only `reconcile` reporting for
 orphaned or damaged storage. `recover` accepts a saved pending custody record,
 re-verifies its existing blob, and retries record publication. Intake commands
@@ -65,6 +68,31 @@ immutable events under a custody ID. `append-event` requires an existing
 custody record and an explicit event time; `list-events` returns events in
 recorded-time order. Events do not edit custody records, delete blobs, perform
 redaction, enforce retention, or authenticate the descriptive `actor` field.
+`handling-status` provides a read-only projection of the recorded retention
+class, redaction history, and currently placed legal-hold IDs; it does not
+claim that payload redaction or policy enforcement occurred.
+`check-handling-guard --action redact|delete` reports whether a visible legal
+hold blocks a payload-changing operation. A `not-blocked` result is not a
+permission grant and does not evaluate retention or other authorization.
+`register-redaction` records a caller-produced resulting artifact only after
+both original and resulting digests verify and the legal-hold guard is clear;
+it preserves the original artifact and custody record. The built-in memory and
+filesystem stores serialize handling-event mutations per custody ID; on
+flock-capable platforms, filesystem coordination is local advisory locking for
+Lockwood processes that share a root, not distributed coordination.
+`promote-redaction` creates a new accepted custody record for a registered
+resulting artifact, with a `derived-from` parent for the source artifact. It
+verifies the source and result again, preserves the source record and blob, and
+is idempotent for identical record metadata.
+
+Handling events can optionally be accompanied by a detached
+`handling-event-attestation/v1` Ed25519 envelope. `sign-handling-event`
+publishes one envelope for the exact canonical event; the two verification
+commands support an explicit public key or the existing trust-registry
+snapshot. A trusted key authenticates control of that key, not a human
+identity or authorization to perform the described action.
+`verify-handling-event-authorized` adds the explicit key/event-type allowlist
+from a canonical policy snapshot and reports both snapshot digests.
 
 The library also includes process-local in-memory artifact and custody-record
 stores for tests and short-lived workflows; they provide no durability
@@ -151,3 +179,7 @@ The handling-event draft schema is in
 [`spec/lockwood.handling-event-v1.schema.json`](spec/lockwood.handling-event-v1.schema.json),
 with a representative fixture in
 [`testdata/valid-handling-event-v1.json`](testdata/valid-handling-event-v1.json).
+The detached event-signature schema is in
+[`spec/lockwood.handling-event-attestation-v1.schema.json`](spec/lockwood.handling-event-attestation-v1.schema.json).
+The action-policy schema is in
+[`spec/lockwood.handling-event-policy-v1.schema.json`](spec/lockwood.handling-event-policy-v1.schema.json).

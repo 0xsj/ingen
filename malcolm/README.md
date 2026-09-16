@@ -149,6 +149,16 @@ Run the cross-language validation proof with:
 make malcolm-sorna-flow-contract
 ~~~
 
+The executable HTTP slice also supports event presence assertions. The
+subject must expose the event as a public response signal:
+
+~~~text
+when POST "/documents"
+must emit "document.accepted"
+~~~
+
+Sorna's HTTP runner observes this through the `X-InGen-Event` response header.
+
 ## Status
 
 The first Rust slice now parses and validates executable request bodies and

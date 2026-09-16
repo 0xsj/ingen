@@ -2,6 +2,7 @@ package evidence
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -222,6 +223,57 @@ func TestVerifyReplayMatrixCIErrorResultChecksAvailableInputs(t *testing.T) {
 	}
 	if err := VerifyReplayMatrixCIResult(matrixPath, "."); err == nil || !strings.Contains(err.Error(), "hash changed") {
 		t.Fatalf("VerifyReplayMatrixCIResult() after error-input drift = %v, want hash error", err)
+	}
+}
+
+func TestBuildReplayMatrixCIResultFromManifestBindsAndVerifiesManifest(t *testing.T) {
+	root := t.TempDir()
+	memberPath := writeReplayMatrixInput(t, root, "passed", validReplayReport())
+	manifestPath := filepath.Join(root, "matrix.yaml")
+	manifestContents := fmt.Sprintf("schema: %s\nid: example\nversion: 1\ncases:\n  - id: baseline\n    path: %s\n    expected_ci_status: passed\n    expected_replay_state: matched\n", ReplayMatrixManifestSchema, memberPath)
+	if err := os.WriteFile(manifestPath, []byte(manifestContents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest, err := LoadReplayMatrixManifest(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.ID != "example" || len(manifest.Cases) != 1 || manifest.Cases[0].Path != memberPath {
+		t.Fatalf("manifest = %+v, want one baseline case", manifest)
+	}
+	artifact, err := BuildReplayMatrixCIResultFromManifest(manifestPath, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Inputs["matrix_manifest"].SHA256 == "" {
+		t.Fatalf("artifact inputs = %+v, want manifest hash", artifact.Inputs)
+	}
+	matrixPath := filepath.Join(root, "matrix.json")
+	if err := ciresult.SaveFile(matrixPath, artifact); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyReplayMatrixCIResult(matrixPath, "."); err != nil {
+		t.Fatalf("VerifyReplayMatrixCIResult() = %v, want manifest-bound matrix valid", err)
+	}
+
+	tampered := strings.ReplaceAll(manifestContents, "expected_ci_status: passed", "expected_ci_status: failed")
+	if err := os.WriteFile(manifestPath, []byte(tampered), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyReplayMatrixCIResult(matrixPath, "."); err == nil || !strings.Contains(err.Error(), "hash changed") {
+		t.Fatalf("VerifyReplayMatrixCIResult() after manifest drift = %v, want manifest hash error", err)
+	}
+}
+
+func TestLoadReplayMatrixManifestRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "matrix.yaml")
+	contents := fmt.Sprintf("schema: %s\nid: example\nversion: 1\nunknown: true\ncases:\n  - id: baseline\n    path: result.json\n    expected_ci_status: passed\n    expected_replay_state: matched\n", ReplayMatrixManifestSchema)
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadReplayMatrixManifest(path); err == nil || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("LoadReplayMatrixManifest() = %v, want unknown field error", err)
 	}
 }
 

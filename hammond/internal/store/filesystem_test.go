@@ -226,7 +226,11 @@ func TestFileStoreCreatesAmendmentAndPreservesLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := fileStore.CreateAmendment(current.Contract.Identity(), successor, event)
+	currentRevision, err := RecordRevision(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := fileStore.CreateAmendmentIfRevision(current.Contract.Identity(), currentRevision, successor, event)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +264,11 @@ func TestFileStoreCreatesAmendmentAndPreservesLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	superseded, err := fileStore.Supersede(updated.Contract.Identity(), successorIdentity, supersededEvent)
+	updatedRevision, err := RecordRevision(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	superseded, err := fileStore.SupersedeIfRevision(updated.Contract.Identity(), updatedRevision, successorIdentity, supersededEvent)
 	if err != nil {
 		t.Fatal(err)
 	}

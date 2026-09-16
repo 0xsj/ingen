@@ -41,7 +41,7 @@ The host-enabled expected-failure target is
 duplicate-idempotency defect, allows the expected Sentinel/Sorna producer
 failure to continue to envelope emission, and asserts that Nublar records a
 failed run. The proof completed on 2026-09-16 in
-`/private/tmp/ingen-sentinel-failure-workspace.r1JTRr`: Sorna reported three
+`/private/tmp/ingen-sentinel-failure-workspace.aoumsG`: Sorna reported three
 passed rules and one failed rule, Sentinel emitted `failed/1` with
 `audit_status: passed`, and Nublar stored `failed/1`.
 - The surrounding Sentinel and Nublar package tests pass with the boundary

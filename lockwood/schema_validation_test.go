@@ -11,12 +11,14 @@ import (
 )
 
 const (
-	artifactSchemaURL      = "https://ingen.example/spec/lockwood.artifact-v1.schema.json"
-	custodySchemaURL       = "https://ingen.example/spec/lockwood.custody-v1.schema.json"
-	custodyV2SchemaURL     = "https://ingen.example/spec/lockwood.custody-v2.schema.json"
-	attestationSchemaURL   = "https://ingen.example/spec/lockwood.attestation-v1.schema.json"
-	trustSchemaURL         = "https://ingen.example/spec/lockwood.attestation-trust-v1.schema.json"
-	handlingEventSchemaURL = "https://ingen.example/spec/lockwood.handling-event-v1.schema.json"
+	artifactSchemaURL                 = "https://ingen.example/spec/lockwood.artifact-v1.schema.json"
+	custodySchemaURL                  = "https://ingen.example/spec/lockwood.custody-v1.schema.json"
+	custodyV2SchemaURL                = "https://ingen.example/spec/lockwood.custody-v2.schema.json"
+	attestationSchemaURL              = "https://ingen.example/spec/lockwood.attestation-v1.schema.json"
+	trustSchemaURL                    = "https://ingen.example/spec/lockwood.attestation-trust-v1.schema.json"
+	handlingEventSchemaURL            = "https://ingen.example/spec/lockwood.handling-event-v1.schema.json"
+	handlingEventAttestationSchemaURL = "https://ingen.example/spec/lockwood.handling-event-attestation-v1.schema.json"
+	handlingEventPolicySchemaURL      = "https://ingen.example/spec/lockwood.handling-event-policy-v1.schema.json"
 )
 
 func TestDraftSchemasValidateFixtures(t *testing.T) {
@@ -76,6 +78,20 @@ func TestDraftHandlingEventSchemaValidatesFixture(t *testing.T) {
 	}
 }
 
+func TestDraftHandlingEventAttestationSchemaValidatesFixture(t *testing.T) {
+	schema := compileLockwoodSchema(t, handlingEventAttestationSchemaURL, "spec/lockwood.handling-event-attestation-v1.schema.json")
+	if err := schema.Validate(loadJSONDocument(t, "testdata/valid-handling-event-attestation-v1.json")); err != nil {
+		t.Fatalf("valid handling event attestation rejected by draft schema: %v", err)
+	}
+}
+
+func TestDraftHandlingEventPolicySchemaValidatesFixture(t *testing.T) {
+	schema := compileLockwoodSchema(t, handlingEventPolicySchemaURL, "spec/lockwood.handling-event-policy-v1.schema.json")
+	if err := schema.Validate(loadJSONDocument(t, "testdata/valid-handling-event-policy-v1.json")); err != nil {
+		t.Fatalf("valid handling event policy rejected by draft schema: %v", err)
+	}
+}
+
 func compileLockwoodSchema(t *testing.T, url, relativePath string) *jsonschema.Schema {
 	t.Helper()
 	compiler := jsonschema.NewCompiler()
@@ -90,6 +106,8 @@ func compileLockwoodSchema(t *testing.T, url, relativePath string) *jsonschema.S
 		{url: attestationSchemaURL, path: "spec/lockwood.attestation-v1.schema.json"},
 		{url: trustSchemaURL, path: "spec/lockwood.attestation-trust-v1.schema.json"},
 		{url: handlingEventSchemaURL, path: "spec/lockwood.handling-event-v1.schema.json"},
+		{url: handlingEventAttestationSchemaURL, path: "spec/lockwood.handling-event-attestation-v1.schema.json"},
+		{url: handlingEventPolicySchemaURL, path: "spec/lockwood.handling-event-policy-v1.schema.json"},
 	} {
 		data, err := os.ReadFile(resource.path)
 		if err != nil {

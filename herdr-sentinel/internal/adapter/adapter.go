@@ -16,6 +16,7 @@ import (
 
 	"ingen/core/ciresult"
 	"ingen/herdr-sentinel/internal/capability"
+	sentinelrun "ingen/herdr-sentinel/internal/run"
 )
 
 type Prepared struct {
@@ -50,10 +51,10 @@ func PrepareOracle(plan capability.Plan, root string, command, sornaCommand []st
 	if len(sornaCommand) == 0 || strings.TrimSpace(sornaCommand[0]) == "" {
 		return Prepared{}, fmt.Errorf("prepare Sentinel oracle adapter: Sorna command must contain an executable")
 	}
-	if _, err := readVerifiedFile("workspace manifest", plan.Workspace.Manifest); err != nil {
+	if _, err := readVerifiedFile("workspace manifest", plan.Workspace.Manifest, root); err != nil {
 		return Prepared{}, err
 	}
-	policyContents, err := readVerifiedFile("oracle policy", plan.Workspace.OraclePolicy)
+	policyContents, err := readVerifiedFile("oracle policy", plan.Workspace.OraclePolicy, root)
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -120,6 +121,9 @@ func PrepareVerifier(
 	if strings.TrimSpace(subjectRoot) == "" {
 		subjectRoot = root
 	}
+	if _, err := sentinelrun.ResolveFileRefUnderRoot(root, ciresult.FileRef{Path: subjectRoot}); err != nil {
+		return Prepared{}, fmt.Errorf("prepare Sentinel verifier adapter: subject root: %w", err)
+	}
 	if strings.TrimSpace(readyPath) == "" {
 		readyPath = "/healthz"
 	}
@@ -152,18 +156,18 @@ func PrepareVerifier(
 		return Prepared{}, fmt.Errorf("prepare Sentinel verifier adapter: Sorna command must contain an executable")
 	}
 
-	if _, err := readVerifiedFile("workspace manifest", plan.Workspace.Manifest); err != nil {
+	if _, err := readVerifiedFile("workspace manifest", plan.Workspace.Manifest, root); err != nil {
 		return Prepared{}, err
 	}
-	oraclePolicyContents, err := readVerifiedFile("oracle policy", plan.Workspace.OraclePolicy)
+	oraclePolicyContents, err := readVerifiedFile("oracle policy", plan.Workspace.OraclePolicy, root)
 	if err != nil {
 		return Prepared{}, err
 	}
-	subjectPolicyContents, err := readVerifiedFile("subject policy", plan.Workspace.SubjectPolicy)
+	subjectPolicyContents, err := readVerifiedFile("subject policy", plan.Workspace.SubjectPolicy, root)
 	if err != nil {
 		return Prepared{}, err
 	}
-	oracleRef, oracleContents, err := readFileReference(oraclePath)
+	oracleRef, oracleContents, err := readFileReference(oraclePath, root)
 	if err != nil {
 		return Prepared{}, fmt.Errorf("prepare Sentinel verifier adapter: read frozen oracle: %w", err)
 	}
@@ -264,8 +268,12 @@ func snapshotFile(dir, name string, contents []byte) (string, error) {
 	return path, nil
 }
 
-func readFileReference(path string) (ciresult.FileRef, []byte, error) {
-	contents, err := os.ReadFile(path)
+func readFileReference(path, root string) (ciresult.FileRef, []byte, error) {
+	resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(root, ciresult.FileRef{Path: path})
+	if err != nil {
+		return ciresult.FileRef{}, nil, err
+	}
+	contents, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return ciresult.FileRef{}, nil, err
 	}
@@ -281,8 +289,12 @@ func validateRelativePath(name, value string) error {
 	return nil
 }
 
-func readVerifiedFile(name string, reference ciresult.FileRef) ([]byte, error) {
-	contents, err := os.ReadFile(reference.Path)
+func readVerifiedFile(name string, reference ciresult.FileRef, root string) ([]byte, error) {
+	resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(root, reference)
+	if err != nil {
+		return nil, fmt.Errorf("prepare Sentinel adapter: read %s %s: %w", name, reference.Path, err)
+	}
+	contents, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return nil, fmt.Errorf("prepare Sentinel adapter: read %s %s: %w", name, reference.Path, err)
 	}

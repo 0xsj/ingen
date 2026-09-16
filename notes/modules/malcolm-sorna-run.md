@@ -29,9 +29,9 @@ run therefore consumes the frozen oracle artifact, while Sorna records the
 sealed contract and policy identities in the resulting evidence bundle.
 
 The healthcheck is intentionally narrow. It proves the handoff and lifecycle
-boundaries before Malcolm supports request bodies, stateful setup, event
-assertions, and negative assertions in a way Sorna can lower without semantic
-loss.
+boundaries for a stateless case. Malcolm now has separate request-body,
+stateful-setup, target-negative, and event-assertion lowering proofs; negative
+setup assertions still need a Sorna-compatible lowering.
 
 ## Example
 

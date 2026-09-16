@@ -7,7 +7,9 @@ verification run has no database, worker, network, or clock dependency.
 The public behavior is defined by the draft contract in
 [`../contract/contract.yaml`](../contract/contract.yaml). The subject exposes
 the four HTTP/JSON entrypoints listed there and leaves ID formatting and the
-internal queue implementation unspecified.
+internal queue implementation unspecified. Successful `POST /documents`
+responses also expose the public event signals `document.accepted` and
+`document.queued` through repeated `X-InGen-Event` headers.
 
 Run its tests with:
 
