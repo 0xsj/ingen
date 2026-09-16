@@ -51,6 +51,44 @@ The backend command is expected to exit `1` while the current code has its
 review findings; the latest locked run records 40 findings. The UI command
 below exits `0`. Both use the same language-neutral CI result contract.
 
+For an agent-driven review, use the shared handoff helper after building
+Paddock. It preserves the CI verdict in `overwatch-backend-ci-result.json`
+and writes a filtered, machine-readable explanation alongside it:
+
+```sh
+make -C paddock build
+
+PADDOCK=.artifacts/paddock/paddock \
+PADDOCK_SOURCE_ROOT=../overwatch/overwatch-backend \
+PADDOCK_LOCK=paddock/examples/overwatch/overwatch-backend-review.lock.json \
+PADDOCK_RESULT=overwatch-backend-ci-result.json \
+PADDOCK_EXPLANATION_FORMAT=json \
+PADDOCK_EXPLANATION_OUTPUT=overwatch-backend-explanation.json \
+PADDOCK_EXPLANATION_RULE=application-not-infrastructure \
+PADDOCK_EXPLANATION_STATUS=blocking \
+sh paddock/examples/ci/paddock-gate.sh handoff
+```
+
+This backend example is expected to return exit `1`: the architecture gate is
+blocking, while the explanation identifies the actionable application-to-
+infrastructure edge. A passing UI handoff uses the same command with
+`PADDOCK_SOURCE_ROOT=../overwatch/overwatch-ui`, the UI proposal lock, and a
+separate result and explanation path:
+
+```sh
+PADDOCK=.artifacts/paddock/paddock \
+PADDOCK_SOURCE_ROOT=../overwatch/overwatch-ui \
+PADDOCK_LOCK=paddock/examples/overwatch/overwatch-ui-layered-proposal.lock.json \
+PADDOCK_RESULT=overwatch-ui-ci-result.json \
+PADDOCK_EXPLANATION_FORMAT=json \
+PADDOCK_EXPLANATION_OUTPUT=overwatch-ui-explanation.json \
+sh paddock/examples/ci/paddock-gate.sh handoff
+```
+
+The UI handoff is expected to return exit `0`, with a passed CI artifact and a
+clear explanation containing zero findings. The explanation is advisory
+context for the agent; it never changes the authoritative CI verdict.
+
 The current backend findings are grouped and triaged in
 [`overwatch-backend-triage.md`](overwatch-backend-triage.md). It is a review
 note only; it does not alter the policy or sealed lock.

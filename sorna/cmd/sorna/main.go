@@ -521,7 +521,7 @@ func lifecycleObservationLimitation(access *lifecycle.AccessTelemetry) string {
 
 func evidenceCommand(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: sorna evidence verify <directory> | replay --oracle <path> --base-url <url> [--output <path>] <directory>")
+		fmt.Fprintln(os.Stderr, "usage: sorna evidence verify <directory> | replay --oracle <path> --base-url <url> [--format json|ci-result] [--source-root <dir>] [--output <path>] <directory>")
 		return 2
 	}
 	switch args[0] {
@@ -537,6 +537,9 @@ func evidenceCommand(args []string) int {
 		fmt.Println("verified:", args[1])
 		return 0
 	case "replay":
+		if len(args) > 1 && args[1] == "verify" {
+			return verifyReplayReport(args[2:])
+		}
 		return replayEvidence(args[1:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown evidence command:", args[0])
@@ -544,18 +547,45 @@ func evidenceCommand(args []string) int {
 	}
 }
 
+func verifyReplayReport(args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: sorna evidence replay verify <report>")
+		return 2
+	}
+	if _, err := evidence.LoadReplayReport(args[0]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("verified:", args[0])
+	return 0
+}
+
 func replayEvidence(args []string) int {
 	flags := flag.NewFlagSet("evidence replay", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	oraclePath := flags.String("oracle", "", "path to the canonical frozen oracle used by the recorded run")
 	baseURL := flags.String("base-url", "", "absolute URL of an explicitly supplied equivalent subject")
+	format := flags.String("format", "json", "output format: json or ci-result")
+	sourceRoot := flags.String("source-root", ".", "source root used to resolve relative CI input paths")
 	outputPath := flags.String("output", "", "optional replay report output path; existing files are not overwritten")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if *oraclePath == "" || *baseURL == "" || len(flags.Args()) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: sorna evidence replay --oracle <path> --base-url <url> [--output <path>] <directory>")
+	if *oraclePath == "" || *baseURL == "" || len(flags.Args()) != 1 || (*format != "json" && *format != "ci-result") {
+		fmt.Fprintln(os.Stderr, "usage: sorna evidence replay --oracle <path> --base-url <url> [--format json|ci-result] [--source-root <dir>] [--output <path>] <directory>")
 		return 2
+	}
+	if *format == "ci-result" {
+		artifact, err := evidence.BuildReplayCIResult(flags.Args()[0], *oraclePath, *baseURL, *sourceRoot)
+		if err != nil {
+			errorArtifact, artifactErr := evidence.BuildReplayCIErrorResult(flags.Args()[0], *oraclePath, *sourceRoot, err)
+			if artifactErr != nil {
+				fmt.Fprintln(os.Stderr, "build replay CI error result:", artifactErr)
+				return 2
+			}
+			return emitCIResult(errorArtifact, *outputPath, "replay")
+		}
+		return emitCIResult(artifact, *outputPath, "replay")
 	}
 	artifact, err := oracle.LoadFile(*oraclePath)
 	if err != nil {
@@ -2244,7 +2274,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sorna mutation run <plan> --provider <path> --oracle <path> --policy <path> [--subject-policy <path>] [--require-plan-binding] [--base-address <host:port>] [--output-dir <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  sorna mutation list <catalogue>")
 	fmt.Fprintln(os.Stderr, "  sorna evidence verify <directory>")
-	fmt.Fprintln(os.Stderr, "  sorna evidence replay --oracle <path> --base-url <url> [--output <path>] <directory>")
+	fmt.Fprintln(os.Stderr, "  sorna evidence replay --oracle <path> --base-url <url> [--format json|ci-result] [--source-root <dir>] [--output <path>] <directory>")
+	fmt.Fprintln(os.Stderr, "  sorna evidence replay verify <report>")
 	fmt.Fprintln(os.Stderr, "  sorna gate [--minimum-observation-coverage <state>] [--format text|json|ci-result] <evidence-directory>")
 	fmt.Fprintln(os.Stderr, "  sorna run [--oracle <path> | --contract <path>] [--policy <path>] --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--subject-policy <path>] [--baseline-evidence <dir>] [--output-dir <dir>]")
 }

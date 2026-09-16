@@ -34,12 +34,13 @@ hammond/
 │   │   ├── validate.go       # structural and governance invariants
 │   │   ├── lifecycle.go      # draft/review/approved/superseded transitions
 │   │   ├── lineage.go        # parent, successor, and amendment relationships
-	│   │   ├── amendment.go      # policy-aware amendment and supersession events
-	│   │   ├── authority_signature.go # trusted Ed25519 authority signatures
-	│   │   ├── authority_root.go # caller-delivered root-key snapshots and rotation
-	│   │   ├── authority_trust.go # active/revoked key snapshots and trust roots
+│   │   ├── amendment.go      # policy-aware amendment and supersession events
+│   │   ├── authority_signature.go # trusted Ed25519 authority signatures
+│   │   ├── authority_root.go # caller-delivered root-key snapshots and rotation
+│   │   ├── authority_trust.go # active/revoked key snapshots and trust roots
 │   │   ├── authority_membership.go # effective-dated membership adapter
 │   │   ├── membership.go      # authenticated provider membership snapshots
+│   │   ├── membership_provider.go # bounded HTTP transport and auth hook
 │   │   ├── codec.go          # strict decoding and contract/policy hashing
 │   │   └── governance_test.go
 │   │
@@ -48,10 +49,10 @@ hammond/
 │       ├── filesystem.go     # initial local implementation
 │       └── filesystem_test.go
 │
-	├── spec/
-	│   ├── ingen.hammond-authority-v1.schema.json
-	│   ├── ingen.hammond-authority-root-v1.schema.json
-	│   ├── ingen.hammond-authority-trust-v1.schema.json
+├── spec/
+│   ├── ingen.hammond-authority-v1.schema.json
+│   ├── ingen.hammond-authority-root-v1.schema.json
+│   ├── ingen.hammond-authority-trust-v1.schema.json
 │   ├── ingen.hammond-governance-v1.schema.json
 │   ├── ingen.hammond-membership-v1.schema.json
 │   └── ingen.hammond-review-policy-v1.schema.json
@@ -111,8 +112,9 @@ go run ./hammond/cmd/hammond lineage --store "$STORE"
 
 The store and CLI use the explicit v1 default policy: one approval from one
 distinct actor in the active review cycle. Library callers can also require
-named approval roles or a higher threshold. A policy may reference a separate,
-digest-bound local authority snapshot for actor-to-role grants;
+named approval roles, a higher overall threshold, or distinct-actor
+thresholds for specific roles. A policy may reference a separate, digest-bound
+local authority snapshot for actor-to-role grants;
 organization-level identity and policy rules are not modeled yet.
 
 At runtime, callers can supply an `AuthorityVerifier` implementation. Its
@@ -132,3 +134,10 @@ root-signed and verified before its active keys are used.
 effective and expiry timestamps. `MembershipSnapshot` adds a digest-bound,
 optionally signed provider-response envelope around those grants; callers can
 use `VerifierAt` to enforce snapshot freshness before evaluation.
+`HTTPMembershipProvider` is a narrow transport adapter for fetching one such
+snapshot. It requires a caller-owned signature verifier, bounds the response,
+and exposes authentication, endpoint-resolution, and endpoint-policy hooks;
+provider credentials, TLS policy, discovery policy, and response mapping
+remain outside Hammond. `FetchNormalized` hands provider-native bytes to a
+caller-owned normalizer, which may reject an incomplete view before Hammond
+verifies the resulting envelope.

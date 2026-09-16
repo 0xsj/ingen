@@ -66,6 +66,7 @@ replace the producer report with a summary of its own.
 | `schema` | The versioned Nublar run contract. |
 | `run_id` | An opaque identity for this collection attempt; see [`RUN-IDENTITY.md`](RUN-IDENTITY.md). |
 | `workflow` | The workflow ID and exact workflow file reference used. |
+| `correlation` | Optional external system, correlation ID, and positive attempt number; separate from `run_id`. |
 | `status` | Coordinator decision: `passed`, `failed`, or `error`. |
 | `exit_code` | Shared decision mapping: `0`, `1`, or `2`. |
 | `created_at` | When Nublar created the run record. |
@@ -128,9 +129,9 @@ The following invariants are enforced by the collector and its tests:
   result is a blocking collection error.
 - A run with no accepted producer artifact is representable as an error run
   when its collection errors are recorded.
-- Run IDs are opaque and unique per collection attempt. Durable external
-  correlation and rerun semantics are intentionally deferred; see
-  [`RUN-IDENTITY.md`](RUN-IDENTITY.md).
+- Run IDs are opaque and unique per collection attempt. Optional external
+  correlation is carried separately and does not change run identity; rerun
+  relationships remain deferred. See [`RUN-IDENTITY.md`](RUN-IDENTITY.md).
 - User-selected output paths and durable storage must publish complete records;
   the current atomic publication behavior is documented in
   [`OUTPUT-BOUNDARY.md`](OUTPUT-BOUNDARY.md) and [`STORAGE.md`](STORAGE.md).

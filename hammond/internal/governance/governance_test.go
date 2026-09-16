@@ -1,12 +1,16 @@
 package governance
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -257,6 +261,275 @@ func TestLoadMembershipSnapshotWithSignatureVerifier(t *testing.T) {
 	}
 }
 
+func TestHTTPMembershipProviderFetchesAuthenticatedSnapshot(t *testing.T) {
+	providerPublicKey, providerPrivateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := membershipDocument{
+		Schema:    MembershipSchema,
+		ID:        "directory-reviewers",
+		Version:   4,
+		IssuedAt:  "2026-09-15T00:00:00Z",
+		ExpiresAt: "2026-09-15T02:00:00Z",
+		Grants: []AuthorityGrant{{
+			Actor:     "reviewer@example.test",
+			Role:      "product-reviewer",
+			ValidFrom: "2026-09-15T00:00:00Z",
+		}},
+	}
+	payload, err := canonicalMembershipPayload(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.Signature = &AuthoritySignature{
+		Algorithm: AuthoritySignatureAlgorithmEd25519,
+		KeyID:     "directory-2026",
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(providerPrivateKey, payload)),
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	reference := MembershipReference{
+		ID:      document.ID,
+		Version: document.Version,
+		Schema:  MembershipSchema,
+		Artifact: Artifact{
+			URI:    "https://directory.example.test/membership",
+			SHA256: hex.EncodeToString(digest[:]),
+		},
+	}
+	requested := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/membership" {
+			t.Errorf("request = %s %s, want GET /membership", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer provider-token" {
+			t.Errorf("authorization = %q, want bearer token", request.Header.Get("Authorization"))
+		}
+		requested = true
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write(data)
+	}))
+	defer server.Close()
+
+	provider := HTTPMembershipProvider{
+		Endpoint:         server.URL + "/membership",
+		Client:           server.Client(),
+		MaxResponseBytes: int64(len(data)),
+		Authenticate: MembershipRequestAuthenticatorFunc(func(request *http.Request) error {
+			request.Header.Set("Authorization", "Bearer provider-token")
+			return nil
+		}),
+	}
+	verifier := Ed25519AuthoritySignatureVerifier{Keys: map[string]ed25519.PublicKey{"directory-2026": providerPublicKey}}
+	snapshot, err := provider.Fetch(context.Background(), reference, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !requested || snapshot.Reference != reference {
+		t.Fatalf("snapshot = %#v, requested = %v; want fetched reference", snapshot, requested)
+	}
+	if _, err := provider.FetchVerifierAt(context.Background(), reference, verifier, "2026-09-15T00:30:00Z", time.Hour, 5*time.Minute); err != nil {
+		t.Fatalf("fresh provider verifier error = %v", err)
+	}
+	resolved := false
+	provider.Endpoint = ""
+	provider.ResolveEndpoint = func(ctx context.Context) (string, error) {
+		resolved = ctx != nil
+		return server.URL + "/membership", nil
+	}
+	if _, err := provider.Fetch(context.Background(), reference, verifier); err != nil {
+		t.Fatalf("resolved provider endpoint error = %v", err)
+	}
+	if !resolved {
+		t.Fatal("provider endpoint resolver did not receive a context")
+	}
+
+	provider.Authenticate = MembershipRequestAuthenticatorFunc(func(*http.Request) error { return errors.New("credential unavailable") })
+	if _, err := provider.Fetch(context.Background(), reference, verifier); err == nil || !strings.Contains(err.Error(), "credential unavailable") {
+		t.Fatalf("authentication error = %v, want credential failure", err)
+	}
+}
+
+func TestHTTPMembershipProviderRejectsTransportBoundaryFailures(t *testing.T) {
+	providerPublicKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference := MembershipReference{
+		ID:      "directory-reviewers",
+		Version: 1,
+		Schema:  MembershipSchema,
+		Artifact: Artifact{
+			URI:    "https://directory.example.test/membership",
+			SHA256: strings.Repeat("a", 64),
+		},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte("too-large-or-unavailable"))
+	}))
+	defer server.Close()
+	verifier := Ed25519AuthoritySignatureVerifier{Keys: map[string]ed25519.PublicKey{"directory-2026": providerPublicKey}}
+
+	provider := HTTPMembershipProvider{
+		Endpoint:         server.URL,
+		Client:           server.Client(),
+		MaxResponseBytes: 4,
+	}
+	if _, err := provider.Fetch(context.Background(), reference, verifier); err == nil || !strings.Contains(err.Error(), "exceeds 4 bytes") {
+		t.Fatalf("oversized response error = %v, want bounded-response failure", err)
+	}
+
+	statusServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Error(writer, "provider unavailable", http.StatusServiceUnavailable)
+	}))
+	defer statusServer.Close()
+	provider.Endpoint = statusServer.URL
+	provider.MaxResponseBytes = 1024
+	if _, err := provider.Fetch(context.Background(), reference, verifier); err == nil || !strings.Contains(err.Error(), "HTTP status 503") {
+		t.Fatalf("provider status error = %v, want HTTP status failure", err)
+	}
+}
+
+func TestHTTPMembershipProviderAppliesEndpointPolicyBeforeRequest(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		writer.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	reference := MembershipReference{
+		ID:      "directory-reviewers",
+		Version: 1,
+		Schema:  MembershipSchema,
+		Artifact: Artifact{
+			URI:    "https://directory.example.test/membership",
+			SHA256: strings.Repeat("a", 64),
+		},
+	}
+	verifier := Ed25519AuthoritySignatureVerifier{Keys: map[string]ed25519.PublicKey{"directory-2026": publicKey}}
+	provider := HTTPMembershipProvider{
+		Endpoint:         server.URL,
+		Client:           server.Client(),
+		MaxResponseBytes: 1024,
+		RequireHTTPS:     true,
+	}
+	if _, err := provider.Fetch(context.Background(), reference, verifier); err == nil || !strings.Contains(err.Error(), "must use https") {
+		t.Fatalf("HTTPS policy error = %v, want HTTPS requirement", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count after HTTPS rejection = %d, want zero", requestCount)
+	}
+
+	provider.RequireHTTPS = false
+	provider.EndpointPolicy = MembershipEndpointPolicy(func(endpoint string) error {
+		if endpoint != server.URL {
+			return fmt.Errorf("unexpected endpoint %q", endpoint)
+		}
+		return errors.New("endpoint is not allowlisted")
+	})
+	if _, err := provider.Fetch(context.Background(), reference, verifier); err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("endpoint policy error = %v, want allowlist rejection", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count after allowlist rejection = %d, want zero", requestCount)
+	}
+
+	for _, endpoint := range []string{"https://user:pass@example.test/membership", "https://example.test/membership#fragment"} {
+		provider = HTTPMembershipProvider{Endpoint: endpoint, MaxResponseBytes: 1024}
+		if err := provider.Validate(); err == nil || !strings.Contains(err.Error(), "must not contain") {
+			t.Fatalf("endpoint %q validation error = %v, want unsafe URL rejection", endpoint, err)
+		}
+	}
+}
+
+func TestHTTPMembershipProviderDelegatesNormalizationAndCompleteness(t *testing.T) {
+	providerPublicKey, providerPrivateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"members":["reviewer@example.test"]}`))
+	}))
+	defer server.Close()
+
+	normalizerCalled := false
+	normalizer := MembershipResponseNormalizer(func(ctx context.Context, sourceURI string, raw []byte) (NormalizedMembershipResponse, error) {
+		normalizerCalled = true
+		if ctx == nil || sourceURI != server.URL || string(raw) != `{"members":["reviewer@example.test"]}` {
+			t.Fatalf("normalizer input = ctx:%v source:%q raw:%q", ctx != nil, sourceURI, raw)
+		}
+		document := membershipDocument{
+			Schema:   MembershipSchema,
+			ID:       "directory-reviewers",
+			Version:  5,
+			IssuedAt: "2026-09-15T00:00:00Z",
+			Grants: []AuthorityGrant{{
+				Actor:     "reviewer@example.test",
+				Role:      "product-reviewer",
+				ValidFrom: "2026-09-15T00:00:00Z",
+			}},
+		}
+		payload, err := canonicalMembershipPayload(document)
+		if err != nil {
+			return NormalizedMembershipResponse{}, err
+		}
+		document.Signature = &AuthoritySignature{
+			Algorithm: AuthoritySignatureAlgorithmEd25519,
+			KeyID:     "directory-2026",
+			Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(providerPrivateKey, payload)),
+		}
+		data, err := json.Marshal(document)
+		if err != nil {
+			return NormalizedMembershipResponse{}, err
+		}
+		digest := sha256.Sum256(data)
+		return NormalizedMembershipResponse{
+			Data: data,
+			Reference: MembershipReference{
+				ID:      document.ID,
+				Version: document.Version,
+				Schema:  MembershipSchema,
+				Artifact: Artifact{
+					URI:    sourceURI,
+					SHA256: hex.EncodeToString(digest[:]),
+				},
+			},
+		}, nil
+	})
+	provider := HTTPMembershipProvider{
+		Endpoint:         server.URL,
+		Client:           server.Client(),
+		MaxResponseBytes: 1024,
+	}
+	verifier := Ed25519AuthoritySignatureVerifier{Keys: map[string]ed25519.PublicKey{"directory-2026": providerPublicKey}}
+	snapshot, err := provider.FetchNormalized(context.Background(), normalizer, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !normalizerCalled || snapshot.Reference.Version != 5 {
+		t.Fatalf("normalizer called = %v, snapshot reference = %#v; want normalized response", normalizerCalled, snapshot.Reference)
+	}
+	if authorized, err := snapshot.Verifier().Verify("reviewer@example.test", "product-reviewer", "2026-09-15T00:30:00Z"); err != nil || !authorized {
+		t.Fatalf("normalized membership grant = %v, %v; want authorized", authorized, err)
+	}
+
+	incomplete := MembershipResponseNormalizer(func(context.Context, string, []byte) (NormalizedMembershipResponse, error) {
+		return NormalizedMembershipResponse{}, errors.New("provider view is incomplete")
+	})
+	if _, err := provider.FetchNormalized(context.Background(), incomplete, verifier); err == nil || !strings.Contains(err.Error(), "provider view is incomplete") {
+		t.Fatalf("incomplete response error = %v, want completeness failure", err)
+	}
+}
+
 func TestAppendEventWithPolicyWaitsForDistinctApprovals(t *testing.T) {
 	digest := strings.Repeat("a", 64)
 	policy := ReviewPolicy{
@@ -353,6 +626,63 @@ func TestAppendEventWithPolicyRequiresRoles(t *testing.T) {
 	}
 	if record.State != StateApproved {
 		t.Fatalf("state with required roles = %q, want approved", record.State)
+	}
+}
+
+func TestAppendEventWithPolicyRequiresDistinctActorsPerRole(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	policy := ReviewPolicy{
+		Reference: PolicyReference{
+			ID:      "role-quorum",
+			Version: 1,
+			Schema:  PolicySchema,
+			Artifact: Artifact{
+				URI:    "testdata/role-quorum-policy.json",
+				SHA256: strings.Repeat("d", 64),
+			},
+		},
+		MinimumApprovals:       3,
+		RoleApprovalThresholds: map[string]int{"security-reviewer": 2},
+	}
+	record := registeredRecord(digest)
+	record.Policy = policy.Reference
+	var err error
+	record, err = record.AppendEventWithPolicy(Event{
+		ID: "event-002", Type: EventReviewOpened, Actor: "owner", ReviewCycleID: "review-001", At: "2026-09-15T00:01:00Z",
+	}, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []Event{
+		{ID: "event-003", Type: EventApprovalRecorded, Actor: "product-reviewer", Role: "product-reviewer", ReviewCycleID: "review-001", Decision: DecisionApprove, ArtifactSHA256: digest, At: "2026-09-15T00:02:00Z"},
+		{ID: "event-004", Type: EventApprovalRecorded, Actor: "security-reviewer", Role: "security-reviewer", ReviewCycleID: "review-001", Decision: DecisionApprove, ArtifactSHA256: digest, At: "2026-09-15T00:03:00Z"},
+		{ID: "event-005", Type: EventApprovalRecorded, Actor: "security-reviewer", Role: "security-reviewer", ReviewCycleID: "review-001", Decision: DecisionApprove, ArtifactSHA256: digest, At: "2026-09-15T00:04:00Z"},
+	} {
+		record, err = record.AppendEventWithPolicy(event, policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if record.State != StateInReview {
+		t.Fatalf("state after repeated role approval = %q, want in_review", record.State)
+	}
+	record, err = record.AppendEventWithPolicy(Event{
+		ID: "event-006", Type: EventApprovalRecorded, Actor: "second-security-reviewer", Role: "security-reviewer", ReviewCycleID: "review-001", Decision: DecisionApprove, ArtifactSHA256: digest, At: "2026-09-15T00:05:00Z",
+	}, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != StateApproved {
+		t.Fatalf("state after distinct role approvals = %q, want approved", record.State)
+	}
+}
+
+func TestReviewPolicyRejectsInvalidRoleApprovalThreshold(t *testing.T) {
+	policy := DefaultReviewPolicy()
+	policy.RoleApprovalThresholds = map[string]int{"security-reviewer": 0}
+
+	if err := policy.Validate(); err == nil || !strings.Contains(err.Error(), "must be positive") {
+		t.Fatalf("error = %v, want invalid role threshold", err)
 	}
 }
 
@@ -458,6 +788,40 @@ func TestLoadReviewPolicyVerifiesPolicyBytes(t *testing.T) {
 	}
 	if _, err := LoadReviewPolicy(reference); err == nil || !strings.Contains(err.Error(), "do not match reference artifact.sha256") {
 		t.Fatalf("error = %v, want digest mismatch", err)
+	}
+}
+
+func TestLoadReviewPolicyDecodesRoleApprovalThresholds(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "role-quorum-policy.json")
+	data := []byte(`{
+  "schema": "ingen.hammond-review-policy/v1",
+  "id": "role-quorum",
+  "version": 1,
+  "minimum_approvals": 3,
+  "required_roles": ["security-reviewer"],
+  "role_approval_thresholds": {"security-reviewer": 2}
+}
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	reference := PolicyReference{
+		ID:      "role-quorum",
+		Version: 1,
+		Schema:  PolicySchema,
+		Artifact: Artifact{
+			URI:    path,
+			SHA256: hex.EncodeToString(digest[:]),
+		},
+	}
+	policy, err := LoadReviewPolicy(reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.MinimumApprovals != 3 || policy.RoleApprovalThresholds["security-reviewer"] != 2 {
+		t.Fatalf("policy = %#v, want decoded role threshold", policy)
 	}
 }
 
@@ -755,10 +1119,13 @@ func TestLoadAuthorityRootStoreSupportsBootstrapRotationAndTrustChain(t *testing
 			SHA256: hex.EncodeToString(rootDigest[:]),
 		},
 	}
-	bootstrap := Ed25519AuthoritySignatureVerifier{Keys: map[string]ed25519.PublicKey{"root-old": oldRootPublicKey}}
-	roots, err := LoadAuthorityRootStoreWithSignatureVerifier(rootReference, bootstrap)
+	bootstrap := AuthorityRootBootstrap{Keys: map[string]ed25519.PublicKey{"root-old": oldRootPublicKey}}
+	roots, err := LoadAuthorityRootStoreWithBootstrap(rootReference, bootstrap)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := LoadAuthorityRootStoreWithBootstrap(rootReference, AuthorityRootBootstrap{}); err == nil || !strings.Contains(err.Error(), "bootstrap keys are required") {
+		t.Fatalf("empty bootstrap error = %v, want bootstrap validation error", err)
 	}
 
 	rotationVerifier := roots.SignatureVerifier()

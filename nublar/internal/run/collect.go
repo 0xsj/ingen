@@ -16,21 +16,43 @@ import (
 // files into a versioned Run. Workflow and result hashes are computed from the
 // same bytes that are parsed and validated.
 func CollectWorkflowFile(workflowPath, root, runID string) (Run, error) {
+	return CollectWorkflowFileWithCorrelation(workflowPath, root, runID, nil)
+}
+
+// CollectWorkflowFileWithCorrelation collects one workflow and associates it
+// with an optional external CI attempt.
+func CollectWorkflowFileWithCorrelation(workflowPath, root, runID string, correlation *Correlation) (Run, error) {
 	document, workflowRef, err := workflow.LoadFileWithReference(workflowPath)
 	if err != nil {
 		return Run{}, err
 	}
-	return CollectWorkflow(document, workflowRef, root, runID)
+	return CollectWorkflowWithCorrelation(document, workflowRef, root, runID, correlation)
 }
 
 // CollectWorkflow resolves checks under root. Collection failures are recorded
 // in the returned run so CI consumers receive a reviewable error artifact.
 func CollectWorkflow(document workflow.Document, workflowRef ciresult.FileRef, root, runID string) (Run, error) {
+	return CollectWorkflowWithCorrelation(document, workflowRef, root, runID, nil)
+}
+
+// CollectWorkflowWithCorrelation resolves checks under root and associates
+// the resulting run with an optional external CI attempt.
+func CollectWorkflowWithCorrelation(document workflow.Document, workflowRef ciresult.FileRef, root, runID string, correlation *Correlation) (Run, error) {
 	if err := workflow.Validate(document); err != nil {
 		return Run{}, fmt.Errorf("validate Nublar workflow before collection: %w", err)
 	}
 	if err := validateFileRef("workflow", workflowRef); err != nil {
 		return Run{}, fmt.Errorf("validate Nublar workflow reference before collection: %w", err)
+	}
+	if correlation != nil {
+		if err := correlation.Validate(); err != nil {
+			return Run{}, fmt.Errorf("validate Nublar correlation before collection: %w", err)
+		}
+	}
+	var storedCorrelation *Correlation
+	if correlation != nil {
+		value := *correlation
+		storedCorrelation = &value
 	}
 	if runID == "" {
 		generated, err := NewID()
@@ -41,12 +63,13 @@ func CollectWorkflow(document workflow.Document, workflowRef ciresult.FileRef, r
 	}
 	createdAt := time.Now().UTC()
 	r := Run{
-		Schema:    Schema,
-		RunID:     runID,
-		Workflow:  Workflow{ID: document.ID, File: workflowRef},
-		Status:    "passed",
-		CreatedAt: createdAt.Format(time.RFC3339Nano),
-		Checks:    make([]Check, 0, len(document.Checks)),
+		Schema:      Schema,
+		RunID:       runID,
+		Workflow:    Workflow{ID: document.ID, File: workflowRef},
+		Correlation: storedCorrelation,
+		Status:      "passed",
+		CreatedAt:   createdAt.Format(time.RFC3339Nano),
+		Checks:      make([]Check, 0, len(document.Checks)),
 	}
 
 	presentResults := 0

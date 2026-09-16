@@ -120,6 +120,32 @@ the shared InGen CI-result contract and preserve `report` and `explanation` as
 opaque producer-owned JSON. See [`../../../core/ciresult/testdata/`](../../../core/ciresult/testdata/)
 for examples of the same contract carrying a non-Go architecture report.
 
+For an agent handoff, `handoff` runs the same lock-backed gate, preserves its
+exit code, and then emits the deterministic explanation from the saved CI
+artifact. Set `PADDOCK_EXPLANATION_FORMAT=json` when stdout will be consumed by
+another tool; set `PADDOCK_EXPLANATION_OUTPUT` to save it instead. Optional
+`PADDOCK_EXPLANATION_RULE` and `PADDOCK_EXPLANATION_STATUS` narrow the handoff:
+
+```sh
+export PADDOCK_SOURCE_ROOT=.
+export PADDOCK_RESULT=paddock-ci-result.json
+export PADDOCK_EXPLANATION_FORMAT=json
+export PADDOCK_EXPLANATION_OUTPUT=paddock-explanation.json
+export PADDOCK_EXPLANATION_RULE=application-not-infrastructure
+export PADDOCK_EXPLANATION_STATUS=blocking
+
+sh paddock/examples/ci/paddock-gate.sh handoff
+```
+
+The command returns `0` for a passing gate, `1` for blocking findings, and `2`
+for an evaluation or explanation error. It never seals a policy, changes the
+source tree, or changes the CI verdict based on the explanation.
+The same mode works when `PADDOCK_ADAPTER` is set; the adapter-produced graph
+is retained in the CI artifact before the explanation is generated.
+For a failing external adapter graph, the helper still returns `1` and the
+filtered explanation identifies the violated rule; it does not treat adapter
+language as a special case.
+
 Paddock can validate a persisted envelope without rerunning the source check:
 
 ```sh

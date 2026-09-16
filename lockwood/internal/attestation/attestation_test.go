@@ -190,6 +190,28 @@ func TestPublishStoresCanonicalEnvelope(t *testing.T) {
 	}
 }
 
+func TestPublishForRecordBindsEnvelopeToRecord(t *testing.T) {
+	record := attestationRecord()
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{21}, ed25519.SeedSize))
+	envelope, err := Sign(record, "review-key-2026-01", privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication, err := PublishForRecord(record, envelope, store.NewMemory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publication.CustodyID != record.CustodyID || publication.Artifact.Digest == "" {
+		t.Fatalf("publication receipt = %+v", publication)
+	}
+
+	wrongTarget := envelope
+	wrongTarget.Target.Digest = artifact.DigestBytes([]byte("different custody record"))
+	if _, err := PublishForRecord(record, wrongTarget, store.NewMemory()); err == nil || !strings.Contains(err.Error(), "target digest mismatch") {
+		t.Fatalf("wrong-target publication error = %v", err)
+	}
+}
+
 func TestPublishRequiresArtifactStore(t *testing.T) {
 	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{16}, ed25519.SeedSize))
 	envelope, err := Sign(attestationRecord(), "review-key-2026-01", privateKey)
@@ -246,8 +268,15 @@ func TestLoadAndVerifyPublishedAttestation(t *testing.T) {
 		t.Fatal(err)
 	}
 	keys := PublicKeySet{"review-key-2026-01": privateKey.Public().(ed25519.PublicKey)}
-	if err := VerifyPublished(record, ref.Digest, artifacts, keys); err != nil {
+	receipt, err := VerifyPublishedReceipt(record, ref.Digest, artifacts, keys)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if receipt.CustodyID != record.CustodyID || receipt.AttestationDigest != ref.Digest || receipt.TargetDigest != envelope.Target.Digest || receipt.KeyID != envelope.KeyID || receipt.Algorithm != Algorithm || !receipt.Verified {
+		t.Fatalf("verification receipt = %+v", receipt)
+	}
+	if err := VerifyPublished(record, ref.Digest, artifacts, keys); err != nil {
+		t.Fatalf("verification without receipt failed: %v", err)
 	}
 
 	changed := record

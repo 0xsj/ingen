@@ -15,6 +15,37 @@ import (
 	nublarstore "ingen/nublar/internal/storage/filesystem"
 )
 
+func TestWorkflowValidateCommandAcceptsDeclaration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workflow.yaml")
+	contents := []byte(`schema: ingen.nublar-workflow/v1
+id: cli-workflow
+checks:
+  - id: behavior
+    tool: sorna
+    result: sorna.json
+`)
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if exitCode := run([]string{"workflow", "validate", path}); exitCode != 0 {
+		t.Fatalf("workflow validate = %d, want success", exitCode)
+	}
+}
+
+func TestWorkflowValidateCommandRejectsInvalidDeclaration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workflow.yaml")
+	contents := []byte(`schema: ingen.nublar-workflow/v1
+id: cli-invalid-workflow
+checks: []
+`)
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if exitCode := run([]string{"workflow", "validate", path}); exitCode != 1 {
+		t.Fatalf("workflow validate = %d, want validation failure", exitCode)
+	}
+}
+
 func TestRunCollectStoresAndRunShowLoadsTheSameRecord(t *testing.T) {
 	workspace := t.TempDir()
 	artifactRoot := filepath.Join(workspace, "artifacts")
@@ -198,6 +229,83 @@ checks:
 	}
 }
 
+func TestRunCollectStoresOptionalExternalCorrelation(t *testing.T) {
+	workspace := t.TempDir()
+	artifactRoot := filepath.Join(workspace, "artifacts")
+	storeRoot := filepath.Join(workspace, "runs")
+	workflowPath := filepath.Join(workspace, "workflow.yaml")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(workflowPath, []byte(`schema: ingen.nublar-workflow/v1
+id: cli-correlated-workflow
+checks:
+  - id: behavior
+    tool: sorna
+    result: sorna.json
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := ciresult.Artifact{
+		Schema:      ciresult.Schema,
+		Tool:        "sorna",
+		Kind:        "test",
+		Status:      "passed",
+		ExitCode:    0,
+		CreatedAt:   "2026-09-15T12:00:00Z",
+		Source:      ciresult.Source{Root: "."},
+		Report:      []byte(`{"ok":true}`),
+		Explanation: []byte(`{"ok":true}`),
+	}
+	contents, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactRoot, "sorna.json"), contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	args := []string{
+		"run", "collect",
+		"--workflow", workflowPath,
+		"--root", artifactRoot,
+		"--run-id", "cli-correlated-01",
+		"--store", storeRoot,
+		"--external-system", "github-actions",
+		"--external-id", "build-42",
+		"--attempt", "3",
+	}
+	if exitCode := run(args); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want correlated collection success", args, exitCode)
+	}
+	stored, err := loadStoredRun(storeRoot, "cli-correlated-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &nublarrun.Correlation{System: "github-actions", ID: "build-42", Attempt: 3}
+	if stored.Correlation == nil || *stored.Correlation != *want {
+		t.Fatalf("stored correlation = %+v, want %+v", stored.Correlation, want)
+	}
+}
+
+func TestParseCorrelationRequiresCompleteTuple(t *testing.T) {
+	for name, values := range map[string]struct {
+		system  string
+		id      string
+		attempt int64
+	}{
+		"missing system":  {id: "build-42", attempt: 1},
+		"missing id":      {system: "github-actions", attempt: 1},
+		"missing attempt": {system: "github-actions", id: "build-42"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if correlation, err := parseCorrelation(values.system, values.id, values.attempt); err == nil || correlation != nil {
+				t.Fatalf("parseCorrelation() = %+v, %v, want validation error", correlation, err)
+			}
+		})
+	}
+}
+
 func TestRunListSucceedsForFailedStoredRun(t *testing.T) {
 	storeRoot := filepath.Join(t.TempDir(), "runs")
 	store, err := nublarstore.New(storeRoot)
@@ -277,11 +385,62 @@ func TestRunListFiltersByStatusAndWorkflow(t *testing.T) {
 	}
 }
 
+func TestRunListFiltersByExternalCorrelation(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstAttempt := cliTestRun("cli-external-build-01")
+	firstAttempt.Correlation = &nublarrun.Correlation{System: "github-actions", ID: "build-42", Attempt: 1}
+	secondAttempt := cliTestRun("cli-external-build-02")
+	secondAttempt.Correlation = &nublarrun.Correlation{System: "github-actions", ID: "build-42", Attempt: 2}
+	otherSystem := cliTestRun("cli-external-build-03")
+	otherSystem.Correlation = &nublarrun.Correlation{System: "circleci", ID: "build-42", Attempt: 2}
+	for _, record := range []nublarrun.Run{firstAttempt, secondAttempt, otherSystem} {
+		if err := store.Save(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	output := filepath.Join(t.TempDir(), "filtered.json")
+	args := []string{
+		"run", "list",
+		"--store", storeRoot,
+		"--external-system", "github-actions",
+		"--external-id", "build-42",
+		"--attempt", "2",
+		"--output", output,
+	}
+	if exitCode := run(args); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want external-correlation filter success", args, exitCode)
+	}
+	contents, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records []nublarrun.Run
+	if err := json.Unmarshal(contents, &records); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].RunID != secondAttempt.RunID {
+		t.Fatalf("filtered records = %+v, want only second GitHub attempt", records)
+	}
+}
+
 func TestRunListRejectsUnsupportedStatusFilter(t *testing.T) {
 	storeRoot := filepath.Join(t.TempDir(), "runs")
 	args := []string{"run", "list", "--store", storeRoot, "--status", "blocked"}
 	if exitCode := run(args); exitCode != 2 {
 		t.Fatalf("run(%v) = %d, want unsupported-status usage error", args, exitCode)
+	}
+}
+
+func TestRunListRejectsNegativeAttemptFilter(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	args := []string{"run", "list", "--store", storeRoot, "--attempt=-1"}
+	if exitCode := run(args); exitCode != 2 {
+		t.Fatalf("run(%v) = %d, want invalid-attempt usage error", args, exitCode)
 	}
 }
 

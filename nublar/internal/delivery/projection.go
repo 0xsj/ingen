@@ -21,16 +21,17 @@ const ReceiptSchema = "ingen.nublar-delivery-receipt/v1"
 // can use RunID to retrieve the complete run record when a destination needs
 // detailed evidence.
 type Decision struct {
-	Schema      string      `json:"schema"`
-	RunID       string      `json:"run_id"`
-	Workflow    Workflow    `json:"workflow"`
-	Status      string      `json:"status"`
-	ExitCode    int         `json:"exit_code"`
-	CreatedAt   string      `json:"created_at"`
-	CompletedAt string      `json:"completed_at"`
-	Checks      []Check     `json:"checks"`
-	Warnings    []run.Issue `json:"warnings,omitempty"`
-	Errors      []run.Issue `json:"errors,omitempty"`
+	Schema      string           `json:"schema"`
+	RunID       string           `json:"run_id"`
+	Workflow    Workflow         `json:"workflow"`
+	Correlation *run.Correlation `json:"correlation,omitempty"`
+	Status      string           `json:"status"`
+	ExitCode    int              `json:"exit_code"`
+	CreatedAt   string           `json:"created_at"`
+	CompletedAt string           `json:"completed_at"`
+	Checks      []Check          `json:"checks"`
+	Warnings    []run.Issue      `json:"warnings,omitempty"`
+	Errors      []run.Issue      `json:"errors,omitempty"`
 }
 
 type Workflow struct {
@@ -55,10 +56,16 @@ func Project(record run.Run) (Decision, error) {
 	if err := record.Validate(); err != nil {
 		return Decision{}, err
 	}
+	var correlation *run.Correlation
+	if record.Correlation != nil {
+		value := *record.Correlation
+		correlation = &value
+	}
 	decision := Decision{
 		Schema:      Schema,
 		RunID:       record.RunID,
 		Workflow:    Workflow{ID: record.Workflow.ID, File: record.Workflow.File},
+		Correlation: correlation,
 		Status:      record.Status,
 		ExitCode:    record.ExitCode,
 		CreatedAt:   record.CreatedAt,
@@ -98,6 +105,11 @@ func (d Decision) Validate() error {
 	}
 	if err := ciresult.ValidateFileRef("decision workflow", &d.Workflow.File); err != nil {
 		return err
+	}
+	if d.Correlation != nil {
+		if err := d.Correlation.Validate(); err != nil {
+			return err
+		}
 	}
 	if _, err := time.Parse(time.RFC3339Nano, d.CreatedAt); err != nil {
 		return fmt.Errorf("Nublar decision created_at must be RFC3339: %w", err)

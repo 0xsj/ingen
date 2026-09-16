@@ -1,0 +1,9 @@
+[package]
+name = "malcolm"
+version = "0.1.0"
+edition = "2021"
+description = "Executable specifications and adversarial verification for InGen"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"

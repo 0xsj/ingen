@@ -32,6 +32,7 @@ type ReplayResult struct {
 	Rules              []ReplayRuleResult       `json:"rules"`
 	Differences        []string                 `json:"differences,omitempty"`
 	ObservationChanges int                      `json:"observation_changes"`
+	RequestChanges     int                      `json:"request_changes"`
 }
 
 type ReplayIntegrity struct {
@@ -41,6 +42,7 @@ type ReplayIntegrity struct {
 type ReplayBehavior struct {
 	Status            string `json:"status"`
 	ObservationStatus string `json:"observation_status"`
+	RequestStatus     string `json:"request_status"`
 }
 
 // ReplayRuleResult compares contract-visible rule outcomes and reports
@@ -52,6 +54,9 @@ type ReplayRuleResult struct {
 	Status                    string   `json:"status"`
 	RecordedStatus            string   `json:"recorded_status,omitempty"`
 	ReplayStatus              string   `json:"replay_status,omitempty"`
+	RecordedRequestSHA256     string   `json:"recorded_request_sha256,omitempty"`
+	ReplayRequestSHA256       string   `json:"replay_request_sha256,omitempty"`
+	RequestStatus             string   `json:"request_status"`
 	RecordedObservationSHA256 string   `json:"recorded_observation_sha256,omitempty"`
 	ReplayObservationSHA256   string   `json:"replay_observation_sha256,omitempty"`
 	ObservationStatus         string   `json:"observation_status"`
@@ -110,7 +115,7 @@ func Replay(ctx context.Context, evidenceDir string, artifact oracle.Artifact, c
 		Contract:        recorded.Contract,
 		Oracle:          *recorded.Oracle,
 		Integrity:       ReplayIntegrity{Status: "verified"},
-		Behavior:        ReplayBehavior{Status: "matched", ObservationStatus: "same"},
+		Behavior:        ReplayBehavior{Status: "matched", ObservationStatus: "same", RequestStatus: "same"},
 		RecordedSubject: recorded.Subject,
 		ReplaySubject:   replayed.Subject,
 		RecordedVerdict: recorded.Verdict,
@@ -118,6 +123,9 @@ func Replay(ctx context.Context, evidenceDir string, artifact oracle.Artifact, c
 		Rules:           make([]ReplayRuleResult, 0),
 	}
 	compareReplay(&result, recorded, replayed)
+	if err := ValidateReplayResult(result); err != nil {
+		return ReplayResult{}, fmt.Errorf("validate replay result: %w", err)
+	}
 	return result, nil
 }
 
@@ -126,6 +134,7 @@ func compareReplay(result *ReplayResult, recorded, replayed runner.RunRecord) {
 	replayedRules := indexReplayRules(replayed.Rules)
 	keys := make([]string, 0, len(recordedRules)+len(replayedRules))
 	seen := make(map[string]bool, len(recordedRules)+len(replayedRules))
+	requestUnavailable := false
 	for key := range recordedRules {
 		keys = append(keys, key)
 		seen[key] = true
@@ -140,10 +149,13 @@ func compareReplay(result *ReplayResult, recorded, replayed runner.RunRecord) {
 	for _, key := range keys {
 		recordedRule, recordedOK := recordedRules[key]
 		replayedRule, replayedOK := replayedRules[key]
-		comparison := ReplayRuleResult{CaseID: key, Status: "match", ObservationStatus: "unavailable"}
+		comparison := ReplayRuleResult{CaseID: key, Status: "match", ObservationStatus: "unavailable", RequestStatus: "unavailable"}
 		if recordedOK {
 			comparison.RuleID = recordedRule.RuleID
 			comparison.RecordedStatus = recordedRule.Status
+			if fingerprint, ok := replayRequestFingerprint(recordedRule); ok {
+				comparison.RecordedRequestSHA256 = fingerprint
+			}
 			comparison.RecordedObservationSHA256 = recordedRule.ObservationSHA256
 		}
 		if replayedOK {
@@ -151,6 +163,9 @@ func compareReplay(result *ReplayResult, recorded, replayed runner.RunRecord) {
 				comparison.RuleID = replayedRule.RuleID
 			}
 			comparison.ReplayStatus = replayedRule.Status
+			if fingerprint, ok := replayRequestFingerprint(replayedRule); ok {
+				comparison.ReplayRequestSHA256 = fingerprint
+			}
 			comparison.ReplayObservationSHA256 = replayedRule.ObservationSHA256
 		}
 
@@ -165,6 +180,20 @@ func compareReplay(result *ReplayResult, recorded, replayed runner.RunRecord) {
 			comparison.Differences = compareRuleOutcome(recordedRule, replayedRule)
 			if len(comparison.Differences) > 0 {
 				comparison.Status = "outcome-drift"
+			}
+			recordedRequest, recordedRequestOK := replayRequestFingerprint(recordedRule)
+			replayedRequest, replayedRequestOK := replayRequestFingerprint(replayedRule)
+			switch {
+			case !recordedRequestOK || !replayedRequestOK:
+				comparison.RequestStatus = "unavailable"
+			case recordedRequest != replayedRequest:
+				comparison.RequestStatus = "changed"
+				if comparison.Status == "match" {
+					comparison.Status = "request-drift"
+				}
+				comparison.Differences = append(comparison.Differences, "request fingerprint changed")
+			default:
+				comparison.RequestStatus = "same"
 			}
 			if recordedRule.ObservationSHA256 == "" || replayedRule.ObservationSHA256 == "" {
 				comparison.ObservationStatus = "unavailable"
@@ -181,6 +210,11 @@ func compareReplay(result *ReplayResult, recorded, replayed runner.RunRecord) {
 			for _, difference := range comparison.Differences {
 				result.Differences = append(result.Differences, fmt.Sprintf("case %s: %s", key, difference))
 			}
+		}
+		if comparison.RequestStatus == "changed" {
+			result.RequestChanges++
+		} else if comparison.RequestStatus == "unavailable" {
+			requestUnavailable = true
 		}
 		if comparison.ObservationStatus == "changed" {
 			result.ObservationChanges++
@@ -204,6 +238,13 @@ func compareReplay(result *ReplayResult, recorded, replayed runner.RunRecord) {
 		result.Behavior.Status = "inconclusive"
 		result.Behavior.ObservationStatus = "unavailable"
 		result.Differences = append(result.Differences, "replay did not fully evaluate every rule")
+	}
+	if requestUnavailable {
+		result.Behavior.RequestStatus = "unavailable"
+	} else if result.RequestChanges > 0 {
+		result.Behavior.RequestStatus = "changed"
+	} else {
+		result.Behavior.RequestStatus = "same"
 	}
 }
 

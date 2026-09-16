@@ -22,16 +22,38 @@ const Schema = "ingen.nublar-run/v1"
 // Run records one Nublar collection attempt. Producer reports remain inside
 // the shared CI envelopes and are not reinterpreted by this package.
 type Run struct {
-	Schema      string   `json:"schema"`
-	RunID       string   `json:"run_id"`
-	Workflow    Workflow `json:"workflow"`
-	Status      string   `json:"status"`
-	ExitCode    int      `json:"exit_code"`
-	CreatedAt   string   `json:"created_at"`
-	CompletedAt string   `json:"completed_at"`
-	Checks      []Check  `json:"checks"`
-	Warnings    []Issue  `json:"warnings,omitempty"`
-	Errors      []Issue  `json:"errors,omitempty"`
+	Schema      string       `json:"schema"`
+	RunID       string       `json:"run_id"`
+	Workflow    Workflow     `json:"workflow"`
+	Correlation *Correlation `json:"correlation,omitempty"`
+	Status      string       `json:"status"`
+	ExitCode    int          `json:"exit_code"`
+	CreatedAt   string       `json:"created_at"`
+	CompletedAt string       `json:"completed_at"`
+	Checks      []Check      `json:"checks"`
+	Warnings    []Issue      `json:"warnings,omitempty"`
+	Errors      []Issue      `json:"errors,omitempty"`
+}
+
+// Correlation identifies the external CI attempt that requested one Nublar
+// collection. It is optional and remains separate from Nublar's run ID.
+type Correlation struct {
+	System  string `json:"system"`
+	ID      string `json:"id"`
+	Attempt int64  `json:"attempt"`
+}
+
+func (c Correlation) Validate() error {
+	if strings.TrimSpace(c.System) == "" {
+		return fmt.Errorf("Nublar correlation system is required")
+	}
+	if strings.TrimSpace(c.ID) == "" {
+		return fmt.Errorf("Nublar correlation id is required")
+	}
+	if c.Attempt < 1 {
+		return fmt.Errorf("Nublar correlation attempt must be positive")
+	}
+	return nil
 }
 
 type Workflow struct {
@@ -76,6 +98,11 @@ func (r Run) Validate() error {
 	}
 	if err := validateFileRef("workflow file", r.Workflow.File); err != nil {
 		return err
+	}
+	if r.Correlation != nil {
+		if err := r.Correlation.Validate(); err != nil {
+			return err
+		}
 	}
 	createdAt, err := parseTimestamp("created_at", r.CreatedAt)
 	if err != nil {

@@ -34,6 +34,41 @@ func TestValidateAcceptsPassedRunAndPreservesProducerArtifact(t *testing.T) {
 	}
 }
 
+func TestValidateAndLoadPreserveOptionalCorrelation(t *testing.T) {
+	r := validRun()
+	r.Correlation = &Correlation{System: "github-actions", ID: "build-42", Attempt: 3}
+	if err := r.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := WriteJSON(&output, r); err != nil {
+		t.Fatal(err)
+	}
+	var decoded Run
+	if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Correlation == nil || *decoded.Correlation != *r.Correlation {
+		t.Fatalf("decoded correlation = %+v, want %+v", decoded.Correlation, r.Correlation)
+	}
+}
+
+func TestValidateRejectsInvalidCorrelation(t *testing.T) {
+	for name, correlation := range map[string]*Correlation{
+		"missing system": {ID: "build-42", Attempt: 1},
+		"missing id":     {System: "github-actions", Attempt: 1},
+		"zero attempt":   {System: "github-actions", ID: "build-42"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := validRun()
+			r.Correlation = correlation
+			if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "Nublar correlation") {
+				t.Fatalf("Validate() = %v, want correlation validation error", err)
+			}
+		})
+	}
+}
+
 func TestValidateComposesFailedProducerStatus(t *testing.T) {
 	r := validRun()
 	r.Status = "failed"
@@ -232,6 +267,24 @@ func TestCollectWorkflowRejectsInvalidDirectInputs(t *testing.T) {
 	}
 	if _, err := CollectWorkflow(validDocument, ciresult.FileRef{Path: "workflow.yaml"}, t.TempDir(), "run-unbound-workflow"); err == nil || !strings.Contains(err.Error(), "sha256 is required") {
 		t.Fatalf("CollectWorkflow() = %v, want workflow-reference error", err)
+	}
+}
+
+func TestCollectWorkflowWithCorrelationPreservesExternalAttempt(t *testing.T) {
+	root := t.TempDir()
+	writeArtifact(t, root, "sorna.json", validArtifact("sorna", "passed", 0))
+	document := workflow.Document{
+		Schema: workflow.Schema,
+		ID:     "correlated-workflow",
+		Checks: []workflow.Check{{ID: "behavior", Tool: "sorna", Result: "sorna.json"}},
+	}
+	correlation := &Correlation{System: "github-actions", ID: "build-42", Attempt: 3}
+	record, err := CollectWorkflowWithCorrelation(document, fileRef("workflow.yaml"), root, "run-correlated", correlation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Correlation == nil || *record.Correlation != *correlation {
+		t.Fatalf("collected correlation = %+v, want %+v", record.Correlation, correlation)
 	}
 }
 

@@ -118,8 +118,10 @@ cycle IDs must be unique within a governance record.
 The v1 domain model records decisions and evaluates them against a supplied
 review policy artifact. The default policy requires one approval from one
 distinct actor in the active cycle. A policy may also require named approval
-roles and reference a separately versioned, digest-bound local authority
-artifact containing actor-to-role grants. The model does not yet verify
+roles, an overall approval threshold, and per-role distinct-actor thresholds
+through `role_approval_thresholds`. A policy may reference a separately
+versioned, digest-bound local authority artifact containing actor-to-role
+grants. The model does not yet verify
 organization-wide identity or role authority; the local snapshot is only an
 explicit input to policy evaluation. Runtime callers may provide an authority
 verifier, but Hammond v1 does not ship an organization-backed verifier.
@@ -134,8 +136,12 @@ versioned membership snapshot. The snapshot carries `issued_at`, effective
 grant windows, an optional `expires_at`, and an optional Ed25519 issuer
 signature. Hammond can verify that response and expose its grants to the
 timestamp-aware authority seam. A caller may enforce maximum age, future clock
-skew, and expiry before doing so; Hammond does not fetch, authenticate, or
-assign meaning to a provider response itself.
+skew, and expiry before doing so. The optional `HTTPMembershipProvider` only
+fetches bounded response bytes and invokes caller-owned authentication,
+endpoint-resolution, and endpoint-policy hooks; provider credentials, TLS and
+discovery policy, normalization, completeness, and response semantics remain
+outside Hammond. Its `FetchNormalized` path verifies the digest-bound envelope
+returned by that normalizer.
 
 An authority artifact may also carry an Ed25519 signature with a `key_id`.
 The signature covers the canonical JSON payload formed from `schema`, `id`,
@@ -248,6 +254,7 @@ The v1 validator must reject:
 - an approval or rejection that is not bound to the active review cycle;
 - an approval or rejection whose actor/role pair is not granted by the loaded
   authority snapshot;
+- a review that fails an overall or per-role distinct-actor approval threshold;
 - an authority verifier error or a decision evaluated without its validated
   UTC timestamp;
 - an effective-dated authority grant with an invalid or non-UTC time window;
@@ -282,7 +289,7 @@ The following remain outside v1:
 
 - organization and team identity providers, root-key bootstrap delivery and
   approval;
-- organization-aware identity, role authority, and advanced quorum rules;
+- organization-aware identity and role authority;
 - hosted registry APIs;
 - artifact blob storage and retention;
 - merge conflict handling for concurrent amendments; and

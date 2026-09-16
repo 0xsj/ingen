@@ -144,6 +144,12 @@ versioned schemas, sealed policy locks, or CI verdicts.
 - Preserve duplicate rule signals but relate them by source, target, and source
   location. This lets an agent collapse repeated symptoms around one edge while
   keeping every rule's independent attribution available for review.
+- Treat the explanation → policy-review sequence as the agent handoff boundary:
+  Paddock may narrow evidence and measure a proposal, but proposal acceptance
+  remains an explicit architecture-owner decision.
+- Keep CI orchestration provider-neutral. The example `handoff` helper may
+  compose gate and explanation artifacts, but it must preserve the gate exit
+  code and never turn explanation output into a second verdict.
 
 ## Scope decision from this cycle
 

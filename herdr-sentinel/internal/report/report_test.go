@@ -57,6 +57,16 @@ func TestWriteSeparatesLifecycleAuditAndProducerVerdict(t *testing.T) {
 			t.Fatalf("report missing %q:\n%s", want, text)
 		}
 	}
+	if err := SaveFile("report.txt", document); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile("report.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(saved) != text {
+		t.Fatalf("saved report differs from rendered report:\n%s", saved)
+	}
 }
 
 func digest(contents string) string {

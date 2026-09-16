@@ -86,8 +86,15 @@ provided and records every declared check, including missing optional checks:
 go run ./nublar/cmd/nublar run collect \
   --workflow nublar/workflows/document-pipeline.yaml \
   --root .artifacts \
+  --external-system github-actions \
+  --external-id build-42 \
+  --attempt 3 \
   --output .artifacts/nublar-run.json
 ```
+
+The external correlation flags are optional and must be supplied together;
+they add provider-neutral system, ID, and attempt metadata without changing
+the run's immutable `run_id`.
 
 The repository entry point is `make nublar-run-collect`; it also persists the
 run under `NUBLAR_RUN_STORE` (default `.artifacts/nublar-runs`).
@@ -105,12 +112,16 @@ The CI-facing output and exit-code contract is documented in
 [`OUTPUT-BOUNDARY.md`](OUTPUT-BOUNDARY.md).
 The provider-neutral delivery projection is documented in
 [`DELIVERY-BOUNDARY.md`](DELIVERY-BOUNDARY.md).
+The external consumer handoff is documented in
+[`CONSUMER-GUIDE.md`](CONSUMER-GUIDE.md).
 The first Sentinel verifier handoff into Nublar is documented in
 [`nublar-sentinel-verifier-workflow.md`](../notes/modules/nublar-sentinel-verifier-workflow.md).
 
 The mixed-producer integration fixture demonstrates the intended neutrality
 boundary: Nublar composes Sorna and Paddock envelopes while preserving each
-producer report as opaque data.
+producer report as opaque data. The consumer contract integration test carries
+that run through collection, immutable storage, decision projection, and the
+generic webhook publisher using an in-memory transport.
 
 ## Aggregate shared results
 
@@ -131,5 +142,5 @@ and multiple JSON values in one result file are rejected. Producer `report` and
 `explanation` values remain opaque JSON and are preserved without interpretation.
 
 The focused repository check is `make nublar-check`; it runs Nublar's race
-tests and static analysis, then parses the Nublar schema files without running
-any producer workflow.
+tests and static analysis, then parses the Nublar and shared CI-envelope
+schema files without running any producer workflow.

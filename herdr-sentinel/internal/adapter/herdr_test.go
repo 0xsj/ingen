@@ -135,6 +135,52 @@ func TestApplyHerdrEventRejectsOutOfOrderTimestamp(t *testing.T) {
 	}
 }
 
+func TestApplyHerdrEventRejectsTerminalStatusRegression(t *testing.T) {
+	receipt := sentinelReceipt(t)
+	if err := receipt.SetStatus("completed", time.Date(2026, time.January, 2, 3, 4, 6, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	event := HerdrEvent{
+		Schema:           HerdrEventSchema,
+		EventID:          "herdr-event-regression",
+		RunID:            receipt.RunID,
+		WorkspaceID:      receipt.Workspace.ID,
+		WorkspaceVersion: receipt.Workspace.Version,
+		Type:             "role-launched",
+		At:               "2026-01-02T03:04:07Z",
+		ReceiptStatus:    "running",
+	}
+	if _, err := ApplyHerdrEvent(&receipt, event); err == nil || !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("terminal regression = %v, want rejection", err)
+	}
+	if len(receipt.Events) != 1 || receipt.Status != "completed" {
+		t.Fatalf("receipt mutated after terminal regression: %+v", receipt)
+	}
+}
+
+func TestApplyHerdrEventAllowsCleanupAfterTerminalStatus(t *testing.T) {
+	receipt := sentinelReceipt(t)
+	if err := receipt.SetStatus("completed", time.Date(2026, time.January, 2, 3, 4, 6, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	event := HerdrEvent{
+		Schema:           HerdrEventSchema,
+		EventID:          "herdr-event-cleanup",
+		RunID:            receipt.RunID,
+		WorkspaceID:      receipt.Workspace.ID,
+		WorkspaceVersion: receipt.Workspace.Version,
+		Type:             "cleanup-completed",
+		At:               "2026-01-02T03:04:07Z",
+		ReceiptStatus:    "cleaned",
+	}
+	if appended, err := ApplyHerdrEvent(&receipt, event); err != nil || !appended {
+		t.Fatalf("cleanup event = %v, %v; want accepted transition", appended, err)
+	}
+	if receipt.Status != "cleaned" || len(receipt.Events) != 2 {
+		t.Fatalf("receipt after cleanup = %+v, want cleaned receipt", receipt)
+	}
+}
+
 func TestApplyHerdrEventWithRootRejectsArtifactDrift(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile("artifact.json", []byte("original"), 0o644); err != nil {

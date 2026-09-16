@@ -44,6 +44,9 @@ func TestReplayMatchesFrozenRunWithoutChangingEvidence(t *testing.T) {
 	if result.Behavior.ObservationStatus != "same" || result.ObservationChanges != 0 {
 		t.Fatalf("observation result = %+v, want unchanged observations", result)
 	}
+	if result.Behavior.RequestStatus != "same" || result.RequestChanges != 0 || result.Rules[0].RequestStatus != "same" {
+		t.Fatalf("request result = %+v, want equivalent request intent", result)
+	}
 	if len(result.Rules) != 1 || result.Rules[0].Status != "match" {
 		t.Fatalf("rule replay result = %+v, want one matching rule", result.Rules)
 	}
@@ -145,6 +148,47 @@ func TestReplayReportsExecutionErrorSeparatelyFromDrift(t *testing.T) {
 	}
 }
 
+func TestCompareReplayReportsRequestIntentDrift(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	result := validReplayReport()
+	result.Rules = nil
+	result.Differences = nil
+	recorded := runner.RunRecord{
+		RunID:   "recorded",
+		Verdict: runner.ContractVerdict{Status: "pass", Reason: "all rules passed"},
+		Rules: []runner.RuleResult{{
+			RuleID:            "rule.health",
+			CaseID:            "case-0001",
+			Status:            "pass",
+			Request:           runner.Request{Method: "GET", URL: "http://recorded.invalid/status"},
+			ObservationSHA256: digest,
+		}},
+	}
+	replayed := recorded
+	replayed.RunID = "replayed"
+	replayed.Rules = []runner.RuleResult{{
+		RuleID:            "rule.health",
+		CaseID:            "case-0001",
+		Status:            "pass",
+		Request:           runner.Request{Method: "GET", URL: "http://replayed.invalid/status?unexpected=true"},
+		ObservationSHA256: digest,
+	}}
+	compareReplay(&result, recorded, replayed)
+
+	if result.Status != "drifted" || result.Behavior.Status != "drifted" {
+		t.Fatalf("replay result = %+v, want drifted request intent", result)
+	}
+	if result.RequestChanges != 1 || result.Behavior.RequestStatus != "changed" {
+		t.Fatalf("request summary = %+v, want one changed request", result)
+	}
+	if len(result.Rules) != 1 || result.Rules[0].Status != "request-drift" || result.Rules[0].RequestStatus != "changed" {
+		t.Fatalf("rule request result = %+v, want request drift", result.Rules)
+	}
+	if err := ValidateReplayResult(result); err != nil {
+		t.Fatalf("ValidateReplayResult() = %v, want request drift report valid", err)
+	}
+}
+
 func replayArtifact() oracle.Artifact {
 	return oracle.Artifact{
 		Schema:       oracle.Schema,
@@ -166,6 +210,12 @@ func replayClient(status int, body string) *http.Client {
 			Header:     make(http.Header),
 			Request:    request,
 		}, nil
+	})}
+}
+
+func replayErrorClient() *http.Client {
+	return &http.Client{Transport: replayRoundTripper(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("subject unavailable")
 	})}
 }
 

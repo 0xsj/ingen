@@ -9,6 +9,9 @@ run show --store <dir> --run-id <id>  → one validated run record
 run list --store <dir>                → all validated run records
 run list --store <dir> --status failed --workflow document-pipeline-ci
                                       → matching validated run records
+run list --store <dir> --external-system github-actions \
+         --external-id build-42 --attempt 2
+                                      → one external attempt, when present
 ```
 
 `run show` addresses one immutable record by its opaque ID. `run list` emits a
@@ -26,10 +29,12 @@ stored `failed` or `error` run does not make `run list` return a failure exit
 code. Storage and serialization errors still return exit code `2`.
 
 `run list` may filter by the coordinator `--status` (`passed`, `failed`, or
-`error`) and/or exact `--workflow` ID. Filters are applied after every stored
-record has been validated, preserve the documented ordering, and return `[]`
-when nothing matches. An unsupported status filter is a usage error with exit
-code `2`.
+`error`), exact `--workflow` ID, exact `--external-system`, exact
+`--external-id`, and positive `--attempt`. Correlation filters are independent
+and composable; a run without correlation does not match an external filter.
+Filters are applied after every stored record has been validated, preserve the
+documented ordering, and return `[]` when nothing matches. An unsupported
+status or negative attempt filter is a usage error with exit code `2`.
 
 ## Deliberately deferred
 

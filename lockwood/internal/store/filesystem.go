@@ -24,6 +24,9 @@ func NewFilesystem(root string) (*Filesystem, error) {
 	if err := os.MkdirAll(filepath.Join(root, "blobs", artifact.SHA256Algorithm), 0o755); err != nil {
 		return nil, fmt.Errorf("create blob root: %w", err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "references", artifact.SHA256Algorithm), 0o755); err != nil {
+		return nil, fmt.Errorf("create reference root: %w", err)
+	}
 	if err := os.MkdirAll(tempRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create temporary root: %w", err)
 	}
@@ -81,6 +84,13 @@ func (s *Filesystem) Put(reader io.Reader, options PutOptions) (artifact.Referen
 		return artifact.Reference{}, fmt.Errorf("create artifact directory: %w", err)
 	}
 
+	reference := artifact.Reference{
+		Schema:      artifact.Schema,
+		Digest:      digest,
+		SizeBytes:   size,
+		MediaType:   options.MediaType,
+		LogicalName: options.LogicalName,
+	}
 	if _, err := os.Stat(path); err == nil {
 		if err := s.Verify(digest); err != nil {
 			return artifact.Reference{}, fmt.Errorf("existing artifact failed verification: %w", err)
@@ -88,13 +98,10 @@ func (s *Filesystem) Put(reader io.Reader, options PutOptions) (artifact.Referen
 		if err := syncDirectory(filepath.Dir(path)); err != nil {
 			return artifact.Reference{}, fmt.Errorf("sync artifact directory: %w", err)
 		}
-		return artifact.Reference{
-			Schema:      artifact.Schema,
-			Digest:      digest,
-			SizeBytes:   size,
-			MediaType:   options.MediaType,
-			LogicalName: options.LogicalName,
-		}, nil
+		if err := s.publishReference(reference); err != nil {
+			return artifact.Reference{}, err
+		}
+		return reference, nil
 	} else if !os.IsNotExist(err) {
 		return artifact.Reference{}, fmt.Errorf("inspect existing artifact: %w", err)
 	}
@@ -115,13 +122,10 @@ func (s *Filesystem) Put(reader io.Reader, options PutOptions) (artifact.Referen
 		return artifact.Reference{}, fmt.Errorf("sync artifact directory: %w", err)
 	}
 
-	return artifact.Reference{
-		Schema:      artifact.Schema,
-		Digest:      digest,
-		SizeBytes:   size,
-		MediaType:   options.MediaType,
-		LogicalName: options.LogicalName,
-	}, nil
+	if err := s.publishReference(reference); err != nil {
+		return artifact.Reference{}, err
+	}
+	return reference, nil
 }
 
 func (s *Filesystem) Get(digest string) ([]byte, error) {

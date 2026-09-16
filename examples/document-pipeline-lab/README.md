@@ -55,6 +55,17 @@ make sorna-defect-run
 The defect run is expected to be red, is labeled `status-200-create`, and
 reports the mutation as `killed` in its run record.
 
+To exercise replay against a fresh, separate clean subject, use:
+
+```sh
+make sorna-replay-fresh
+```
+
+This target produces the stored baseline first, starts a new subject through
+the fixture harness in [`replay/`](replay/), waits for `GET /healthz`, and
+writes a `behavioral-replay` CI result. The harness owns process lifecycle;
+Sorna replay itself remains a verifier of an already-running URL.
+
 The temporary fixture provider maps the three prebuilt defect binaries to the
 mutation plan. The complete fixture campaign can be exercised with:
 

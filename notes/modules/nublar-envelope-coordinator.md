@@ -38,6 +38,9 @@ be ambiguous.
 
 ## Limits
 
-This is not yet a pull-request service, artifact store, scheduler, or policy
-engine. It is the first executable proof that Sorna and future producers can
-share a CI boundary without forcing an artificial merger of their internals.
+This is not a pull-request service, hosted artifact-custody system, scheduler,
+or policy engine. Nublar now also has a local immutable run store, but that
+store is a persistence boundary rather than a replacement for Lockwood or a
+hosted retention service. This note remains the executable proof that Sorna and
+future producers can share a CI boundary without forcing an artificial merger
+of their internals.

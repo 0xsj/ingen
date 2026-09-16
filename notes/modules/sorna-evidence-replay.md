@@ -27,15 +27,25 @@ sorna evidence replay --oracle <frozen-oracle.json> --base-url <url> <evidence-d
 ```
 
 The report uses `sorna.replay/v1`. It compares rule IDs, statuses, setup
-outcome shapes, assertion outcome shapes, and the contract verdict. A
-contract-visible difference is `drifted`. Observation hashes are compared for
-diagnosis but are tracked separately: an observation can change while the
-contract-visible outcome remains `matched`.
+outcome shapes, assertion outcome shapes, and the contract verdict. It also
+fingerprints each rule's ordered public request intent: setup and target
+method/path/query/body are included, while host and port are ignored. This
+keeps equivalent local subjects comparable without allowing a changed request
+shape to hide behind the same response. A contract-visible or request-intent
+difference is `drifted`. Observation hashes are compared for diagnosis but are
+tracked separately: an observation can change while the contract-visible
+outcome remains `matched`.
 
 If the supplied subject cannot be evaluated, replay reports `error` (or
 `inconclusive` when evaluation is incomplete) rather than calling that a
 behavioral drift. An unavailable observation is not compared as a changed
 observation.
+
+The CI adapter preserves the complete replay report inside
+`ingen.ci-result/v1`, binds the oracle plus the evidence manifest, checksum
+file, and verified artifacts as inputs, and maps the producer states to the
+shared envelope: `matched` → `passed`, `drifted` → `failed`, and
+`error`/`inconclusive` → `error`.
 
 ## Why the URL is explicit
 
@@ -51,3 +61,9 @@ effects on the supplied subject, so “read-only” applies to the stored
 evidence bundle, not to the external subject. A future adapter can provide a
 resettable fixture or an isolated replay environment when the protocol needs
 stronger repeatability.
+
+The document-pipeline lab now provides that local environment through a
+separate `replay-fixture` harness. It creates no Sorna evidence itself: it
+starts a fresh subject, waits for readiness, invokes the replay CLI, and
+tears the subject down. Keeping that lifecycle outside Sorna prevents a
+convenience target from changing the verifier's explicit URL-only boundary.

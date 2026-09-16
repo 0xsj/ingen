@@ -63,6 +63,11 @@ The same bytes may have more than one custody record if they are accepted from
 different workflows or at different times. The artifact digest remains the
 same while custody history grows append-only.
 
+The filesystem store may persist one canonical reference manifest per
+descriptive metadata variant. These manifests support read-only inventory and
+do not change the content identity of the referenced blob; callers must still
+verify the blob before treating a reference as trustworthy.
+
 ### Lineage
 
 Lineage describes relationships between artifacts, such as a CI result
@@ -323,7 +328,12 @@ The first implementation should support these conceptual operations:
 | `put` | Compute identity, verify optional source integrity, and accept bytes. |
 | `get` | Retrieve bytes by digest. |
 | `inspect` | Read custody metadata and lineage without loading the payload. |
+| `inspect-attestation` | Read a known detached envelope by artifact digest without asserting signer trust. |
+| `find-attestation` | Find persisted detached envelopes by target digest or key ID without asserting signer trust. |
 | `record-digest` | Compute the digest of a record's canonical representation. |
+| `sign-attestation` | Verify a custody record, sign its canonical digest with an explicit local key, and publish a detached envelope. |
+| `import-attestation` | Validate and publish a canonical detached envelope against an explicit custody record without asserting signer trust. |
+| `verify-attestation` | Verify a published detached envelope with an explicit public key. |
 | `verify` | Recompute a blob digest, or verify a custody record's blob digest and declared size. |
 | `find` | Locate artifacts by metadata such as run, producer, media type, or logical name. |
 | `recover` | Re-verify a published blob and retry appending its pending custody record. |

@@ -37,8 +37,9 @@ root-to-authority chain without claiming to solve root-key distribution.
 
 Normalized organization responses can use a separate signed membership
 snapshot. Hammond verifies that response and adapts its effective-dated grants
-to the same runtime verifier seam, without making a network request or
-deciding provider-specific semantics.
+to the same runtime verifier seam. The optional HTTP adapter can fetch the
+snapshot bytes, while Hammond still leaves credentials and provider-specific
+semantics to the caller.
 
 ## Why
 

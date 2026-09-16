@@ -9,16 +9,17 @@ The Herdr event batch adapter made one delivery all-or-nothing in memory. A
 second delivery could still start another process, load the same old receipt,
 append its own event, and publish after the first process. The last writer
 would silently erase the first writer's accepted event. The same failure was
-possible when an in-place artifact handoff raced a callback update.
+possible when an in-place artifact or Sorna lifecycle update raced a callback
+update.
 
 ## What
 
 `run.UpdateFile` acquires a sibling advisory lock, loads the current receipt,
 executes one update against that in-memory value, and atomically publishes the
 new receipt only when the callback reports a change. Sentinel's in-place Herdr
-event and artifact commands use this seam. Idempotent replays therefore do not
-rewrite the receipt, while separate local deliveries serialize their
-read-modify-publish cycles.
+event, artifact, oracle, and verifier lifecycle updates use this seam.
+Idempotent replays therefore do not rewrite the receipt, while separate local
+deliveries serialize their read-modify-publish cycles.
 
 ## Why
 
@@ -40,7 +41,7 @@ Nublar or turning a filesystem lock into a distributed queue.
 
 - `herdr-sentinel/internal/run/update.go`
 - `herdr-sentinel/internal/run/lock_unix.go`
-- `herdr-sentinel/cmd/sentinel` Herdr event and in-place artifact commands
+- `herdr-sentinel/cmd/sentinel` Herdr event, artifact, oracle, and verifier commands
 
 ## Related
 

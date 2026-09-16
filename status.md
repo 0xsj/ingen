@@ -48,7 +48,7 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - The persistence mutation demonstrates that a green create response can still be invalid across requests; the campaign preserves the resulting failure blast radius in its diagnosis.
 - `sorna-ci-result` now includes the clean baseline run, so the fresh workflow no longer depends on a pre-existing run bundle.
 - Notes, module explanations, Make targets, and example documentation have been kept alongside the implementation.
-- The first post-alpha webhook-validation lab now has a contract, isolated policies, a stateful black-box Go subject, a baseline workflow, and a fixture-based duplicate-idempotency mutation campaign; a webhook-specific source provider and Nublar integration remain intentionally deferred.
+- The first post-alpha webhook-validation lab now has a contract, isolated policies, a stateful black-box Go subject, a baseline workflow, and a fixture-based duplicate-idempotency mutation campaign; a webhook-specific source provider remains intentionally deferred, while its opaque CI envelopes now have a Nublar workflow path.
 - The webhook fixture campaign froze one semantic mutation, killed it with the duplicate rule, and preserved the campaign result as a passing CI envelope; the fixture path remains local-only until a source-level webhook provider is justified.
 - The reusable Go provider now supports the webhook mutation set with strict exact-plan binding, preparation evidence, and a source-level campaign target; the source provider remains vertical-aware at the target resolver, not in the generic preparation machinery.
 - The strict webhook source-provider campaign passed: one copied Go source variant was prepared, its provider and preparation envelopes passed, and the duplicate-idempotency mutation was killed in isolation.
@@ -69,7 +69,15 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Sentinel now accepts newline-delimited Herdr event batches and publishes them all-or-nothing against a receipt, preserving idempotent retries without claiming queue or host persistence guarantees.
 - In-place Herdr receipt updates now serialize the read-modify-publish cycle with a local advisory lock, preventing concurrent callback writers from silently dropping accepted events.
 - In-place Sentinel artifact registration now uses the same advisory lock, so artifact handoff cannot silently overwrite a concurrent Herdr receipt update.
+- Sentinel artifact registration now treats an exact ID/role/kind/path/hash retry as a no-op while rejecting conflicting reuse of an artifact ID.
+- Sentinel oracle and verifier lifecycle writes now use the same lock at startup and completion, closing the remaining local receipt-writer race around delegated Sorna runs.
+- Sentinel receipt status updates now reject terminal-to-nonterminal regressions across Herdr and direct Sorna lifecycle writes while leaving the full host lifecycle graph unfrozen.
 - Sentinel now renders a concise operator report that keeps lifecycle completion, receipt integrity, producer-owned Sorna meaning, artifacts, and limitations separate.
+- Sentinel CI explanations now carry the compact audit status and check identities used by the integrity gate, preserving that decision at the shared Nublar boundary.
+- Sentinel audit and operator-report outputs now publish through temporary-file plus rename boundaries, preventing partial report artifacts at their final paths.
+- Sentinel audit, operator-report, and CI-result construction now share one validated receipt snapshot, preventing a mutable receipt path from mixing audit and emitted-envelope versions.
+- Sentinel’s CI explanation, including its compact audit trace, now has a versioned closed schema under `herdr-sentinel/spec`.
+- The host-enabled `nublar-sentinel-run-collect` proof now passes end to end: Sorna freezes the webhook oracle, Sentinel emits the audit-gated CI envelope, and Nublar stores a passed `ingen.nublar-run/v1` result preserving the receipt and audit trace.
 
 ## Useful entry points
 
@@ -154,12 +162,15 @@ These are candidate directions, not an artificial checklist to complete all at o
 
 The Nublar first slice now has workflow validation, strict CI-envelope and run
 loading, byte-bound collection provenance, immutable filesystem storage,
-deterministic run queries, provider-neutral decision projection, and generic
-webhook delivery with independent receipts. The next Nublar decision should
-come from a concrete consumer: either add the query or metadata it requires,
-or freeze this local contract before a hosted implementation. Producer
-execution, hosted storage, scheduling, and provider-specific delivery remain
-outside the current Nublar boundary.
+deterministic run queries with status/workflow/correlation filters, provider-neutral
+decision projection, optional provider-neutral external correlation metadata,
+generic webhook delivery with independent receipts, and an end-to-end consumer
+contract test covering the local collect-to-delivery path.
+The next Nublar decision should come from a concrete consumer: either add the
+metadata or delivery behavior it requires, or freeze this local contract
+before a hosted implementation. Producer execution, hosted storage,
+scheduling, and provider-specific delivery remain outside the current Nublar
+boundary.
 
 For Sentinel, the next boundary remains concrete Herdr host integration: the
 provider-neutral event ingress and operator report are ready to exercise now,

@@ -80,6 +80,38 @@ The read-only CLI verification path accepts one explicit standard-base64
 Ed25519 public-key file. It is an operator-supplied verification input, not a
 persisted Lockwood trust registry.
 
+The local signing CLI accepts one standard-base64 Ed25519 private-key file
+containing the 64-byte private key, with an optional final newline. The file
+must be a regular file with mode `0600` or stricter. The command verifies the
+target custody record before signing and publishes only the detached envelope;
+it never stores or emits the private key and does not mutate the custody record.
+Its publication receipt may include the custody ID as contextual metadata, but
+the signed identity remains the target digest.
+
+The publication helper checks the envelope target against the canonical digest
+of the specific record supplied by the caller before storing bytes. This is a
+binding check, not signature verification; callers must still verify with the
+appropriate public key.
+
+The `import-attestation` CLI accepts a canonical envelope file, checks its
+content digest and target against an explicitly named custody record, and
+publishes it without verifying the signature. This separates structural
+intake from caller-controlled signer trust.
+
+The read-only `inspect-attestation` CLI loads a known envelope by artifact
+digest and reports its canonical metadata. It does not verify the signature;
+use `verify-attestation` when cryptographic verification is required.
+
+The read-only `find-attestation` CLI filters persisted references by target
+custody-record digest or key ID, verifies the matching canonical artifacts, and
+does not verify signatures. It is discovery, not a trust decision.
+
+Successful verification may return a transient receipt containing the target
+custody ID, attestation artifact digest, target record digest, key ID,
+algorithm, and `verified: true`. The receipt is operational evidence only; it
+does not replace the detached envelope, create a custody record, or assert
+semantic correctness.
+
 The attestation itself can be stored as a separate immutable artifact. Do not
 automatically add a `verifies` lineage edge yet: current custody lineage
 digests identify stored payload artifacts, while `target.digest` identifies a

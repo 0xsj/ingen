@@ -17,6 +17,12 @@
       "uniqueItems": true,
       "items": {"type": "string", "minLength": 1}
     },
+    "role_approval_thresholds": {
+      "description": "Minimum distinct authorized actors required for each named role; entries imply required role coverage.",
+      "type": "object",
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
     "authority": {
       "description": "Versioned actor-to-role authority snapshot used by local policy evaluation.",
       "$ref": "#/$defs/authority-reference"

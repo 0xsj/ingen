@@ -30,6 +30,22 @@ func TestProjectPreservesDecisionAndReferencesWithoutProducerReport(t *testing.T
 	}
 }
 
+func TestProjectPreservesCorrelationWithoutAliasingRun(t *testing.T) {
+	record := deliveryTestRun()
+	record.Correlation = &run.Correlation{System: "github-actions", ID: "build-42", Attempt: 3}
+	decision, err := Project(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Correlation == nil || *decision.Correlation != *record.Correlation {
+		t.Fatalf("decision correlation = %+v, want %+v", decision.Correlation, record.Correlation)
+	}
+	decision.Correlation.ID = "mutated"
+	if record.Correlation.ID != "build-42" {
+		t.Fatalf("projected correlation mutated source run: %+v", record.Correlation)
+	}
+}
+
 func TestProjectRejectsInvalidRun(t *testing.T) {
 	if _, err := Project(run.Run{}); err == nil {
 		t.Fatal("Project() succeeded, want invalid-run error")

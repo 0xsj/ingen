@@ -296,6 +296,32 @@ func TestCLIVerifyAttestation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	targetDigest, err := custody.CanonicalDigest(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var findOutput bytes.Buffer
+	if code := run([]string{"find-attestation", "--root", root, "--target-digest", targetDigest}, strings.NewReader(""), &findOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("find-attestation exit code = %d", code)
+	}
+	var found []attestation.StoredAttestation
+	if err := json.Unmarshal(findOutput.Bytes(), &found); err != nil {
+		t.Fatalf("decode attestation find output: %v", err)
+	}
+	if len(found) != 1 || found[0].Artifact.Digest != ref.Digest || found[0].Envelope.KeyID != "review-key-2026-01" {
+		t.Fatalf("attestation find results = %+v", found)
+	}
+	var inspectOutput bytes.Buffer
+	if code := run([]string{"inspect-attestation", "--root", root, ref.Digest}, strings.NewReader(""), &inspectOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("inspect-attestation exit code = %d", code)
+	}
+	var inspection attestation.Inspection
+	if err := json.Unmarshal(inspectOutput.Bytes(), &inspection); err != nil {
+		t.Fatalf("decode attestation inspection: %v", err)
+	}
+	if inspection.AttestationDigest != ref.Digest || inspection.Envelope.KeyID != "review-key-2026-01" {
+		t.Fatalf("attestation inspection = %+v", inspection)
+	}
 	publicKeyPath := filepath.Join(t.TempDir(), "review-key.pub")
 	encodedKey := base64.StdEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey)) + "\n"
 	if err := os.WriteFile(publicKeyPath, []byte(encodedKey), 0o600); err != nil {
@@ -311,8 +337,12 @@ func TestCLIVerifyAttestation(t *testing.T) {
 	}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("verify-attestation exit code = %d", code)
 	}
-	if !strings.Contains(output.String(), `"key_id": "review-key-2026-01"`) {
-		t.Fatalf("verify-attestation output = %s", output.String())
+	var receipt attestation.VerificationReceipt
+	if err := json.Unmarshal(output.Bytes(), &receipt); err != nil {
+		t.Fatalf("decode verification receipt: %v", err)
+	}
+	if receipt.CustodyID != custodyID || receipt.AttestationDigest != ref.Digest || receipt.KeyID != "review-key-2026-01" || receipt.Algorithm != attestation.Algorithm || !receipt.Verified {
+		t.Fatalf("verification receipt = %+v", receipt)
 	}
 
 	w := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{19}, ed25519.SeedSize))
@@ -331,6 +361,176 @@ func TestCLIVerifyAttestation(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "verification failed") {
 		t.Fatalf("wrong-key stderr = %q", stderr.String())
+	}
+}
+
+func TestCLISignAttestation(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(t.TempDir(), "attested.txt")
+	if err := os.WriteFile(input, []byte("attested bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const custodyID = "lockwood-cli-sign-attestation-0001"
+	var putOutput bytes.Buffer
+	if code := run([]string{
+		"put",
+		"--root", root,
+		"--id", custodyID,
+		"--media-type", "text/plain",
+		"--producer", "example",
+		"--kind", "attestation-fixture",
+		input,
+	}, strings.NewReader(""), &putOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("put exit code = %d", code)
+	}
+	var record custody.Record
+	if err := json.Unmarshal(putOutput.Bytes(), &record); err != nil {
+		t.Fatalf("decode put output: %v", err)
+	}
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{20}, ed25519.SeedSize))
+	privateKeyPath := filepath.Join(t.TempDir(), "review-key.key")
+	if err := os.WriteFile(privateKeyPath, []byte(base64.StdEncoding.EncodeToString(privateKey)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var signOutput bytes.Buffer
+	if code := run([]string{
+		"sign-attestation",
+		"--root", root,
+		"--id", custodyID,
+		"--key-id", "review-key-2026-01",
+		"--private-key", privateKeyPath,
+	}, strings.NewReader(""), &signOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("sign-attestation exit code = %d", code)
+	}
+	var result struct {
+		CustodyID string `json:"custody_id"`
+		Artifact  struct {
+			Digest    string `json:"digest"`
+			MediaType string `json:"media_type"`
+		} `json:"artifact"`
+		Envelope attestation.Envelope `json:"envelope"`
+	}
+	if err := json.Unmarshal(signOutput.Bytes(), &result); err != nil {
+		t.Fatalf("decode sign-attestation output: %v", err)
+	}
+	if result.CustodyID != custodyID || result.Artifact.Digest == "" || result.Artifact.MediaType != attestation.MediaType {
+		t.Fatalf("published artifact = %+v", result.Artifact)
+	}
+	if result.Envelope.KeyID != "review-key-2026-01" {
+		t.Fatalf("published envelope = %+v", result.Envelope)
+	}
+	recordDigest, err := custody.CanonicalDigest(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Envelope.Target.Digest != recordDigest {
+		t.Fatalf("target digest = %s, want %s", result.Envelope.Target.Digest, recordDigest)
+	}
+	artifacts, _, err := openStores(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := attestation.PublicKeySet{"review-key-2026-01": privateKey.Public().(ed25519.PublicKey)}
+	if err := attestation.VerifyPublished(record, result.Artifact.Digest, artifacts, keys); err != nil {
+		t.Fatalf("published CLI attestation failed verification: %v", err)
+	}
+
+	if err := os.Chmod(privateKeyPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	if code := run([]string{
+		"sign-attestation",
+		"--root", root,
+		"--id", custodyID,
+		"--key-id", "review-key-2026-01",
+		"--private-key", privateKeyPath,
+	}, strings.NewReader(""), &bytes.Buffer{}, &stderr); code == 0 {
+		t.Fatal("sign-attestation accepted a private key file with open permissions")
+	}
+	if !strings.Contains(stderr.String(), "permissions are too open") {
+		t.Fatalf("open-permission stderr = %q", stderr.String())
+	}
+}
+
+func TestCLIImportAttestation(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(t.TempDir(), "attested.txt")
+	if err := os.WriteFile(input, []byte("attested bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const custodyID = "lockwood-cli-import-attestation-0001"
+	var putOutput bytes.Buffer
+	if code := run([]string{
+		"put",
+		"--root", root,
+		"--id", custodyID,
+		"--media-type", "text/plain",
+		"--producer", "example",
+		"--kind", "attestation-fixture",
+		input,
+	}, strings.NewReader(""), &putOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("put exit code = %d", code)
+	}
+	var record custody.Record
+	if err := json.Unmarshal(putOutput.Bytes(), &record); err != nil {
+		t.Fatalf("decode put output: %v", err)
+	}
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{22}, ed25519.SeedSize))
+	envelope, err := attestation.Sign(record, "external-review-key-2026-01", privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelopePath := filepath.Join(t.TempDir(), "attestation.json")
+	envelopeBytes, err := attestation.MarshalCanonical(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(envelopePath, envelopeBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	envelopeDigest, err := attestation.CanonicalDigest(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if code := run([]string{
+		"import-attestation",
+		"--root", root,
+		"--id", custodyID,
+		"--expected-digest", envelopeDigest,
+		envelopePath,
+	}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("import-attestation exit code = %d", code)
+	}
+	var publication attestation.Publication
+	if err := json.Unmarshal(output.Bytes(), &publication); err != nil {
+		t.Fatalf("decode import-attestation output: %v", err)
+	}
+	if publication.CustodyID != custodyID || publication.Artifact.Digest != envelopeDigest {
+		t.Fatalf("import publication = %+v", publication)
+	}
+	artifacts, _, err := openStores(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := attestation.PublicKeySet{"external-review-key-2026-01": privateKey.Public().(ed25519.PublicKey)}
+	if err := attestation.VerifyPublished(record, publication.Artifact.Digest, artifacts, keys); err != nil {
+		t.Fatalf("imported attestation failed verification: %v", err)
+	}
+
+	var stderr bytes.Buffer
+	if code := run([]string{
+		"import-attestation",
+		"--root", root,
+		"--id", custodyID,
+		"--expected-digest", "sha256:" + strings.Repeat("0", 64),
+		envelopePath,
+	}, strings.NewReader(""), &bytes.Buffer{}, &stderr); code == 0 {
+		t.Fatal("import-attestation accepted a mismatched expected digest")
+	}
+	if !strings.Contains(stderr.String(), "expected digest") {
+		t.Fatalf("mismatched-digest stderr = %q", stderr.String())
 	}
 }
 

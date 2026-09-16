@@ -361,10 +361,25 @@ sorna evidence replay --oracle <frozen-oracle.json> --base-url <equivalent-subje
 It verifies the stored evidence checksums and semantics before executing the
 caller-supplied canonical oracle. The contract source is not loaded, the
 original subject URL is not selected implicitly, and the evidence directory is
-read-only. Contract-visible rule and verdict changes are outcome drift;
-observation hash changes are reported separately because a different raw
-observation can still satisfy the same contract. A replay that cannot evaluate
-the subject is an execution error or inconclusive result, not behavioral drift.
+read-only. Contract-visible rule and verdict changes are outcome drift. Replay
+also fingerprints the ordered public request intent for each case: setup and
+target method/path/query/body are compared, while host and port are ignored.
+Request-intent changes are drift even when the response still satisfies the
+contract. Observation hash changes are reported separately because a different
+raw observation can still satisfy the same contract. A replay that cannot
+evaluate the subject is an execution error or inconclusive result, not
+behavioral drift.
+
+For CI consumers, the replay report is preserved inside the shared
+`ingen.ci-result/v1` envelope with `kind: behavioral-replay`. The envelope maps
+`matched` to `passed`, `drifted` to `failed`, and `error` or `inconclusive` to
+`error`.
+
+Saved producer reports can be structurally checked with:
+
+```sh
+sorna evidence replay verify <replay-report.json>
+```
 
 ## 12. Retention and redaction
 

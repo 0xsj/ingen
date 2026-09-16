@@ -31,14 +31,14 @@ func TestNublarSchemaContracts(t *testing.T) {
 			path:           filepath.Join(repoRoot, "nublar", "spec", "run-v1.schema.json"),
 			constValue:     "ingen.nublar-run/v1",
 			requiredFields: []string{"schema", "run_id", "workflow", "status", "exit_code", "created_at", "completed_at", "checks"},
-			definitions:    []string{"file-ref", "workflow", "check", "result", "issue"},
+			definitions:    []string{"file-ref", "workflow", "correlation", "check", "result", "issue"},
 		},
 		{
 			name:           "decision",
 			path:           filepath.Join(repoRoot, "nublar", "spec", "decision-v1.schema.json"),
 			constValue:     "ingen.nublar-decision/v1",
 			requiredFields: []string{"schema", "run_id", "workflow", "status", "exit_code", "created_at", "completed_at", "checks"},
-			definitions:    []string{"file-ref", "workflow", "check", "issue"},
+			definitions:    []string{"file-ref", "workflow", "correlation", "check", "issue"},
 		},
 		{
 			name:           "receipt",

@@ -16,11 +16,12 @@ type AuthorityVerifier interface {
 // state. Authority, when present, points to a separately versioned local
 // actor-to-role snapshot; it is not an external identity proof.
 type ReviewPolicy struct {
-	Reference         PolicyReference
-	MinimumApprovals  int
-	RequiredRoles     []string
-	Authority         AuthorityReference
-	AuthorityVerifier AuthorityVerifier
+	Reference              PolicyReference
+	MinimumApprovals       int
+	RequiredRoles          []string
+	RoleApprovalThresholds map[string]int
+	Authority              AuthorityReference
+	AuthorityVerifier      AuthorityVerifier
 	// ActorRoles is retained as the materialized local snapshot for audit and
 	// compatibility. New runtime authority sources should use AuthorityVerifier.
 	ActorRoles map[string][]string
@@ -95,6 +96,9 @@ func (policy ReviewPolicy) Validate() error {
 	if err := validateRoleList(policy.RequiredRoles, "required roles"); err != nil {
 		return err
 	}
+	if err := validateRoleApprovalThresholds(policy.RoleApprovalThresholds); err != nil {
+		return err
+	}
 	return validateActorRoleGrants(policy.ActorRoles)
 }
 
@@ -141,6 +145,24 @@ func validateRoleList(roles []string, label string) error {
 	return nil
 }
 
+func validateRoleApprovalThresholds(thresholds map[string]int) error {
+	seenRoles := make(map[string]struct{}, len(thresholds))
+	for role, threshold := range thresholds {
+		role = strings.TrimSpace(role)
+		if role == "" {
+			return fmt.Errorf("role approval threshold role must not be empty")
+		}
+		if _, exists := seenRoles[role]; exists {
+			return fmt.Errorf("role approval threshold role %q is duplicated", role)
+		}
+		seenRoles[role] = struct{}{}
+		if threshold < 1 {
+			return fmt.Errorf("role approval threshold for %q must be positive", role)
+		}
+	}
+	return nil
+}
+
 func validateActorRoleGrants(actorRoles map[string][]string) error {
 	for actor, roles := range actorRoles {
 		if strings.TrimSpace(actor) == "" {
@@ -176,7 +198,7 @@ func (policy ReviewPolicy) satisfied(events []Event, cycleID string) (bool, erro
 	}
 
 	actors := make(map[string]struct{})
-	roles := make(map[string]struct{})
+	roleActors := make(map[string]map[string]struct{})
 	for _, event := range events {
 		if event.Type != EventApprovalRecorded || event.ReviewCycleID != cycleID || event.Decision != DecisionApprove {
 			continue
@@ -190,19 +212,41 @@ func (policy ReviewPolicy) satisfied(events []Event, cycleID string) (bool, erro
 		if authorized && actor != "" {
 			actors[actor] = struct{}{}
 		}
-		if authorized && role != "" {
-			roles[role] = struct{}{}
+		if authorized && actor != "" && role != "" {
+			actorsForRole := roleActors[role]
+			if actorsForRole == nil {
+				actorsForRole = make(map[string]struct{})
+				roleActors[role] = actorsForRole
+			}
+			actorsForRole[actor] = struct{}{}
 		}
 	}
 	if len(actors) < policy.MinimumApprovals {
 		return false, nil
 	}
-	for _, requiredRole := range policy.RequiredRoles {
-		if _, exists := roles[strings.TrimSpace(requiredRole)]; !exists {
+	for role, threshold := range policy.approvalThresholds() {
+		if len(roleActors[role]) < threshold {
 			return false, nil
 		}
 	}
 	return true, nil
+}
+
+func (policy ReviewPolicy) approvalThresholds() map[string]int {
+	thresholds := make(map[string]int, len(policy.RequiredRoles)+len(policy.RoleApprovalThresholds))
+	for _, role := range policy.RequiredRoles {
+		role = strings.TrimSpace(role)
+		if role != "" && thresholds[role] < 1 {
+			thresholds[role] = 1
+		}
+	}
+	for role, threshold := range policy.RoleApprovalThresholds {
+		role = strings.TrimSpace(role)
+		if role != "" && threshold > thresholds[role] {
+			thresholds[role] = threshold
+		}
+	}
+	return thresholds
 }
 
 func activeReviewCycle(events []Event) string {

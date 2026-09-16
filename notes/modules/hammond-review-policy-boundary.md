@@ -15,8 +15,9 @@ look like universal governance semantics.
 
 The domain exposes a policy-aware validation and append path. The v1 default
 policy requires one approval from one distinct actor in the active cycle.
-Callers can supply a higher minimum approval count; the record remains
-`in_review` until that policy is satisfied.
+Callers can supply a higher minimum approval count, named required roles, or
+per-role distinct-actor thresholds; the record remains `in_review` until that
+policy is satisfied.
 
 ## Why
 
@@ -29,6 +30,9 @@ changing the event history.
 
 - Approval counts use distinct actor identities; repeating one actor does not
   satisfy a quorum.
+- A per-role threshold counts distinct authorized actors for that role; one
+  actor may contribute to multiple roles, but repeated events do not increase
+  any count.
 - Policy-aware callers must use the policy-aware append/validate methods.
 - The file store and CLI intentionally use the explicit one-approval default
   until a policy configuration format exists.

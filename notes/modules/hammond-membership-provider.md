@@ -1,8 +1,9 @@
 # An authenticated membership response is still a provider boundary
 
 Hammond can verify the shape, bytes, issuer signature, and effective windows of
-a normalized membership response. It cannot decide whether an organization
-provider's response is fresh, complete, or semantically correct.
+a normalized membership response. Its optional HTTP adapter can fetch bounded
+response bytes, but it cannot decide whether an organization provider's
+response is complete or semantically correct.
 
 ## Origin
 
@@ -22,9 +23,10 @@ membership interface used by lifecycle validation.
 
 ## Why
 
-Separating response verification from provider semantics keeps Hammond's
-boundary honest. The caller chooses the provider, trust set, freshness window,
-and any completeness rules before injecting the resulting verifier.
+Separating transport, response verification, and provider semantics keeps
+Hammond's boundary honest. The caller chooses the provider, trust set,
+freshness window, authentication mechanism, and any completeness rules before
+injecting the resulting verifier.
 
 ## Gotchas
 
@@ -34,8 +36,9 @@ and any completeness rules before injecting the resulting verifier.
   internal directory semantics.
 - The membership reference is not yet embedded in the v1 governance record;
   callers that inject it must preserve that provenance alongside the record.
-- Network transport, credentials, and provider-specific mapping remain outside
-  Hammond; callers still choose the freshness limits.
+- `HTTPMembershipProvider` performs only bounded HTTP fetching and invokes the
+  caller's authentication hook; callers still own credentials, TLS and
+  endpoint policy, freshness limits, and provider-specific mapping.
 
 ## Used in
 

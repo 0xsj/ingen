@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.sentinel-ci-explanation-v1.schema.json",
+  "title": "InGen Sentinel CI explanation v1",
+  "description": "The compact Sentinel lifecycle and audit context carried inside an ingen.ci-result/v1 envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "receipt_status", "outcome", "artifact_ids"],
+  "properties": {
+    "schema": {"const": "ingen.sentinel-ci-explanation/v1"},
+    "receipt_status": {"enum": ["created", "running", "completed", "failed", "blocked", "cleaned"]},
+    "outcome": {"type": "string", "minLength": 1},
+    "artifact_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "audit_status": {"enum": ["passed", "failed", "error"]},
+    "audit_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["passed", "failed", "unavailable"]}
+        }
+      }
+    }
+  }
+}

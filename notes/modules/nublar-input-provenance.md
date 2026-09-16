@@ -16,6 +16,8 @@ link in the artifact chain.
 
 ## Limits
 
-The current aggregate report does not yet store a signed attestation or a
-content-addressed artifact store. It records local SHA-256 values so the next
-retention or remote-CI layer has a precise handoff boundary.
+The current aggregate report does not store a signed attestation or an
+external content-addressed artifact store. The separate local run store uses
+content-addressed filenames for immutable records, while these local SHA-256
+references preserve the handoff boundary for a future retention or remote-CI
+layer.

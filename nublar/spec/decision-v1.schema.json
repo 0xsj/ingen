@@ -19,6 +19,7 @@
     "schema": {"const": "ingen.nublar-decision/v1"},
     "run_id": {"type": "string", "minLength": 1},
     "workflow": {"$ref": "#/$defs/workflow"},
+    "correlation": {"$ref": "#/$defs/correlation"},
     "status": {"enum": ["passed", "failed", "error"]},
     "exit_code": {"enum": [0, 1, 2]},
     "created_at": {"type": "string", "format": "date-time"},
@@ -68,6 +69,16 @@
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "file": {"$ref": "#/$defs/file-ref"}
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "id", "attempt"],
+      "properties": {
+        "system": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "attempt": {"type": "integer", "minimum": 1}
       }
     },
     "check": {

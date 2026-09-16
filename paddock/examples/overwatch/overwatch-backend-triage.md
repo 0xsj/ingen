@@ -44,6 +44,20 @@ This validates the explanation path as a review aid. It remains separate from
 the authoritative CI verdict and does not imply that the Overwatch findings
 should be fixed, waived, or baselined automatically.
 
+The complete agent handoff was then exercised against the unsealed
+`overwatch-backend-shared-kernel-proposal.yaml`:
+
+- the policy review reported exactly two semantic changes: the candidate
+  project name and the `domain-is-pure` allow-list;
+- its expected review case passed and measured three remaining findings;
+- the filtered application explanation isolated the one concrete
+  `audit/app/query` → `audit/infra/postgres` edge while retaining its related
+  `layers-point-inward` signal.
+
+This is the intended workflow boundary: Paddock supplies evidence, proposed
+policy effects, and deterministic explanations; an architecture owner still
+decides whether the shared-kernel change is accepted.
+
 ## Finding groups
 
 | Rule | Count | Observed boundary | Initial assessment |

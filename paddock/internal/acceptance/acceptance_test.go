@@ -2008,6 +2008,45 @@ func TestPortableCIWorkflow(t *testing.T) {
 	if workflowArtifact.Graph == nil || workflowArtifact.Graph.SHA256 == "" {
 		t.Fatalf("workflow CI artifact omitted graph evidence: %#v", workflowArtifact)
 	}
+
+	// A finding-producing built-in check must not be swallowed by the helper's
+	// set -e shell mode. The handoff should retain the failed artifact, emit a
+	// filtered explanation, and preserve exit code 1 for the caller.
+	violationSource := filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "violating")
+	failingResultPath := filepath.Join(directory, "paddock-failing-handoff-result.json")
+	failingExplanationPath := filepath.Join(directory, "paddock-failing-handoff-explanation.json")
+	failingEnv := []string{
+		"PADDOCK=" + cli,
+		"PADDOCK_LOCK=" + lockPath,
+		"PADDOCK_SOURCE_ROOT=" + violationSource,
+		"PADDOCK_RESULT=" + failingResultPath,
+		"PADDOCK_EXPLANATION_FORMAT=json",
+		"PADDOCK_EXPLANATION_OUTPUT=" + failingExplanationPath,
+		"PADDOCK_EXPLANATION_RULE=domain-is-pure",
+		"PADDOCK_EXPLANATION_STATUS=blocking",
+	}
+	output, exitCode = runWorkflow(t, workflow, repoRoot, failingEnv, "handoff")
+	if exitCode != 1 || strings.TrimSpace(output) != "" {
+		t.Fatalf("built-in failing handoff returned exit=%d, output=%q", exitCode, output)
+	}
+	failingArtifact, err := artifact.Load(failingResultPath)
+	if err != nil {
+		t.Fatalf("load built-in failing handoff CI artifact: %v", err)
+	}
+	if failingArtifact.Status != "failed" || failingArtifact.Report == nil || len(failingArtifact.Report.Findings) == 0 || failingArtifact.Explanation == nil {
+		t.Fatalf("built-in failing handoff CI artifact is incomplete: %#v", failingArtifact)
+	}
+	explanationData, err := os.ReadFile(failingExplanationPath)
+	if err != nil {
+		t.Fatalf("read built-in failing handoff explanation: %v", err)
+	}
+	var failingExplanation explain.Document
+	if err := json.Unmarshal(explanationData, &failingExplanation); err != nil {
+		t.Fatalf("decode built-in failing handoff explanation: %v\n%s", err, explanationData)
+	}
+	if failingExplanation.Status != "FAIL" || failingExplanation.Filter == nil || failingExplanation.Filter.RuleID != "domain-is-pure" || failingExplanation.Filter.Status != "blocking" || failingExplanation.Triage.Outcome != "remediate" || len(failingExplanation.Findings) == 0 {
+		t.Fatalf("built-in failing handoff explanation is incomplete: %#v", failingExplanation)
+	}
 }
 
 func TestPortableCIWorkflowWithExternalAdapter(t *testing.T) {
@@ -2031,6 +2070,8 @@ func TestPortableCIWorkflowWithExternalAdapter(t *testing.T) {
 	reviewPath := filepath.Join(directory, "paddock-policy-review.json")
 	graphPath := filepath.Join(directory, "paddock-graph.json")
 	resultPath := filepath.Join(directory, "paddock-ci-result.json")
+	handoffResultPath := filepath.Join(directory, "paddock-handoff-ci-result.json")
+	handoffExplanationPath := filepath.Join(directory, "paddock-handoff-explanation.json")
 	policy := `schema: paddock.architecture/v1
 project: portable-external-adapter
 source:
@@ -2147,6 +2188,63 @@ cases:
 	}
 	if _, document, err := graph.LoadDocument(graphPath); err != nil || document.Language != "rust" || document.Unit != "file" {
 		t.Fatalf("external workflow graph is invalid: err=%v document=%#v", err, document)
+	}
+
+	handoffEnv := append(env,
+		"PADDOCK_RESULT="+handoffResultPath,
+		"PADDOCK_EXPLANATION_FORMAT=json",
+		"PADDOCK_EXPLANATION_OUTPUT="+handoffExplanationPath,
+	)
+	output, exitCode = runWorkflow(t, workflow, repoRoot, handoffEnv, "handoff")
+	if exitCode != 0 || strings.TrimSpace(output) != "" {
+		t.Fatalf("external workflow handoff failed: exit=%d output=%q", exitCode, output)
+	}
+	handoffArtifact, err := artifact.Load(handoffResultPath)
+	if err != nil {
+		t.Fatalf("load external handoff CI artifact: %v", err)
+	}
+	if handoffArtifact.Status != "passed" || handoffArtifact.Explanation == nil || handoffArtifact.Explanation.Triage.Outcome != "clear" {
+		t.Fatalf("external handoff CI artifact is incomplete: %#v", handoffArtifact)
+	}
+	explanationData, err := os.ReadFile(handoffExplanationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var handoffExplanation explain.Document
+	if err := json.Unmarshal(explanationData, &handoffExplanation); err != nil {
+		t.Fatalf("decode external handoff explanation: %v\n%s", err, explanationData)
+	}
+	if handoffExplanation.Status != "PASS" || handoffExplanation.Triage.Outcome != "clear" || len(handoffExplanation.Findings) != 0 {
+		t.Fatalf("external handoff explanation is incomplete: %#v", handoffExplanation)
+	}
+
+	if err := os.WriteFile(argsPath, []byte(adapter+"\n--workspace\n"+sourceRoot+"\n--violate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	failingHandoffEnv := append(handoffEnv,
+		"PADDOCK_EXPLANATION_RULE=domain-is-pure",
+		"PADDOCK_EXPLANATION_STATUS=blocking",
+	)
+	output, exitCode = runWorkflow(t, workflow, repoRoot, failingHandoffEnv, "handoff")
+	if exitCode != 1 || strings.TrimSpace(output) != "" {
+		t.Fatalf("failing external workflow handoff returned exit=%d output=%q", exitCode, output)
+	}
+	failingArtifact, err := artifact.Load(handoffResultPath)
+	if err != nil {
+		t.Fatalf("load failing external handoff CI artifact: %v", err)
+	}
+	if failingArtifact.Status != "failed" || failingArtifact.Report == nil || len(failingArtifact.Report.Findings) != 1 || failingArtifact.Explanation == nil {
+		t.Fatalf("failing external handoff CI artifact is incomplete: %#v", failingArtifact)
+	}
+	explanationData, err = os.ReadFile(handoffExplanationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(explanationData, &handoffExplanation); err != nil {
+		t.Fatalf("decode failing external handoff explanation: %v\n%s", err, explanationData)
+	}
+	if handoffExplanation.Status != "FAIL" || handoffExplanation.Filter == nil || handoffExplanation.Filter.RuleID != "domain-is-pure" || handoffExplanation.Triage.Outcome != "remediate" || len(handoffExplanation.Findings) != 1 {
+		t.Fatalf("failing external handoff explanation is incomplete: %#v", handoffExplanation)
 	}
 }
 

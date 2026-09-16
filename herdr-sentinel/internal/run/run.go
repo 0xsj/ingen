@@ -231,6 +231,9 @@ func (r *Receipt) SetStatus(status string, at time.Time) error {
 	if err := ValidateStatus(status); err != nil {
 		return err
 	}
+	if err := ValidateStatusTransition(r.Status, status); err != nil {
+		return err
+	}
 	if at.IsZero() {
 		at = time.Now()
 	}
@@ -253,19 +256,69 @@ func ValidateStatus(status string) error {
 	return nil
 }
 
+// ValidateStatusTransition rejects status regressions after a terminal
+// lifecycle state. It intentionally leaves the non-terminal graph permissive
+// until the native Herdr lifecycle contract defines the complete transition
+// model.
+func ValidateStatusTransition(from, to string) error {
+	if err := ValidateStatus(from); err != nil {
+		return err
+	}
+	if err := ValidateStatus(to); err != nil {
+		return err
+	}
+	if from == to {
+		return nil
+	}
+	if terminalStatus(from) {
+		if from != "cleaned" && to == "cleaned" {
+			return nil
+		}
+		return fmt.Errorf("Sentinel run status cannot move from terminal %q to %q", from, to)
+	}
+	return nil
+}
+
+func terminalStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "blocked", "cleaned":
+		return true
+	default:
+		return false
+	}
+}
+
 // AddFileArtifact adds a reference whose digest is calculated from the same
 // bytes that are read from path.
 func (r *Receipt) AddFileArtifact(id, role, kind, path string) error {
+	artifact, err := fileArtifact(id, role, kind, path)
+	if err != nil {
+		return err
+	}
+	return r.AddArtifact(artifact)
+}
+
+// RegisterFileArtifact records a file artifact unless the exact same
+// identity is already present. It returns false for that idempotent no-op.
+func (r *Receipt) RegisterFileArtifact(id, role, kind, path string) (bool, error) {
+	artifact, err := fileArtifact(id, role, kind, path)
+	if err != nil {
+		return false, err
+	}
+	return r.RegisterArtifact(artifact)
+}
+
+func fileArtifact(id, role, kind, path string) (ArtifactRef, error) {
 	path = filepath.Clean(path)
 	if err := validateRelativePath("artifact file", path); err != nil {
-		return err
+		return ArtifactRef{}, err
 	}
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read Sentinel artifact %s: %w", path, err)
+		return ArtifactRef{}, fmt.Errorf("read Sentinel artifact %s: %w", path, err)
 	}
 	digest := sha256.Sum256(contents)
-	return r.AddArtifact(ArtifactRef{
+	return ArtifactRef{
 		ID:   id,
 		Role: role,
 		Kind: kind,
@@ -273,7 +326,7 @@ func (r *Receipt) AddFileArtifact(id, role, kind, path string) error {
 			Path:   path,
 			SHA256: hex.EncodeToString(digest[:]),
 		},
-	})
+	}, nil
 }
 
 // AddArtifact adds an already-hashed artifact reference.
@@ -288,6 +341,31 @@ func (r *Receipt) AddArtifact(artifact ArtifactRef) error {
 	}
 	*r = candidate
 	return nil
+}
+
+// RegisterArtifact adds an already-hashed artifact reference unless the
+// exact same identity is already present. A reused ID with different content
+// or metadata is rejected as a conflict.
+func (r *Receipt) RegisterArtifact(artifact ArtifactRef) (bool, error) {
+	if r == nil {
+		return false, fmt.Errorf("Sentinel run receipt is nil")
+	}
+	for _, existing := range r.Artifacts {
+		if existing.ID != artifact.ID {
+			continue
+		}
+		if existing == artifact {
+			return false, nil
+		}
+		return false, fmt.Errorf("Sentinel run artifact ID %q conflicts with an existing reference", artifact.ID)
+	}
+	candidate := *r
+	candidate.Artifacts = append(append([]ArtifactRef(nil), r.Artifacts...), artifact)
+	if err := candidate.Validate(); err != nil {
+		return false, err
+	}
+	*r = candidate
+	return true, nil
 }
 
 func (a ArtifactRef) validate(index int, seen map[string]bool) error {
@@ -444,11 +522,22 @@ func SaveFile(path string, r Receipt) error {
 }
 
 func LoadFile(path string) (Receipt, error) {
+	receipt, _, err := LoadFileSnapshot(path)
+	return receipt, err
+}
+
+// LoadFileSnapshot reads and validates a receipt once, returning the exact
+// bytes that produced the validated value for downstream provenance work.
+func LoadFileSnapshot(path string) (Receipt, []byte, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return Receipt{}, fmt.Errorf("read Sentinel run %s: %w", path, err)
+		return Receipt{}, nil, fmt.Errorf("read Sentinel run %s: %w", path, err)
 	}
-	return loadBytes(path, contents)
+	receipt, err := loadBytes(path, contents)
+	if err != nil {
+		return Receipt{}, nil, err
+	}
+	return receipt, append([]byte(nil), contents...), nil
 }
 
 func loadBytes(path string, contents []byte) (Receipt, error) {

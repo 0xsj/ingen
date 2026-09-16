@@ -29,8 +29,8 @@ or summarizing their meaning.
 
 - A receipt hash binds a file reference to bytes read; it does not prove who
   had access to those bytes.
-- Event ordering and timestamps are validated, but a status label is not an
-  executable state transition.
+- Event ordering and timestamps are validated, and terminal status regression
+  is rejected, but this is not the full executable Herdr state machine.
 - The current bootstrap command records only workspace creation. Real role
   launch, policy, Sorna, review, and cleanup events need a Herdr adapter or a
   future event-ingestion command.

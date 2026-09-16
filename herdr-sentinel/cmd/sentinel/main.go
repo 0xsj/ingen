@@ -266,64 +266,49 @@ func oracleAdapterCommand(args []string) int {
 		return 1
 	}
 
-	var receipt *sentinelrun.Receipt
 	if *receiptPath != "" {
-		loaded, err := sentinelrun.LoadFile(*receiptPath)
+		_, err := sentinelrun.UpdateFile(*receiptPath, func(loaded *sentinelrun.Receipt) (bool, error) {
+			if loaded.Workspace.ID != plan.Workspace.ID || loaded.Workspace.Version != plan.Workspace.Version || loaded.Workspace.File != plan.Workspace.Manifest {
+				return false, fmt.Errorf("Sentinel receipt does not match the capability plan workspace")
+			}
+			if err := loaded.AddArtifact(sentinelrun.ArtifactRef{
+				ID:   "oracle-policy",
+				Role: prepared.RoleID,
+				Kind: "sorna-policy",
+				Ref:  prepared.Policy,
+			}); err != nil {
+				return false, err
+			}
+			if err := loaded.SetStatus("running", time.Now().UTC()); err != nil {
+				return false, err
+			}
+			if err := loaded.AppendEvent(sentinelrun.Event{
+				Type:        "policy-applied",
+				At:          time.Now().UTC().Format(time.RFC3339Nano),
+				Role:        prepared.RoleID,
+				Workspace:   prepared.RoleWorkspace,
+				ArtifactIDs: []string{"oracle-policy"},
+				Outcome:     "snapshot-delegated-to-sorna",
+			}); err != nil {
+				return false, err
+			}
+			if err := loaded.AppendEvent(sentinelrun.Event{
+				Type:        "sorna-started",
+				At:          time.Now().UTC().Format(time.RFC3339Nano),
+				Role:        prepared.RoleID,
+				Workspace:   prepared.RoleWorkspace,
+				ArtifactIDs: []string{"oracle-policy"},
+				Outcome:     "delegated",
+			}); err != nil {
+				return false, err
+			}
+			return true, nil
+		})
 		if err != nil {
 			_ = prepared.Close()
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		if loaded.Workspace.ID != plan.Workspace.ID || loaded.Workspace.Version != plan.Workspace.Version || loaded.Workspace.File != plan.Workspace.Manifest {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, "Sentinel receipt does not match the capability plan workspace")
-			return 1
-		}
-		if err := loaded.AddArtifact(sentinelrun.ArtifactRef{
-			ID:   "oracle-policy",
-			Role: prepared.RoleID,
-			Kind: "sorna-policy",
-			Ref:  prepared.Policy,
-		}); err != nil {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		if err := loaded.SetStatus("running", time.Now().UTC()); err != nil {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		if err := loaded.AppendEvent(sentinelrun.Event{
-			Type:        "policy-applied",
-			At:          time.Now().UTC().Format(time.RFC3339Nano),
-			Role:        prepared.RoleID,
-			Workspace:   prepared.RoleWorkspace,
-			ArtifactIDs: []string{"oracle-policy"},
-			Outcome:     "snapshot-delegated-to-sorna",
-		}); err != nil {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		if err := loaded.AppendEvent(sentinelrun.Event{
-			Type:        "sorna-started",
-			At:          time.Now().UTC().Format(time.RFC3339Nano),
-			Role:        prepared.RoleID,
-			Workspace:   prepared.RoleWorkspace,
-			ArtifactIDs: []string{"oracle-policy"},
-			Outcome:     "delegated",
-		}); err != nil {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		if err := sentinelrun.SaveFile(*receiptPath, loaded); err != nil {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		receipt = &loaded
 	}
 	fmt.Fprintf(os.Stderr, "adapter: backend=%s enforcement=%s role=%s policy=%s\n", prepared.Backend, prepared.Enforcement, prepared.RoleID, prepared.Policy.SHA256)
 	process := osexec.Command(prepared.Command[0], prepared.Command[1:]...)
@@ -332,7 +317,7 @@ func oracleAdapterCommand(args []string) int {
 	process.Stdout = os.Stdout
 	process.Stderr = os.Stderr
 	processErr := process.Run()
-	if receipt != nil {
+	if *receiptPath != "" {
 		completion := sentinelrun.Event{
 			Type:        "sorna-completed",
 			At:          time.Now().UTC().Format(time.RFC3339Nano),
@@ -352,21 +337,20 @@ func oracleAdapterCommand(args []string) int {
 				completion.Reason = processErr.Error()
 			}
 		}
-		if err := receipt.AppendEvent(completion); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			_ = prepared.Close()
-			return 1
-		}
-		if err := receipt.SetStatus(finalStatus, time.Now().UTC()); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			_ = prepared.Close()
-			return 1
-		}
 		if err := prepared.Close(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		if err := sentinelrun.SaveFile(*receiptPath, *receipt); err != nil {
+		_, err := sentinelrun.UpdateFile(*receiptPath, func(receipt *sentinelrun.Receipt) (bool, error) {
+			if err := receipt.AppendEvent(completion); err != nil {
+				return false, err
+			}
+			if err := receipt.SetStatus(finalStatus, time.Now().UTC()); err != nil {
+				return false, err
+			}
+			return true, nil
+		})
+		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
@@ -432,65 +416,50 @@ func verifierAdapterCommand(args []string) int {
 	}
 
 	artifactIDs := []string{"frozen-oracle", "oracle-policy", "subject-policy"}
-	var receipt *sentinelrun.Receipt
 	if *receiptPath != "" {
-		loaded, err := sentinelrun.LoadFile(*receiptPath)
+		_, err := sentinelrun.UpdateFile(*receiptPath, func(loaded *sentinelrun.Receipt) (bool, error) {
+			if loaded.Workspace.ID != plan.Workspace.ID || loaded.Workspace.Version != plan.Workspace.Version || loaded.Workspace.File != plan.Workspace.Manifest {
+				return false, fmt.Errorf("Sentinel receipt does not match the capability plan workspace")
+			}
+			for _, artifact := range []sentinelrun.ArtifactRef{
+				{ID: "frozen-oracle", Role: prepared.RoleID, Kind: "sorna-oracle", Ref: prepared.Oracle},
+				{ID: "oracle-policy", Role: prepared.RoleID, Kind: "sorna-oracle-policy", Ref: prepared.Policy},
+				{ID: "subject-policy", Role: prepared.RoleID, Kind: "sorna-subject-policy", Ref: prepared.SubjectPolicy},
+			} {
+				if err := loaded.AddArtifact(artifact); err != nil {
+					return false, err
+				}
+			}
+			if err := loaded.SetStatus("running", time.Now().UTC()); err != nil {
+				return false, err
+			}
+			if err := loaded.AppendEvent(sentinelrun.Event{
+				Type:        "policy-applied",
+				At:          time.Now().UTC().Format(time.RFC3339Nano),
+				Role:        prepared.RoleID,
+				Workspace:   prepared.RoleWorkspace,
+				ArtifactIDs: artifactIDs,
+				Outcome:     "snapshots-delegated-to-sorna",
+			}); err != nil {
+				return false, err
+			}
+			if err := loaded.AppendEvent(sentinelrun.Event{
+				Type:        "sorna-started",
+				At:          time.Now().UTC().Format(time.RFC3339Nano),
+				Role:        prepared.RoleID,
+				Workspace:   prepared.RoleWorkspace,
+				ArtifactIDs: artifactIDs,
+				Outcome:     "delegated",
+			}); err != nil {
+				return false, err
+			}
+			return true, nil
+		})
 		if err != nil {
 			_ = prepared.Close()
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		if loaded.Workspace.ID != plan.Workspace.ID || loaded.Workspace.Version != plan.Workspace.Version || loaded.Workspace.File != plan.Workspace.Manifest {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, "Sentinel receipt does not match the capability plan workspace")
-			return 1
-		}
-		for _, artifact := range []sentinelrun.ArtifactRef{
-			{ID: "frozen-oracle", Role: prepared.RoleID, Kind: "sorna-oracle", Ref: prepared.Oracle},
-			{ID: "oracle-policy", Role: prepared.RoleID, Kind: "sorna-oracle-policy", Ref: prepared.Policy},
-			{ID: "subject-policy", Role: prepared.RoleID, Kind: "sorna-subject-policy", Ref: prepared.SubjectPolicy},
-		} {
-			if err := loaded.AddArtifact(artifact); err != nil {
-				_ = prepared.Close()
-				fmt.Fprintln(os.Stderr, err)
-				return 1
-			}
-		}
-		if err := loaded.SetStatus("running", time.Now().UTC()); err != nil {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		if err := loaded.AppendEvent(sentinelrun.Event{
-			Type:        "policy-applied",
-			At:          time.Now().UTC().Format(time.RFC3339Nano),
-			Role:        prepared.RoleID,
-			Workspace:   prepared.RoleWorkspace,
-			ArtifactIDs: artifactIDs,
-			Outcome:     "snapshots-delegated-to-sorna",
-		}); err != nil {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		if err := loaded.AppendEvent(sentinelrun.Event{
-			Type:        "sorna-started",
-			At:          time.Now().UTC().Format(time.RFC3339Nano),
-			Role:        prepared.RoleID,
-			Workspace:   prepared.RoleWorkspace,
-			ArtifactIDs: artifactIDs,
-			Outcome:     "delegated",
-		}); err != nil {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		if err := sentinelrun.SaveFile(*receiptPath, loaded); err != nil {
-			_ = prepared.Close()
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-		receipt = &loaded
 	}
 	fmt.Fprintf(os.Stderr, "adapter: backend=%s enforcement=%s role=%s oracle=%s policy=%s subject-policy=%s\n", prepared.Backend, prepared.Enforcement, prepared.RoleID, prepared.Oracle.SHA256, prepared.Policy.SHA256, prepared.SubjectPolicy.SHA256)
 	process := osexec.Command(prepared.Command[0], prepared.Command[1:]...)
@@ -499,52 +468,51 @@ func verifierAdapterCommand(args []string) int {
 	process.Stdout = os.Stdout
 	process.Stderr = os.Stderr
 	processErr := process.Run()
-	if receipt != nil {
-		completionIDs := append([]string(nil), artifactIDs...)
-		if resultPath, ok := receiptArtifactPath(*root, *outputDir, "run.json"); ok {
-			if _, statErr := os.Stat(resultPath); statErr == nil {
-				if err := receipt.AddFileArtifact("sorna-run", prepared.RoleID, "sorna-run", resultPath); err != nil {
-					fmt.Fprintln(os.Stderr, err)
-					_ = prepared.Close()
-					return 1
-				}
-				completionIDs = append(completionIDs, "sorna-run")
-			}
-		}
-		completion := sentinelrun.Event{
-			Type:        "sorna-completed",
-			At:          time.Now().UTC().Format(time.RFC3339Nano),
-			Role:        prepared.RoleID,
-			Workspace:   prepared.RoleWorkspace,
-			ArtifactIDs: completionIDs,
-			Outcome:     "completed",
-		}
+	if *receiptPath != "" {
 		finalStatus := "completed"
+		completionOutcome := "completed"
+		completionReason := ""
 		if processErr != nil {
 			finalStatus = "failed"
 			var exitErr *osexec.ExitError
 			if errors.As(processErr, &exitErr) {
-				completion.Outcome = fmt.Sprintf("exit-code-%d", exitErr.ExitCode())
+				completionOutcome = fmt.Sprintf("exit-code-%d", exitErr.ExitCode())
 			} else {
-				completion.Outcome = "error"
-				completion.Reason = processErr.Error()
+				completionOutcome = "error"
+				completionReason = processErr.Error()
 			}
-		}
-		if err := receipt.AppendEvent(completion); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			_ = prepared.Close()
-			return 1
-		}
-		if err := receipt.SetStatus(finalStatus, time.Now().UTC()); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			_ = prepared.Close()
-			return 1
 		}
 		if err := prepared.Close(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		if err := sentinelrun.SaveFile(*receiptPath, *receipt); err != nil {
+		_, err := sentinelrun.UpdateFile(*receiptPath, func(receipt *sentinelrun.Receipt) (bool, error) {
+			completionIDs := append([]string(nil), artifactIDs...)
+			if resultPath, ok := receiptArtifactPath(*root, *outputDir, "run.json"); ok {
+				if _, statErr := os.Stat(resultPath); statErr == nil {
+					if err := receipt.AddFileArtifact("sorna-run", prepared.RoleID, "sorna-run", resultPath); err != nil {
+						return false, err
+					}
+					completionIDs = append(completionIDs, "sorna-run")
+				}
+			}
+			if err := receipt.AppendEvent(sentinelrun.Event{
+				Type:        "sorna-completed",
+				At:          time.Now().UTC().Format(time.RFC3339Nano),
+				Role:        prepared.RoleID,
+				Workspace:   prepared.RoleWorkspace,
+				ArtifactIDs: completionIDs,
+				Outcome:     completionOutcome,
+				Reason:      completionReason,
+			}); err != nil {
+				return false, err
+			}
+			if err := receipt.SetStatus(finalStatus, time.Now().UTC()); err != nil {
+				return false, err
+			}
+			return true, nil
+		})
+		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
@@ -589,6 +557,12 @@ func receiptArtifactPath(root, outputDir, name string) (string, bool) {
 		return "", false
 	}
 	return filepath.Clean(relative), true
+}
+
+func samePath(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(filepath.Clean(left))
+	rightAbs, rightErr := filepath.Abs(filepath.Clean(right))
+	return leftErr == nil && rightErr == nil && leftAbs == rightAbs
 }
 
 func runCommand(args []string) int {
@@ -667,17 +641,33 @@ func artifactRunCommand(args []string) int {
 		return 2
 	}
 	if *outputPath == "" {
-		_, err := sentinelrun.UpdateFile(*receiptPath, func(receipt *sentinelrun.Receipt) (bool, error) {
-			if err := receipt.AddFileArtifact(*id, *role, *kind, *artifactPath); err != nil {
-				return false, err
-			}
-			return true, nil
+		changed, err := sentinelrun.UpdateFile(*receiptPath, func(receipt *sentinelrun.Receipt) (bool, error) {
+			return receipt.RegisterFileArtifact(*id, *role, *kind, *artifactPath)
 		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		fmt.Println("registered:", filepath.Clean(*receiptPath))
+		if changed {
+			fmt.Println("registered:", filepath.Clean(*receiptPath))
+		} else {
+			fmt.Println("unchanged:", filepath.Clean(*receiptPath))
+		}
+		return 0
+	}
+	if samePath(*receiptPath, *outputPath) {
+		changed, err := sentinelrun.UpdateFile(*receiptPath, func(receipt *sentinelrun.Receipt) (bool, error) {
+			return receipt.RegisterFileArtifact(*id, *role, *kind, *artifactPath)
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if changed {
+			fmt.Println("registered:", filepath.Clean(*receiptPath))
+		} else {
+			fmt.Println("unchanged:", filepath.Clean(*receiptPath))
+		}
 		return 0
 	}
 	receipt, err := sentinelrun.LoadFile(*receiptPath)
@@ -685,7 +675,8 @@ func artifactRunCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := receipt.AddFileArtifact(*id, *role, *kind, *artifactPath); err != nil {
+	changed, err := receipt.RegisterFileArtifact(*id, *role, *kind, *artifactPath)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -697,7 +688,11 @@ func artifactRunCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	fmt.Println("registered:", filepath.Clean(*outputPath))
+	if changed {
+		fmt.Println("registered:", filepath.Clean(*outputPath))
+	} else {
+		fmt.Println("unchanged:", filepath.Clean(*outputPath))
+	}
 	return 0
 }
 
@@ -730,17 +725,7 @@ func reportRunCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	file, err := os.Create(*outputPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	if err := sentinelreport.Write(file, document); err != nil {
-		_ = file.Close()
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	if err := file.Close(); err != nil {
+	if err := sentinelreport.SaveFile(*outputPath, document); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -794,7 +779,12 @@ func ciResultCommand(args []string) int {
 		usage()
 		return 2
 	}
-	auditReport, err := sentinelaudit.Build(*receiptPath, *sourceRoot)
+	receipt, receiptBytes, err := sentinelrun.LoadFileSnapshot(*receiptPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	auditReport, err := sentinelaudit.BuildReceipt(receipt, *sourceRoot)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -803,7 +793,11 @@ func ciResultCommand(args []string) int {
 		fmt.Fprintf(os.Stderr, "Sentinel audit failed: %s\n", auditFailureSummary(auditReport))
 		return auditReport.ExitCode()
 	}
-	artifact, err := sentinelrun.BuildCIResultFile(*receiptPath, *sourceRoot)
+	auditSummary := sentinelrun.AuditSummary{Status: auditReport.Status}
+	for _, check := range auditReport.Checks {
+		auditSummary.Checks = append(auditSummary.Checks, sentinelrun.AuditCheck{ID: check.ID, Status: check.Status})
+	}
+	artifact, err := sentinelrun.BuildCIResultBytes(*receiptPath, receiptBytes, *sourceRoot, auditSummary)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1

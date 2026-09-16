@@ -44,12 +44,21 @@ func Build(receiptPath, root string) (Report, error) {
 	if strings.TrimSpace(receiptPath) == "" {
 		return Report{}, fmt.Errorf("build Sentinel audit: receipt path must not be empty")
 	}
-	if strings.TrimSpace(root) == "" {
-		root = "."
-	}
 	receipt, err := sentinelrun.LoadFile(receiptPath)
 	if err != nil {
 		return Report{}, fmt.Errorf("build Sentinel audit: %w", err)
+	}
+	return BuildReceipt(receipt, root)
+}
+
+// BuildReceipt audits an already validated receipt snapshot. Callers that
+// also need the receipt bytes can therefore audit and emit from one read.
+func BuildReceipt(receipt sentinelrun.Receipt, root string) (Report, error) {
+	if err := receipt.Validate(); err != nil {
+		return Report{}, fmt.Errorf("build Sentinel audit from receipt: %w", err)
+	}
+	if strings.TrimSpace(root) == "" {
+		root = "."
 	}
 	report := Report{
 		Schema:        Schema,
@@ -191,8 +200,30 @@ func SaveFile(path string, report Report) error {
 		return fmt.Errorf("encode Sentinel audit: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("write Sentinel audit: %w", err)
+	directory := filepath.Dir(path)
+	temporary, err := os.CreateTemp(directory, ".sentinel-audit-*")
+	if err != nil {
+		return fmt.Errorf("create temporary Sentinel audit in %s: %w", directory, err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write temporary Sentinel audit: %w", err)
+	}
+	if err := temporary.Chmod(0o644); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("set Sentinel audit permissions: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("sync temporary Sentinel audit: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary Sentinel audit: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("publish Sentinel audit %s: %w", path, err)
 	}
 	return nil
 }

@@ -24,3 +24,10 @@ type Store interface {
 	Verify(digest string) error
 	VerifyReference(reference artifact.Reference) error
 }
+
+// ReferenceLister is an optional inventory capability for backends that
+// persist descriptive artifact-reference metadata. Reference metadata is not
+// artifact identity; callers should still verify each reference before use.
+type ReferenceLister interface {
+	ListReferences() ([]artifact.Reference, error)
+}

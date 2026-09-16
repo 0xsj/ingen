@@ -56,10 +56,10 @@ lockwood/
 
 ```text
 lockwood/
-├── cmd/lockwood/                 # put, imports, get, inspect, verify, find, recover, reconcile
+├── cmd/lockwood/                 # put, imports, attestation ops, get, inspect, verify, find, recover, reconcile
 ├── internal/
 │   ├── artifact/                 # SHA-256 references
-│   ├── store/                    # filesystem and in-memory blobs, inventory, reference checks
+│   ├── store/                    # filesystem and in-memory blobs, inventories, reference manifests
 │   ├── custody/                  # filesystem and in-memory records, lineage, recovery, verification
 │   ├── catalog/                  # deterministic metadata queries
 │   ├── integrity/                # shared streaming hash and size verification
@@ -89,12 +89,20 @@ lockwood-data/
 │               └── <full-digest>
 ├── records/
 │   └── <custody-id>.json
+├── references/
+│   └── sha256/
+│       └── ab/
+│           └── cd/
+│               └── <reference-metadata-digest>.json
 └── catalog/
     └── index.json
 ```
 
 Blobs are addressed by content digest. Custody records describe where an
 artifact came from and how it relates to other artifacts.
+
+Reference manifests preserve descriptive media-type and logical-name variants
+without making that metadata part of blob identity.
 
 ## Deferred areas
 

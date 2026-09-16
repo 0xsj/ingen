@@ -122,6 +122,13 @@ also verifies referenced artifact bytes before appending the event. This is an
 ingress contract for a future native Herdr plugin, not an attestation of the
 host application's callback stream.
 
+Event timestamps are monotonic, and terminal receipts cannot regress to a
+non-terminal status; cleanup is the explicit terminal-to-`cleaned` exception.
+
+Artifact registration is also retry-safe when the complete artifact identity
+matches an existing reference. Reusing an artifact ID for different metadata,
+path, or bytes is rejected as a conflict.
+
 Audit a receipt before exposing it as a completed workflow:
 
 ```sh
@@ -134,7 +141,8 @@ The audit verifies the workspace and artifact hashes and distinguishes a
 terminal, integrity-checked receipt from an incomplete or tampered one. It
 does not reinterpret Sorna results or claim independent attestation. The
 `run ci-result` command applies the same integrity gate to terminal receipts
-before emitting a shared envelope.
+before emitting a shared envelope. Audit and operator-report files are
+published as complete files, so readers do not observe an in-progress write.
 
 Render the same receipt and audit as a concise operator view:
 
@@ -146,6 +154,13 @@ go run ./herdr-sentinel/cmd/sentinel run report \
 
 The report keeps lifecycle completion, audit integrity, producer-owned Sorna
 meaning, events, artifacts, and evidence limitations visibly separate.
+
+The shared CI envelope emitted by `run ci-result` includes the compact audit
+status and check statuses in its Sentinel explanation, alongside the exact
+receipt snapshot and artifact input references.
+
+The producer-owned explanation shape is versioned in
+[`spec/ci-explanation-v1.schema.json`](spec/ci-explanation-v1.schema.json).
 
 The `plugin/` directory remains the place for native Herdr bindings once the
 host application's plugin API is available.

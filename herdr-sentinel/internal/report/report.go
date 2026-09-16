@@ -6,6 +6,8 @@ package report
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	sentinelaudit "ingen/herdr-sentinel/internal/audit"
@@ -22,7 +24,7 @@ func Build(receiptPath, root string) (Document, error) {
 	if err != nil {
 		return Document{}, fmt.Errorf("build Sentinel report: %w", err)
 	}
-	audit, err := sentinelaudit.Build(receiptPath, root)
+	audit, err := sentinelaudit.BuildReceipt(receipt, root)
 	if err != nil {
 		return Document{}, fmt.Errorf("build Sentinel report: %w", err)
 	}
@@ -33,11 +35,55 @@ func Build(receiptPath, root string) (Document, error) {
 // In particular, a completed lifecycle receipt is not called a passed run:
 // only Sorna can interpret its verification result.
 func Write(w io.Writer, document Document) error {
+	output, err := render(document)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, output)
+	return err
+}
+
+// SaveFile renders and publishes a complete operator report. The temporary
+// file keeps readers from observing a partially written report.
+func SaveFile(path string, document Document) error {
+	output, err := render(document)
+	if err != nil {
+		return err
+	}
+	directory := filepath.Dir(path)
+	temporary, err := os.CreateTemp(directory, ".sentinel-report-*")
+	if err != nil {
+		return fmt.Errorf("create temporary Sentinel report in %s: %w", directory, err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := temporary.WriteString(output); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write temporary Sentinel report: %w", err)
+	}
+	if err := temporary.Chmod(0o644); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("set Sentinel report permissions: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("sync temporary Sentinel report: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary Sentinel report: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("publish Sentinel report %s: %w", path, err)
+	}
+	return nil
+}
+
+func render(document Document) (string, error) {
 	if err := document.Receipt.Validate(); err != nil {
-		return fmt.Errorf("write Sentinel report: %w", err)
+		return "", fmt.Errorf("write Sentinel report: %w", err)
 	}
 	if err := document.Audit.Validate(); err != nil {
-		return fmt.Errorf("write Sentinel report: %w", err)
+		return "", fmt.Errorf("write Sentinel report: %w", err)
 	}
 	var output strings.Builder
 	fmt.Fprintf(&output, "Run: %s\n", document.Receipt.RunID)
@@ -90,6 +136,5 @@ func Write(w io.Writer, document Document) error {
 	for _, limitation := range document.Audit.Limitations {
 		fmt.Fprintf(&output, "  - %s\n", limitation)
 	}
-	_, err := io.WriteString(w, output.String())
-	return err
+	return output.String(), nil
 }

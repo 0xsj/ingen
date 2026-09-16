@@ -56,8 +56,28 @@ SHA-256 values and reports the first mismatch.
 verifies a stored bundle, then re-executes its frozen oracle against an
 explicitly supplied equivalent HTTP subject. Replay never reopens the
 contract, launches a subject, or overwrites the evidence bundle. A changed
-contract-visible outcome is `drifted`; a changed observation with the same
-outcome is reported separately.
+contract-visible outcome is `drifted`; a changed request intent is also
+`drifted`, even when the subject returns the same response. Request fingerprints
+compare the ordered setup and target method/path/query/body while ignoring
+host and port. A changed observation with the same request and outcome is
+reported separately. An unreachable or incomplete subject is an execution
+error rather than behavioral drift.
+
+Replay can also emit the shared CI envelope:
+
+```sh
+sorna evidence replay --format ci-result \
+  --oracle <path> --base-url <url> --output replay-ci-result.json <directory>
+```
+
+The envelope uses `kind: behavioral-replay`; it maps a matched replay to
+`passed`, outcome drift to `failed`, and an unevaluable replay to `error`.
+
+Saved replay reports can be checked independently before they are consumed:
+
+```sh
+sorna evidence replay verify replay-report.json
+```
 
 For the document-pipeline example, use the existing Makefile target after
 starting an equivalent subject:
@@ -65,6 +85,17 @@ starting an equivalent subject:
 ```sh
 REPLAY_BASE_URL=http://127.0.0.1:8080 make sorna-replay
 ```
+
+For a reproducible local green-path check, `sorna-replay-fresh` first creates
+the clean baseline, then a separate fixture harness starts a new clean subject
+and invokes replay against it:
+
+```sh
+make sorna-replay-fresh
+```
+
+The harness owns only the temporary subject lifecycle; the replay command still
+does not launch or tear down subjects.
 
 On macOS, the first host-enforcement backend is available through:
 

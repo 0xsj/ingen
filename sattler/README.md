@@ -86,7 +86,22 @@ Sattler is not intended to:
 - reduce verification quality to one score or mutation percentage;
 - become a hosted analytics product before the local artifact model is stable.
 
-## Status
+## Working first slice
 
-Early design. No implementation, stable report schema, or compatibility
-guarantees exist yet.
+Sattler now has a deliberately provisional local comparison surface for the
+shared `ingen.ci-result/v1` envelope. It compares two valid result files,
+reports verdict changes separately from source and input changes, and
+fingerprints producer-owned reports without interpreting their semantics. When
+both inputs are Sorna mutation campaigns, it additionally summarizes the
+producer-owned plan and mutation outcome changes. If a recognized producer
+report cannot be decoded, Sattler keeps the generic comparison and emits an
+explicit warning instead of hiding the missing detail.
+
+```sh
+go run ./sattler/cmd/sattler compare before.json after.json
+go run ./sattler/cmd/sattler compare --format json before.json after.json
+```
+
+The comparison report is currently `ingen.sattler-comparison/v0`; it is a
+working seam for exploration, not a compatibility promise. Sattler still does
+not infer causation or reinterpret a producer's verdict.

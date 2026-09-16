@@ -58,6 +58,41 @@ func TestBuildCIResultFilePreservesReceiptAndInputLineage(t *testing.T) {
 	}
 }
 
+func TestBuildCIResultFileWithAuditIncludesIntegritySummary(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	path := "sentinel-receipt.json"
+	receipt := testCIReceipt("completed")
+	contents, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifact, err := BuildCIResultBytes(path, contents, ".", AuditSummary{
+		Status: "passed",
+		Checks: []AuditCheck{
+			{ID: "receipt-structure", Status: "passed"},
+			{ID: "lifecycle-terminal", Status: "passed"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var explanation struct {
+		AuditStatus string       `json:"audit_status"`
+		AuditChecks []AuditCheck `json:"audit_checks"`
+	}
+	if err := json.Unmarshal(artifact.Explanation, &explanation); err != nil {
+		t.Fatal(err)
+	}
+	if explanation.AuditStatus != "passed" || len(explanation.AuditChecks) != 2 || explanation.AuditChecks[1].ID != "lifecycle-terminal" {
+		t.Fatalf("explanation = %+v, want compact audit summary", explanation)
+	}
+}
+
 func TestBuildCIResultFileMapsFailedReceipt(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)

@@ -12,11 +12,12 @@ turning the artifact into a self-authenticating root of trust.
 
 ## What
 
-`AuthorityRootStore` loads a digest-bound root snapshot. A signed replacement
-may be checked with a bootstrap or predecessor root set; after loading, only
-entries marked `active` are exposed to verify the next root or authority trust
-snapshot. Entries marked `revoked` remain auditable in the artifact but cannot
-verify new signatures.
+`AuthorityRootBootstrap` validates the caller's pinned initial keys and uses
+them to load a digest-bound root snapshot. A signed replacement may then be
+checked with a predecessor root set; after loading, only entries marked
+`active` are exposed to verify the next root or authority trust snapshot.
+Entries marked `revoked` remain auditable in the artifact but cannot verify new
+signatures.
 
 `LoadAuthorityTrustStoreWithRootStore` connects the active root set to a
 root-signed authority trust snapshot. Canonical signing sorts key entries by
@@ -44,8 +45,9 @@ keeping operational trust decisions outside the governance record validator.
 
 ## Gotchas
 
-- A local URI and SHA-256 prove which root bytes were loaded, not who approved
-  the first root key.
+- `AuthorityRootBootstrap` must be supplied from deployment configuration or
+  another approved out-of-band channel. A local URI and SHA-256 prove which
+  root bytes were loaded, not who approved the first root key.
 - A predecessor must sign the replacement while its key is still trusted; a
   revoked root cannot authorize a later snapshot.
 - Version monotonicity, quorum approval, secure delivery, and recovery from a

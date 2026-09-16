@@ -32,6 +32,40 @@ type authorityRootSigningDocument struct {
 	Keys    []authorityRootKeyDocument `json:"keys"`
 }
 
+// AuthorityRootBootstrap is the caller-owned pin set for the first root
+// snapshot. It must come from deployment configuration or another approved
+// out-of-band channel, not from the root snapshot being verified.
+type AuthorityRootBootstrap struct {
+	Keys map[string]ed25519.PublicKey
+}
+
+func (bootstrap AuthorityRootBootstrap) Validate() error {
+	if len(bootstrap.Keys) == 0 {
+		return fmt.Errorf("authority root bootstrap keys are required")
+	}
+	for keyID, publicKey := range bootstrap.Keys {
+		if strings.TrimSpace(keyID) == "" {
+			return fmt.Errorf("authority root bootstrap key id is required")
+		}
+		if len(publicKey) != ed25519.PublicKeySize {
+			return fmt.Errorf("authority root bootstrap key %q has invalid length", keyID)
+		}
+	}
+	return nil
+}
+
+// SignatureVerifier returns a verifier backed by the pinned bootstrap keys.
+func (bootstrap AuthorityRootBootstrap) SignatureVerifier() (Ed25519AuthoritySignatureVerifier, error) {
+	if err := bootstrap.Validate(); err != nil {
+		return Ed25519AuthoritySignatureVerifier{}, err
+	}
+	keys := make(map[string]ed25519.PublicKey, len(bootstrap.Keys))
+	for keyID, publicKey := range bootstrap.Keys {
+		keys[keyID] = append(ed25519.PublicKey(nil), publicKey...)
+	}
+	return Ed25519AuthoritySignatureVerifier{Keys: keys}, nil
+}
+
 // AuthorityRootStore contains only active root public keys. A caller may load
 // a signed replacement snapshot with the previous store's verifier, then use
 // the replacement's active keys for the next rotation.
@@ -85,6 +119,16 @@ func DecodeAuthorityRootStoreWithSignatureVerifier(data []byte, reference Author
 		return AuthorityRootStore{}, fmt.Errorf("authority root signature verifier is required")
 	}
 	return decodeAuthorityRootStore(data, reference, verifier)
+}
+
+// DecodeAuthorityRootStoreWithBootstrap verifies a root snapshot using the
+// caller-owned pins for the initial bootstrap or recovery operation.
+func DecodeAuthorityRootStoreWithBootstrap(data []byte, reference AuthorityRootReference, bootstrap AuthorityRootBootstrap) (AuthorityRootStore, error) {
+	verifier, err := bootstrap.SignatureVerifier()
+	if err != nil {
+		return AuthorityRootStore{}, err
+	}
+	return DecodeAuthorityRootStoreWithSignatureVerifier(data, reference, verifier)
 }
 
 func decodeAuthorityRootStore(data []byte, reference AuthorityRootReference, verifier AuthoritySignatureVerifier) (AuthorityRootStore, error) {
@@ -185,6 +229,16 @@ func LoadAuthorityRootStoreWithSignatureVerifier(reference AuthorityRootReferenc
 		return AuthorityRootStore{}, fmt.Errorf("read Hammond authority root %s: %w", reference.Artifact.URI, err)
 	}
 	return DecodeAuthorityRootStoreWithSignatureVerifier(data, reference, verifier)
+}
+
+// LoadAuthorityRootStoreWithBootstrap loads the first root snapshot using
+// caller-owned bootstrap pins rather than trusting keys from that snapshot.
+func LoadAuthorityRootStoreWithBootstrap(reference AuthorityRootReference, bootstrap AuthorityRootBootstrap) (AuthorityRootStore, error) {
+	data, err := readLocalArtifact(reference.Artifact.URI)
+	if err != nil {
+		return AuthorityRootStore{}, fmt.Errorf("read Hammond authority root %s: %w", reference.Artifact.URI, err)
+	}
+	return DecodeAuthorityRootStoreWithBootstrap(data, reference, bootstrap)
 }
 
 // DecodeAuthorityTrustStoreWithRootStore verifies a trust snapshot using the

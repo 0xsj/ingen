@@ -41,6 +41,13 @@ verification; this event ingress does not trust a callback to introduce a new
 file hash. Pane text, agent self-report, and process exit alone must not be
 promoted to a verified Sorna result.
 
+The current alpha transition guard is intentionally narrow: event timestamps
+must be monotonic, and a terminal receipt cannot regress to a non-terminal
+status. This rule lives in the receipt domain so direct Sorna lifecycle writes
+cannot bypass it. Cleanup may move a terminal receipt to `cleaned`; the full
+Herdr state-machine graph remains unfrozen until the host lifecycle contract
+exists.
+
 The local proof is:
 
 ```sh

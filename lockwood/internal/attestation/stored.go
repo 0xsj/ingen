@@ -8,6 +8,25 @@ import (
 	"ingen/lockwood/internal/store"
 )
 
+// VerificationReceipt is transient operator/API evidence that a published
+// envelope verified successfully. It is not a custody record or a producer
+// verdict.
+type VerificationReceipt struct {
+	CustodyID         string `json:"custody_id"`
+	AttestationDigest string `json:"attestation_digest"`
+	TargetDigest      string `json:"target_digest"`
+	KeyID             string `json:"key_id"`
+	Algorithm         string `json:"algorithm"`
+	Verified          bool   `json:"verified"`
+}
+
+// Inspection is read-only metadata for a known detached envelope artifact.
+// Loading it does not verify the signature or establish signer trust.
+type Inspection struct {
+	AttestationDigest string   `json:"attestation_digest"`
+	Envelope          Envelope `json:"envelope"`
+}
+
 // Load reads one published attestation artifact, verifies its content digest,
 // and decodes its canonical envelope. It does not verify the signature.
 func Load(artifacts store.Store, digest string) (Envelope, error) {
@@ -32,16 +51,41 @@ func Load(artifacts store.Store, digest string) (Envelope, error) {
 	return envelope, nil
 }
 
+// Inspect loads one published envelope by its content digest without
+// performing cryptographic verification.
+func Inspect(artifacts store.Store, digest string) (Inspection, error) {
+	envelope, err := Load(artifacts, digest)
+	if err != nil {
+		return Inspection{}, err
+	}
+	return Inspection{AttestationDigest: digest, Envelope: envelope}, nil
+}
+
 // VerifyPublished loads a canonical attestation artifact and verifies it
 // against a custody record using the caller-supplied key set. Key trust and
 // authorization remain outside Lockwood.
 func VerifyPublished(record custody.Record, digest string, artifacts store.Store, keys PublicKeySet) error {
+	_, err := VerifyPublishedReceipt(record, digest, artifacts, keys)
+	return err
+}
+
+// VerifyPublishedReceipt loads and verifies a published envelope, returning
+// structured evidence for the successful operation. Trust and authorization
+// remain determined by the supplied key set and its caller.
+func VerifyPublishedReceipt(record custody.Record, digest string, artifacts store.Store, keys PublicKeySet) (VerificationReceipt, error) {
 	envelope, err := Load(artifacts, digest)
 	if err != nil {
-		return err
+		return VerificationReceipt{}, err
 	}
 	if err := VerifyWithKeySet(record, envelope, keys); err != nil {
-		return fmt.Errorf("verify published attestation: %w", err)
+		return VerificationReceipt{}, fmt.Errorf("verify published attestation: %w", err)
 	}
-	return nil
+	return VerificationReceipt{
+		CustodyID:         record.CustodyID,
+		AttestationDigest: digest,
+		TargetDigest:      envelope.Target.Digest,
+		KeyID:             envelope.KeyID,
+		Algorithm:         envelope.Algorithm,
+		Verified:          true,
+	}, nil
 }

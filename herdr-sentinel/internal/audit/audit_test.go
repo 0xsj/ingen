@@ -3,6 +3,7 @@ package audit
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -35,6 +36,20 @@ func TestBuildPassesTerminalReceiptWithVerifiedReferences(t *testing.T) {
 	}
 	if len(report.Checks) != 4 {
 		t.Fatalf("checks = %+v, want receipt, workspace, artifact, terminal checks", report.Checks)
+	}
+	if err := SaveFile("audit.json", report); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile("audit.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded Report
+	if err := json.Unmarshal(saved, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	if err := loaded.Validate(); err != nil {
+		t.Fatalf("saved audit = %v, want valid report", err)
 	}
 }
 

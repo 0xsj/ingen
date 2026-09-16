@@ -108,9 +108,11 @@ nublar aggregate --workflow <path> --root <artifact-root> --output <path>
 The implemented run-oriented command is:
 
 ```sh
-nublar run collect --workflow <path> --root <artifact-root> --output <path>
+nublar run collect --workflow <path> --root <artifact-root> --output <path> \
+  [--external-system <name> --external-id <id> --attempt <n>]
 nublar run show --store <dir> --run-id <id>
-nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>]
+nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>] \
+  [--external-system <name>] [--external-id <id>] [--attempt <n>]
 nublar run decision --store <dir> --run-id <id>
 nublar run deliver --store <dir> --run-id <id> --webhook <url> [--receipt <path>]
 ```
@@ -123,8 +125,8 @@ available as the compatibility command for the older
 
 - Whether the first durable run store should remain filesystem-only or use a
   small embedded database.
-- How an external CI integration should add correlation, attempt, and rerun
-  metadata beyond the per-attempt `run_id` decision in
+- Whether the first external integration needs explicit rerun relationships
+  beyond the current per-attempt `run_id` and optional correlation block in
   [`RUN-IDENTITY.md`](RUN-IDENTITY.md).
 - Whether workflow declarations eventually include producer commands or only
   describe expected artifacts.

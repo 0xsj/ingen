@@ -126,11 +126,19 @@ func collectCommand(args []string) int {
 	output := flags.String("output", "", "path for the Nublar run; stdout when empty")
 	storeRoot := flags.String("store", "", "filesystem store root; no durable save when empty")
 	runID := flags.String("run-id", "", "opaque Nublar run ID; generated when empty")
+	correlationSystem := flags.String("external-system", "", "optional external CI system name")
+	correlationID := flags.String("external-id", "", "optional external CI correlation ID")
+	attempt := flags.Int64("attempt", 0, "optional positive external CI attempt number")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if *workflowPath == "" || len(flags.Args()) > 0 {
 		fmt.Fprintln(os.Stderr, "run collect requires --workflow and does not accept positional arguments")
+		return 2
+	}
+	correlation, err := parseCorrelation(*correlationSystem, *correlationID, *attempt)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
 	if *runID == "" {
@@ -141,7 +149,7 @@ func collectCommand(args []string) int {
 		}
 		*runID = generated
 	}
-	report, err := nublarrun.CollectWorkflowFile(*workflowPath, *root, *runID)
+	report, err := nublarrun.CollectWorkflowFileWithCorrelation(*workflowPath, *root, *runID, correlation)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -167,6 +175,17 @@ func collectCommand(args []string) int {
 		return 2
 	}
 	return report.ExitCode
+}
+
+func parseCorrelation(system, id string, attempt int64) (*nublarrun.Correlation, error) {
+	if system == "" && id == "" && attempt == 0 {
+		return nil, nil
+	}
+	correlation := &nublarrun.Correlation{System: system, ID: id, Attempt: attempt}
+	if err := correlation.Validate(); err != nil {
+		return nil, fmt.Errorf("parse Nublar external correlation: %w", err)
+	}
+	return correlation, nil
 }
 
 func showCommand(args []string) int {
@@ -210,6 +229,9 @@ func listCommand(args []string) int {
 	storeRoot := flags.String("store", "", "filesystem store root")
 	status := flags.String("status", "", "optional run status filter: passed, failed, or error")
 	workflowID := flags.String("workflow", "", "optional workflow ID filter")
+	correlationSystem := flags.String("external-system", "", "optional external correlation system filter")
+	correlationID := flags.String("external-id", "", "optional external correlation ID filter")
+	attempt := flags.Int64("attempt", 0, "optional external correlation attempt filter")
 	output := flags.String("output", "", "path for the JSON run list; stdout when empty")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -228,7 +250,7 @@ func listCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	records, err = filterRuns(records, *status, *workflowID)
+	records, err = filterRuns(records, *status, *workflowID, *correlationSystem, *correlationID, *attempt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -240,13 +262,18 @@ func listCommand(args []string) int {
 	return 0
 }
 
-func filterRuns(records []nublarrun.Run, status, workflowID string) ([]nublarrun.Run, error) {
+func filterRuns(records []nublarrun.Run, status, workflowID, correlationSystem, correlationID string, attempt int64) ([]nublarrun.Run, error) {
 	status = strings.TrimSpace(status)
 	workflowID = strings.TrimSpace(workflowID)
+	correlationSystem = strings.TrimSpace(correlationSystem)
+	correlationID = strings.TrimSpace(correlationID)
 	if status != "" {
 		if _, err := ciresult.ExitCodeForStatus(status); err != nil {
 			return nil, fmt.Errorf("Nublar run list status filter: %w", err)
 		}
+	}
+	if attempt < 0 {
+		return nil, fmt.Errorf("Nublar run list attempt filter must not be negative")
 	}
 	filtered := make([]nublarrun.Run, 0, len(records))
 	for _, record := range records {
@@ -254,6 +281,15 @@ func filterRuns(records []nublarrun.Run, status, workflowID string) ([]nublarrun
 			continue
 		}
 		if workflowID != "" && record.Workflow.ID != workflowID {
+			continue
+		}
+		if correlationSystem != "" && (record.Correlation == nil || record.Correlation.System != correlationSystem) {
+			continue
+		}
+		if correlationID != "" && (record.Correlation == nil || record.Correlation.ID != correlationID) {
+			continue
+		}
+		if attempt > 0 && (record.Correlation == nil || record.Correlation.Attempt != attempt) {
 			continue
 		}
 		filtered = append(filtered, record)
@@ -411,9 +447,9 @@ func writeRunList(output string, records []nublarrun.Run) error {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  nublar workflow validate <path>")
-	fmt.Fprintln(os.Stderr, "  nublar run collect --workflow <path> [--root <dir>] [--run-id <id>] [--store <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  nublar run collect --workflow <path> [--root <dir>] [--run-id <id>] [--store <dir>] [--output <path>] [--external-system <name> --external-id <id> --attempt <n>]")
 	fmt.Fprintln(os.Stderr, "  nublar run show --store <dir> --run-id <id> [--output <path>]")
-	fmt.Fprintln(os.Stderr, "  nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>] [--external-system <name>] [--external-id <id>] [--attempt <n>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run decision --store <dir> --run-id <id> [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run deliver --store <dir> --run-id <id> --webhook <url> [--timeout <duration>] [--secret-env <name>] [--receipt <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar aggregate [--workflow <path> --root <dir>] [--output <path>] <ci-result> [<ci-result> ...]")

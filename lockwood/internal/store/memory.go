@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 
 	"ingen/lockwood/internal/artifact"
@@ -14,15 +15,21 @@ import (
 // integrity and intake semantics as the filesystem store, but provides no
 // durability guarantees and is intended for tests and short-lived workflows.
 type Memory struct {
-	mu    sync.RWMutex
-	blobs map[string][]byte
+	mu         sync.RWMutex
+	blobs      map[string][]byte
+	references map[string]artifact.Reference
 }
 
 var _ Store = (*Filesystem)(nil)
 var _ Store = (*Memory)(nil)
+var _ ReferenceLister = (*Filesystem)(nil)
+var _ ReferenceLister = (*Memory)(nil)
 
 func NewMemory() *Memory {
-	return &Memory{blobs: make(map[string][]byte)}
+	return &Memory{
+		blobs:      make(map[string][]byte),
+		references: make(map[string]artifact.Reference),
+	}
 }
 
 func (s *Memory) Put(reader io.Reader, options PutOptions) (artifact.Reference, error) {
@@ -52,11 +59,25 @@ func (s *Memory) Put(reader io.Reader, options PutOptions) (artifact.Reference, 
 		return artifact.Reference{}, err
 	}
 	digest := result.Digest
+	reference := artifact.Reference{
+		Schema:      artifact.Schema,
+		Digest:      digest,
+		SizeBytes:   result.SizeBytes,
+		MediaType:   options.MediaType,
+		LogicalName: options.LogicalName,
+	}
+	key, err := referenceKey(reference)
+	if err != nil {
+		return artifact.Reference{}, err
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.blobs == nil {
 		s.blobs = make(map[string][]byte)
+	}
+	if s.references == nil {
+		s.references = make(map[string]artifact.Reference)
 	}
 	if existing, ok := s.blobs[digest]; ok {
 		if !bytes.Equal(existing, data) {
@@ -65,13 +86,30 @@ func (s *Memory) Put(reader io.Reader, options PutOptions) (artifact.Reference, 
 	} else {
 		s.blobs[digest] = append([]byte(nil), data...)
 	}
-	return artifact.Reference{
-		Schema:      artifact.Schema,
-		Digest:      digest,
-		SizeBytes:   result.SizeBytes,
-		MediaType:   options.MediaType,
-		LogicalName: options.LogicalName,
-	}, nil
+	s.references[key] = reference
+	return reference, nil
+}
+
+func (s *Memory) ListReferences() ([]artifact.Reference, error) {
+	if s == nil {
+		return nil, fmt.Errorf("memory store is required")
+	}
+	s.mu.RLock()
+	references := make([]artifact.Reference, 0, len(s.references))
+	for _, reference := range s.references {
+		references = append(references, reference)
+	}
+	s.mu.RUnlock()
+	sort.Slice(references, func(i, j int) bool {
+		if references[i].Digest != references[j].Digest {
+			return references[i].Digest < references[j].Digest
+		}
+		if references[i].MediaType != references[j].MediaType {
+			return references[i].MediaType < references[j].MediaType
+		}
+		return references[i].LogicalName < references[j].LogicalName
+	})
+	return references, nil
 }
 
 func (s *Memory) Get(digest string) ([]byte, error) {

@@ -151,6 +151,12 @@ func TestArtifactCommandUpdatesReceiptInPlace(t *testing.T) {
 	if code := run([]string{"run", "artifact", "--receipt", receiptPath, "--id", "result", "--role", "verifier", "--kind", "sorna-run", "--path", "result.json"}); code != 0 {
 		t.Fatalf("artifact command exit code = %d, want 0", code)
 	}
+	if code := run([]string{"run", "artifact", "--receipt", receiptPath, "--id", "result", "--role", "verifier", "--kind", "sorna-run", "--path", "result.json"}); code != 0 {
+		t.Fatalf("artifact retry exit code = %d, want idempotent success", code)
+	}
+	if code := run([]string{"run", "artifact", "--receipt", receiptPath, "--output", "./" + receiptPath, "--id", "result", "--role", "verifier", "--kind", "sorna-run", "--path", "result.json"}); code != 0 {
+		t.Fatalf("artifact same-path snapshot exit code = %d, want lock-protected success", code)
+	}
 	loaded, err := sentinelrun.LoadFile(receiptPath)
 	if err != nil {
 		t.Fatal(err)

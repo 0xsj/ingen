@@ -23,6 +23,7 @@ schema identities and meanings stable until an intentional interface review:
 | CI result envelope | `ingen.ci-result/v1` | InGen core | Language-neutral status, exit code, source identity, input hashes, and opaque producer report. |
 | Nublar workflow | `ingen.nublar-workflow/v1` | Nublar | Required/optional CI result paths resolved under an artifact root. |
 | Nublar aggregate | `ingen.nublar-result/v1` | Nublar | Preserved input envelopes plus severity composition. |
+| Nublar run | `ingen.nublar-run/v1` | Nublar | Immutable collection attempt with check-level provenance, decision state, and optional provider-neutral external correlation. |
 | Nublar decision | `ingen.nublar-decision/v1` | Nublar | Provider-neutral delivery projection without producer reports. |
 | Nublar delivery receipt | `ingen.nublar-delivery-receipt/v1` | Nublar | One delivery attempt outcome, separate from the run decision. |
 | Sentinel lifecycle receipt | `ingen.sentinel-run/v1` | Sentinel | Workspace lifecycle and opaque artifact lineage around a verifier handoff. |
@@ -60,6 +61,14 @@ These are the important guarantees of the current slice:
 7. A path and SHA-256 identify bytes consumed by a run. They establish
    integrity and detect drift; they do not prove correctness, isolation, or
    that an agent never saw implementation details.
+8. Nublar loads only closed v1 envelope and run shapes, preserves producer
+   reports opaquely, and never changes a stored run decision when delivery
+   fails.
+9. Nublar run-list status, workflow, and correlation filters are read-only
+   projections over validated records; filtering preserves the store's
+   deterministic ordering.
+10. Nublar correlation metadata is optional, requires a system/ID/positive
+    attempt tuple when present, and never replaces the immutable `run_id`.
 
 ## What is deliberately not frozen
 
@@ -82,6 +91,12 @@ These are the important guarantees of the current slice:
   internal meanings.
 
 ## Current verification command
+
+Run the Nublar-only boundary check with:
+
+```sh
+make nublar-check
+```
 
 Run the focused boundary check with:
 

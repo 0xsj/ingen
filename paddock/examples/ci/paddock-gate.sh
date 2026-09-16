@@ -15,6 +15,10 @@ diff_output=${PADDOCK_DIFF:-paddock-policy-diff.json}
 policy_cases=${PADDOCK_CASES:-}
 review_output=${PADDOCK_REVIEW:-paddock-policy-review.json}
 result_output=${PADDOCK_RESULT:-paddock-ci-result.json}
+explanation_output=${PADDOCK_EXPLANATION_OUTPUT:-}
+explanation_format=${PADDOCK_EXPLANATION_FORMAT:-text}
+explanation_rule=${PADDOCK_EXPLANATION_RULE:-}
+explanation_status=${PADDOCK_EXPLANATION_STATUS:-}
 adapter_tests=${PADDOCK_ADAPTER_TESTS:-}
 adapter_test_result=${PADDOCK_ADAPTER_TEST_RESULT:-paddock-adapter-test-result.json}
 adapter_ci_result=${PADDOCK_ADAPTER_CI_RESULT:-}
@@ -124,8 +128,34 @@ gate)
 			--output "$result_output"
 	fi
 	;;
+handoff)
+	# Keep the CI artifact and the explanation as separate machine-readable
+	# products. The gate's human output is suppressed so JSON explanation mode
+	# remains safe to pipe to another agent or tool.
+	handoff_status=0
+	sh "$0" gate > /dev/null || handoff_status=$?
+	if [ "$handoff_status" -eq 0 ] || [ "$handoff_status" -eq 1 ]; then
+		set -- "$paddock" explain "$result_output" --format "$explanation_format"
+		if [ -n "$explanation_rule" ]; then
+			set -- "$@" --rule "$explanation_rule"
+		fi
+		if [ -n "$explanation_status" ]; then
+			set -- "$@" --status "$explanation_status"
+		fi
+		explanation_status_code=0
+		if [ -n "$explanation_output" ]; then
+			"$@" > "$explanation_output" || explanation_status_code=$?
+		else
+			"$@" || explanation_status_code=$?
+		fi
+		if [ "$explanation_status_code" -ne 0 ]; then
+			exit "$explanation_status_code"
+		fi
+	fi
+	exit "$handoff_status"
+	;;
 *)
-	echo "usage: $0 review|seal|verify|adapter-test|gate" >&2
+	echo "usage: $0 review|seal|verify|adapter-test|gate|handoff" >&2
 	exit 2
 	;;
 esac

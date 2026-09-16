@@ -19,6 +19,7 @@ import (
 	"ingen/lockwood/internal/attestation"
 	"ingen/lockwood/internal/catalog"
 	"ingen/lockwood/internal/custody"
+	"ingen/lockwood/internal/integrity"
 	"ingen/lockwood/internal/store"
 )
 
@@ -42,8 +43,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGet(args[1:], stdout, stderr)
 	case "inspect":
 		return runInspect(args[1:], stdout, stderr)
+	case "inspect-attestation":
+		return runInspectAttestation(args[1:], stdout, stderr)
 	case "record-digest":
 		return runRecordDigest(args[1:], stdout, stderr)
+	case "find-attestation":
+		return runFindAttestation(args[1:], stdout, stderr)
+	case "sign-attestation":
+		return runSignAttestation(args[1:], stdout, stderr)
+	case "import-attestation":
+		return runImportAttestation(args[1:], stdout, stderr)
 	case "verify-attestation":
 		return runVerifyAttestation(args[1:], stdout, stderr)
 	case "verify":
@@ -384,6 +393,34 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runInspectAttestation(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood inspect-attestation", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" {
+		fmt.Fprintln(stderr, "inspect-attestation requires --root and exactly one attestation digest")
+		return 2
+	}
+	artifacts, _, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	inspection, err := attestation.Inspect(artifacts, flags.Arg(0))
+	if err != nil {
+		fmt.Fprintf(stderr, "inspect-attestation: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, inspection); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runRecordDigest(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood record-digest", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -411,6 +448,142 @@ func runRecordDigest(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, digest)
+	return 0
+}
+
+func runFindAttestation(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood find-attestation", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	targetDigest := flags.String("target-digest", "", "custody-record digest to match")
+	keyID := flags.String("key-id", "", "attestation key ID to match")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" {
+		fmt.Fprintln(stderr, "find-attestation requires --root and no positional arguments")
+		return 2
+	}
+	artifacts, _, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	results, err := attestation.Find(artifacts, attestation.Query{TargetDigest: *targetDigest, KeyID: *keyID})
+	if err != nil {
+		fmt.Fprintf(stderr, "find-attestation: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, results); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSignAttestation(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood sign-attestation", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	custodyID := flags.String("id", "", "target custody record ID")
+	keyID := flags.String("key-id", "", "attestation signing key ID")
+	privateKeyPath := flags.String("private-key", "", "base64 Ed25519 private-key file")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *custodyID == "" || *keyID == "" || *privateKeyPath == "" {
+		fmt.Fprintln(stderr, "sign-attestation requires --root, --id, --key-id, --private-key, and no positional arguments")
+		return 2
+	}
+	privateKey, err := readPrivateKeyFile(*privateKeyPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-attestation: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	record, err := custody.VerifyRecord(records, artifacts, *custodyID)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-attestation: verify custody record: %v\n", err)
+		return 1
+	}
+	envelope, err := attestation.Sign(record, *keyID, privateKey)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-attestation: %v\n", err)
+		return 1
+	}
+	publication, err := attestation.PublishForRecord(record, envelope, artifacts)
+	if err != nil {
+		fmt.Fprintf(stderr, "sign-attestation: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, publication); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runImportAttestation(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood import-attestation", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	custodyID := flags.String("id", "", "target custody record ID")
+	expectedDigest := flags.String("expected-digest", "", "optional expected SHA-256 envelope digest")
+	maxBytes := flags.Int64("max-bytes", 0, "maximum envelope size in bytes; 0 means unlimited")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" || *custodyID == "" {
+		fmt.Fprintln(stderr, "import-attestation requires --root, --id, and exactly one envelope path")
+		return 2
+	}
+	file, err := os.Open(flags.Arg(0))
+	if err != nil {
+		fmt.Fprintf(stderr, "import-attestation: open envelope: %v\n", err)
+		return 1
+	}
+	data, result, readErr := integrity.ReadAll(file, *maxBytes)
+	closeErr := file.Close()
+	if readErr != nil {
+		fmt.Fprintf(stderr, "import-attestation: read envelope: %v\n", readErr)
+		return 1
+	}
+	if closeErr != nil {
+		fmt.Fprintf(stderr, "import-attestation: close envelope: %v\n", closeErr)
+		return 1
+	}
+	if err := integrity.VerifyDigest(result.Digest, *expectedDigest); err != nil {
+		fmt.Fprintf(stderr, "import-attestation: %v\n", err)
+		return 1
+	}
+	envelope, err := attestation.UnmarshalCanonical(data)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-attestation: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	record, err := custody.VerifyRecord(records, artifacts, *custodyID)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-attestation: verify custody record: %v\n", err)
+		return 1
+	}
+	publication, err := attestation.PublishForRecord(record, envelope, artifacts)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-attestation: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, publication); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
@@ -451,7 +624,15 @@ func runVerifyAttestation(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "verify-attestation: %v\n", err)
 		return 1
 	}
-	if err := writeJSON(stdout, envelope); err != nil {
+	receipt := attestation.VerificationReceipt{
+		CustodyID:         record.CustodyID,
+		AttestationDigest: flags.Arg(0),
+		TargetDigest:      envelope.Target.Digest,
+		KeyID:             envelope.KeyID,
+		Algorithm:         envelope.Algorithm,
+		Verified:          true,
+	}
+	if err := writeJSON(stdout, receipt); err != nil {
 		fmt.Fprintf(stderr, "write result: %v\n", err)
 		return 1
 	}
@@ -671,9 +852,35 @@ func openStores(root string) (*store.Filesystem, *custody.Filesystem, error) {
 }
 
 func readPublicKeyFile(path string) (ed25519.PublicKey, error) {
+	decoded, err := readBase64KeyFile(path, ed25519.PublicKeySize, "public key", false)
+	if err != nil {
+		return nil, err
+	}
+	return ed25519.PublicKey(decoded), nil
+}
+
+func readPrivateKeyFile(path string) (ed25519.PrivateKey, error) {
+	decoded, err := readBase64KeyFile(path, ed25519.PrivateKeySize, "private key", true)
+	if err != nil {
+		return nil, err
+	}
+	return ed25519.PrivateKey(decoded), nil
+}
+
+func readBase64KeyFile(path string, expectedSize int, label string, restrictPermissions bool) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", label, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s must be a regular file", label)
+	}
+	if restrictPermissions && info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("%s file permissions are too open; require 0600 or stricter", label)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read public key: %w", err)
+		return nil, fmt.Errorf("read %s: %w", label, err)
 	}
 	encoded := string(data)
 	if strings.HasSuffix(encoded, "\n") {
@@ -683,16 +890,16 @@ func readPublicKeyFile(path string) (ed25519.PublicKey, error) {
 		}
 	}
 	if encoded == "" || strings.ContainsAny(encoded, " \t\r\n") {
-		return nil, fmt.Errorf("public key must be base64 with at most one trailing newline")
+		return nil, fmt.Errorf("%s must be base64 with at most one trailing newline", label)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, fmt.Errorf("decode public key: %w", err)
+		return nil, fmt.Errorf("decode %s: %w", label, err)
 	}
-	if len(decoded) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("public key has size %d, want %d", len(decoded), ed25519.PublicKeySize)
+	if len(decoded) != expectedSize {
+		return nil, fmt.Errorf("%s has size %d, want %d", label, len(decoded), expectedSize)
 	}
-	return ed25519.PublicKey(decoded), nil
+	return decoded, nil
 }
 
 func writeJSON(writer io.Writer, value any) error {
@@ -774,7 +981,11 @@ func usage(writer io.Writer) {
 	fmt.Fprintln(writer, "  import-ci-result [options] <path> import a validated CI result")
 	fmt.Fprintln(writer, "  get <digest>       retrieve verified bytes")
 	fmt.Fprintln(writer, "  inspect <id>       print one custody record")
+	fmt.Fprintln(writer, "  inspect-attestation inspect a published detached attestation")
 	fmt.Fprintln(writer, "  record-digest <id> print the canonical custody-record digest")
+	fmt.Fprintln(writer, "  find-attestation   find published attestations by target or key ID")
+	fmt.Fprintln(writer, "  sign-attestation   sign and publish a detached attestation")
+	fmt.Fprintln(writer, "  import-attestation import and publish a detached attestation")
 	fmt.Fprintln(writer, "  verify-attestation verify a published attestation with an explicit public key")
 	fmt.Fprintln(writer, "  verify <digest>    verify stored bytes")
 	fmt.Fprintln(writer, "  verify --id <id>   verify a custody record and its blob")

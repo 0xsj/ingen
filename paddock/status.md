@@ -34,6 +34,10 @@ project without changing Overwatch or publishing anything:
   path: 40 findings are grouped into three rules, triage is `remediate`, and
   deny/allow remediation suggestions include the concrete boundary targets.
   The explanation remains advisory and does not alter the locked verdict.
+- The full handoff loop is now replayed: a filtered explanation isolates the
+  application/infrastructure edge, and the unsealed shared-kernel proposal
+  produces exactly two policy changes with a passing expected-review case and
+  three remaining findings. Paddock still does not approve or apply it.
 - An unsealed shared-kernel policy candidate now measures the effect of
   allowing `pkg/id` and `pkg/events`; the current review policy and lock remain
   authoritative. The candidate passed its policy review and reduced the
@@ -192,6 +196,26 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
   unresolved edges.
 - Portable CI gate support for invoking an external adapter and persisting its
   graph evidence.
+- Provider-neutral CI `handoff` mode now runs the lock-backed gate and emits a
+  filtered explanation as a separate agent-facing artifact while preserving
+  the original gate exit code.
+- The handoff helper was replayed against both real Overwatch gates: the
+  backend returned `1` with a filtered failing explanation, while the UI
+  returned `0` with a clear explanation; stdout stayed machine-readable in both
+  cases.
+- The external-adapter acceptance workflow now covers `handoff` as well as
+  gate/review/seal, confirming that adapter-produced graph evidence and the
+  explanation artifact travel through the same provider-neutral seam.
+- The portable CI acceptance workflow now covers a built-in Go failing handoff
+  under the helper's `set -e` shell mode, preserving exit `1`, the failed CI
+  artifact, and the filtered explanation without mixed stdout.
+- The same acceptance workflow now exercises an intentionally failing external
+  graph: `handoff` preserves exit `1`, retains the one finding in the CI
+  artifact, and emits a filtered `domain-is-pure` explanation with no mixed
+  stdout.
+- Repository-local `AGENTS.md` guidance now defines the safe agent workflow,
+  result interpretation, adapter-failure handling, expected exit-`1` handling
+  in `set -e` scripts, and the human approval boundary for policy changes.
 - Machine-readable architecture policy schema and documented v1 compatibility
   rules for Paddock contracts.
 
@@ -254,10 +278,10 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 1. Use the development decision log to keep unresolved policy choices explicit
    and prevent premature expansion of the rule language.
 2. Keep the 13-rule Heyrian subset and its source-path parity replay as a
-   regression benchmark while deciding whether the next work is selector
-   vocabulary, adapter metadata, or documentation.
-3. Keep the focused configuration-portability fixture as a negative regression
-   case; the current real-project replay is clean.
+   regression benchmark while collecting feedback from real agent handoffs.
+3. Keep the focused configuration-portability fixture, selector fixtures, and
+   external-adapter handoff as negative regressions; the current real-project
+   replays are clean where expected.
    Overwatch architecture-owner decisions remain valuable input, but are not
    required for Paddock development to continue.
 
@@ -271,6 +295,10 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
   real adapter and policy changes before freezing more contracts.
 - Extend the component map only when real users need additional aggregation or
   visualization detail.
+- Use the documented Overwatch handoff command with an actual coding agent and
+  record any missing context, noisy findings, or awkward environment setup as
+  the next adoption-driven issue. Both the blocking backend and passing UI
+  replays are now documented and verified.
 
 ### Defer until real usage asks for them
 
@@ -293,10 +321,11 @@ publication remains deferred while development continues.
 ## Next development batch
 
 Keep the 13-rule Heyrian comparison and its source-path parity replay as
-regression benchmarks. The next implementation batch should address the first
-concrete adoption issue found in dogfooding—likely selector ergonomics,
-adapter metadata, or a focused configuration-portability fixture—rather than
-adding speculative rule kinds.
+regression benchmarks. The agent handoff path is now documented against the
+real Overwatch backend; the next implementation batch should address the first
+concrete issue observed when an agent consumes that handoff—missing context,
+noisy findings, or adapter setup friction—rather than adding speculative rule
+kinds.
 
 ## Useful resume commands
 

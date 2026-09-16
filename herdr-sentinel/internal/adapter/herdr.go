@@ -204,6 +204,9 @@ func applyHerdrEvent(receipt *sentinelrun.Receipt, event HerdrEvent, root string
 		return false, fmt.Errorf("apply Herdr event: %w", err)
 	}
 	if event.ReceiptStatus != "" {
+		if err := sentinelrun.ValidateStatusTransition(receipt.Status, event.ReceiptStatus); err != nil {
+			return false, fmt.Errorf("apply Herdr event: update receipt status: %w", err)
+		}
 		if err := next.SetStatus(event.ReceiptStatus, eventAt); err != nil {
 			return false, fmt.Errorf("apply Herdr event: update receipt status: %w", err)
 		}

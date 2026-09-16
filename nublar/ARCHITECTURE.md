@@ -109,9 +109,9 @@ added only when a concrete workflow requires them. Sorna remains the owner of
 verification and mutation semantics; Nublar owns collection, run lifecycle,
 workflow policy, and delivery decisions.
 
-The current `internal/aggregate` package is the prototype predecessor of the
-future `internal/run` boundary, while `internal/workflow` already represents
-the intended workflow boundary.
+The current `internal/aggregate` package is the compatibility predecessor of
+the implemented `internal/run` boundary, while `internal/workflow` represents
+the workflow boundary.
 
 The mixed-producer fixture under `testdata/` demonstrates that the run path
 can compose Sorna and Paddock envelopes without importing either producer's

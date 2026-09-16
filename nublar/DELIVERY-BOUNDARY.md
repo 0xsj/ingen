@@ -28,6 +28,8 @@ transports only; no live endpoint is configured by Nublar.
 The projection contains:
 
 - the opaque `run_id`, logical workflow ID, and exact workflow file reference;
+- optional provider-neutral external correlation (`system`, `id`, and
+  positive `attempt`), kept separate from `run_id`;
 - Nublar's `status` and `exit_code`;
 - creation and completion timestamps;
 - every check's ID, expected tool, declared path, required flag, status, and

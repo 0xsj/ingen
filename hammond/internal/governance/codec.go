@@ -42,12 +42,13 @@ func DecodeEvent(data []byte) (Event, error) {
 }
 
 type reviewPolicyDocument struct {
-	Schema           string             `json:"schema"`
-	ID               string             `json:"id"`
-	Version          int                `json:"version"`
-	MinimumApprovals int                `json:"minimum_approvals"`
-	RequiredRoles    []string           `json:"required_roles,omitempty"`
-	Authority        AuthorityReference `json:"authority,omitempty"`
+	Schema                 string             `json:"schema"`
+	ID                     string             `json:"id"`
+	Version                int                `json:"version"`
+	MinimumApprovals       int                `json:"minimum_approvals"`
+	RequiredRoles          []string           `json:"required_roles,omitempty"`
+	RoleApprovalThresholds map[string]int     `json:"role_approval_thresholds,omitempty"`
+	Authority              AuthorityReference `json:"authority,omitempty"`
 }
 
 type reviewAuthorityDocument struct {
@@ -96,10 +97,11 @@ func decodeReviewPolicy(data []byte, reference PolicyReference, verifier Authori
 		return ReviewPolicy{}, fmt.Errorf("review policy bytes do not match reference artifact.sha256")
 	}
 	policy := ReviewPolicy{
-		Reference:        reference,
-		MinimumApprovals: document.MinimumApprovals,
-		RequiredRoles:    document.RequiredRoles,
-		Authority:        document.Authority,
+		Reference:              reference,
+		MinimumApprovals:       document.MinimumApprovals,
+		RequiredRoles:          document.RequiredRoles,
+		RoleApprovalThresholds: document.RoleApprovalThresholds,
+		Authority:              document.Authority,
 	}
 	if !isEmptyAuthorityReference(document.Authority) {
 		var authority ReviewAuthority
