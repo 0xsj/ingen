@@ -1,0 +1,30 @@
+spec document_flow v2 {
+  subject "document-pipeline"
+
+  scenario create_document {
+    given body {
+      name = "welcome.md"
+      content = "Read the contract."
+    }
+    when POST "/documents"
+    must response.status == 202
+    must response.body.id exists
+  }
+
+  scenario read_document {
+    state document_accepted
+    setup accept_document {
+      given body {
+        name = "welcome.md"
+        content = "Read the contract."
+      }
+      when POST "/documents"
+      must response.status == 202
+      must response.body.id exists
+      capture document_id = response.body.id
+    }
+    when GET "/documents/{document_id}"
+    must response.status == 200
+    must response.body.status == "queued"
+  }
+}

@@ -45,8 +45,8 @@ hammond/
 │   │   └── governance_test.go
 │   │
 │   └── store/
-│       ├── store.go          # persistence interface
-│       ├── filesystem.go     # initial local implementation
+│       ├── store.go          # persistence and conditional revision interface
+│       ├── filesystem.go     # atomic local writes and process-shared locking
 │       └── filesystem_test.go
 │
 ├── spec/
@@ -140,4 +140,12 @@ and exposes authentication, endpoint-resolution, and endpoint-policy hooks;
 provider credentials, TLS policy, discovery policy, and response mapping
 remain outside Hammond. `FetchNormalized` hands provider-native bytes to a
 caller-owned normalizer, which may reject an incomplete view before Hammond
-verifies the resulting envelope.
+verifies the resulting envelope. `BearerTokenAuthenticator` is available as a
+small token-source adapter; the source remains responsible for token storage,
+refresh, and rotation. Decision events may carry the membership reference used
+by the caller's injected verifier for audit provenance. Callers can use
+`VerifierAtWithProvenance` or `FetchVerifierAtWithProvenance` to make Hammond
+enforce that binding. `MembershipEndpointAllowlist` is available as a strict
+exact host/port endpoint policy; it does not replace caller-owned TLS or
+network enforcement. When configured, the HTTPS requirement and endpoint
+policy are also applied to redirect targets before the client follows them.

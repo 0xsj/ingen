@@ -2033,6 +2033,10 @@ func TestPortableCIWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load built-in failing handoff CI artifact: %v", err)
 	}
+	failingArtifactRef, err := artifact.File(failingResultPath)
+	if err != nil {
+		t.Fatalf("hash built-in failing handoff CI artifact: %v", err)
+	}
 	if failingArtifact.Status != "failed" || failingArtifact.Report == nil || len(failingArtifact.Report.Findings) == 0 || failingArtifact.Explanation == nil {
 		t.Fatalf("built-in failing handoff CI artifact is incomplete: %#v", failingArtifact)
 	}
@@ -2046,6 +2050,9 @@ func TestPortableCIWorkflow(t *testing.T) {
 	}
 	if failingExplanation.Status != "FAIL" || failingExplanation.Filter == nil || failingExplanation.Filter.RuleID != "domain-is-pure" || failingExplanation.Filter.Status != "blocking" || failingExplanation.Triage.Outcome != "remediate" || len(failingExplanation.Findings) == 0 {
 		t.Fatalf("built-in failing handoff explanation is incomplete: %#v", failingExplanation)
+	}
+	if failingExplanation.Provenance == nil || failingExplanation.Provenance.ArtifactSHA256 != failingArtifactRef.SHA256 || failingArtifact.PolicyLock == nil || failingExplanation.Provenance.PolicyLock == nil || failingExplanation.Provenance.PolicyLock.SHA256 != failingArtifact.PolicyLock.SHA256 {
+		t.Fatalf("built-in failing handoff explanation provenance is incomplete: %#v", failingExplanation.Provenance)
 	}
 }
 
@@ -2188,6 +2195,8 @@ cases:
 	}
 	if _, document, err := graph.LoadDocument(graphPath); err != nil || document.Language != "rust" || document.Unit != "file" {
 		t.Fatalf("external workflow graph is invalid: err=%v document=%#v", err, document)
+	} else if document.Adapter == nil || document.Adapter.Kind != "external" || document.Adapter.Name != "paddock-conformance-python" || document.Adapter.Version != "1.0.0" || document.Adapter.Executable != "python3" || document.Adapter.ArgsSHA256 == "" || document.Adapter.ExecutableSHA256 == "" {
+		t.Fatalf("external workflow graph omitted adapter metadata: %#v", document.Adapter)
 	}
 
 	handoffEnv := append(env,
@@ -2217,6 +2226,9 @@ cases:
 	if handoffExplanation.Status != "PASS" || handoffExplanation.Triage.Outcome != "clear" || len(handoffExplanation.Findings) != 0 {
 		t.Fatalf("external handoff explanation is incomplete: %#v", handoffExplanation)
 	}
+	if handoffExplanation.Provenance == nil || handoffExplanation.Provenance.Adapter == nil || handoffExplanation.Provenance.Adapter.Kind != "external" || handoffExplanation.Provenance.Adapter.Name != "paddock-conformance-python" || handoffExplanation.Provenance.Adapter.Version != "1.0.0" || handoffExplanation.Provenance.Adapter.Executable != "python3" || handoffExplanation.Provenance.Adapter.ArgsSHA256 == "" || handoffExplanation.Provenance.Adapter.ExecutableSHA256 == "" {
+		t.Fatalf("external handoff explanation omitted adapter provenance: %#v", handoffExplanation.Provenance)
+	}
 
 	if err := os.WriteFile(argsPath, []byte(adapter+"\n--workspace\n"+sourceRoot+"\n--violate\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -2245,6 +2257,9 @@ cases:
 	}
 	if handoffExplanation.Status != "FAIL" || handoffExplanation.Filter == nil || handoffExplanation.Filter.RuleID != "domain-is-pure" || handoffExplanation.Triage.Outcome != "remediate" || len(handoffExplanation.Findings) != 1 {
 		t.Fatalf("failing external handoff explanation is incomplete: %#v", handoffExplanation)
+	}
+	if handoffExplanation.Provenance == nil || handoffExplanation.Provenance.Adapter == nil || handoffExplanation.Provenance.Adapter.Name != "paddock-conformance-python" || handoffExplanation.Provenance.Adapter.Version != "1.0.0" || handoffExplanation.Provenance.Adapter.ArgsSHA256 == "" {
+		t.Fatalf("failing external handoff explanation omitted adapter provenance: %#v", handoffExplanation.Provenance)
 	}
 }
 
@@ -2597,6 +2612,10 @@ func TestCLICIArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	failedArtifactRef, err := artifact.File(failedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if failedArtifact.Status != "failed" || failedArtifact.Report == nil || failedArtifact.Explanation == nil {
 		t.Fatalf("failed CI artifact is incomplete: %#v", failedArtifact)
 	}
@@ -2621,6 +2640,9 @@ func TestCLICIArtifact(t *testing.T) {
 	}
 	if ciExplanation.Schema != "paddock.explanation/v1" || len(ciExplanation.Findings) == 0 || len(ciExplanation.Summary) == 0 {
 		t.Fatalf("CI artifact explanation is incomplete: %#v", ciExplanation)
+	}
+	if ciExplanation.Provenance == nil || ciExplanation.Provenance.ArtifactPath != failedPath || ciExplanation.Provenance.ArtifactSHA256 != failedArtifactRef.SHA256 || ciExplanation.Provenance.ArtifactStatus != "failed" || ciExplanation.Provenance.ArtifactExitCode != 1 || ciExplanation.Provenance.Policy.Path != failedArtifact.Policy.Path || ciExplanation.Provenance.Policy.SHA256 != failedArtifact.Policy.SHA256 {
+		t.Fatalf("CI artifact explanation omitted or mismatched provenance: %#v", ciExplanation.Provenance)
 	}
 
 	passedPath := filepath.Join(t.TempDir(), "passed.json")

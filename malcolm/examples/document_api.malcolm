@@ -1,0 +1,12 @@
+spec document_api v1 {
+  subject "documents"
+
+  scenario submit_document {
+    given document is valid
+    when POST "/documents"
+
+    must response.status == 202
+    must response.body.document_id exists
+    must_not response.body.error exists
+  }
+}

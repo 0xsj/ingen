@@ -162,8 +162,9 @@ producer's claims.
 
 The detached attestation helper can sign and verify this canonical digest with
 Ed25519 when the caller supplies the private or public key. It does not resolve
-trusted keys, authorize signers, or turn a valid signature into proof that a
-producer verdict is correct.
+human identity or access permissions, and it does not turn a valid signature
+into proof that a producer verdict is correct. A separate canonical trust
+registry can make an explicit local key-status decision for verification.
 
 The v1 record is a closed contract. Additive fields such as remote source
 locators or a pending lineage status require a versioned contract or a
@@ -317,7 +318,14 @@ The intake coordinator is the accepted-custody boundary. Callers should not
 publish an `accepted` record directly without first storing and verifying its
 referenced blob. If record publication fails after blob publication, the blob
 is an unreferenced orphan and must remain verifiable until a future cleanup
-policy handles it.
+policy handles it. Read-only `reconcile --orphan-grace <duration>` may
+classify valid orphans whose blob modification time is at least that old as
+`cleanup_candidates`; this is an age signal, not a deletion decision. The
+`--as-of` option makes the classification time explicit for reproducible
+reports. Published detached artifacts, such as attestation envelopes, are
+protected from orphan classification when their media type is explicitly
+recognized by the reconciliation caller; their reference metadata and blob
+are still verified. Ordinary unreferenced artifacts remain candidates.
 
 ## 6. Initial custody operations
 
@@ -328,16 +336,22 @@ The first implementation should support these conceptual operations:
 | `put` | Compute identity, verify optional source integrity, and accept bytes. |
 | `get` | Retrieve bytes by digest. |
 | `inspect` | Read custody metadata and lineage without loading the payload. |
+| `lineage-status` | Report reachable lineage resolution and diagnostic issues without changing custody status. |
+| `append-event` | Append a validated immutable redaction, retention, or legal-hold handling event. |
+| `list-events` | List handling events for a custody record in deterministic recorded-time order. |
 | `inspect-attestation` | Read a known detached envelope by artifact digest without asserting signer trust. |
+| `inspect-attestation-link` | Report the typed detached link to a custody-record representation without adding lineage. |
 | `find-attestation` | Find persisted detached envelopes by target digest or key ID without asserting signer trust. |
+| `find-trusted-attestation` | Find and fully verify detached envelopes through an explicit trust-registry snapshot. |
 | `record-digest` | Compute the digest of a record's canonical representation. |
 | `sign-attestation` | Verify a custody record, sign its canonical digest with an explicit local key, and publish a detached envelope. |
 | `import-attestation` | Validate and publish a canonical detached envelope against an explicit custody record without asserting signer trust. |
 | `verify-attestation` | Verify a published detached envelope with an explicit public key. |
+| `verify-attestation-trusted` | Verify a published detached envelope through an explicit trust-registry snapshot. |
 | `verify` | Recompute a blob digest, or verify a custody record's blob digest and declared size. |
 | `find` | Locate artifacts by metadata such as run, producer, media type, or logical name. |
 | `recover` | Re-verify a published blob and retry appending its pending custody record. |
-| `reconcile` | Report orphan blobs, dangling custody references, and corrupt blobs without mutating storage. |
+| `reconcile` | Report orphan blobs, dangling records, and corrupt blobs without mutating storage; protect recognized detached artifacts and optionally classify aged cleanup candidates. |
 
 These operations may initially be exposed through a CLI and a filesystem
 backend. The artifact and custody-record contracts also have process-local
@@ -381,8 +395,26 @@ assign them semantics until they are specified.
 
 ## 8. Redaction and retention
 
-The first implementation records handling metadata but does not need to
-implement deletion or redaction workflows yet.
+The first implementation preserves the record's initial `handling` metadata
+and now provides an append-only handling-event stream. A handling event has
+schema `lockwood.handling-event/v1`, an immutable `event_id`, a target
+`custody_id`, an explicit `recorded_at` time, descriptive `actor` and
+`reason` fields, and type-specific fields:
+
+- `redaction` requires distinct `original_digest` and `resulting_digest`
+  values;
+- `retention-classified` requires a `retention_class`;
+- `legal-hold-placed` and `legal-hold-released` require a `legal_hold_id`.
+
+Events are stored at `events/<custody-id>/<event-id>.json`. Repeating the same
+event is idempotent; reusing an event ID with different canonical contents is
+rejected. Events do not edit custody records or artifact bytes. The `actor`
+field is a descriptive caller claim and is not authenticated by this
+contract. `append-event` and `list-events` are the initial CLI surfaces.
+
+The implementation still does not perform deletion, redact payloads, enforce
+retention, or enforce legal holds. Those workflows require a separate policy,
+authorization, and race-safe storage decision.
 
 When those workflows are added:
 
@@ -397,10 +429,11 @@ When those workflows are added:
 
 This specification does not yet define:
 
-- signature trust and authorization, or external attestation workflows;
+- human signer identity, access authorization, or external attestation workflows;
 - remote object-storage protocols;
 - authentication or authorization policy;
-- retention deletion and legal holds;
+- retention deletion and legal-hold enforcement;
+- authenticated handling-event actors and authorization policy;
 - a search index implementation;
 - a web interface;
 - a new verification or CI verdict model.
@@ -410,14 +443,19 @@ working and its invariants are tested.
 
 ## 10. Known follow-up work
 
-- Define trusted-key registry, signer authorization, rotation, and revocation
-  semantics for detached attestations. Canonical record identity and the local
-  Ed25519 signing payload are now drafted and implemented.
+- Define human signer identity and access authorization around the local
+  trusted-key registry. Registry v1 defines exact key IDs, Ed25519 public keys,
+  active/revoked status, validity windows, immediate revocation, and
+  non-reused IDs as governance rules; it does not grant access.
 - Define remote retrieval, authentication, and attestation semantics if
   Lockwood later becomes responsible for obtaining remote objects.
 - Define orphan cleanup policy, including a grace period and race-safe
-  coordination with recovery. The first implementation only reports orphans
-  and supports explicit record recovery.
-- Decide whether a future workflow needs a separate lineage-resolution
-  projection or status. Current v1/v2 custody status remains independent of
-  lineage resolution and `verify` fails closed on an unresolved parent.
+  coordination with recovery. The current implementation only reports orphans
+  and optionally classifies age-based candidates; it never deletes them.
+- The current read-only `lineage-status` projection keeps v1/v2 custody status
+  independent of lineage resolution. A future workflow may persist a
+  versioned lineage status only after defining its update and compatibility
+  semantics; `verify` continues to fail closed on unresolved parents.
+- The handling-event stream records descriptive decisions but does not
+  authenticate actors or execute redaction, deletion, retention, or legal-hold
+  enforcement. Those policies remain a future governance boundary.

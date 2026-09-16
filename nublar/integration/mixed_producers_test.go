@@ -3,9 +3,11 @@ package integration
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
+	"ingen/core/ciresult"
 	nublarrun "ingen/nublar/internal/run"
 	nublarstore "ingen/nublar/internal/storage/filesystem"
 )
@@ -52,6 +54,109 @@ func TestMixedProducerWorkflowComposesSharedStatuses(t *testing.T) {
 	}
 	if loaded.Status != "failed" || loaded.Checks[1].Result.Artifact.Tool != "paddock" {
 		t.Fatalf("stored mixed-producer run = %+v, want preserved Paddock result", loaded)
+	}
+}
+
+func TestSentinelFailedEnvelopeRemainsFailedAtNublarBoundary(t *testing.T) {
+	workspace := t.TempDir()
+	artifactRoot := filepath.Join(workspace, "artifacts")
+	workflowPath := filepath.Join(workspace, "workflow.yaml")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflowContents := []byte(`schema: ingen.nublar-workflow/v1
+id: sentinel-webhook-verifier
+checks:
+  - id: verifier-lifecycle
+    tool: sentinel
+    result: sentinel-webhook-ci-result.json
+`)
+	if err := os.WriteFile(workflowPath, workflowContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := ciresult.Artifact{
+		Schema:    ciresult.Schema,
+		Tool:      "sentinel",
+		Kind:      "orchestration-receipt",
+		Status:    "failed",
+		ExitCode:  1,
+		CreatedAt: "2026-09-16T10:00:00Z",
+		Source:    ciresult.Source{Root: ".", ModulePath: "webhook-validation"},
+	}
+	result.Report = []byte(`{"schema":"ingen.sentinel-run/v1","status":"failed"}`)
+	result.Explanation = []byte(`{"schema":"ingen.sentinel-ci-explanation/v1","receipt_status":"failed","outcome":"Sentinel lifecycle failed","artifact_ids":[]}`)
+	resultContents, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactRoot, "sentinel-webhook-ci-result.json"), resultContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := nublarrun.CollectWorkflowFile(workflowPath, artifactRoot, "sentinel-failed-boundary-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "failed" || record.ExitCode != 1 || len(record.Checks) != 1 || record.Checks[0].Status != "failed" {
+		t.Fatalf("collected Sentinel run = %+v, want failed run", record)
+	}
+	if record.Checks[0].Result == nil || record.Checks[0].Result.Artifact.Tool != "sentinel" || string(record.Checks[0].Result.Artifact.Report) != string(result.Report) {
+		t.Fatalf("Sentinel result = %+v, want opaque failed producer result", record.Checks[0].Result)
+	}
+	if err := record.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSentinelBlockedEnvelopeBecomesNublarError(t *testing.T) {
+	workspace := t.TempDir()
+	artifactRoot := filepath.Join(workspace, "artifacts")
+	workflowPath := filepath.Join(workspace, "workflow.yaml")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflowContents := []byte(`schema: ingen.nublar-workflow/v1
+id: sentinel-webhook-verifier
+checks:
+  - id: verifier-lifecycle
+    tool: sentinel
+    result: sentinel-webhook-ci-result.json
+`)
+	if err := os.WriteFile(workflowPath, workflowContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := ciresult.Artifact{
+		Schema:      ciresult.Schema,
+		Tool:        "sentinel",
+		Kind:        "orchestration-receipt",
+		Status:      "error",
+		ExitCode:    2,
+		CreatedAt:   "2026-09-16T10:00:00Z",
+		Source:      ciresult.Source{Root: ".", ModulePath: "webhook-validation"},
+		Report:      []byte(`{"schema":"ingen.sentinel-run/v1","status":"blocked"}`),
+		Explanation: []byte(`{"schema":"ingen.sentinel-ci-explanation/v1","receipt_status":"blocked","outcome":"Sentinel lifecycle status \"blocked\" is not a terminal verifier outcome","artifact_ids":[]}`),
+		Error:       "Sentinel receipt is not complete: status blocked",
+	}
+	resultContents, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactRoot, "sentinel-webhook-ci-result.json"), resultContents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := nublarrun.CollectWorkflowFile(workflowPath, artifactRoot, "sentinel-blocked-boundary-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "error" || record.ExitCode != 2 || len(record.Checks) != 1 || record.Checks[0].Status != "error" {
+		t.Fatalf("collected blocked Sentinel run = %+v, want error run", record)
+	}
+	if record.Checks[0].Result == nil || record.Checks[0].Result.Artifact.Tool != "sentinel" || record.Checks[0].Result.Artifact.Error == "" {
+		t.Fatalf("blocked Sentinel result = %+v, want preserved error envelope", record.Checks[0].Result)
+	}
+	if err := record.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 

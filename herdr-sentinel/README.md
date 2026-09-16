@@ -83,6 +83,19 @@ go run ./herdr-sentinel/cmd/sentinel run ci-result \
 
 The matching Nublar proof is `make nublar-sentinel-run-collect`.
 
+For a clean artifact-root proof that excludes stale outputs, use
+`make nublar-sentinel-run-collect-fresh`.
+
+To prove the failure handoff with the controlled webhook duplicate defect, use:
+
+```sh
+make nublar-sentinel-run-collect-failure-fresh
+```
+
+This target intentionally exercises one failed verifier rule, preserves the
+failed Sentinel envelope, and succeeds only after Nublar records the expected
+`failed` run. It requires the host-enabled Sorna path.
+
 The future Herdr event placement and translation boundary is documented in
 [`sentinel-herdr-event-adapter-boundary.md`](../notes/modules/sentinel-herdr-event-adapter-boundary.md).
 
@@ -158,6 +171,11 @@ meaning, events, artifacts, and evidence limitations visibly separate.
 The shared CI envelope emitted by `run ci-result` includes the compact audit
 status and check statuses in its Sentinel explanation, alongside the exact
 receipt snapshot and artifact input references.
+
+A terminal `failed` Sentinel receipt becomes a `failed` shared envelope with
+exit code `1`; blocked or otherwise incomplete receipts become `error` with
+exit code `2`. Nublar therefore receives an explicit non-passing decision at
+the boundary instead of treating an unfinished workflow as success.
 
 The producer-owned explanation shape is versioned in
 [`spec/ci-explanation-v1.schema.json`](spec/ci-explanation-v1.schema.json).

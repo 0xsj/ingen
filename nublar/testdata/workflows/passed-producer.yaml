@@ -1,0 +1,6 @@
+schema: ingen.nublar-workflow/v1
+id: passed-producer-ci
+checks:
+  - id: behavioral-verification
+    tool: sorna
+    result: sorna.json

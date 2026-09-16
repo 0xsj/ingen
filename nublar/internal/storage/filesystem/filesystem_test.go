@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"ingen/core/ciresult"
+	"ingen/nublar/internal/delivery"
 	"ingen/nublar/internal/run"
 )
 
@@ -139,6 +140,107 @@ func TestStoreListsMissingRootAsEmpty(t *testing.T) {
 	}
 }
 
+func TestReceiptStoreSavesListsAndRejectsDuplicate(t *testing.T) {
+	store, err := NewReceiptStore(filepath.Join(t.TempDir(), "receipts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := testReceipt("run-first", "2026-09-15T12:00:02Z")
+	later := testReceipt("run-later", "2026-09-15T12:00:03Z")
+	later.Status = "failed"
+	later.HTTPStatus = 502
+	later.Error = "upstream rejected decision"
+	if err := store.Save(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(later); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(first); err == nil {
+		t.Fatal("duplicate receipt save succeeded, want immutable receipt error")
+	}
+	receipts, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receipts) != 2 || receipts[0].RunID != later.RunID || receipts[1].RunID != first.RunID {
+		t.Fatalf("listed receipts = %+v, want newest-first receipt history", receipts)
+	}
+}
+
+func TestReceiptStoreListsMissingRootAsEmpty(t *testing.T) {
+	store, err := NewReceiptStore(filepath.Join(t.TempDir(), "missing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipts, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipts == nil || len(receipts) != 0 {
+		t.Fatalf("listed receipts = %#v, want non-nil empty list", receipts)
+	}
+}
+
+func TestReceiptStoreRejectsInvalidBeforeCreatingRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "not-created")
+	store, err := NewReceiptStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(delivery.Receipt{}); err == nil {
+		t.Fatal("invalid receipt saved, want validation error")
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("receipt store root stat error = %v, want root to remain absent", err)
+	}
+}
+
+func TestReceiptStoreRejectsContentHashMismatch(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewReceiptStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := testReceipt("run-tampered", "2026-09-15T12:00:02Z")
+	if err := store.Save(receipt); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("receipt entries = %+v, want one canonical file", entries)
+	}
+	if err := os.WriteFile(filepath.Join(root, entries[0].Name()), []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.List(); err == nil || !strings.Contains(err.Error(), "content hash mismatch") {
+		t.Fatalf("List() = %v, want receipt content-hash error", err)
+	}
+}
+
+func TestReceiptStoreRejectsUnknownFields(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewReceiptStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := testReceipt("run-unknown", "2026-09-15T12:00:02Z")
+	contents, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents = append(contents[:len(contents)-1], []byte(`,"unexpected":true}`)...)
+	if err := os.WriteFile(store.pathFor(contents), contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.List(); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("List() = %v, want unknown-field error", err)
+	}
+}
+
 func TestStoreListRejectsCorruptCanonicalFile(t *testing.T) {
 	root := t.TempDir()
 	store, err := New(root)
@@ -208,4 +310,15 @@ func testRun(runID string) run.Run {
 
 func fileRef(path string) ciresult.FileRef {
 	return ciresult.FileRef{Path: path, SHA256: strings.Repeat("a", 64)}
+}
+
+func testReceipt(runID, attemptedAt string) delivery.Receipt {
+	return delivery.Receipt{
+		Schema:      delivery.ReceiptSchema,
+		RunID:       runID,
+		Transport:   "http-webhook",
+		Status:      "accepted",
+		HTTPStatus:  204,
+		AttemptedAt: attemptedAt,
+	}
 }

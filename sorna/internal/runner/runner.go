@@ -758,7 +758,13 @@ func evaluateShape(path string, actual any, spec map[string]any) []Assertion {
 	}
 	if properties, present := spec["properties"]; present {
 		propertySpecs, _ := properties.(map[string]any)
-		for field, rawSpec := range propertySpecs {
+		fields := make([]string, 0, len(propertySpecs))
+		for field := range propertySpecs {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		for _, field := range fields {
+			rawSpec := propertySpecs[field]
 			value, exists := object[field]
 			propertySpec, isSpec := rawSpec.(map[string]any)
 			if !isSpec {
@@ -823,7 +829,13 @@ func evaluateExactObject(path string, actual any, spec map[string]any) []Asserti
 		return []Assertion{{Path: path, Expected: "object", Actual: jsonType(actual), Status: "fail", Reason: "actual value is not an object"}}
 	}
 	assertions := make([]Assertion, 0)
-	for field, expected := range spec {
+	fields := make([]string, 0, len(spec))
+	for field := range spec {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	for _, field := range fields {
+		expected := spec[field]
 		value, exists := object[field]
 		if childSpec, isSpec := expected.(map[string]any); isSpec {
 			assertions = append(assertions, evaluateValue(path+"."+field, value, exists, childSpec)...)

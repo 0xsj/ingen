@@ -1,0 +1,34 @@
+policy:
+  schema: ingen.policy/v1
+  id: malcolm-healthz-oracle
+  version: 1
+  status: draft
+  purpose: independent-oracle-generation
+  enforcement: host-enforced
+
+  filesystem:
+    read:
+      - path: .artifacts/malcolm-healthz-contract.json
+        reason: translated Malcolm contract input
+    write:
+      - path: .artifacts/malcolm-healthz-oracle
+        reason: frozen Sorna oracle output and generation evidence
+    deny:
+      - path: examples/document-pipeline-lab/subject
+        reason: implementation source must not enter oracle generation
+      - path: examples/document-pipeline-lab/defects
+        reason: mutation source must not enter oracle generation
+      - path: malcolm/src
+        reason: Malcolm implementation source is not oracle input
+      - path: .git
+        reason: repository history and metadata are not oracle inputs
+
+  network:
+    mode: disabled
+
+  process:
+    subject_id: document_health
+    can_invoke_subject: false
+    allowed_tools:
+      - name: go
+        purpose: Sorna oracle generation tooling

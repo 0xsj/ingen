@@ -66,6 +66,45 @@ the fixture harness in [`replay/`](replay/), waits for `GET /healthz`, and
 writes a `behavioral-replay` CI result. The harness owns process lifecycle;
 Sorna replay itself remains a verifier of an already-running URL.
 
+The negative replay regression uses the controlled `unsupported-type-500` defect
+and succeeds only when replay correctly reports a failed CI result:
+
+```sh
+make sorna-replay-defect-fresh
+```
+
+This keeps a deliberate red separate from infrastructure failure: the Make
+target expects the replay command's failure exit code and preserves the full
+report at `.artifacts/document-pipeline-replay-defect-ci-result.json`.
+
+The two replay classifications can be exercised together with:
+
+```sh
+make sorna-replay-regression
+```
+
+The stateful `status-200-create`, `process-stays-queued`, and
+`persistence-wrong-key` cases are expected to produce CI `error` with nested
+`inconclusive` replay reports, because their broken setup or state prevents
+later cases from being evaluated. The complete `unsupported-type-500`,
+`remove-name-create`, and `accepts-png` cases are expected to produce CI
+`failed` with nested `drifted` replay reports.
+
+To turn that six-case regression run into one reviewable Sorna envelope, use:
+
+```sh
+make sorna-replay-matrix-ci-result
+```
+
+It writes `.artifacts/document-pipeline-replay-matrix-ci-result.json` with
+the expected classifications and hashes for all six member results.
+
+To verify that aggregate later, use:
+
+```sh
+make sorna-replay-matrix-verify
+```
+
 The temporary fixture provider maps the three prebuilt defect binaries to the
 mutation plan. The complete fixture campaign can be exercised with:
 

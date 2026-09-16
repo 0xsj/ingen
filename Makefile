@@ -5,6 +5,17 @@ GO_CACHE ?= $(CURDIR)/.cache/go-build
 GO_MOD_CACHE ?= $(CURDIR)/.cache/go-mod
 GO_CMD = GOCACHE="$(GO_CACHE)" GOMODCACHE="$(GO_MOD_CACHE)" $(GO)
 ARTIFACT_ROOT ?= .artifacts
+MALCOLM_EXAMPLE ?= malcolm/examples/healthz.malcolm
+MALCOLM_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-healthz.ir.json
+MALCOLM_SORNA_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-healthz-contract.json
+MALCOLM_ORACLE_POLICY ?= malcolm/examples/healthz/oracle-policy.yaml
+MALCOLM_SUBJECT_POLICY ?= malcolm/examples/healthz/subject-policy.yaml
+MALCOLM_SORNA_SEALED_DIR ?= $(ARTIFACT_ROOT)/malcolm-healthz-contract-sealed
+MALCOLM_SORNA_ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-healthz-oracle
+MALCOLM_SORNA_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-healthz-run
+MALCOLM_FLOW_EXAMPLE ?= malcolm/examples/document_flow.malcolm
+MALCOLM_FLOW_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-flow.ir.json
+MALCOLM_FLOW_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-flow-contract.json
 CONTRACT ?= examples/document-pipeline-lab/contract/contract.yaml
 POLICY ?= examples/document-pipeline-lab/policy/isolation.yaml
 SEALED_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-contract
@@ -77,11 +88,23 @@ SENTINEL_NUBLAR_WORKFLOW ?= nublar/workflows/sentinel-webhook.yaml
 SENTINEL_NUBLAR_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-nublar-result.json
 SENTINEL_NUBLAR_RUN_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-nublar-run.json
 SENTINEL_NUBLAR_RUN_STORE ?= $(ARTIFACT_ROOT)/sentinel-webhook-nublar-runs
+SENTINEL_FAILURE_SUBJECT_ADDR ?= $(WEBHOOK_DEFECT_ADDR)
+SENTINEL_FAILURE_SUBJECT_URL ?= http://$(SENTINEL_FAILURE_SUBJECT_ADDR)
+SENTINEL_FAILURE_SUBJECT_BINARY ?= $(WEBHOOK_DEFECT_BINARY)
+SENTINEL_FAILURE_SUBJECT_VARIANT ?= webhook-duplicate-idempotency-defect
 SANDBOX_ROOT ?= .
 SANDBOX_PROBE_PATH ?= examples/document-pipeline-lab/contract/contract.yaml
 ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-oracle
 REPLAY_BASE_URL ?=
 REPLAY_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-ci-result.json
+REPLAY_DEFECT_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-defect-ci-result.json
+REPLAY_STATEFUL_DEFECT_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-stateful-defect-ci-result.json
+REPLAY_PROCESS_DEFECT_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-process-defect-ci-result.json
+REPLAY_PERSISTENCE_DEFECT_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-persistence-defect-ci-result.json
+REPLAY_REMOVE_NAME_DEFECT_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-remove-name-defect-ci-result.json
+REPLAY_ACCEPTS_PNG_DEFECT_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-accepts-png-defect-ci-result.json
+REPLAY_MATRIX_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-replay-matrix-ci-result.json
+REPLAY_MATRIX_SOURCE_ROOT ?= .
 REPLAY_FIXTURE_STARTUP_TIMEOUT ?= 10s
 MUTATION_CATALOGUE ?= examples/document-pipeline-lab/mutations/catalogue.yaml
 MUTATION_PLAN_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-mutation-plan.json
@@ -116,11 +139,12 @@ MUTATION_SURVIVOR_CAMPAIGN_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipelin
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build test test-race vet check alpha-interface-check nublar-check \
+.PHONY: malcolm-sorna-contract malcolm-sorna-flow-contract malcolm-sorna-seal malcolm-sorna-oracle-freeze malcolm-sorna-run
+
+.PHONY: help build test test-race vet check alpha-interface-check nublar-check nublar-consumer-check \
 	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
-	sorna-external-run evidence-verify sorna-replay sorna-replay-ci-result sorna-replay-fresh oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
-	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha
-	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap sentinel-capability-plan sentinel-adapter-oracle-probe sentinel-adapter-verifier-probe sentinel-ci-result nublar-sentinel-aggregate nublar-sentinel-run-collect
+	sorna-external-run evidence-verify sorna-replay sorna-replay-ci-result sorna-replay-fresh sorna-replay-defect-fresh sorna-replay-stateful-defect-fresh sorna-replay-process-defect-fresh sorna-replay-persistence-defect-fresh sorna-replay-remove-name-defect-fresh sorna-replay-accepts-png-defect-fresh sorna-replay-regression sorna-replay-matrix-ci-result sorna-replay-matrix-verify oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
+	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap sentinel-capability-plan sentinel-adapter-oracle-probe sentinel-adapter-verifier-probe sentinel-ci-result nublar-sentinel-aggregate nublar-sentinel-run-collect nublar-sentinel-run-collect-fresh sentinel-adapter-verifier-failure-probe sentinel-ci-result-failure nublar-sentinel-run-collect-failure nublar-sentinel-run-collect-failure-fresh
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -148,8 +172,34 @@ nublar-check: ## Run Nublar tests, analysis, and schema syntax checks
 	$(GO_CMD) vet ./nublar/...
 	jq empty core/ciresult-v1.schema.json nublar/spec/*.json
 
+nublar-consumer-check: ## Verify the provider-neutral Nublar CI gate example
+	bash nublar/examples/consumer/check.sh
+
 contract-validate: ## Validate the document-pipeline contract
 	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(CONTRACT)"
+
+malcolm-sorna-contract: ## Compile the Malcolm healthcheck example into a Sorna contract and validate it
+	mkdir -p "$(dir $(MALCOLM_IR_OUTPUT))"
+	cargo run --manifest-path malcolm/Cargo.toml -- "$(MALCOLM_EXAMPLE)" > "$(MALCOLM_IR_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna-malcolm "$(MALCOLM_IR_OUTPUT)" --output "$(MALCOLM_SORNA_CONTRACT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(MALCOLM_SORNA_CONTRACT_OUTPUT)"
+
+malcolm-sorna-flow-contract: ## Compile the Malcolm request-body/stateful example into a Sorna contract and validate it
+	mkdir -p "$(dir $(MALCOLM_FLOW_IR_OUTPUT))"
+	cargo run --manifest-path malcolm/Cargo.toml -- "$(MALCOLM_FLOW_EXAMPLE)" > "$(MALCOLM_FLOW_IR_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna-malcolm "$(MALCOLM_FLOW_IR_OUTPUT)" --output "$(MALCOLM_FLOW_CONTRACT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(MALCOLM_FLOW_CONTRACT_OUTPUT)"
+
+malcolm-sorna-seal: malcolm-sorna-contract ## Seal the Malcolm-generated Sorna contract
+	mkdir -p "$(MALCOLM_SORNA_SEALED_DIR)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract seal "$(MALCOLM_SORNA_CONTRACT_OUTPUT)" --output-dir "$(MALCOLM_SORNA_SEALED_DIR)"
+
+malcolm-sorna-oracle-freeze: malcolm-sorna-seal ## Freeze a Sorna oracle from the Malcolm-generated contract
+	$(GO_CMD) run ./sorna/cmd/sorna oracle freeze --contract "$(MALCOLM_SORNA_CONTRACT_OUTPUT)" --policy "$(MALCOLM_ORACLE_POLICY)" --root . --output-dir "$(MALCOLM_SORNA_ORACLE_OUTPUT_DIR)"
+
+malcolm-sorna-run: malcolm-sorna-oracle-freeze subject-build ## Run the frozen Malcolm oracle against the managed document subject
+	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(MALCOLM_SORNA_ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(MALCOLM_ORACLE_POLICY)" --subject-policy "$(MALCOLM_SUBJECT_POLICY)" --subject-root . --base-url "$(SUBJECT_URL)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant malcolm-healthz --output-dir "$(MALCOLM_SORNA_RUN_OUTPUT_DIR)"
+	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(MALCOLM_SORNA_RUN_OUTPUT_DIR)"
 
 contract-seal: ## Seal the document-pipeline contract into local artifacts
 	mkdir -p "$(SEALED_DIR)"
@@ -298,6 +348,34 @@ nublar-sentinel-run-collect: sentinel-ci-result ## Collect the Sentinel verifier
 	mkdir -p "$(dir $(SENTINEL_NUBLAR_RUN_OUTPUT))" "$(SENTINEL_NUBLAR_RUN_STORE)"
 	$(GO_CMD) run ./nublar/cmd/nublar run collect --workflow "$(SENTINEL_NUBLAR_WORKFLOW)" --root "$(ARTIFACT_ROOT)" --store "$(SENTINEL_NUBLAR_RUN_STORE)" --output "$(SENTINEL_NUBLAR_RUN_OUTPUT)"
 
+sentinel-adapter-verifier-failure-probe: sentinel-run-bootstrap webhook-oracle-freeze webhook-defect-build ## Run the controlled webhook defect through Sentinel's verifier handoff
+	-$(GO_CMD) run ./herdr-sentinel/cmd/sentinel adapter verifier --workspace "$(SENTINEL_WORKSPACE)" --root . --oracle "$(WEBHOOK_ORACLE_OUTPUT)" --base-url "$(SENTINEL_FAILURE_SUBJECT_URL)" --subject-command "$(SENTINEL_FAILURE_SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SENTINEL_FAILURE_SUBJECT_ADDR)" --ready-path /healthz --subject-variant "$(SENTINEL_FAILURE_SUBJECT_VARIANT)" --output-dir "$(SENTINEL_VERIFIER_OUTPUT_DIR)" --receipt "$(SENTINEL_RUN_OUTPUT)"
+
+sentinel-ci-result-failure: sentinel-adapter-verifier-failure-probe ## Emit Sentinel's expected failed envelope after a verifier failure
+	mkdir -p "$(dir $(SENTINEL_CI_RESULT_OUTPUT))"
+	-$(GO_CMD) run ./herdr-sentinel/cmd/sentinel run ci-result --receipt "$(SENTINEL_RUN_OUTPUT)" --source-root . --output "$(SENTINEL_CI_RESULT_OUTPUT)"
+
+nublar-sentinel-run-collect-failure: sentinel-ci-result-failure ## Collect Sentinel's expected failed envelope and assert Nublar records failure
+	mkdir -p "$(dir $(SENTINEL_NUBLAR_RUN_OUTPUT))" "$(SENTINEL_NUBLAR_RUN_STORE)"
+	set +e; \
+	$(GO_CMD) run ./nublar/cmd/nublar run collect --workflow "$(SENTINEL_NUBLAR_WORKFLOW)" --root "$(ARTIFACT_ROOT)" --store "$(SENTINEL_NUBLAR_RUN_STORE)" --output "$(SENTINEL_NUBLAR_RUN_OUTPUT)"; status=$$?; \
+	if [ "$$status" -ne 1 ]; then printf 'expected Nublar failed decision (exit 1), got %s\n' "$$status" >&2; exit "$$status"; fi; \
+	printf 'expected failed Nublar decision: %s\n' "$(SENTINEL_NUBLAR_RUN_OUTPUT)"
+
+nublar-sentinel-run-collect-failure-fresh: ## Run the Sentinel failure proof in a fresh temporary workspace
+	workspace=$$(mktemp -d /private/tmp/ingen-sentinel-failure-workspace.XXXXXX); \
+	trap 'printf "workspace: %s\nartifact root: %s\nrun store: %s\n" "$$workspace" "$$workspace/.artifacts" "$$workspace/.artifacts/sentinel-webhook-nublar-runs"' EXIT; \
+	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
+	$(MAKE) -C "$$workspace" ARTIFACT_ROOT=.artifacts GO_CACHE="$(abspath $(GO_CACHE))" GO_MOD_CACHE="$(abspath $(GO_MOD_CACHE))" nublar-sentinel-run-collect-failure; status=$$?; \
+	exit $$status
+
+nublar-sentinel-run-collect-fresh: ## Run the Sentinel verifier workflow in a fresh temporary workspace
+	workspace=$$(mktemp -d /private/tmp/ingen-sentinel-workspace.XXXXXX); \
+	trap 'printf "workspace: %s\nartifact root: %s\nrun store: %s\n" "$$workspace" "$$workspace/.artifacts" "$$workspace/.artifacts/sentinel-webhook-nublar-runs"' EXIT; \
+	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
+	$(MAKE) -C "$$workspace" ARTIFACT_ROOT=.artifacts GO_CACHE="$(abspath $(GO_CACHE))" GO_MOD_CACHE="$(abspath $(GO_MOD_CACHE))" nublar-sentinel-run-collect; status=$$?; \
+	exit $$status
+
 defect-build: ## Build the controlled status-200-create defect binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
 	$(GO_CMD) build -o "$(DEFECT_BINARY)" ./examples/document-pipeline-lab/defects/status-200-create/cmd/document-pipeline-defect
@@ -340,6 +418,51 @@ sorna-replay-ci-result: ## Replay and write the shared CI result; set REPLAY_BAS
 
 sorna-replay-fresh: sorna-run subject-build ## Create a clean baseline, start a fresh subject separately, and replay it
 	$(GO_CMD) run ./examples/document-pipeline-lab/replay/cmd/replay-fixture --project-root "$(CURDIR)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --base-url "$(SUBJECT_URL)" --ready-path "$(SUBJECT_READY_PATH)" --startup-timeout "$(REPLAY_FIXTURE_STARTUP_TIMEOUT)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --evidence "$(RUN_OUTPUT_DIR)" --output "$(REPLAY_CI_RESULT_OUTPUT)"
+
+sorna-replay-defect-fresh: sorna-run defect-unsupported-type-build ## Confirm a known defect becomes a failed replay CI result
+	mkdir -p "$(dir $(REPLAY_DEFECT_CI_RESULT_OUTPUT))"
+	status=0; $(GO_CMD) run ./examples/document-pipeline-lab/replay/cmd/replay-fixture --project-root "$(CURDIR)" --subject-command "$(DEFECT_UNSUPPORTED_TYPE_BINARY)" --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --base-url "$(DEFECT_URL)" --ready-path "$(DEFECT_READY_PATH)" --startup-timeout "$(REPLAY_FIXTURE_STARTUP_TIMEOUT)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --evidence "$(RUN_OUTPUT_DIR)" --output "$(REPLAY_DEFECT_CI_RESULT_OUTPUT)" || status=$$?; test "$$status" -eq 1
+	jq -e '.status == "failed" and .report.status == "drifted" and (.report.differences | length) > 0' "$(REPLAY_DEFECT_CI_RESULT_OUTPUT)" >/dev/null
+
+sorna-replay-stateful-defect-fresh: sorna-run defect-build ## Confirm an incomplete stateful replay remains an explicit CI error
+	mkdir -p "$(dir $(REPLAY_STATEFUL_DEFECT_CI_RESULT_OUTPUT))"
+	status=0; $(GO_CMD) run ./examples/document-pipeline-lab/replay/cmd/replay-fixture --project-root "$(CURDIR)" --subject-command "$(DEFECT_BINARY)" --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --base-url "$(DEFECT_URL)" --ready-path "$(DEFECT_READY_PATH)" --startup-timeout "$(REPLAY_FIXTURE_STARTUP_TIMEOUT)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --evidence "$(RUN_OUTPUT_DIR)" --output "$(REPLAY_STATEFUL_DEFECT_CI_RESULT_OUTPUT)" || status=$$?; test "$$status" -eq 1
+	jq -e '.status == "error" and .report.status == "inconclusive" and .report.replay_verdict.status == "fail" and (.report.differences | length) > 0' "$(REPLAY_STATEFUL_DEFECT_CI_RESULT_OUTPUT)" >/dev/null
+
+sorna-replay-process-defect-fresh: sorna-run defect-process-stays-queued-build ## Confirm a process-state defect remains an explicit CI error
+	mkdir -p "$(dir $(REPLAY_PROCESS_DEFECT_CI_RESULT_OUTPUT))"
+	status=0; $(GO_CMD) run ./examples/document-pipeline-lab/replay/cmd/replay-fixture --project-root "$(CURDIR)" --subject-command "$(DEFECT_PROCESS_STAYS_QUEUED_BINARY)" --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --base-url "$(DEFECT_URL)" --ready-path "$(DEFECT_READY_PATH)" --startup-timeout "$(REPLAY_FIXTURE_STARTUP_TIMEOUT)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --evidence "$(RUN_OUTPUT_DIR)" --output "$(REPLAY_PROCESS_DEFECT_CI_RESULT_OUTPUT)" || status=$$?; test "$$status" -eq 1
+	jq -e '.status == "error" and .report.status == "inconclusive" and .report.replay_verdict.status == "fail" and (.report.differences | length) > 0' "$(REPLAY_PROCESS_DEFECT_CI_RESULT_OUTPUT)" >/dev/null
+
+sorna-replay-persistence-defect-fresh: sorna-run defect-persistence-wrong-key-build ## Confirm a persistence defect remains an explicit CI error
+	mkdir -p "$(dir $(REPLAY_PERSISTENCE_DEFECT_CI_RESULT_OUTPUT))"
+	status=0; $(GO_CMD) run ./examples/document-pipeline-lab/replay/cmd/replay-fixture --project-root "$(CURDIR)" --subject-command "$(DEFECT_PERSISTENCE_WRONG_KEY_BINARY)" --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --base-url "$(DEFECT_URL)" --ready-path "$(DEFECT_READY_PATH)" --startup-timeout "$(REPLAY_FIXTURE_STARTUP_TIMEOUT)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --evidence "$(RUN_OUTPUT_DIR)" --output "$(REPLAY_PERSISTENCE_DEFECT_CI_RESULT_OUTPUT)" || status=$$?; test "$$status" -eq 1
+	jq -e '.status == "error" and .report.status == "inconclusive" and .report.replay_verdict.status == "fail" and (.report.differences | length) > 0' "$(REPLAY_PERSISTENCE_DEFECT_CI_RESULT_OUTPUT)" >/dev/null
+
+sorna-replay-remove-name-defect-fresh: sorna-run defect-remove-name-build ## Confirm a response-shape defect becomes a failed replay CI result
+	mkdir -p "$(dir $(REPLAY_REMOVE_NAME_DEFECT_CI_RESULT_OUTPUT))"
+	status=0; $(GO_CMD) run ./examples/document-pipeline-lab/replay/cmd/replay-fixture --project-root "$(CURDIR)" --subject-command "$(DEFECT_REMOVE_NAME_BINARY)" --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --base-url "$(DEFECT_URL)" --ready-path "$(DEFECT_READY_PATH)" --startup-timeout "$(REPLAY_FIXTURE_STARTUP_TIMEOUT)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --evidence "$(RUN_OUTPUT_DIR)" --output "$(REPLAY_REMOVE_NAME_DEFECT_CI_RESULT_OUTPUT)" || status=$$?; test "$$status" -eq 1
+	jq -e '.status == "failed" and .report.status == "drifted" and (.report.differences | length) > 0' "$(REPLAY_REMOVE_NAME_DEFECT_CI_RESULT_OUTPUT)" >/dev/null
+
+sorna-replay-accepts-png-defect-fresh: sorna-run defect-accepts-png-build ## Confirm an input-validation defect becomes a failed replay CI result
+	mkdir -p "$(dir $(REPLAY_ACCEPTS_PNG_DEFECT_CI_RESULT_OUTPUT))"
+	status=0; $(GO_CMD) run ./examples/document-pipeline-lab/replay/cmd/replay-fixture --project-root "$(CURDIR)" --subject-command "$(DEFECT_ACCEPTS_PNG_BINARY)" --subject-arg=-addr --subject-arg "$(DEFECT_ADDR)" --base-url "$(DEFECT_URL)" --ready-path "$(DEFECT_READY_PATH)" --startup-timeout "$(REPLAY_FIXTURE_STARTUP_TIMEOUT)" --oracle "$(ORACLE_OUTPUT_DIR)/oracle.json" --evidence "$(RUN_OUTPUT_DIR)" --output "$(REPLAY_ACCEPTS_PNG_DEFECT_CI_RESULT_OUTPUT)" || status=$$?; test "$$status" -eq 1
+	jq -e '.status == "failed" and .report.status == "drifted" and (.report.differences | length) > 0' "$(REPLAY_ACCEPTS_PNG_DEFECT_CI_RESULT_OUTPUT)" >/dev/null
+
+sorna-replay-regression: sorna-replay-defect-fresh sorna-replay-stateful-defect-fresh sorna-replay-process-defect-fresh sorna-replay-persistence-defect-fresh sorna-replay-remove-name-defect-fresh sorna-replay-accepts-png-defect-fresh ## Run complete-drift and incomplete-stateful replay regressions
+
+sorna-replay-matrix-ci-result: sorna-replay-regression ## Aggregate the replay regression envelopes into one Sorna CI result
+	mkdir -p "$(dir $(REPLAY_MATRIX_CI_RESULT_OUTPUT))"
+	$(GO_CMD) run ./sorna/cmd/sorna evidence replay matrix --source-root "$(REPLAY_MATRIX_SOURCE_ROOT)" --output "$(REPLAY_MATRIX_CI_RESULT_OUTPUT)" \
+		--case "unsupported-type-500=$(REPLAY_DEFECT_CI_RESULT_OUTPUT)|failed|drifted" \
+		--case "status-200-create=$(REPLAY_STATEFUL_DEFECT_CI_RESULT_OUTPUT)|error|inconclusive" \
+		--case "process-stays-queued=$(REPLAY_PROCESS_DEFECT_CI_RESULT_OUTPUT)|error|inconclusive" \
+		--case "persistence-wrong-key=$(REPLAY_PERSISTENCE_DEFECT_CI_RESULT_OUTPUT)|error|inconclusive" \
+		--case "remove-name-create=$(REPLAY_REMOVE_NAME_DEFECT_CI_RESULT_OUTPUT)|failed|drifted" \
+		--case "accepts-png=$(REPLAY_ACCEPTS_PNG_DEFECT_CI_RESULT_OUTPUT)|failed|drifted"
+
+sorna-replay-matrix-verify: ## Verify the saved replay matrix and all available member inputs
+	$(GO_CMD) run ./sorna/cmd/sorna evidence replay matrix verify --source-root "$(REPLAY_MATRIX_SOURCE_ROOT)" "$(REPLAY_MATRIX_CI_RESULT_OUTPUT)"
 
 sorna-gate: ## Apply the default CI gate to RUN_OUTPUT_DIR; set GATE_MIN_OBSERVATION_COVERAGE for a strict minimum
 	$(GO_CMD) run ./sorna/cmd/sorna gate $(if $(GATE_MIN_OBSERVATION_COVERAGE),--minimum-observation-coverage "$(GATE_MIN_OBSERVATION_COVERAGE)",) "$(RUN_OUTPUT_DIR)"

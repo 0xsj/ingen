@@ -1,6 +1,6 @@
 # InGen alpha interfaces
 
-This is the current Sorna/Nublar alpha boundary. It names the artifacts and
+This is the current Sorna/Nublar/Sentinel alpha boundary. It names the artifacts and
 semantics that another tool may consume today; it does not promise that the
 alpha is a long-term compatibility commitment.
 
@@ -25,9 +25,10 @@ schema identities and meanings stable until an intentional interface review:
 | Nublar aggregate | `ingen.nublar-result/v1` | Nublar | Preserved input envelopes plus severity composition. |
 | Nublar run | `ingen.nublar-run/v1` | Nublar | Immutable collection attempt with check-level provenance, decision state, and optional provider-neutral external correlation. |
 | Nublar decision | `ingen.nublar-decision/v1` | Nublar | Provider-neutral delivery projection without producer reports. |
-| Nublar delivery receipt | `ingen.nublar-delivery-receipt/v1` | Nublar | One delivery attempt outcome, separate from the run decision. |
+| Nublar delivery receipt | `ingen.nublar-delivery-receipt/v1` | Nublar | One delivery attempt outcome, optionally preserved in a separate local receipt store, separate from the run decision. |
 | Sentinel lifecycle receipt | `ingen.sentinel-run/v1` | Sentinel | Workspace lifecycle and opaque artifact lineage around a verifier handoff. |
 | Herdr lifecycle event | `ingen.herdr-event/v1` | Sentinel adapter | Idempotent host-event ingress bound to one Sentinel run and workspace. |
+| Sentinel CI explanation | `ingen.sentinel-ci-explanation/v1` | Sentinel | Closed producer-owned lifecycle, artifact, and optional audit context nested in the shared CI envelope. |
 
 The `v1` labels are alpha interfaces, not a claim that every field is already
 ideal. A breaking field or semantic change must be deliberate, documented, and
@@ -69,6 +70,24 @@ These are the important guarantees of the current slice:
    deterministic ordering.
 10. Nublar correlation metadata is optional, requires a system/ID/positive
     attempt tuple when present, and never replaces the immutable `run_id`.
+11. Nublar delivery receipts are independent audit records; storing a failed
+    receipt does not change the run decision or create a retry.
+12. Receipt-list run/status/transport filters are read-only projections over
+    validated receipts and preserve receipt-store ordering.
+13. Sentinel Herdr events bind to the active run and workspace, require
+    monotonic timestamps, verify referenced artifact bytes when a root is
+    supplied, and publish batches only after every event validates.
+14. Sentinel event identity is durable at the receipt boundary: an identical
+    source-event retry is a no-op, while reuse of an event ID with different
+    content is rejected. Terminal receipts cannot reopen; cleanup is the
+    explicit terminal-to-`cleaned` exception.
+15. Sentinel lifecycle status maps to the shared envelope without ambiguity:
+    `completed` is `passed/0`, `failed` is `failed/1`, and blocked or incomplete
+    lifecycle states are `error/2`. Nublar composes that envelope status and
+    preserves the Sentinel report opaquely.
+16. A terminal Sentinel envelope emitted by the CLI is based on one validated
+    receipt snapshot and passes the receipt/artifact integrity audit first, so
+    drift cannot become a passing Nublar check.
 
 ## What is deliberately not frozen
 
@@ -84,11 +103,12 @@ These are the important guarantees of the current slice:
   experience. Those belong to the Herdr-side workflow surface.
 - Nublar as a standalone hosted product. The current Nublar code is a thin
   coordinator and integration proof surface.
-- Producer-owned internal evidence and explanation schemas such as
-  `sorna.evidence/v1`, `ingen.run/v1`, and
-  `sorna.mutation-campaign-explanation/v1`. They are useful artifacts, but
-  consumers should use the shared CI envelope rather than importing their
-  internal meanings.
+- Producer-owned internal evidence schemas such as `sorna.evidence/v1`,
+  `ingen.run/v1`, and `sorna.mutation-campaign-explanation/v1`. They are useful
+  artifacts, but consumers should use the shared CI envelope rather than
+  importing their internal meanings. Sentinel's nested explanation is listed
+  above because its closed shape is part of the explicit envelope contract;
+  its fields still do not become Nublar semantics.
 
 ## Current verification command
 
@@ -96,6 +116,12 @@ Run the Nublar-only boundary check with:
 
 ```sh
 make nublar-check
+```
+
+The provider-neutral consumer example has its own fixture-backed check:
+
+```sh
+make nublar-consumer-check
 ```
 
 Run the focused boundary check with:
@@ -110,6 +136,16 @@ Run the complete clean document workflow with:
 make nublar-aggregate-fresh
 make nublar-run-collect-fresh
 ```
+
+Run the Sentinel positive and expected-failure collection proofs with:
+
+```sh
+make nublar-sentinel-run-collect-fresh
+make nublar-sentinel-run-collect-failure-fresh
+```
+
+The failure proof returns success only after observing the expected Nublar
+`failed/1` decision; it does not hide an unexpected collection error.
 
 These targets are the executable proofs for the current slice: they prepare
 the strict Go provider, emit provider-review and preparation CI results,

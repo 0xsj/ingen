@@ -1,4 +1,4 @@
-// Package filesystem stores Nublar runs under a local directory.
+// Package filesystem stores Nublar runs and delivery receipts under local directories.
 package filesystem
 
 import (

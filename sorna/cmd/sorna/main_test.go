@@ -55,6 +55,22 @@ func TestLifecycleObservationCoverageNamesSamplingBlindSpots(t *testing.T) {
 	}
 }
 
+func TestParseReplayMatrixCases(t *testing.T) {
+	cases, err := parseReplayMatrixCases([]string{
+		"baseline=.artifacts/baseline.json|passed|matched",
+		"defect=.artifacts/defect.json|failed|drifted",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 2 || cases[1].ID != "defect" || cases[1].ExpectedCIStatus != "failed" || cases[1].ExpectedReplayState != "drifted" {
+		t.Fatalf("parsed replay matrix cases = %+v, want two classified cases", cases)
+	}
+	if _, err := parseReplayMatrixCases([]string{"broken-case"}); err == nil || !strings.Contains(err.Error(), "expected id=path") {
+		t.Fatalf("parseReplayMatrixCases() = %v, want syntax error", err)
+	}
+}
+
 func TestVerifyCampaignPlanReferenceRejectsExactPlanDrift(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "plan.json")
 	plan := verificationPlan()

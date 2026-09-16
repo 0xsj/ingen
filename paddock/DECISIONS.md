@@ -17,6 +17,13 @@ versioned schemas, sealed policy locks, or CI verdicts.
   verdict.
 - Draft policies are descriptive until reviewed. A sealed policy lock is the
   CI authority.
+- CI-derived explanations retain optional provenance for the exact artifact,
+  policy, lock, graph, and baseline inputs; direct report explanations may
+  omit it.
+- External graph evidence records adapter kind, optional adapter-supplied
+  name/version, executable identity, and a non-secret argument-list digest;
+  raw adapter arguments are not persisted. A built-in name/version carried by
+  a pass-through graph is not attributed to the external invocation.
 - New language adapters and rule kinds should be driven by real usage rather
   than added speculatively.
 
@@ -29,6 +36,11 @@ versioned schemas, sealed policy locks, or CI verdicts.
 - `policy review --format json` initially appended a human output-path line to
   stdout. It now keeps stdout parseable as one `paddock.policy-review/v1`
   document, matching the behavior expected by agents and CI.
+- A filtered explanation derived from a CI artifact initially lost the
+  artifact's input references, making it harder for an agent to correlate a
+  separate handoff file with the authoritative run. `paddock.explanation/v1`
+  now carries optional artifact and input provenance while direct report
+  explanations remain unchanged.
 
 ## Recent usage evidence
 

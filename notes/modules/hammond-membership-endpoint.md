@@ -30,6 +30,9 @@ caller should use.
 - Endpoint URL validation is not endpoint authorization; callers still own
   allowlists, TLS configuration, redirects, and network access policy. Use the
   endpoint policy hook when those decisions must block the request in Hammond.
+- Hammond reapplies a configured HTTPS requirement and endpoint policy to each
+  redirect target, while the caller's `http.Client.CheckRedirect` still owns
+  redirect limits and whether to stop following.
 - A resolver may return different endpoints across calls, so callers should
   preserve the resolved endpoint with the fetched artifact provenance.
 - Authentication runs after endpoint resolution and can inspect the final

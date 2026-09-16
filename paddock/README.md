@@ -200,6 +200,11 @@ select a finding state. `blocking` selects active error findings, including
 expired waivers. Filtered output records its selection and retains the original
 overall verdict. The JSON contract is defined in
 [`spec/paddock.explanation-v1.schema.json`](spec/paddock.explanation-v1.schema.json).
+When the input is an `ingen.ci-result/v1` artifact, the explanation also
+includes optional provenance with the artifact path/hash, recorded status and
+exit code, timestamp, and policy, lock, graph, and baseline file references.
+This lets an agent correlate a filtered explanation with the exact CI evidence
+it came from.
 
 `graph` exposes the adapter output before classification and rule evaluation.
 It accepts either `--policy` or an explicit `--language`, and emits the stable
@@ -212,7 +217,9 @@ An external adapter can be invoked with `--adapter` and repeated
 [`ADAPTER-PROTOCOL.md`](ADAPTER-PROTOCOL.md).
 `check` can invoke an adapter directly. `ci` can do the same when
 `--graph-output` names the durable graph file whose hash is recorded in the
-CI artifact.
+CI artifact. Graph evidence also records optional adapter identity and
+non-secret invocation digests; CI-derived explanations surface that metadata
+through provenance when the graph file is available.
 
 `map` provides a compact review view after policy classification. It emits the
 `paddock.component-map/v1` shape with component package counts, cross-component
@@ -421,6 +428,9 @@ The current adapters support Go, TypeScript/JavaScript, and Python. All
 implement the same adapter registry contract and expose capabilities for source
 units and edge kinds. The policy schema is language-neutral, so additional
 adapters should produce the same graph model rather than change the rule engine.
+On restricted or ephemeral runners, set `GOCACHE` to a writable job-local
+directory before checking Go source; failure to access the Go toolchain cache is
+an evaluation error with exit code `2`.
 External adapter authors can use the machine-readable contracts in
 [`spec/`](spec/) and the pass-through conformance fixture in
 [`examples/adapter/`](examples/adapter/README.md).

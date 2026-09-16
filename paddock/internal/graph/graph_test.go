@@ -147,6 +147,7 @@ func TestLoadExternalAdapterNegotiatesRequestAndResponse(t *testing.T) {
 		Unit:         "file",
 		Root:         root,
 		ModulePath:   "example",
+		Adapter:      &graph.AdapterMetadata{Kind: "builtin", Name: "source-parser", Version: "1.0.0"},
 		Capabilities: graph.Capabilities{SourceUnits: []string{"file"}, EdgeKinds: []string{"import"}},
 		Packages: []*model.Package{{
 			ImportPath: "example::domain",
@@ -179,6 +180,35 @@ func TestLoadExternalAdapterNegotiatesRequestAndResponse(t *testing.T) {
 	}
 	if len(loaded.Packages) != 1 || received.Language != "rust" {
 		t.Fatalf("unexpected external graph: loaded=%#v document=%#v", loaded, received)
+	}
+	if received.Adapter == nil || received.Adapter.Kind != "external" || received.Adapter.Name != "" || received.Adapter.Version != "" || received.Adapter.Executable != scriptPath || received.Adapter.ResolvedExecutable != scriptPath || received.Adapter.ExecutableSHA256 == "" || received.Adapter.ArgsSHA256 == "" {
+		t.Fatalf("external graph omitted invocation metadata: %#v", received.Adapter)
+	}
+
+	document.Adapter = &graph.AdapterMetadata{Kind: "external", Name: "fixture-rust", Version: "2.3.4"}
+	data, err = json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(responsePath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, received, err = graph.LoadExternal(context.Background(), scriptPath, []string{requestPath, responsePath}, graph.Request{
+		Schema:   graph.RequestSchema,
+		Language: "rust",
+		Unit:     "file",
+		Root:     root,
+		Include:  []string{"src/**"},
+		Exclude:  []string{"src/generated/**"},
+		RequiredCapabilities: graph.Capabilities{
+			SourceUnits: []string{"file"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if received.Adapter == nil || received.Adapter.Kind != "external" || received.Adapter.Name != "fixture-rust" || received.Adapter.Version != "2.3.4" || received.Adapter.Executable != scriptPath || received.Adapter.ResolvedExecutable != scriptPath || received.Adapter.ExecutableSHA256 == "" || received.Adapter.ArgsSHA256 == "" {
+		t.Fatalf("external graph did not preserve adapter identity: %#v", received.Adapter)
 	}
 	requestData, err := os.ReadFile(requestPath)
 	if err != nil {

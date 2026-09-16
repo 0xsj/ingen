@@ -111,6 +111,15 @@ internal edge targets, edge kinds, and declared capabilities before policy
 evaluation. The response language and source unit cannot contradict the
 request.
 
+The graph document may include an optional `adapter` object with a stable
+adapter `name` and `version`. When Paddock invokes an external adapter, it
+annotates the accepted graph with `kind: external`, the requested executable,
+its resolved path and SHA-256 when available, and a SHA-256 digest of the
+ordered argument list. Raw arguments are intentionally not persisted because
+they may contain paths or secrets. Built-in graph output identifies the
+language adapter with `kind: builtin`; that built-in name/version is not
+carried forward as the identity of a later external pass-through adapter.
+
 ## Adapter conformance check
 
 Adapter authors can exercise this protocol without running a policy:

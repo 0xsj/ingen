@@ -166,6 +166,19 @@ func herdrEventAdapterCommand(args []string) int {
 		}
 		return 0
 	}
+	if samePath(*receiptPath, *outputPath) {
+		appended, err := sentineladapter.ApplyHerdrEventFile(*receiptPath, event, *root)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if appended {
+			fmt.Println("appended:", filepath.Clean(*receiptPath))
+		} else {
+			fmt.Println("unchanged:", filepath.Clean(*receiptPath))
+		}
+		return 0
+	}
 	receipt, err := sentinelrun.LoadFile(*receiptPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -212,6 +225,15 @@ func herdrEventsAdapterCommand(args []string) int {
 		return 1
 	}
 	if *outputPath == "" {
+		appended, err := sentineladapter.ApplyHerdrEventsFile(*receiptPath, events, *root)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Printf("appended: %s (%d new events)\n", filepath.Clean(*receiptPath), appended)
+		return 0
+	}
+	if samePath(*receiptPath, *outputPath) {
 		appended, err := sentineladapter.ApplyHerdrEventsFile(*receiptPath, events, *root)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

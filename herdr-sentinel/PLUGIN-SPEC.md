@@ -243,10 +243,15 @@ custom mutation engine.
 - Which concrete Herdr plugin lifecycle hooks should map to Sentinel lifecycle
   events? The placement and translation boundary is recorded in
   [`sentinel-herdr-event-adapter-boundary.md`](../notes/modules/sentinel-herdr-event-adapter-boundary.md);
-  the host API is not present in this repository yet.
+  the host API is not present in this repository yet. The required host-side
+  inputs and acceptance gate are recorded in
+  [`sentinel-herdr-host-binding-contract.md`](../notes/modules/sentinel-herdr-host-binding-contract.md).
 - How should capability policies be enforced on the target platform?
 - Where should evidence bundles be stored and retained?
 - How should Sentinel detect that a role has completed its required artifact?
 - Which Herdr events are durable enough to reference in a final report?
 - Should Sorna be invoked as a CLI, local service, or library in the MVP?
 - How should users review and approve contract amendments from the workspace?
+
+No native binding should be added until the host supplies those primitives and
+the adapter acceptance cases pass against the real hook implementation.

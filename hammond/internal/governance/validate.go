@@ -98,7 +98,7 @@ func validatePolicyActorRoles(events []Event, policy ReviewPolicy) []string {
 		if event.Type != EventApprovalRecorded && event.Type != EventRejectionRecorded {
 			continue
 		}
-		authorized, err := policy.authorizes(event.Actor, event.Role, event.At)
+		authorized, err := policy.authorizesEvent(event)
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("events[%d] authority verification failed: %v", index, err))
 		} else if !authorized {
@@ -295,6 +295,13 @@ func validateEvent(event Event, contract ContractReference, activeReviewCycleID,
 	if !validEventType(event.Type) {
 		problems = append(problems, path+".type is invalid")
 		return problems, eventAt
+	}
+	if event.Membership != nil {
+		if event.Type != EventApprovalRecorded && event.Type != EventRejectionRecorded {
+			problems = append(problems, path+".membership is only valid on decision events")
+		} else {
+			problems = append(problems, validateMembershipReference(*event.Membership, path+".membership")...)
+		}
 	}
 
 	switch event.Type {

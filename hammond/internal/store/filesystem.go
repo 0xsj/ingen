@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"syscall"
 
 	"ingen/hammond/internal/governance"
 )
@@ -32,6 +33,11 @@ func NewFileStore(root string) (*FileStore, error) {
 func (s *FileStore) Register(record governance.Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile(false)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	if err := validateRegistration(record); err != nil {
 		return err
@@ -48,10 +54,46 @@ func (s *FileStore) Register(record governance.Record) error {
 func (s *FileStore) AppendEvent(identity governance.ContractIdentity, event governance.Event) (governance.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile(false)
+	if err != nil {
+		return governance.Record{}, err
+	}
+	defer unlock()
 
+	return s.appendEvent(identity, "", event)
+}
+
+// AppendEventIfRevision appends only when the stored record still has the
+// caller's revision. The lock and revision check are held across the complete
+// read-modify-write operation.
+func (s *FileStore) AppendEventIfRevision(identity governance.ContractIdentity, expectedRevision string, event governance.Event) (governance.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lockFile(false)
+	if err != nil {
+		return governance.Record{}, err
+	}
+	defer unlock()
+
+	if expectedRevision == "" {
+		return governance.Record{}, fmt.Errorf("expected Hammond record revision is required")
+	}
+	return s.appendEvent(identity, expectedRevision, event)
+}
+
+func (s *FileStore) appendEvent(identity governance.ContractIdentity, expectedRevision string, event governance.Event) (governance.Record, error) {
 	record, err := s.get(identity)
 	if err != nil {
 		return governance.Record{}, err
+	}
+	if expectedRevision != "" {
+		actualRevision, err := RecordRevision(record)
+		if err != nil {
+			return governance.Record{}, fmt.Errorf("calculate Hammond record revision: %w", err)
+		}
+		if actualRevision != expectedRevision {
+			return governance.Record{}, fmt.Errorf("%w: expected %s, current %s", ErrConflict, expectedRevision, actualRevision)
+		}
 	}
 	if !record.Contract.Identity().Equal(identity) {
 		return governance.Record{}, fmt.Errorf("stored contract identity does not match requested identity")
@@ -80,6 +122,11 @@ func (s *FileStore) AppendEvent(identity governance.ContractIdentity, event gove
 func (s *FileStore) Supersede(identity governance.ContractIdentity, successor governance.ContractIdentity, event governance.Event) (governance.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile(false)
+	if err != nil {
+		return governance.Record{}, err
+	}
+	defer unlock()
 
 	predecessor, err := s.get(identity)
 	if err != nil {
@@ -117,6 +164,11 @@ func (s *FileStore) Supersede(identity governance.ContractIdentity, successor go
 func (s *FileStore) CreateAmendment(identity governance.ContractIdentity, successor governance.Record, event governance.Event) (governance.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile(false)
+	if err != nil {
+		return governance.Record{}, err
+	}
+	defer unlock()
 
 	predecessor, err := s.get(identity)
 	if err != nil {
@@ -178,12 +230,22 @@ func (s *FileStore) CreateAmendment(identity governance.ContractIdentity, succes
 func (s *FileStore) Get(identity governance.ContractIdentity) (governance.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile(true)
+	if err != nil {
+		return governance.Record{}, err
+	}
+	defer unlock()
 	return s.get(identity)
 }
 
 func (s *FileStore) List() ([]governance.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile(true)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
@@ -268,6 +330,30 @@ func writeBytes(path string, data []byte) error {
 func (s *FileStore) pathFor(identity governance.ContractIdentity) string {
 	digest := sha256.Sum256([]byte(identity.Key()))
 	return filepath.Join(s.root, hex.EncodeToString(digest[:])+".json")
+}
+
+// lockFile coordinates FileStore instances that share a root directory,
+// including instances in different processes. The lock is advisory and only
+// protects Hammond's own readers and writers; external mutations remain
+// unsupported.
+func (s *FileStore) lockFile(shared bool) (func(), error) {
+	path := filepath.Join(s.root, ".hammond.lock")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open Hammond store lock: %w", err)
+	}
+	operation := syscall.LOCK_EX
+	if shared {
+		operation = syscall.LOCK_SH
+	}
+	if err := syscall.Flock(int(file.Fd()), operation); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("lock Hammond store: %w", err)
+	}
+	return func() {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		_ = file.Close()
+	}, nil
 }
 
 func readRecord(path string) (governance.Record, error) {

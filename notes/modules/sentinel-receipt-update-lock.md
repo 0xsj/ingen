@@ -17,7 +17,8 @@ update.
 `run.UpdateFile` acquires a sibling advisory lock, loads the current receipt,
 executes one update against that in-memory value, and atomically publishes the
 new receipt only when the callback reports a change. Sentinel's in-place Herdr
-event, artifact, oracle, and verifier lifecycle updates use this seam.
+event, batch, artifact, oracle, and verifier lifecycle updates use this seam,
+including when an explicit `--output` path resolves to the receipt path.
 Idempotent replays therefore do not rewrite the receipt, while separate local
 deliveries serialize their read-modify-publish cycles.
 
@@ -36,6 +37,8 @@ Nublar or turning a filesystem lock into a distributed queue.
   receipt replacement.
 - This is not remote durability, authentication, or crash-recovery policy for a
   future Herdr host.
+- A distinct output path intentionally remains snapshot-style: it reads the
+  source receipt, applies the update in memory, and publishes a separate file.
 
 ## Used in
 

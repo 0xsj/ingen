@@ -15,7 +15,8 @@ can be exported from a stored run with:
 nublar run decision --store <dir> --run-id <id> --output decision.json
 nublar run deliver --store <dir> --run-id <id> \
   --webhook https://example.test/nublar --timeout 30s \
-  --receipt delivery-receipt.json
+  --receipt delivery-receipt.json \
+  --receipt-store <receipt-dir>
 ```
 
 The first reference publisher is a generic HTTP webhook in
@@ -56,6 +57,13 @@ attempt is written as a `failed` receipt before the command returns exit code
 occur before a receipt exists. The receipt does not modify the stored run or
 decision, and repeated deliveries produce separate exported receipts when
 requested.
+
+`run deliver --receipt-store <dir>` additionally persists every valid receipt
+returned after a publisher attempt in a separate content-addressed local
+store. `run receipt list --receipt-store <dir>` reads that history in
+newest-first order. The receipt store is audit persistence only; it does not
+implement delivery retries or change the run decision. Its filesystem contract
+is documented in [`RECEIPT-STORAGE.md`](RECEIPT-STORAGE.md).
 
 ## Adapter rules
 

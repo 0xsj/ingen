@@ -14,7 +14,9 @@ operational freshness.
 
 `MembershipSnapshot.FreshAt` checks a caller-supplied maximum age, an allowed
 future clock skew, and the optional snapshot `expires_at`. `VerifierAt` applies
-those checks before returning a time-scoped membership verifier.
+those checks before returning a time-scoped membership verifier;
+`VerifierAtWithProvenance` additionally binds that verifier to the snapshot
+reference recorded on decision events.
 
 ## Why
 

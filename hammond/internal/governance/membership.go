@@ -38,6 +38,22 @@ type MembershipSnapshot struct {
 	Signature *AuthoritySignature
 }
 
+// MembershipVerifier carries the snapshot reference alongside its
+// time-scoped authority so policy evaluation can bind decision provenance to
+// the verifier that authorized it.
+type MembershipVerifier struct {
+	Reference MembershipReference
+	Authority TimeScopedAuthority
+}
+
+func (verifier MembershipVerifier) Verify(actor, role, at string) (bool, error) {
+	return verifier.Authority.Verify(actor, role, at)
+}
+
+func (verifier MembershipVerifier) MembershipReference() MembershipReference {
+	return verifier.Reference
+}
+
 func (snapshot MembershipSnapshot) Validate() error {
 	if problems := validateMembershipReference(snapshot.Reference, "membership"); len(problems) > 0 {
 		return fmt.Errorf("%s", joinProblems(problems))
@@ -68,6 +84,12 @@ func (snapshot MembershipSnapshot) Validate() error {
 // membership grants.
 func (snapshot MembershipSnapshot) Verifier() TimeScopedAuthority {
 	return TimeScopedAuthority{Grants: append([]AuthorityGrant(nil), snapshot.Grants...)}
+}
+
+// VerifierWithProvenance returns a verifier that exposes the membership
+// reference used to build it.
+func (snapshot MembershipSnapshot) VerifierWithProvenance() MembershipVerifier {
+	return MembershipVerifier{Reference: snapshot.Reference, Authority: snapshot.Verifier()}
 }
 
 // FreshAt checks provider freshness at now. maxAge must be positive and
@@ -110,6 +132,15 @@ func (snapshot MembershipSnapshot) VerifierAt(now string, maxAge, maxFutureSkew 
 		return TimeScopedAuthority{}, err
 	}
 	return snapshot.Verifier(), nil
+}
+
+// VerifierAtWithProvenance applies freshness checks before returning a
+// verifier whose membership reference can be matched to decision events.
+func (snapshot MembershipSnapshot) VerifierAtWithProvenance(now string, maxAge, maxFutureSkew time.Duration) (MembershipVerifier, error) {
+	if err := snapshot.FreshAt(now, maxAge, maxFutureSkew); err != nil {
+		return MembershipVerifier{}, err
+	}
+	return snapshot.VerifierWithProvenance(), nil
 }
 
 // DecodeMembershipSnapshot strictly decodes a membership response and binds

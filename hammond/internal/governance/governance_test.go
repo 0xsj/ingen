@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -124,6 +125,89 @@ func TestRecordValidatePassesDecisionTimestampToAuthorityVerifier(t *testing.T) 
 	}
 	if verifier.at != record.Events[2].At {
 		t.Fatalf("authority timestamp = %q, want decision timestamp %q", verifier.at, record.Events[2].At)
+	}
+}
+
+func TestDecisionEventPreservesMembershipProvenance(t *testing.T) {
+	record := approvedRecord(strings.Repeat("a", 64))
+	membership := MembershipReference{
+		ID:      "directory-reviewers",
+		Version: 7,
+		Schema:  MembershipSchema,
+		Artifact: Artifact{
+			URI:    "https://directory.example.test/membership",
+			SHA256: strings.Repeat("b", 64),
+		},
+	}
+	record.Events[2].Membership = &membership
+	if err := record.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := json.Marshal(record.Events[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeEvent(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Membership == nil || !decoded.Membership.Equal(membership) {
+		t.Fatalf("decoded membership = %#v, want %#v", decoded.Membership, membership)
+	}
+
+	record.Events[2].Membership = &MembershipReference{}
+	if err := record.Validate(); err == nil || !strings.Contains(err.Error(), "membership.id is required") {
+		t.Fatalf("invalid membership error = %v, want reference validation error", err)
+	}
+	record = approvedRecord(strings.Repeat("a", 64))
+	record.Events[0].Membership = &membership
+	if err := record.Validate(); err == nil || !strings.Contains(err.Error(), "membership is only valid on decision events") {
+		t.Fatalf("non-decision membership error = %v, want placement error", err)
+	}
+}
+
+func TestMembershipVerifierBindsDecisionProvenance(t *testing.T) {
+	reference := MembershipReference{
+		ID:      "directory-reviewers",
+		Version: 7,
+		Schema:  MembershipSchema,
+		Artifact: Artifact{
+			URI:    "https://directory.example.test/membership",
+			SHA256: strings.Repeat("b", 64),
+		},
+	}
+	snapshot := MembershipSnapshot{
+		Reference: reference,
+		IssuedAt:  "2026-09-15T00:00:00Z",
+		ExpiresAt: "2026-09-15T02:00:00Z",
+		Grants: []AuthorityGrant{{
+			Actor:     "reviewer",
+			Role:      "product-reviewer",
+			ValidFrom: "2026-09-15T00:00:00Z",
+		}},
+	}
+	verifier, err := snapshot.VerifierAtWithProvenance("2026-09-15T00:30:00Z", time.Hour, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := DefaultReviewPolicy()
+	policy.AuthorityVerifier = verifier
+	record := approvedRecord(strings.Repeat("a", 64))
+	record.Events[2].Membership = &reference
+	if err := record.ValidateWithPolicy(policy); err != nil {
+		t.Fatalf("matching membership provenance error = %v", err)
+	}
+
+	record.Events[2].Membership = nil
+	if err := record.ValidateWithPolicy(policy); err == nil || !strings.Contains(err.Error(), "membership provenance is required") {
+		t.Fatalf("missing membership provenance error = %v, want required provenance", err)
+	}
+	otherReference := reference
+	otherReference.Version++
+	record.Events[2].Membership = &otherReference
+	if err := record.ValidateWithPolicy(policy); err == nil || !strings.Contains(err.Error(), "membership provenance does not match") {
+		t.Fatalf("mismatched membership provenance error = %v, want mismatch", err)
 	}
 }
 
@@ -446,6 +530,147 @@ func TestHTTPMembershipProviderAppliesEndpointPolicyBeforeRequest(t *testing.T) 
 		provider = HTTPMembershipProvider{Endpoint: endpoint, MaxResponseBytes: 1024}
 		if err := provider.Validate(); err == nil || !strings.Contains(err.Error(), "must not contain") {
 			t.Fatalf("endpoint %q validation error = %v, want unsafe URL rejection", endpoint, err)
+		}
+	}
+}
+
+func TestMembershipEndpointAllowlistRequiresExactHostAndPort(t *testing.T) {
+	allowlist := MembershipEndpointAllowlist{
+		Hosts: []string{"Directory.Example.Test"},
+		Ports: []int{443},
+	}
+	if err := allowlist.Validate("https://directory.example.test./membership"); err != nil {
+		t.Fatalf("allowlisted endpoint error = %v", err)
+	}
+
+	for _, test := range []struct {
+		name     string
+		endpoint string
+		want     string
+	}{
+		{name: "host", endpoint: "https://other.example.test/membership", want: "host"},
+		{name: "port", endpoint: "https://directory.example.test:8443/membership", want: "port"},
+		{name: "default http port", endpoint: "http://directory.example.test/membership", want: "port"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := allowlist.Validate(test.endpoint); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("endpoint error = %v, want %s rejection", err, test.want)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name      string
+		allowlist MembershipEndpointAllowlist
+		want      string
+	}{
+		{name: "missing hosts", allowlist: MembershipEndpointAllowlist{Ports: []int{443}}, want: "hosts are required"},
+		{name: "missing ports", allowlist: MembershipEndpointAllowlist{Hosts: []string{"example.test"}}, want: "ports are required"},
+		{name: "wildcard host", allowlist: MembershipEndpointAllowlist{Hosts: []string{"*.example.test"}, Ports: []int{443}}, want: "host"},
+		{name: "invalid port", allowlist: MembershipEndpointAllowlist{Hosts: []string{"example.test"}, Ports: []int{0}}, want: "port"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.allowlist.Validate("https://example.test/membership"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("policy error = %v, want %s", err, test.want)
+			}
+		})
+	}
+}
+
+func TestHTTPMembershipProviderAppliesEndpointPolicyToRedirects(t *testing.T) {
+	redirectedRequests := 0
+	targetServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		redirectedRequests++
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer targetServer.Close()
+
+	initialRequests := 0
+	initialServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		initialRequests++
+		http.Redirect(writer, request, targetServer.URL, http.StatusFound)
+	}))
+	defer initialServer.Close()
+
+	parsedInitial, err := url.Parse(initialServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsedInitial.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := HTTPMembershipProvider{
+		Endpoint:         initialServer.URL,
+		Client:           initialServer.Client(),
+		MaxResponseBytes: 1024,
+		EndpointPolicy: MembershipEndpointAllowlist{
+			Hosts: []string{parsedInitial.Hostname()},
+			Ports: []int{port},
+		}.Validate,
+	}
+	if _, _, err := provider.fetchBytes(context.Background()); err == nil || !strings.Contains(err.Error(), "redirect endpoint rejected") {
+		t.Fatalf("redirect error = %v, want policy rejection", err)
+	}
+	if initialRequests != 1 || redirectedRequests != 0 {
+		t.Fatalf("initial requests = %d, redirected requests = %d; want 1 and 0", initialRequests, redirectedRequests)
+	}
+
+	callerRedirectPolicyCalled := false
+	provider.EndpointPolicy = MembershipEndpointAllowlist{
+		Hosts: []string{parsedInitial.Hostname()},
+		Ports: []int{port, mustTestServerPort(t, targetServer.URL)},
+	}.Validate
+	client := *initialServer.Client()
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		callerRedirectPolicyCalled = true
+		return http.ErrUseLastResponse
+	}
+	provider.Client = &client
+	if _, _, err := provider.fetchBytes(context.Background()); err == nil || !strings.Contains(err.Error(), "HTTP status 302") {
+		t.Fatalf("caller redirect policy error = %v, want stopped redirect response", err)
+	}
+	if !callerRedirectPolicyCalled {
+		t.Fatal("caller redirect policy was not preserved")
+	}
+}
+
+func mustTestServerPort(t *testing.T, endpoint string) int {
+	t.Helper()
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(parsed.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+func TestBearerTokenAuthenticatorUsesCallerTokenSource(t *testing.T) {
+	called := false
+	authenticator := BearerTokenAuthenticator{
+		Source: func(ctx context.Context) (string, error) {
+			called = ctx != nil
+			return "provider-token", nil
+		},
+	}
+	request := httptest.NewRequest(http.MethodGet, "https://directory.example.test/membership", nil)
+	if err := authenticator.Authenticate(request); err != nil {
+		t.Fatal(err)
+	}
+	if !called || request.Header.Get("Authorization") != "Bearer provider-token" {
+		t.Fatalf("called = %v, authorization = %q; want caller token", called, request.Header.Get("Authorization"))
+	}
+
+	for _, source := range []MembershipBearerTokenSource{
+		nil,
+		func(context.Context) (string, error) { return "", nil },
+		func(context.Context) (string, error) { return "bad\nvalue", nil },
+	} {
+		if err := (BearerTokenAuthenticator{Source: source}).Authenticate(httptest.NewRequest(http.MethodGet, "https://directory.example.test/membership", nil)); err == nil {
+			t.Fatalf("source %v: authentication succeeded, want failure", source)
 		}
 	}
 }

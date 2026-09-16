@@ -20,12 +20,46 @@ type Document struct {
 	ModulePath   string                 `json:"module_path"`
 	PackageCount int                    `json:"package_count"`
 	EdgeCount    int                    `json:"edge_count"`
+	Provenance   *Provenance            `json:"provenance,omitempty"`
 	Baseline     *model.BaselineSummary `json:"baseline,omitempty"`
 	Waivers      []model.WaiverSummary  `json:"waivers,omitempty"`
 	Filter       *FindingFilter         `json:"filter,omitempty"`
 	Triage       TriageSummary          `json:"triage"`
 	Summary      []FindingSummary       `json:"summary"`
 	Findings     []FindingExplanation   `json:"findings"`
+}
+
+// Provenance identifies the CI artifact and policy inputs from which an
+// explanation was derived. It is populated when explain reads an
+// ingen.ci-result/v1 artifact; direct paddock.report/v1 explanations do not
+// have an enclosing artifact to reference.
+type Provenance struct {
+	ArtifactSchema   string            `json:"artifact_schema"`
+	ArtifactPath     string            `json:"artifact_path"`
+	ArtifactSHA256   string            `json:"artifact_sha256"`
+	ArtifactStatus   string            `json:"artifact_status"`
+	ArtifactExitCode int               `json:"artifact_exit_code"`
+	CreatedAt        string            `json:"created_at"`
+	Policy           FileReference     `json:"policy"`
+	PolicyLock       *FileReference    `json:"policy_lock,omitempty"`
+	Graph            *FileReference    `json:"graph,omitempty"`
+	Baseline         *FileReference    `json:"baseline,omitempty"`
+	Adapter          *AdapterReference `json:"adapter,omitempty"`
+}
+
+type FileReference struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+type AdapterReference struct {
+	Kind               string `json:"kind"`
+	Name               string `json:"name,omitempty"`
+	Version            string `json:"version,omitempty"`
+	Executable         string `json:"executable,omitempty"`
+	ResolvedExecutable string `json:"resolved_executable,omitempty"`
+	ExecutableSHA256   string `json:"executable_sha256,omitempty"`
+	ArgsSHA256         string `json:"args_sha256,omitempty"`
 }
 
 type FindingFilter struct {
@@ -106,6 +140,16 @@ func Explain(result *model.Result) Document {
 func Text(w io.Writer, document Document) error {
 	if _, err := fmt.Fprintf(w, "EXPLAIN %s %s (%d findings)\n", document.Status, document.Root, len(document.Findings)); err != nil {
 		return err
+	}
+	if document.Provenance != nil {
+		if _, err := fmt.Fprintf(w, "PROVENANCE artifact=%s sha256=%s status=%s exit=%d\n", document.Provenance.ArtifactPath, document.Provenance.ArtifactSHA256, document.Provenance.ArtifactStatus, document.Provenance.ArtifactExitCode); err != nil {
+			return err
+		}
+		if document.Provenance.Adapter != nil {
+			if _, err := fmt.Fprintf(w, "ADAPTER kind=%s name=%s executable=%s executable_sha256=%s args_sha256=%s\n", document.Provenance.Adapter.Kind, document.Provenance.Adapter.Name, document.Provenance.Adapter.Executable, document.Provenance.Adapter.ExecutableSHA256, document.Provenance.Adapter.ArgsSHA256); err != nil {
+				return err
+			}
+		}
 	}
 	if document.Filter != nil {
 		if _, err := fmt.Fprintf(w, "FILTER rule=%s status=%s\n", document.Filter.RuleID, document.Filter.Status); err != nil {

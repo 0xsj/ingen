@@ -9,6 +9,43 @@ implementation slices. The contract package and CLI can load, validate,
 canonicalize, and seal a contract locally or in CI without Herdr. Sorna can
 also freeze a deterministic oracle in a sandbox and checksum its evidence.
 
+Malcolm can hand its JSON IR slice to Sorna through the small `sorna-malcolm`
+adapter. The adapter intentionally accepts only meaning it can lower without
+loss: typed top-level request bodies, stateful setup requests with positive
+status/body assertions, top-level response field equality/presence, and
+captures of top-level response fields. The repeatable repository example is:
+
+~~~sh
+make malcolm-sorna-contract
+~~~
+
+This compiles malcolm/examples/healthz.malcolm, translates the resulting
+malcolm.ir/v1 artifact into a draft ingen.contract/v1 document, and asks
+Sorna's own contract validator to accept the result. It does not execute the
+subject yet.
+
+The request-body and stateful lowering proof is:
+
+~~~sh
+make malcolm-sorna-flow-contract
+~~~
+
+It compiles malcolm/examples/document_flow.malcolm and validates the generated
+contract, including executable `given.body`, `given.setup`, `given.state`, and
+capture data.
+
+The full first behavioral proof is available with:
+
+~~~sh
+make malcolm-sorna-run
+~~~
+
+That workflow seals the translated contract, freezes an oracle under the
+separate Malcolm oracle policy, builds the clean document subject, and runs the
+frozen oracle under a separate subject policy, then verifies the resulting
+evidence bundle. Its generated run bundle is written under
+.artifacts/malcolm-healthz-run.
+
 Package areas:
 
 - `internal/contract`: validation, canonicalization, sealing, and lineage;
@@ -72,6 +109,23 @@ sorna evidence replay --format ci-result \
 
 The envelope uses `kind: behavioral-replay`; it maps a matched replay to
 `passed`, outcome drift to `failed`, and an unevaluable replay to `error`.
+
+The document-pipeline replay regressions can be collected into one CI result:
+
+```sh
+make sorna-replay-matrix-ci-result
+```
+
+The resulting `kind: behavioral-replay-matrix` artifact binds each member
+envelope by path and SHA-256, checks its nested replay report, and passes only
+when every expected `passed`, `failed`, or `error` / `matched`, `drifted`, or
+`inconclusive` classification is present.
+
+Verify the saved aggregate and its member inputs independently with:
+
+```sh
+sorna evidence replay matrix verify [--source-root <dir>] <ci-result>
+```
 
 Saved replay reports can be checked independently before they are consumed:
 

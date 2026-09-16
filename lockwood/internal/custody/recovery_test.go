@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"ingen/lockwood/internal/store"
 )
@@ -142,5 +143,92 @@ func TestReconcileReportsOrphansDanglingReferencesAndCorruption(t *testing.T) {
 	}
 	if len(report.CorruptBlobs) != 1 || report.CorruptBlobs[0].Digest != corrupt.Digest {
 		t.Fatalf("corrupt blobs = %+v, want %s", report.CorruptBlobs, corrupt.Digest)
+	}
+}
+
+func TestReconcileClassifiesOldOrphansWithoutDeleting(t *testing.T) {
+	root := t.TempDir()
+	artifacts, err := store.NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldOrphan, err := artifacts.Put(bytes.NewBufferString("old orphan"), store.PutOptions{MediaType: "text/plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recentOrphan, err := artifacts.Put(bytes.NewBufferString("recent orphan"), store.PutOptions{MediaType: "text/plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+	for _, digest := range []string{oldOrphan.Digest} {
+		hexDigest := strings.TrimPrefix(digest, "sha256:")
+		path := filepath.Join(root, "blobs", "sha256", hexDigest[:2], hexDigest[2:4], hexDigest)
+		if err := os.Chtimes(path, oldTime, oldTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := ReconcileWithOptions(artifacts, records, ReconcileOptions{
+		OrphanGrace: 24 * time.Hour,
+		Now:         now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Orphans) != 2 || len(report.CleanupCandidates) != 1 || report.CleanupCandidates[0].Digest != oldOrphan.Digest {
+		t.Fatalf("orphan classification = %+v, want one old cleanup candidate", report)
+	}
+	if err := artifacts.Verify(oldOrphan.Digest); err != nil {
+		t.Fatalf("old orphan was not left verifiable: %v", err)
+	}
+	if err := artifacts.Verify(recentOrphan.Digest); err != nil {
+		t.Fatalf("recent orphan was not left verifiable: %v", err)
+	}
+}
+
+func TestReconcileRejectsNegativeOrphanGrace(t *testing.T) {
+	if _, err := ReconcileWithOptions(nil, nil, ReconcileOptions{OrphanGrace: -time.Second}); err == nil || !strings.Contains(err.Error(), "cannot be negative") {
+		t.Fatalf("negative-grace error = %v", err)
+	}
+}
+
+func TestReconcileProtectsVerifiedDetachedArtifactsByMediaType(t *testing.T) {
+	root := t.TempDir()
+	artifacts, err := store.NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := NewFilesystem(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protected, err := artifacts.Put(bytes.NewBufferString("detached artifact"), store.PutOptions{
+		MediaType: "application/vnd.example.detached+json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinary, err := artifacts.Put(bytes.NewBufferString("ordinary orphan"), store.PutOptions{
+		MediaType: "text/plain",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := ReconcileWithOptions(artifacts, records, ReconcileOptions{
+		DetachedMediaTypes: []string{"application/vnd.example.detached+json"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Orphans) != 1 || report.Orphans[0].Digest != ordinary.Digest {
+		t.Fatalf("protected artifact reconciliation = %+v", report)
+	}
+	if err := artifacts.Verify(protected.Digest); err != nil {
+		t.Fatalf("protected artifact failed verification: %v", err)
 	}
 }

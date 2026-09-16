@@ -78,6 +78,17 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - Sentinel audit, operator-report, and CI-result construction now share one validated receipt snapshot, preventing a mutable receipt path from mixing audit and emitted-envelope versions.
 - Sentinel’s CI explanation, including its compact audit trace, now has a versioned closed schema under `herdr-sentinel/spec`.
 - The host-enabled `nublar-sentinel-run-collect` proof now passes end to end: Sorna freezes the webhook oracle, Sentinel emits the audit-gated CI envelope, and Nublar stores a passed `ingen.nublar-run/v1` result preserving the receipt and audit trace.
+- A fresh-workspace target, `nublar-sentinel-run-collect-fresh`, now exercises that entire Sentinel→Sorna→Nublar proof without repository artifact leftovers.
+- Sentinel’s negative handoff is now covered at both boundaries: a failed terminal receipt emits a failed envelope, and Nublar preserves that failed Sentinel decision without interpreting its opaque report.
+- The Herdr ingress now has a direct failed-terminal regression: failed callbacks close the receipt, identical retries remain no-ops, and later running callbacks cannot reopen it.
+- Herdr single-event and batch CLI updates now detect explicit same-path outputs and route them through the receipt lock, closing the last local unlocked read-modify-publish branch.
+- Sentinel’s blocked lifecycle path is now covered end to end at the envelope boundary: blocked maps to `error/2`, and Nublar preserves that orchestration error rather than passing it.
+- The fresh expected-failure proof now tolerates Sentinel/Sorna producer exit codes long enough to emit and collect the envelope; the controlled webhook defect produced one failed rule, a valid Sentinel `failed/1` envelope, and a Nublar `failed/1` run.
+- Sentinel fresh proofs now pin their recursive artifact root to the temporary workspace, so an outer `ARTIFACT_ROOT` override cannot reintroduce stale inputs.
+- The Sentinel receipt, Herdr event, nested explanation, and shared-envelope invariants are now named in `ALPHA-INTERFACES.md`; native Herdr hook/session binding remains deliberately unfrozen.
+- The focused Sentinel/Nublar/core race slice passes; the broader alpha checkpoint is currently held by the existing macOS timing-sensitive Sorna sandbox telemetry test, documented in the Sentinel alpha checkpoint note.
+- The native Herdr binding intake is now explicit: callback identity, delivery acknowledgement, persistence ownership, artifact handoff, callback provenance, and shutdown semantics must be supplied before implementation; the acceptance gate is documented in the host-binding note.
+- The provider-neutral Herdr adapter regression now rejects a callback bound to the wrong workspace as well as the wrong run, with no receipt mutation; the focused adapter/CLI/Nublar/core race checks pass.
 
 ## Useful entry points
 
@@ -92,6 +103,8 @@ make webhook-mutation-alpha
 make webhook-go-mutation-alpha
 make nublar-webhook-aggregate-fresh
 make nublar-sentinel-run-collect
+make nublar-sentinel-run-collect-fresh
+make nublar-sentinel-run-collect-failure-fresh
 make sentinel-workspace-validate
 make sentinel-run-bootstrap
 make sentinel-capability-plan
@@ -164,13 +177,20 @@ The Nublar first slice now has workflow validation, strict CI-envelope and run
 loading, byte-bound collection provenance, immutable filesystem storage,
 deterministic run queries with status/workflow/correlation filters, provider-neutral
 decision projection, optional provider-neutral external correlation metadata,
-generic webhook delivery with independent receipts, and an end-to-end consumer
-contract test covering the local collect-to-delivery path.
-The next Nublar decision should come from a concrete consumer: either add the
-metadata or delivery behavior it requires, or freeze this local contract
-before a hosted implementation. Producer execution, hosted storage,
-scheduling, and provider-specific delivery remain outside the current Nublar
-boundary.
+generic webhook delivery with independent receipts, optional local receipt
+storage with filtered receipt history, and an end-to-end consumer contract test
+covering the local collect-to-delivery path. The local contract checkpoint is now documented in
+[nublar/CONTRACT-CHECKPOINT.md](nublar/CONTRACT-CHECKPOINT.md).
+The provider-neutral shell consumer example now exercises collection,
+decision export, and Nublar exit-code propagation without launching producers
+or contacting a webhook. It is covered by the fixture-backed
+`make nublar-consumer-check` target, which verifies both the failed/1 and
+passed/0 decision paths plus missing-artifact and malformed-envelope
+collection-error/2 persistence and projection.
+The local Nublar slice is ready to freeze. The next Nublar work should be driven
+by a concrete consumer using this surface before any hosted implementation.
+Producer execution, hosted storage, scheduling, and provider-specific delivery
+remain outside the current Nublar boundary.
 
 For Sentinel, the next boundary remains concrete Herdr host integration: the
 provider-neutral event ingress and operator report are ready to exercise now,

@@ -112,6 +112,12 @@ func runCommand(args []string) int {
 		return decisionCommand(args[1:])
 	case "deliver":
 		return deliverCommand(args[1:])
+	case "receipt":
+		if len(args) < 2 || args[1] != "list" {
+			usage()
+			return 2
+		}
+		return receiptListCommand(args[2:])
 	default:
 		usage()
 		return 2
@@ -354,6 +360,7 @@ func deliverCommandWithFactory(args []string, newPublisher webhookPublisherFacto
 	timeout := flags.Duration("timeout", 30*time.Second, "maximum time for one webhook delivery")
 	secretEnv := flags.String("secret-env", "", "environment variable containing optional webhook HMAC secret")
 	receiptPath := flags.String("receipt", "", "path for the delivery receipt; no receipt file when empty")
+	receiptStoreRoot := flags.String("receipt-store", "", "optional filesystem receipt store; stores every publisher outcome")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -385,6 +392,14 @@ func deliverCommandWithFactory(args []string, newPublisher webhookPublisherFacto
 		}
 		secret = []byte(value)
 	}
+	var receiptStore *nublarstore.ReceiptStore
+	if *receiptStoreRoot != "" {
+		receiptStore, err = nublarstore.NewReceiptStore(*receiptStoreRoot)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+	}
 	publisher, err := newPublisher(*endpoint, secret)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -399,11 +414,77 @@ func deliverCommandWithFactory(args []string, newPublisher webhookPublisherFacto
 			return 2
 		}
 	}
+	if receiptStore != nil {
+		if err := receiptStore.Save(receipt); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+	}
 	if publishErr != nil {
 		fmt.Fprintln(os.Stderr, publishErr)
 		return 2
 	}
 	return 0
+}
+
+func receiptListCommand(args []string) int {
+	flags := flag.NewFlagSet("run receipt list", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	receiptStoreRoot := flags.String("receipt-store", "", "filesystem receipt store root")
+	runID := flags.String("run-id", "", "optional Nublar run ID filter")
+	status := flags.String("status", "", "optional receipt status filter: accepted or failed")
+	transport := flags.String("transport", "", "optional delivery transport filter")
+	output := flags.String("output", "", "path for the JSON receipt list; stdout when empty")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *receiptStoreRoot == "" || len(flags.Args()) > 0 {
+		fmt.Fprintln(os.Stderr, "run receipt list requires --receipt-store and does not accept positional arguments")
+		return 2
+	}
+	store, err := nublarstore.NewReceiptStore(*receiptStoreRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	receipts, err := store.List()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	receipts, err = filterReceipts(receipts, *runID, *status, *transport)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if err := writeReceiptList(*output, receipts); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	return 0
+}
+
+func filterReceipts(receipts []nublardelivery.Receipt, runID, status, transport string) ([]nublardelivery.Receipt, error) {
+	runID = strings.TrimSpace(runID)
+	status = strings.TrimSpace(status)
+	transport = strings.TrimSpace(transport)
+	if status != "" && status != "accepted" && status != "failed" {
+		return nil, fmt.Errorf("Nublar receipt list status filter has unsupported status %q", status)
+	}
+	filtered := make([]nublardelivery.Receipt, 0, len(receipts))
+	for _, receipt := range receipts {
+		if runID != "" && receipt.RunID != runID {
+			continue
+		}
+		if status != "" && receipt.Status != status {
+			continue
+		}
+		if transport != "" && receipt.Transport != transport {
+			continue
+		}
+		filtered = append(filtered, receipt)
+	}
+	return filtered, nil
 }
 
 func saveDecision(path string, decision nublardelivery.Decision) error {
@@ -444,6 +525,22 @@ func writeRunList(output string, records []nublarrun.Run) error {
 	return nil
 }
 
+func writeReceiptList(output string, receipts []nublardelivery.Receipt) error {
+	data, err := json.MarshalIndent(receipts, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode Nublar receipt list: %w", err)
+	}
+	data = append(data, '\n')
+	if output == "" {
+		_, err = os.Stdout.Write(data)
+		return err
+	}
+	if err := nublaroutput.WriteFile(output, data); err != nil {
+		return fmt.Errorf("write Nublar receipt list %s: %w", output, err)
+	}
+	return nil
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  nublar workflow validate <path>")
@@ -451,6 +548,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  nublar run show --store <dir> --run-id <id> [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>] [--external-system <name>] [--external-id <id>] [--attempt <n>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run decision --store <dir> --run-id <id> [--output <path>]")
-	fmt.Fprintln(os.Stderr, "  nublar run deliver --store <dir> --run-id <id> --webhook <url> [--timeout <duration>] [--secret-env <name>] [--receipt <path>]")
+	fmt.Fprintln(os.Stderr, "  nublar run deliver --store <dir> --run-id <id> --webhook <url> [--timeout <duration>] [--secret-env <name>] [--receipt <path>] [--receipt-store <dir>]")
+	fmt.Fprintln(os.Stderr, "  nublar run receipt list --receipt-store <dir> [--run-id <id>] [--status <accepted|failed>] [--transport <name>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar aggregate [--workflow <path> --root <dir>] [--output <path>] <ci-result> [<ci-result> ...]")
 }

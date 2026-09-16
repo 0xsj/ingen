@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"ingen/core/ciresult"
 )
@@ -22,10 +23,11 @@ const Schema = "ingen.sattler-comparison/v0"
 // Before and After are intentionally small JSON values so the report remains
 // useful without exposing producer-owned report semantics.
 type Change struct {
-	Category string `json:"category"`
-	Field    string `json:"field"`
-	Before   any    `json:"before"`
-	After    any    `json:"after"`
+	Category string                   `json:"category"`
+	Field    string                   `json:"field"`
+	Before   any                      `json:"before"`
+	After    any                      `json:"after"`
+	Identity ArtifactIdentityRelation `json:"identity,omitempty"`
 }
 
 // ArtifactSummary contains the envelope fields Sattler can interpret without
@@ -36,6 +38,7 @@ type ArtifactSummary struct {
 	Kind       string                      `json:"kind"`
 	Status     string                      `json:"status"`
 	ExitCode   int                         `json:"exit_code"`
+	CreatedAt  string                      `json:"created_at"`
 	Source     ciresult.Source             `json:"source"`
 	Policy     *ciresult.FileRef           `json:"policy,omitempty"`
 	PolicyLock *ciresult.FileRef           `json:"policy_lock,omitempty"`
@@ -44,27 +47,35 @@ type ArtifactSummary struct {
 	Inputs     map[string]ciresult.FileRef `json:"inputs,omitempty"`
 }
 
-// Comparison is a deterministic, producer-neutral comparison of two valid
-// CI result envelopes. Compatible means both artifacts describe the same
-// producer kind and source identity; it does not mean their inputs are equal.
+// Comparison is a deterministic, producer-neutral comparison of two valid CI
+// result envelopes. Compatible means both artifacts describe the same
+// producer and result kind; source and input changes remain comparable context.
 type Comparison struct {
-	Schema           string                      `json:"schema"`
-	Compatible       bool                        `json:"compatible"`
-	Before           ArtifactSummary             `json:"before"`
-	After            ArtifactSummary             `json:"after"`
-	Changes          []Change                    `json:"changes,omitempty"`
-	Warnings         []string                    `json:"warnings,omitempty"`
-	MutationCampaign *MutationCampaignComparison `json:"mutation_campaign,omitempty"`
+	Schema               string                      `json:"schema"`
+	Compatible           bool                        `json:"compatible"`
+	CompatibilityReasons []string                    `json:"compatibility_reasons,omitempty"`
+	Before               ArtifactSummary             `json:"before"`
+	After                ArtifactSummary             `json:"after"`
+	Changes              []Change                    `json:"changes,omitempty"`
+	ChangeSummary        ChangeSummary               `json:"change_summary"`
+	Warnings             []string                    `json:"warnings,omitempty"`
+	MutationCampaign     *MutationCampaignComparison `json:"mutation_campaign,omitempty"`
 }
 
 // Compare compares two already validated CI result envelopes.
 func Compare(before, after ciresult.Artifact) Comparison {
 	report := Comparison{
-		Schema:     Schema,
-		Compatible: before.Tool == after.Tool && before.Kind == after.Kind && before.Source == after.Source,
-		Before:     summarize(before),
-		After:      summarize(after),
+		Schema: Schema,
+		Before: summarize(before),
+		After:  summarize(after),
 	}
+	if before.Tool != after.Tool {
+		report.CompatibilityReasons = append(report.CompatibilityReasons, fmt.Sprintf("tool changed from %q to %q", before.Tool, after.Tool))
+	}
+	if before.Kind != after.Kind {
+		report.CompatibilityReasons = append(report.CompatibilityReasons, fmt.Sprintf("kind changed from %q to %q", before.Kind, after.Kind))
+	}
+	report.Compatible = len(report.CompatibilityReasons) == 0
 
 	add := func(category, field string, oldValue, newValue any) {
 		if valuesEqual(oldValue, newValue) {
@@ -84,24 +95,38 @@ func Compare(before, after ciresult.Artifact) Comparison {
 	add("context", "source.module_path", before.Source.ModulePath, after.Source.ModulePath)
 	add("verdict", "status", before.Status, after.Status)
 	add("verdict", "exit_code", before.ExitCode, after.ExitCode)
-	add("input", "policy", fileRefValue(before.Policy), fileRefValue(after.Policy))
-	add("input", "policy_lock", fileRefValue(before.PolicyLock), fileRefValue(after.PolicyLock))
-	add("input", "graph", fileRefValue(before.Graph), fileRefValue(after.Graph))
-	add("input", "baseline", fileRefValue(before.Baseline), fileRefValue(after.Baseline))
+	addFileRef := func(category, field string, oldRef, newRef *ciresult.FileRef) {
+		if valuesEqual(oldRef, newRef) {
+			return
+		}
+		report.Changes = append(report.Changes, Change{
+			Category: category,
+			Field:    field,
+			Before:   fileRefValue(oldRef),
+			After:    fileRefValue(newRef),
+			Identity: CompareArtifactIdentity(oldRef, newRef),
+		})
+	}
+	addFileRef("input", "policy", before.Policy, after.Policy)
+	addFileRef("input", "policy_lock", before.PolicyLock, after.PolicyLock)
+	addFileRef("input", "graph", before.Graph, after.Graph)
+	addFileRef("input", "baseline", before.Baseline, after.Baseline)
 
 	inputNames := unionInputNames(before.Inputs, after.Inputs)
 	for _, name := range inputNames {
 		oldRef, oldOK := before.Inputs[name]
 		newRef, newOK := after.Inputs[name]
-		var oldValue any
-		var newValue any
+		var oldRefPointer *ciresult.FileRef
+		var newRefPointer *ciresult.FileRef
 		if oldOK {
-			oldValue = oldRef
+			oldRefCopy := oldRef
+			oldRefPointer = &oldRefCopy
 		}
 		if newOK {
-			newValue = newRef
+			newRefCopy := newRef
+			newRefPointer = &newRefCopy
 		}
-		add("input", "inputs."+name, oldValue, newValue)
+		addFileRef(inputChangeCategory(name), "inputs."+name, oldRefPointer, newRefPointer)
 	}
 
 	add("producer-report", "report", jsonFingerprint(before.Report), jsonFingerprint(after.Report))
@@ -111,6 +136,7 @@ func Compare(before, after ciresult.Artifact) Comparison {
 	} else {
 		report.Warnings = append(report.Warnings, "mutation campaign detail unavailable: "+err.Error())
 	}
+	report.ChangeSummary = SummarizeChanges(report.Changes)
 	return report
 }
 
@@ -143,6 +169,22 @@ func WriteText(w io.Writer, report Comparison) error {
 	if _, err := fmt.Fprintf(w, "Sattler comparison\n  before: %s (%s/%s, %s)\n  after:  %s (%s/%s, %s)\n  compatible: %t\n", report.Before.Path, report.Before.Tool, report.Before.Kind, report.Before.Status, report.After.Path, report.After.Tool, report.After.Kind, report.After.Status, report.Compatible); err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintf(w, "  created: %s -> %s\n", report.Before.CreatedAt, report.After.CreatedAt); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "  change summary: %s\n", report.ChangeSummary); err != nil {
+		return err
+	}
+	if len(report.CompatibilityReasons) > 0 {
+		if _, err := fmt.Fprintln(w, "  compatibility reasons:"); err != nil {
+			return err
+		}
+		for _, reason := range report.CompatibilityReasons {
+			if _, err := fmt.Fprintf(w, "    - %s\n", reason); err != nil {
+				return err
+			}
+		}
+	}
 	if len(report.Warnings) > 0 {
 		if _, err := fmt.Fprintln(w, "  warnings:"); err != nil {
 			return err
@@ -161,11 +203,18 @@ func WriteText(w io.Writer, report Comparison) error {
 		return err
 	}
 	for _, change := range report.Changes {
-		if _, err := fmt.Fprintf(w, "    - %s %s: %s -> %s\n", change.Category, change.Field, displayValue(change.Before), displayValue(change.After)); err != nil {
+		identity := ""
+		if change.Identity != "" {
+			identity = " [" + string(change.Identity) + "]"
+		}
+		if _, err := fmt.Fprintf(w, "    - %s %s%s: %s -> %s\n", change.Category, change.Field, identity, displayValue(change.Before), displayValue(change.After)); err != nil {
 			return err
 		}
 	}
 	if report.MutationCampaign != nil {
+		if _, err := fmt.Fprintf(w, "  campaign time: before %s -> %s; after %s -> %s\n", report.MutationCampaign.Before.StartedAt, report.MutationCampaign.Before.FinishedAt, report.MutationCampaign.After.StartedAt, report.MutationCampaign.After.FinishedAt); err != nil {
+			return err
+		}
 		if _, err := fmt.Fprintf(w, "  mutation campaign: %d/%d killed -> %d/%d killed\n", report.MutationCampaign.Before.Killed, report.MutationCampaign.Before.Total, report.MutationCampaign.After.Killed, report.MutationCampaign.After.Total); err != nil {
 			return err
 		}
@@ -184,6 +233,7 @@ func summarize(artifact ciresult.Artifact) ArtifactSummary {
 		Kind:       artifact.Kind,
 		Status:     artifact.Status,
 		ExitCode:   artifact.ExitCode,
+		CreatedAt:  artifact.CreatedAt,
 		Source:     artifact.Source,
 		Policy:     artifact.Policy,
 		PolicyLock: artifact.PolicyLock,
@@ -225,6 +275,21 @@ func unionInputNames(before, after map[string]ciresult.FileRef) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func inputChangeCategory(name string) string {
+	switch strings.ToLower(name) {
+	case "contract", "contract_lock", "contract_schema":
+		return "contract"
+	case "plan", "mutation_plan", "mutation_catalogue":
+		return "plan"
+	case "provider", "provider_manifest", "preparation":
+		return "provider"
+	case "environment", "runtime", "subject_policy":
+		return "environment"
+	default:
+		return "input"
+	}
 }
 
 func valuesEqual(before, after any) bool {

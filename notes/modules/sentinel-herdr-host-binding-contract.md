@@ -1,0 +1,86 @@
+# Sentinel's native Herdr binding needs a host contract first
+
+## Claim
+
+The provider-neutral `ingen.herdr-event/v1` ingress is ready, but a native
+Herdr plugin cannot be implemented responsibly from Sentinel alone. The host
+must first expose callback, identity, durability, and failure semantics. This
+note is the intake contract for that future binding; it is not a proposed
+Herdr SDK.
+
+## Required host inputs
+
+| Host primitive | Minimum information Sentinel needs | Why it matters |
+| --- | --- | --- |
+| Lifecycle hook | Which host actions produce a callback, when it fires, and whether callbacks may be duplicated or reordered | Determines event normalization and retry behavior. |
+| Run/workspace identity | Stable host run ID, workspace ID, workspace version, and role/session identity across callback retries and host restarts | Binds a callback to exactly one Sentinel receipt. |
+| Delivery acknowledgement | Whether the host receives success, rejection, or retryable failure, plus its retry/backoff policy | Prevents an adapter error from becoming an invisible dropped event. |
+| Persistence boundary | Which side durably owns event identity, receipt updates, and recovery after restart | Defines whether Sentinel's local lock/file path is sufficient or a host store is required. |
+| Artifact handoff | Stable artifact reference, path namespace, byte-availability timing, and immutability/hash semantics | Lets Sentinel verify bytes instead of trusting a callback's claimed hash. |
+| Callback origin | Host-provided authentication or provenance that the plugin can validate | Separates host authenticity from Sentinel's structural validation. |
+| Cancellation and shutdown | In-flight callback cancellation, plugin unload, and host shutdown behavior | Keeps partial lifecycle updates and retry decisions explicit. |
+
+The host may provide more than this, but it must not require Sentinel to infer
+identity from pane text, process exit alone, filenames, or an untrusted report.
+
+## Normalization boundary
+
+The native binding should be a thin translation layer:
+
+```text
+Herdr hook payload
+    → host binding validates host-owned identity/authentication
+    → binding maps to ingen.herdr-event/v1
+    → Sentinel adapter validates receipt/workspace/artifact lineage
+    → Sentinel receipt update under its durability boundary
+```
+
+The binding must preserve the host event ID, run/workspace/session identity,
+event time, role, outcome, reason, and artifact IDs. It must not add a new
+behavioral verdict or reinterpret Sorna's report. Sentinel remains responsible
+for normalized event validation, monotonic timestamps, artifact byte checks,
+idempotent event identity, terminal lifecycle protection, and the shared CI
+projection.
+
+## Acceptance gate
+
+The first native binding is ready for review only when it demonstrates all of
+the following against the real Herdr hook or callback implementation:
+
+1. A valid callback becomes one valid `ingen.herdr-event/v1` event with the
+   active run/workspace/session identity preserved.
+2. An identical delivery retry is a no-op; reusing an event ID with different
+   content is rejected and surfaced to the host.
+3. A callback for another run or workspace is rejected before receipt mutation.
+4. An event that references an unknown, missing, or drifted artifact is
+   rejected before receipt mutation.
+5. An older callback timestamp and a terminal-to-running update are rejected;
+   a terminal cleanup event follows the explicit cleanup rule.
+6. A multi-event delivery cannot publish a partial receipt when a later event
+   is malformed or conflicts.
+7. Host restart/retry behavior is exercised, with the durable owner and
+   recovery result documented.
+8. Callback authentication/provenance is tested separately from the Sentinel
+   structural audit; a passing audit must not be presented as proof of host
+   authenticity.
+
+The existing provider-neutral proofs cover items 1–6 at the Sentinel boundary,
+including rejection of callbacks with the wrong run or workspace context before
+receipt mutation. Items 7–8 remain intentionally unclaimed until Herdr supplies
+the corresponding host semantics.
+
+## Explicit non-goals
+
+- Defining Herdr's hook names, callback transport, or session model here.
+- Adding a fake native SDK or pretending that `.gitkeep` is a plugin runtime.
+- Moving workspace ownership into Nublar or verification semantics into
+  Sentinel.
+- Treating UI visibility, pane output, or self-reported agent activity as
+  independent evidence.
+
+## Related
+
+- [`PLUGIN-SPEC.md`](../../herdr-sentinel/PLUGIN-SPEC.md)
+- [Herdr events should enter Sentinel, not Nublar](sentinel-herdr-event-adapter-boundary.md)
+- [Sentinel's alpha boundary should freeze before native Herdr binding](sentinel-alpha-interface-checkpoint.md)
+- [`ALPHA-INTERFACES.md`](../../ALPHA-INTERFACES.md)

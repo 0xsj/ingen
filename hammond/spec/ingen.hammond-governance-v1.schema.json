@@ -69,6 +69,17 @@
         "sha256": {"$ref": "#/$defs/sha256"}
       }
     },
+    "membership-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "schema", "artifact"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "schema": {"const": "ingen.hammond-membership/v1"},
+        "artifact": {"$ref": "#/$defs/artifact"}
+      }
+    },
     "event": {
       "type": "object",
       "additionalProperties": false,
@@ -91,6 +102,10 @@
         "review_cycle_id": {"type": "string", "minLength": 1},
         "decision": {"enum": ["approve", "reject"]},
         "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "membership": {
+          "description": "Optional membership snapshot reference used by the caller's decision verifier.",
+          "$ref": "#/$defs/membership-reference"
+        },
         "reason": {"type": "string", "minLength": 1},
         "predecessor": {"$ref": "#/$defs/contract-identity"},
         "successor": {"$ref": "#/$defs/contract-identity"},

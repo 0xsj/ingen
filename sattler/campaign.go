@@ -17,6 +17,8 @@ const MutationCampaignSchema = "ingen.mutation-campaign-result/v1"
 type MutationCampaignSummary struct {
 	Schema             string `json:"schema"`
 	Status             string `json:"status"`
+	StartedAt          string `json:"started_at"`
+	FinishedAt         string `json:"finished_at"`
 	PlanSHA256         string `json:"plan_sha256"`
 	SemanticPlanSHA256 string `json:"semantic_plan_sha256,omitempty"`
 	Total              int    `json:"total"`
@@ -49,9 +51,11 @@ type MutationCampaignComparison struct {
 }
 
 type mutationCampaignReport struct {
-	Schema string `json:"schema"`
-	Status string `json:"status"`
-	Plan   struct {
+	Schema     string `json:"schema"`
+	Status     string `json:"status"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
+	Plan       struct {
 		SHA256         string `json:"sha256"`
 		SemanticSHA256 string `json:"semantic_sha256"`
 	} `json:"plan"`
@@ -154,6 +158,8 @@ func extractMutationCampaign(artifact ciresult.Artifact) (mutationCampaignData, 
 		Summary: MutationCampaignSummary{
 			Schema:             report.Schema,
 			Status:             report.Status,
+			StartedAt:          report.StartedAt,
+			FinishedAt:         report.FinishedAt,
 			PlanSHA256:         report.Plan.SHA256,
 			SemanticPlanSHA256: report.Plan.SemanticSHA256,
 			Total:              report.Summary.Total,

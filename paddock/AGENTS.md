@@ -49,6 +49,8 @@ original `0`/`1` result.
   evaluation status.
 - An explanation is diagnostic context. It must never be used to convert a
   failing result into a pass.
+- When `explain` reads a CI artifact, use its `provenance` block to correlate a
+  filtered explanation with the artifact hash and policy/lock/graph references.
 
 When multiple rules report the same dependency edge, keep the findings
 separate but use `related_rules` to explain that they are duplicate signals,
@@ -77,9 +79,16 @@ until it has been reviewed.
 
 For a language without a built-in adapter, consume or generate a
 language-neutral graph through the adapter protocol. Preserve the graph and
-adapter metadata with the CI artifact so findings can be reproduced. Read
+adapter metadata with the CI artifact so findings can be reproduced. The graph
+records the external executable and non-secret invocation digests, while raw
+arguments are deliberately omitted. Read
 [`ADAPTER-PROTOCOL.md`](ADAPTER-PROTOCOL.md) before diagnosing an adapter
 failure; do not treat a missing or failed adapter as a clean graph.
+
+When checking Go source in a restricted or ephemeral runner, configure
+`GOCACHE` to a writable job-local directory before invoking Paddock. A Go
+toolchain cache access failure is an evaluation error (exit `2`), not a clean
+architecture result.
 
 ## Useful references
 

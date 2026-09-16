@@ -237,6 +237,7 @@ func TestEnvelopeRejectsMalformedValues(t *testing.T) {
 		{name: "schema", edit: func(envelope *Envelope) { envelope.Schema = "unknown" }},
 		{name: "key id", edit: func(envelope *Envelope) { envelope.KeyID = "bad key" }},
 		{name: "signature", edit: func(envelope *Envelope) { envelope.Signature = "not-base64" }},
+		{name: "noncanonical signature", edit: func(envelope *Envelope) { envelope.Signature += "\n" }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::ast::Specification;
+use crate::ast::{RequestClause, Specification};
 
 /// Validate the meaning and completeness of a parsed specification.
 ///
@@ -61,6 +61,102 @@ pub fn validate(specification: &Specification) -> Result<(), Vec<ValidationError
             ));
         }
 
+        if matches!(&scenario.state, Some(state) if state.trim().is_empty()) {
+            errors.push(ValidationError::new(
+                format!("{path}.state"),
+                "state cannot be empty when provided",
+            ));
+        }
+
+        if let Some(request) = &scenario.request {
+            validate_request(request, &format!("{path}.request"), &mut errors);
+        }
+
+        if scenario.state.is_some() && scenario.setups.is_empty() {
+            errors.push(ValidationError::new(
+                format!("{path}.setups"),
+                "a state clause requires at least one setup",
+            ));
+        }
+
+        let mut setup_names = HashSet::new();
+        for (setup_index, setup) in scenario.setups.iter().enumerate() {
+            let setup_path = format!("{path}.setups[{setup_index}]");
+            if setup.name.trim().is_empty() {
+                errors.push(ValidationError::new(
+                    format!("{setup_path}.name"),
+                    "setup name cannot be empty",
+                ));
+            } else if !setup_names.insert(&setup.name) {
+                errors.push(ValidationError::new(
+                    format!("{setup_path}.name"),
+                    format!("setup name {} is duplicated", setup.name),
+                ));
+            }
+
+            if let Some(request) = &setup.request {
+                validate_request(request, &format!("{setup_path}.request"), &mut errors);
+            }
+
+            match &setup.when {
+                None => errors.push(ValidationError::new(
+                    format!("{setup_path}.when"),
+                    "setup must contain a when clause",
+                )),
+                Some(action) => {
+                    if action.method.trim().is_empty() {
+                        errors.push(ValidationError::new(
+                            format!("{setup_path}.when.method"),
+                            "when method cannot be empty",
+                        ));
+                    }
+                    if action.path.trim().is_empty() {
+                        errors.push(ValidationError::new(
+                            format!("{setup_path}.when.path"),
+                            "when path cannot be empty",
+                        ));
+                    }
+                }
+            }
+
+            if setup.requirements.is_empty() {
+                errors.push(ValidationError::new(
+                    format!("{setup_path}.requirements"),
+                    "setup must contain at least one requirement",
+                ));
+            }
+            for (requirement_index, requirement) in setup.requirements.iter().enumerate() {
+                if requirement.expression.trim().is_empty() {
+                    errors.push(ValidationError::new(
+                        format!("{setup_path}.requirements[{requirement_index}].expression"),
+                        "requirement expression cannot be empty",
+                    ));
+                }
+            }
+
+            let mut capture_names = HashSet::new();
+            for (capture_index, capture) in setup.captures.iter().enumerate() {
+                let capture_path = format!("{setup_path}.captures[{capture_index}]");
+                if capture.name.trim().is_empty() {
+                    errors.push(ValidationError::new(
+                        format!("{capture_path}.name"),
+                        "capture name cannot be empty",
+                    ));
+                } else if !capture_names.insert(&capture.name) {
+                    errors.push(ValidationError::new(
+                        format!("{capture_path}.name"),
+                        format!("capture name {} is duplicated", capture.name),
+                    ));
+                }
+                if capture.selector.trim().is_empty() {
+                    errors.push(ValidationError::new(
+                        format!("{capture_path}.selector"),
+                        "capture selector cannot be empty",
+                    ));
+                }
+            }
+        }
+
         match &scenario.when {
             None => errors.push(ValidationError::new(
                 format!("{path}.when"),
@@ -103,6 +199,31 @@ pub fn validate(specification: &Specification) -> Result<(), Vec<ValidationError
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+fn validate_request(request: &RequestClause, path: &str, errors: &mut Vec<ValidationError>) {
+    if request.body.is_empty() {
+        errors.push(ValidationError::new(
+            format!("{path}.body"),
+            "request body must contain at least one field",
+        ));
+    }
+
+    let mut field_names = HashSet::new();
+    for (field_index, field) in request.body.iter().enumerate() {
+        let field_path = format!("{path}.body[{field_index}]");
+        if field.name.trim().is_empty() {
+            errors.push(ValidationError::new(
+                format!("{field_path}.name"),
+                "request body field name cannot be empty",
+            ));
+        } else if !field_names.insert(&field.name) {
+            errors.push(ValidationError::new(
+                format!("{field_path}.name"),
+                format!("request body field {} is duplicated", field.name),
+            ));
+        }
     }
 }
 
@@ -162,7 +283,10 @@ mod tests {
             scenarios: vec![Scenario {
                 name: "one".into(),
                 given: vec![" ".into()],
+                state: None,
+                request: None,
                 when: None,
+                setups: Vec::new(),
                 requirements: Vec::new(),
             }],
         };
@@ -180,10 +304,13 @@ mod tests {
         let scenario = Scenario {
             name: "same".into(),
             given: Vec::new(),
+            state: None,
+            request: None,
             when: Some(WhenClause {
                 method: "GET".into(),
                 path: "/items".into(),
             }),
+            setups: Vec::new(),
             requirements: vec![Requirement {
                 kind: RequirementKind::Must,
                 expression: " ".into(),

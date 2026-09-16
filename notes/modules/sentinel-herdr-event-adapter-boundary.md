@@ -63,6 +63,11 @@ The adapter requires a stable `event_id`, binds the event to the receipt's
 run/workspace identity, and treats identical replays as idempotent no-ops.
 Reusing an event ID with different content is rejected.
 
+The failed-terminal path is covered as well: a `sorna-completed` callback with
+`receipt_status: failed` closes the receipt, an identical retry is a no-op, and
+a later callback attempting to reopen it as `running` is rejected. This keeps
+Herdr retry behavior separate from lifecycle reopening.
+
 ## Output rules
 
 The adapter updates only the Sentinel-owned `ingen.sentinel-run/v1` receipt.

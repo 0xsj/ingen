@@ -109,6 +109,12 @@ Every decision is bound to the full contract identity and must include:
 - a UTC timestamp; and
 - an optional rationale or review reference.
 
+An approval or rejection may also carry a `membership` reference identifying
+the normalized authority snapshot used by the caller. Hammond validates that
+reference's shape but does not load it. When the caller uses Hammond's
+provenance-carrying membership verifier, Hammond also requires the event
+reference to match; opaque custom verifiers cannot be introspected.
+
 A decision for a different version, contract ID, project, or artifact digest
 cannot satisfy the review for the governed record.
 
@@ -141,7 +147,14 @@ fetches bounded response bytes and invokes caller-owned authentication,
 endpoint-resolution, and endpoint-policy hooks; provider credentials, TLS and
 discovery policy, normalization, completeness, and response semantics remain
 outside Hammond. Its `FetchNormalized` path verifies the digest-bound envelope
-returned by that normalizer.
+returned by that normalizer. Hammond provides an exact host/port
+`MembershipEndpointAllowlist` helper for callers that want a reusable endpoint
+policy; it does not resolve DNS, validate certificates, or enforce network
+segmentation. Configured HTTPS and endpoint policies are reapplied to redirect
+targets before the HTTP client follows them.
+
+The transport package may provide a bearer-token request adapter, but token
+acquisition, storage, refresh, rotation, and scope remain caller-owned.
 
 An authority artifact may also carry an Ed25519 signature with a `key_id`.
 The signature covers the canonical JSON payload formed from `schema`, `id`,
@@ -254,6 +267,10 @@ The v1 validator must reject:
 - an approval or rejection that is not bound to the active review cycle;
 - an approval or rejection whose actor/role pair is not granted by the loaded
   authority snapshot;
+- an invalid membership reference, or a membership reference on a non-decision
+  event;
+- a provenance-carrying membership verifier when the decision reference is
+  missing or does not match;
 - a review that fails an overall or per-role distinct-actor approval threshold;
 - an authority verifier error or a decision evaluated without its validated
   UTC timestamp;

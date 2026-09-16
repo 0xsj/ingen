@@ -12,6 +12,8 @@ The CI-facing output and exit-code contract are defined in
 [`OUTPUT-BOUNDARY.md`](OUTPUT-BOUNDARY.md).
 The provider-neutral delivery and optional receipt contracts are defined in
 [`DELIVERY-BOUNDARY.md`](DELIVERY-BOUNDARY.md).
+The optional local receipt persistence boundary is defined in
+[`RECEIPT-STORAGE.md`](RECEIPT-STORAGE.md).
 
 ## Near-term tree
 
@@ -19,6 +21,10 @@ The provider-neutral delivery and optional receipt contracts are defined in
 nublar/
 ├── README.md
 ├── ARCHITECTURE.md
+├── examples/
+│   └── consumer/
+│       ├── README.md
+│       └── nublar-ci-gate.sh
 ├── cmd/
 │   └── nublar/
 │       ├── main.go
@@ -41,7 +47,8 @@ nublar/
 │   ├── storage/
 │   │   ├── store.go
 │   │   └── filesystem/
-│   │       └── filesystem.go
+│   │       ├── filesystem.go
+│   │       └── receipts.go
 │   ├── delivery/
 │   │   ├── projection.go
 │   │   ├── publisher.go

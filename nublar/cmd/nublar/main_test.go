@@ -397,7 +397,8 @@ func TestRunListFiltersByExternalCorrelation(t *testing.T) {
 	secondAttempt.Correlation = &nublarrun.Correlation{System: "github-actions", ID: "build-42", Attempt: 2}
 	otherSystem := cliTestRun("cli-external-build-03")
 	otherSystem.Correlation = &nublarrun.Correlation{System: "circleci", ID: "build-42", Attempt: 2}
-	for _, record := range []nublarrun.Run{firstAttempt, secondAttempt, otherSystem} {
+	uncorrelated := cliTestRun("cli-external-build-04")
+	for _, record := range []nublarrun.Run{firstAttempt, secondAttempt, otherSystem, uncorrelated} {
 		if err := store.Save(record); err != nil {
 			t.Fatal(err)
 		}
@@ -425,6 +426,56 @@ func TestRunListFiltersByExternalCorrelation(t *testing.T) {
 	}
 	if len(records) != 1 || records[0].RunID != secondAttempt.RunID {
 		t.Fatalf("filtered records = %+v, want only second GitHub attempt", records)
+	}
+}
+
+func TestRunListReturnsEmptyForNoMatchingExternalCorrelation(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := cliTestRun("cli-external-no-match-01")
+	record.Correlation = &nublarrun.Correlation{System: "github-actions", ID: "build-42", Attempt: 1}
+	if err := store.Save(record); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(t.TempDir(), "empty.json")
+	args := []string{"run", "list", "--store", storeRoot, "--external-id", "missing-build", "--output", output}
+	if exitCode := run(args); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want successful no-match query", args, exitCode)
+	}
+	contents, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records []nublarrun.Run
+	if err := json.Unmarshal(contents, &records); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("no-match records = %+v, want empty result", records)
+	}
+}
+
+func TestRunListReturnsEmptyForUncreatedStore(t *testing.T) {
+	output := filepath.Join(t.TempDir(), "empty.json")
+	storeRoot := filepath.Join(t.TempDir(), "not-created-yet")
+	args := []string{"run", "list", "--store", storeRoot, "--output", output}
+	if exitCode := run(args); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want successful empty-store query", args, exitCode)
+	}
+	contents, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records []nublarrun.Run
+	if err := json.Unmarshal(contents, &records); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("empty-store records = %+v, want empty result", records)
 	}
 }
 
@@ -578,6 +629,7 @@ func TestRunDeliverWritesAcceptedReceiptFromCLI(t *testing.T) {
 	})
 
 	receiptPath := filepath.Join(t.TempDir(), "accepted-receipt.json")
+	receiptStoreRoot := filepath.Join(t.TempDir(), "accepted-receipts")
 	args := []string{
 		"run", "deliver",
 		"--store", storeRoot,
@@ -585,6 +637,7 @@ func TestRunDeliverWritesAcceptedReceiptFromCLI(t *testing.T) {
 		"--webhook", "https://example.test/nublar",
 		"--timeout", "2s",
 		"--receipt", receiptPath,
+		"--receipt-store", receiptStoreRoot,
 	}
 	if exitCode := deliverCommandWithFactory(args[2:], func(_ string, _ []byte) (nublardelivery.Publisher, error) {
 		return publisher, nil
@@ -604,6 +657,33 @@ func TestRunDeliverWritesAcceptedReceiptFromCLI(t *testing.T) {
 	}
 	if receipt.Status != "accepted" || receipt.HTTPStatus != http.StatusNoContent || receipt.RunID != "cli-deliver-accepted-01" {
 		t.Fatalf("receipt = %+v, want accepted 204 receipt", receipt)
+	}
+	receiptStore, err := nublarstore.NewReceiptStore(receiptStoreRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedReceipts, err := receiptStore.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(storedReceipts) != 1 || storedReceipts[0].Status != "accepted" || storedReceipts[0].RunID != "cli-deliver-accepted-01" {
+		t.Fatalf("stored receipts = %+v, want accepted receipt history", storedReceipts)
+	}
+	listOutput := filepath.Join(t.TempDir(), "receipt-list.json")
+	listArgs := []string{"run", "receipt", "list", "--receipt-store", receiptStoreRoot, "--output", listOutput}
+	if exitCode := run(listArgs); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want receipt-list success", listArgs, exitCode)
+	}
+	contents, err = os.ReadFile(listOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listedReceipts []nublardelivery.Receipt
+	if err := json.Unmarshal(contents, &listedReceipts); err != nil {
+		t.Fatal(err)
+	}
+	if len(listedReceipts) != 1 || listedReceipts[0].RunID != "cli-deliver-accepted-01" {
+		t.Fatalf("CLI listed receipts = %+v, want accepted receipt", listedReceipts)
 	}
 }
 
@@ -629,6 +709,7 @@ func TestRunDeliverWritesFailedReceiptFromCLI(t *testing.T) {
 	})
 
 	receiptPath := filepath.Join(t.TempDir(), "failed-receipt.json")
+	receiptStoreRoot := filepath.Join(t.TempDir(), "failed-receipts")
 	args := []string{
 		"run", "deliver",
 		"--store", storeRoot,
@@ -636,6 +717,7 @@ func TestRunDeliverWritesFailedReceiptFromCLI(t *testing.T) {
 		"--webhook", "https://example.test/nublar",
 		"--timeout", "2s",
 		"--receipt", receiptPath,
+		"--receipt-store", receiptStoreRoot,
 	}
 	if exitCode := deliverCommandWithFactory(args[2:], func(_ string, _ []byte) (nublardelivery.Publisher, error) {
 		return publisher, nil
@@ -659,6 +741,110 @@ func TestRunDeliverWritesFailedReceiptFromCLI(t *testing.T) {
 	}
 	if stored.Status != "passed" || stored.ExitCode != 0 {
 		t.Fatalf("stored run after failed delivery = %+v, want unchanged passed decision", stored)
+	}
+	receiptStore, err := nublarstore.NewReceiptStore(receiptStoreRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedReceipts, err := receiptStore.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(storedReceipts) != 1 || storedReceipts[0].Status != "failed" || storedReceipts[0].RunID != "cli-deliver-failed-01" {
+		t.Fatalf("stored receipts = %+v, want failed receipt history", storedReceipts)
+	}
+}
+
+func TestRunReceiptListReturnsEmptyForUncreatedStore(t *testing.T) {
+	receiptStoreRoot := filepath.Join(t.TempDir(), "not-created-yet")
+	output := filepath.Join(t.TempDir(), "empty-receipts.json")
+	args := []string{"run", "receipt", "list", "--receipt-store", receiptStoreRoot, "--output", output}
+	if exitCode := run(args); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want empty receipt-list success", args, exitCode)
+	}
+	contents, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipts []nublardelivery.Receipt
+	if err := json.Unmarshal(contents, &receipts); err != nil {
+		t.Fatal(err)
+	}
+	if len(receipts) != 0 {
+		t.Fatalf("empty receipt list = %+v, want empty result", receipts)
+	}
+}
+
+func TestRunReceiptListFiltersByRunStatusAndTransport(t *testing.T) {
+	receiptStoreRoot := filepath.Join(t.TempDir(), "receipts")
+	receiptStore, err := nublarstore.NewReceiptStore(receiptStoreRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipts := []nublardelivery.Receipt{
+		{
+			Schema:      nublardelivery.ReceiptSchema,
+			RunID:       "run-filtered",
+			Transport:   "http-webhook",
+			Status:      "accepted",
+			HTTPStatus:  http.StatusNoContent,
+			AttemptedAt: "2026-09-15T12:00:01Z",
+		},
+		{
+			Schema:      nublardelivery.ReceiptSchema,
+			RunID:       "run-filtered",
+			Transport:   "http-webhook",
+			Status:      "failed",
+			HTTPStatus:  http.StatusBadGateway,
+			AttemptedAt: "2026-09-15T12:00:02Z",
+			Error:       "upstream rejected decision",
+		},
+		{
+			Schema:      nublardelivery.ReceiptSchema,
+			RunID:       "run-other",
+			Transport:   "http-webhook",
+			Status:      "failed",
+			HTTPStatus:  http.StatusBadGateway,
+			AttemptedAt: "2026-09-15T12:00:03Z",
+			Error:       "upstream rejected decision",
+		},
+	}
+	for _, receipt := range receipts {
+		if err := receiptStore.Save(receipt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	output := filepath.Join(t.TempDir(), "filtered-receipts.json")
+	args := []string{
+		"run", "receipt", "list",
+		"--receipt-store", receiptStoreRoot,
+		"--run-id", "run-filtered",
+		"--status", "failed",
+		"--transport", "http-webhook",
+		"--output", output,
+	}
+	if exitCode := run(args); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want filtered receipt-list success", args, exitCode)
+	}
+	contents, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var filtered []nublardelivery.Receipt
+	if err := json.Unmarshal(contents, &filtered); err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 || filtered[0].RunID != "run-filtered" || filtered[0].Status != "failed" {
+		t.Fatalf("filtered receipts = %+v, want one failed receipt for run-filtered", filtered)
+	}
+}
+
+func TestRunReceiptListRejectsUnsupportedStatusFilter(t *testing.T) {
+	receiptStoreRoot := filepath.Join(t.TempDir(), "receipts")
+	args := []string{"run", "receipt", "list", "--receipt-store", receiptStoreRoot, "--status", "pending"}
+	if exitCode := run(args); exitCode != 2 {
+		t.Fatalf("run(%v) = %d, want unsupported-status usage error", args, exitCode)
 	}
 }
 

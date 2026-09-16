@@ -1,0 +1,13 @@
+{
+  "schema": "lockwood.attestation-trust/v1",
+  "keys": [
+    {
+      "key_id": "review-key-2026-01",
+      "algorithm": "ed25519",
+      "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "status": "active",
+      "not_before": "2026-01-01T00:00:00Z",
+      "not_after": "2027-01-01T00:00:00Z"
+    }
+  ]
+}

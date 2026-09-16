@@ -49,6 +49,10 @@ The `run collect` command can additionally persist the same record in this
 store without changing the producer envelope or the run schema. The output
 contract is documented in [`OUTPUT-BOUNDARY.md`](OUTPUT-BOUNDARY.md).
 
+Delivery receipts use a separate optional content-addressed store through
+`--receipt-store`; they are documented in
+[`RECEIPT-STORAGE.md`](RECEIPT-STORAGE.md) and are not mixed with run records.
+
 The current CLI can opt into the store explicitly:
 
 ```sh

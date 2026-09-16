@@ -375,6 +375,32 @@ For CI consumers, the replay report is preserved inside the shared
 `matched` to `passed`, `drifted` to `failed`, and `error` or `inconclusive` to
 `error`.
 
+Multiple replay envelopes may be combined with the replay-matrix command:
+
+```sh
+sorna evidence replay matrix \
+  --case <id=ci-result-path|expected-ci-status|expected-replay-status> \
+  [--case ...] [--source-root <dir>] [--output <ci-result-path>]
+```
+
+The matrix validates each member envelope and nested replay report, records
+the member path and hash as an input, and compares the observed CI and replay
+classifications with explicit expectations. This makes deliberate negative
+fixtures reviewable: an expected behavioral red can make the matrix pass,
+while an unexpected red or an infrastructure error makes the matrix fail or
+error respectively.
+
+The saved matrix can be independently verified with:
+
+```sh
+sorna evidence replay matrix verify [--source-root <dir>] <ci-result>
+```
+
+Verification re-hashes every available member path and checks that the matrix
+report, explanation, nested replay reports, classifications, and lineage still
+agree. An error envelope is a valid recorded outcome, but its available input
+hashes are still checked.
+
 Saved producer reports can be structurally checked with:
 
 ```sh

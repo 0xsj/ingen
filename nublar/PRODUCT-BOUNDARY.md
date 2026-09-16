@@ -114,7 +114,8 @@ nublar run show --store <dir> --run-id <id>
 nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>] \
   [--external-system <name>] [--external-id <id>] [--attempt <n>]
 nublar run decision --store <dir> --run-id <id>
-nublar run deliver --store <dir> --run-id <id> --webhook <url> [--receipt <path>]
+nublar run deliver --store <dir> --run-id <id> --webhook <url> [--receipt <path>] [--receipt-store <dir>]
+nublar run receipt list --receipt-store <dir> [--run-id <id>] [--status <accepted|failed>] [--transport <name>] [--output <path>]
 ```
 
 It emits and can persist the `ingen.nublar-run/v1` record. `aggregate` remains

@@ -25,6 +25,7 @@
     "module_path": {"type": "string"},
     "package_count": {"type": "integer", "minimum": 0},
     "edge_count": {"type": "integer", "minimum": 0},
+    "provenance": {"$ref": "#/$defs/provenance"},
     "baseline": {"$ref": "#/$defs/baseline-summary"},
     "waivers": {"type": "array", "items": {"$ref": "#/$defs/waiver-summary"}},
     "filter": {"$ref": "#/$defs/finding-filter"},
@@ -33,6 +34,47 @@
     "findings": {"type": "array", "items": {"$ref": "#/$defs/finding-explanation"}}
   },
   "$defs": {
+    "file-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_schema", "artifact_path", "artifact_sha256", "artifact_status", "artifact_exit_code", "created_at", "policy"],
+      "properties": {
+        "artifact_schema": {"const": "ingen.ci-result/v1"},
+        "artifact_path": {"type": "string", "minLength": 1},
+        "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "artifact_status": {"enum": ["passed", "failed", "error"]},
+        "artifact_exit_code": {"type": "integer", "enum": [0, 1, 2]},
+        "created_at": {"type": "string", "minLength": 1},
+        "policy": {"$ref": "#/$defs/file-reference"},
+        "policy_lock": {"$ref": "#/$defs/file-reference"},
+        "graph": {"$ref": "#/$defs/file-reference"},
+        "baseline": {"$ref": "#/$defs/file-reference"},
+        "adapter": {"$ref": "#/$defs/adapter-reference"}
+      }
+    },
+    "adapter-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["builtin", "external"]},
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "executable": {"type": "string", "minLength": 1},
+        "resolved_executable": {"type": "string", "minLength": 1},
+        "executable_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "args_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
     "baseline-summary": {
       "type": "object",
       "additionalProperties": false,

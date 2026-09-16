@@ -84,6 +84,14 @@ type RecordStore interface {
 	List() ([]Record, error)
 }
 
+// HandlingEventStore is the append-only event backend contract. Events are
+// immutable, keyed by custody ID and event ID, and listed deterministically.
+type HandlingEventStore interface {
+	AppendEvent(event HandlingEvent) error
+	GetEvent(custodyID, eventID string) (HandlingEvent, error)
+	ListEvents(custodyID string) ([]HandlingEvent, error)
+}
+
 var custodyIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 func (record Record) Validate() error {

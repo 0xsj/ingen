@@ -1,0 +1,6 @@
+schema: ingen.nublar-workflow/v1
+id: malformed-producer-ci
+checks:
+  - id: behavioral-verification
+    tool: sorna
+    result: malformed.json

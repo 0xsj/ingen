@@ -51,7 +51,7 @@ func TestApplyHerdrEventBindsContextAndIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestApplyHerdrEventRejectsMismatchedRunAndConflictingReplay(t *testing.T) {
+func TestApplyHerdrEventRejectsMismatchedRunWorkspaceAndConflictingReplay(t *testing.T) {
 	receipt := sentinelReceipt(t)
 	event := HerdrEvent{
 		Schema:           HerdrEventSchema,
@@ -67,6 +67,15 @@ func TestApplyHerdrEventRejectsMismatchedRunAndConflictingReplay(t *testing.T) {
 	}
 
 	event.RunID = receipt.RunID
+	event.WorkspaceID = "other-workspace"
+	if _, err := ApplyHerdrEvent(&receipt, event); err == nil || !strings.Contains(err.Error(), "does not match receipt") {
+		t.Fatalf("workspace mismatch = %v, want rejection", err)
+	}
+	if len(receipt.Events) != 1 || receipt.Status != "created" {
+		t.Fatalf("receipt mutated after context rejection: %+v", receipt)
+	}
+
+	event.WorkspaceID = receipt.Workspace.ID
 	if _, err := ApplyHerdrEvent(&receipt, event); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +102,47 @@ func TestApplyHerdrEventRejectsStatusWithoutMutatingReceipt(t *testing.T) {
 	}
 	if len(receipt.Events) != 1 || receipt.Status != "created" {
 		t.Fatalf("receipt mutated after invalid status: %+v", receipt)
+	}
+}
+
+func TestApplyHerdrEventClosesFailedLifecycleAndRejectsReopen(t *testing.T) {
+	receipt := sentinelReceipt(t)
+	event := HerdrEvent{
+		Schema:           HerdrEventSchema,
+		EventID:          "herdr-event-failed",
+		RunID:            receipt.RunID,
+		WorkspaceID:      receipt.Workspace.ID,
+		WorkspaceVersion: receipt.Workspace.Version,
+		Type:             "sorna-completed",
+		At:               "2026-01-02T03:04:06Z",
+		Role:             "verifier",
+		SessionID:        "session-failed",
+		ReceiptStatus:    "failed",
+		Outcome:          "contract-failed",
+		Reason:           "one verifier rule failed",
+	}
+	if appended, err := ApplyHerdrEvent(&receipt, event); err != nil || !appended {
+		t.Fatalf("failed lifecycle event = %v, %v; want accepted terminal failure", appended, err)
+	}
+	if receipt.Status != "failed" || len(receipt.Events) != 2 || receipt.Events[1].Status != "failed" {
+		t.Fatalf("receipt after failed event = %+v, want failed terminal receipt", receipt)
+	}
+	if appended, err := ApplyHerdrEvent(&receipt, event); err != nil || appended {
+		t.Fatalf("failed lifecycle replay = %v, %v; want idempotent no-op", appended, err)
+	}
+	if len(receipt.Events) != 2 || receipt.Status != "failed" {
+		t.Fatalf("receipt after failed replay = %+v, want unchanged failed receipt", receipt)
+	}
+	reopen := event
+	reopen.EventID = "herdr-event-reopen"
+	reopen.Type = "role-launched"
+	reopen.At = "2026-01-02T03:04:07Z"
+	reopen.ReceiptStatus = "running"
+	if _, err := ApplyHerdrEvent(&receipt, reopen); err == nil || !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("failed lifecycle reopen = %v, want terminal transition rejection", err)
+	}
+	if len(receipt.Events) != 2 || receipt.Status != "failed" {
+		t.Fatalf("receipt after failed lifecycle reopen = %+v, want unchanged failed receipt", receipt)
 	}
 }
 

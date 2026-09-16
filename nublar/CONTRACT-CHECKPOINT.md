@@ -1,0 +1,73 @@
+# Nublar local contract checkpoint
+
+As of 2026-09-16, Nublar's first product-shaped slice is a local,
+filesystem-backed coordinator. It collects already-produced CI envelopes,
+records one immutable run, exposes a read-only history, and projects a
+provider-neutral delivery decision.
+
+## Stable boundaries
+
+| Boundary | Schema | Current contract |
+| --- | --- | --- |
+| Workflow declaration | `ingen.nublar-workflow/v1` | Required/optional result paths and producer identities. |
+| Run record | `ingen.nublar-run/v1` | One immutable collection attempt with exact workflow/result hashes, opaque producer artifacts, decision state, and optional external correlation. |
+| Delivery decision | `ingen.nublar-decision/v1` | Compact projection with references, status, issues, and optional correlation; producer reports are excluded. |
+| Delivery receipt | `ingen.nublar-delivery-receipt/v1` | Independent accepted/failed outcome for one delivery attempt. |
+
+## Consumer path
+
+The covered local workflow is:
+
+```text
+validate workflow
+    → collect producer envelopes
+    → persist immutable run
+    → list/show/filter history
+    → project decision
+    → optionally deliver webhook and export/store receipt
+```
+
+`run_id` remains the local per-attempt identity. When an external system
+provides one, `correlation.system`, `correlation.id`, and
+`correlation.attempt` are carried separately. Correlation filters are exact,
+composable, and read-only.
+
+## Guarantees covered by the checkpoint
+
+- v1 workflow, envelope, run, decision, and receipt shapes are closed where
+  their contracts require it.
+- Run and artifact loading reject unknown fields and multiple JSON values.
+- Workflow and consumed artifact bytes are bound to SHA-256 references.
+- Failed producer runs and collection-error runs are persisted before their
+  decision exit codes are returned.
+- Storage publication is immutable and deterministic; delivery failure does
+  not mutate the stored run, and publisher-reached receipts can be persisted
+  independently in a content-addressed store.
+- Receipt history is strict-loaded and supports exact, composable filters by
+  run ID, status, and transport.
+- The end-to-end consumer test covers collection, storage, projection, and
+  generic webhook delivery with an in-memory transport.
+
+## Verification
+
+```sh
+make nublar-check
+```
+
+This runs Nublar's race tests, static analysis, and schema syntax checks
+without launching any producer workflow.
+
+The provider-neutral local consumer example is
+[`examples/consumer/README.md`](examples/consumer/README.md). It exercises the
+same collect/store/decision path from a CI-style shell boundary.
+Run `make nublar-consumer-check` to verify that example against the checked-in
+fixtures, including persisted run and decision outputs for failed, passed,
+missing-artifact, and malformed-envelope paths.
+
+## Deferred until a concrete consumer requires them
+
+Producer execution, hosted APIs, remote storage, retention, pagination,
+summary-only responses, rerun relationships, authentication, retry stores,
+and provider-specific delivery formats remain outside this checkpoint. New
+fields or behavior should be added through a documented contract decision and
+an executable consumer test, rather than speculative infrastructure.

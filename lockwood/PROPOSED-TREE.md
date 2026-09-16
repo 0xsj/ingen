@@ -26,6 +26,7 @@ lockwood/
 │   ├── custody/                  # Custody records and lineage
 │   │   ├── record.go
 │   │   ├── lineage.go
+│   │   ├── handling_event.go
 │   │   ├── filesystem.go
 │   │   └── ingest.go
 │   ├── store/                    # Storage abstraction and local backend
@@ -46,7 +47,8 @@ lockwood/
 │   ├── lockwood.artifact-v1.schema.json
 │   ├── lockwood.custody-v1.schema.json
 │   ├── lockwood.custody-v2.schema.json
-│   └── lockwood.attestation-v1.schema.json
+│   ├── lockwood.attestation-v1.schema.json
+│   └── lockwood.handling-event-v1.schema.json
 ├── examples/
 │   └── custody-record.json
 └── testdata/
@@ -56,25 +58,26 @@ lockwood/
 
 ```text
 lockwood/
-├── cmd/lockwood/                 # put, imports, attestation ops, get, inspect, verify, find, recover, reconcile
+├── cmd/lockwood/                 # put, imports, attestation ops, get, inspect, lineage-status, handling events, verify, find, recover, reconcile
 ├── internal/
 │   ├── artifact/                 # SHA-256 references
 │   ├── store/                    # filesystem and in-memory blobs, inventories, reference manifests
-│   ├── custody/                  # filesystem and in-memory records, lineage, recovery, verification
+│   ├── custody/                  # filesystem and in-memory records, handling events, lineage, recovery, verification
 │   ├── catalog/                  # deterministic metadata queries
 │   ├── integrity/                # shared streaming hash and size verification
 │   ├── attestation/              # detached sign/verify, encoding, and publication
 │   └── adapters/
 │       ├── ciresult/             # validated ingen.ci-result/v1 intake
 │       └── sorna/                # deterministic verified Sorna bundle intake
-├── spec/                         # artifact-v1, custody-v1, custody-v2, attestation-v1
+├── spec/                         # artifact-v1, custody-v1/v2, attestation-v1/trust-v1, handling-event-v1
 └── testdata/                     # valid and invalid contract fixtures
 ```
 
-The proposed remote/object-store area and signature trust implementation
+The proposed remote/object-store area and broader authorization implementation
 remain future work rather than missing implementation files. The detached
-attestation contract and local Ed25519 helper now exist, but they do not
-resolve trusted keys or make authorization decisions. The in-memory stores,
+attestation contract, local Ed25519 helper, and explicit canonical trust
+registry now exist. The registry makes only key-status and validity decisions;
+it does not provide human identity or access control. The in-memory stores,
 shared integrity package, and example record are included as lightweight
 development surfaces.
 
@@ -89,6 +92,9 @@ lockwood-data/
 │               └── <full-digest>
 ├── records/
 │   └── <custody-id>.json
+├── events/
+│   └── <custody-id>/
+│       └── <event-id>.json
 ├── references/
 │   └── sha256/
 │       └── ab/
@@ -107,5 +113,10 @@ without making that metadata part of blob identity.
 ## Deferred areas
 
 The initial slice does not need to include remote/object-storage backends,
-signature trust and authorization, retention deletion and legal holds,
-redaction workflows, authentication, or a web UI.
+human signer identity and access authorization, retention deletion and legal holds,
+redaction execution, authentication, or a web UI. Reconciliation may classify
+age-based orphan cleanup candidates, but deletion and race-safe cleanup
+coordination remain deferred. Recognized detached artifacts are protected by
+their verified reference metadata rather than being treated as custody
+records. Handling events are append-only descriptive records; authenticated
+actors, policy enforcement, and payload-changing redaction remain deferred.

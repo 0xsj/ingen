@@ -19,7 +19,13 @@ provider to already return a Hammond envelope; `FetchNormalized` instead
 hands raw bytes to a caller-owned normalizer before applying the same checks.
 
 `FetchVerifierAt` additionally applies the caller's freshness policy before the
-result can enter policy evaluation.
+result can enter policy evaluation. `FetchVerifierAtWithProvenance` also binds
+the returned verifier to the snapshot reference carried by decision events.
+
+When `RequireHTTPS` or `EndpointPolicy` is configured, Hammond reapplies the
+same endpoint checks to redirect targets before the injected client follows
+them. A caller-provided `http.Client.CheckRedirect` remains responsible for
+redirect limits and stop/continue behavior.
 
 ## Why
 

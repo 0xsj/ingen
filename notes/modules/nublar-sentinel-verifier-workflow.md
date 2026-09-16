@@ -48,6 +48,35 @@ The host-enabled proof completed on 2026-09-16 with Sorna's macOS Seatbelt
 path: the collected Nublar run was `passed`, and its preserved Sentinel
 envelope included the `ingen.sentinel-ci-explanation/v1` audit trace.
 
+Repeat the proof from a fresh source/artifact workspace with:
+
+```sh
+make nublar-sentinel-run-collect-fresh
+```
+
+This excludes prior `.artifacts` and `.cache` contents from the source copy,
+so the result cannot be satisfied by a stale Sentinel receipt or verifier
+bundle.
+
+The negative handoff is covered without host execution as well: the Sentinel
+CLI test confirms a terminal `failed` receipt emits a failed envelope with
+exit code `1`, and the Nublar integration test collects that envelope as a
+failed `ingen.nublar-run/v1` decision while preserving the opaque receipt
+report. Incomplete or blocked Sentinel receipts remain `error` envelopes.
+
+The host-enabled expected-failure proof is available with:
+
+```sh
+make nublar-sentinel-run-collect-failure-fresh
+```
+
+It runs the controlled duplicate-idempotency defect through the real Sorna
+handoff. The target ignores the producer's expected nonzero exits only long
+enough to emit the shared envelope, then asserts that Nublar records the final
+`failed/1` decision. The proof completed on 2026-09-16 in
+`/private/tmp/ingen-sentinel-failure-workspace.r1JTRr`, with one failed Sorna
+rule and a passing Sentinel integrity audit.
+
 ## Limits
 
 The raw Sentinel receipt remains Sentinel-owned and is not reinterpreted by

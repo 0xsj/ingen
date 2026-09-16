@@ -59,6 +59,11 @@ def main():
         "root": request["root"],
         "roots": request.get("roots", []),
         "module_path": "example/conformance",
+        "adapter": {
+            "kind": "external",
+            "name": "paddock-conformance-python",
+            "version": "1.0.0",
+        },
         "capabilities": {
             "source_units": ["file"],
             "edge_kinds": ["import"],

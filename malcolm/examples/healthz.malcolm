@@ -1,0 +1,10 @@
+spec document_health v1 {
+  subject "document-pipeline"
+
+  scenario healthcheck {
+    when GET "/healthz"
+
+    must response.status == 200
+    must response.body.status == "ok"
+  }
+}

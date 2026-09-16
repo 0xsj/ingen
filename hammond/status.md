@@ -20,9 +20,15 @@ The local v1 governance slice is implemented:
 - digest-bound, optionally signed membership snapshots for normalized provider
   responses, with explicit freshness checks;
 - a bounded HTTP membership transport adapter with a caller-owned
-  authentication hook, static or resolved endpoint, and endpoint policy;
+  authentication hook, static or resolved endpoint, endpoint policy, and
+  redirect-target checks;
+- a provider-neutral exact host/port endpoint allowlist usable as that policy;
+- a generic bearer-token authenticator backed by a caller-owned token source;
 - a caller-owned normalization hook that can reject incomplete provider views
   before Hammond verifies the normalized envelope;
+- optional membership references on decision events for authority provenance;
+- provenance-carrying membership verifiers that bind decision references to the
+  snapshot used for authorization;
 - optional Ed25519 authority-artifact signatures verified against a caller-owned
   trusted key set;
 - versioned trust snapshots with active/revoked key rotation;
@@ -30,22 +36,25 @@ The local v1 governance slice is implemented:
   root-to-authority key chain;
 - versioned root-key snapshots with bootstrap/predecessor signature checks and
   fail-closed root rotation;
-- append-only file storage with atomic writes;
+- append-only file storage with atomic writes and process-shared locking;
+- conditional event appends with deterministic revision conflict detection;
 - amendment and supersession lineage checks; and
 - a local CLI for registration, review events, amendments, supersession, and
   lineage inspection.
 
 ## Next boundary
 
-The next design decision is organization integration: provider credential
-implementation and deployment network policy. The current local authority,
-membership, trust, and root snapshots are explicit,
+The next design decision is organization integration: provider-specific
+credential implementation and deployment-level TLS/network configuration. The
+current local authority, membership, trust, and root snapshots are explicit,
 digest-bound inputs; signatures are only meaningful when checked against a
-caller-owned, root-approved trust set.
+caller-owned, root-approved trust set. Provider selection is required before
+that adapter can be implemented without guessing at credential scope or role
+mapping.
 
 ## Deferred
 
 Hammond still does not provide secure root bootstrap delivery, a hosted API,
-identity provider, provider-specific credential implementation, artifact blob
-storage,
-concurrent merge handling, or automatic approval from Sorna results.
+identity provider, provider-specific credential implementation, deployment TLS
+configuration, artifact blob storage, semantic concurrent merge handling, or
+automatic approval from Sorna results.

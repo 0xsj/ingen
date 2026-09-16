@@ -58,6 +58,9 @@ func (envelope Envelope) Validate() error {
 	if err != nil {
 		return fmt.Errorf("decode attestation signature: %w", err)
 	}
+	if base64.StdEncoding.EncodeToString(signature) != envelope.Signature {
+		return fmt.Errorf("attestation signature is not canonical standard-base64")
+	}
 	if len(signature) != ed25519.SignatureSize {
 		return fmt.Errorf("attestation signature has size %d, want %d", len(signature), ed25519.SignatureSize)
 	}
@@ -116,6 +119,9 @@ func Verify(record custody.Record, envelope Envelope, publicKey ed25519.PublicKe
 	signature, err := base64.StdEncoding.DecodeString(envelope.Signature)
 	if err != nil {
 		return fmt.Errorf("decode attestation signature: %w", err)
+	}
+	if base64.StdEncoding.EncodeToString(signature) != envelope.Signature {
+		return fmt.Errorf("attestation signature is not canonical standard-base64")
 	}
 	if !ed25519.Verify(publicKey, message, signature) {
 		return fmt.Errorf("attestation signature verification failed")

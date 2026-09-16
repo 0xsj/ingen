@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,6 +26,35 @@ func (authenticator MembershipRequestAuthenticatorFunc) Authenticate(request *ht
 	return authenticator(request)
 }
 
+// MembershipBearerTokenSource supplies a short-lived bearer token for one
+// request. Token acquisition and storage remain caller-owned.
+type MembershipBearerTokenSource func(context.Context) (string, error)
+
+// BearerTokenAuthenticator is a generic request authenticator. It retains
+// only the caller's token source, not a bearer token.
+type BearerTokenAuthenticator struct {
+	Source MembershipBearerTokenSource
+}
+
+func (authenticator BearerTokenAuthenticator) Authenticate(request *http.Request) error {
+	if authenticator.Source == nil {
+		return fmt.Errorf("membership bearer token source is required")
+	}
+	token, err := authenticator.Source(request.Context())
+	if err != nil {
+		return fmt.Errorf("load membership bearer token: %w", err)
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fmt.Errorf("membership bearer token is required")
+	}
+	if strings.ContainsAny(token, "\r\n") {
+		return fmt.Errorf("membership bearer token must not contain newlines")
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	return nil
+}
+
 // MembershipEndpointResolver lets the caller discover a provider endpoint at
 // fetch time. Hammond validates only the returned HTTP(S) URL.
 type MembershipEndpointResolver func(context.Context) (string, error)
@@ -32,6 +62,82 @@ type MembershipEndpointResolver func(context.Context) (string, error)
 // MembershipEndpointPolicy lets the caller enforce deployment-specific
 // endpoint rules such as host allowlists or network tenancy.
 type MembershipEndpointPolicy func(string) error
+
+// MembershipEndpointAllowlist is a provider-neutral exact host and port
+// policy. Hosts are compared case-insensitively after trimming one trailing
+// dot; wildcard hosts are not supported. Ports are the effective URL ports,
+// so an https URL without an explicit port is checked as 443 and an http URL
+// without one as 80.
+type MembershipEndpointAllowlist struct {
+	Hosts []string
+	Ports []int
+}
+
+// Validate checks an endpoint against the explicit host and port allowlist.
+// The method is suitable for use as HTTPMembershipProvider.EndpointPolicy.
+func (allowlist MembershipEndpointAllowlist) Validate(endpoint string) error {
+	if len(allowlist.Hosts) == 0 {
+		return fmt.Errorf("membership endpoint allowlist hosts are required")
+	}
+	if len(allowlist.Ports) == 0 {
+		return fmt.Errorf("membership endpoint allowlist ports are required")
+	}
+
+	hosts := make(map[string]struct{}, len(allowlist.Hosts))
+	for _, host := range allowlist.Hosts {
+		host = normalizeMembershipEndpointHost(host)
+		if host == "" || strings.ContainsAny(host, " /?#@*") {
+			return fmt.Errorf("membership endpoint allowlist host %q is invalid", host)
+		}
+		if _, exists := hosts[host]; exists {
+			return fmt.Errorf("membership endpoint allowlist host %q is duplicated", host)
+		}
+		hosts[host] = struct{}{}
+	}
+
+	ports := make(map[int]struct{}, len(allowlist.Ports))
+	for _, port := range allowlist.Ports {
+		if port < 1 || port > 65535 {
+			return fmt.Errorf("membership endpoint allowlist port %d is invalid", port)
+		}
+		if _, exists := ports[port]; exists {
+			return fmt.Errorf("membership endpoint allowlist port %d is duplicated", port)
+		}
+		ports[port] = struct{}{}
+	}
+
+	if err := validateMembershipEndpoint(endpoint); err != nil {
+		return err
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("membership provider endpoint is invalid: %w", err)
+	}
+	host := normalizeMembershipEndpointHost(parsed.Hostname())
+	if _, allowed := hosts[host]; !allowed {
+		return fmt.Errorf("membership provider endpoint host %q is not allowlisted", parsed.Hostname())
+	}
+	port := parsed.Port()
+	if port == "" {
+		if parsed.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	effectivePort, err := strconv.Atoi(port)
+	if err != nil || effectivePort < 1 || effectivePort > 65535 {
+		return fmt.Errorf("membership provider endpoint port %q is invalid", port)
+	}
+	if _, allowed := ports[effectivePort]; !allowed {
+		return fmt.Errorf("membership provider endpoint port %d is not allowlisted", effectivePort)
+	}
+	return nil
+}
+
+func normalizeMembershipEndpointHost(host string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+}
 
 // MembershipSnapshotProvider fetches and verifies one normalized membership
 // snapshot. Implementations own provider transport and authentication.
@@ -182,7 +288,18 @@ func (provider HTTPMembershipProvider) fetchBytes(ctx context.Context) ([]byte, 
 	if client == nil {
 		client = http.DefaultClient
 	}
-	response, err := client.Do(request)
+	clientCopy := *client
+	callerRedirectPolicy := clientCopy.CheckRedirect
+	clientCopy.CheckRedirect = func(redirectRequest *http.Request, via []*http.Request) error {
+		if err := provider.validateEndpoint(redirectRequest.URL.String()); err != nil {
+			return fmt.Errorf("membership redirect endpoint rejected: %w", err)
+		}
+		if callerRedirectPolicy != nil {
+			return callerRedirectPolicy(redirectRequest, via)
+		}
+		return nil
+	}
+	response, err := clientCopy.Do(request)
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch membership provider response: %w", err)
 	}
@@ -212,22 +329,30 @@ func (provider HTTPMembershipProvider) resolveEndpoint(ctx context.Context) (str
 		}
 		endpoint = strings.TrimSpace(resolved)
 	}
-	if err := validateMembershipEndpoint(endpoint); err != nil {
+	if err := provider.validateEndpoint(endpoint); err != nil {
 		return "", err
+	}
+	return endpoint, nil
+}
+
+func (provider HTTPMembershipProvider) validateEndpoint(endpoint string) error {
+	endpoint = strings.TrimSpace(endpoint)
+	if err := validateMembershipEndpoint(endpoint); err != nil {
+		return err
 	}
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
-		return "", fmt.Errorf("membership provider endpoint is invalid: %w", err)
+		return fmt.Errorf("membership provider endpoint is invalid: %w", err)
 	}
 	if provider.RequireHTTPS && parsed.Scheme != "https" {
-		return "", fmt.Errorf("membership provider endpoint must use https")
+		return fmt.Errorf("membership provider endpoint must use https")
 	}
 	if provider.EndpointPolicy != nil {
 		if err := provider.EndpointPolicy(endpoint); err != nil {
-			return "", fmt.Errorf("membership provider endpoint policy rejected endpoint: %w", err)
+			return fmt.Errorf("membership provider endpoint policy rejected endpoint: %w", err)
 		}
 	}
-	return endpoint, nil
+	return nil
 }
 
 // FetchVerifierAt fetches a snapshot and applies the caller's freshness policy
@@ -238,4 +363,14 @@ func (provider HTTPMembershipProvider) FetchVerifierAt(ctx context.Context, refe
 		return TimeScopedAuthority{}, err
 	}
 	return snapshot.VerifierAt(now, maxAge, maxFutureSkew)
+}
+
+// FetchVerifierAtWithProvenance fetches a snapshot, applies freshness policy,
+// and returns a verifier that can be matched to decision-event provenance.
+func (provider HTTPMembershipProvider) FetchVerifierAtWithProvenance(ctx context.Context, reference MembershipReference, verifier AuthoritySignatureVerifier, now string, maxAge, maxFutureSkew time.Duration) (MembershipVerifier, error) {
+	snapshot, err := provider.Fetch(ctx, reference, verifier)
+	if err != nil {
+		return MembershipVerifier{}, err
+	}
+	return snapshot.VerifierAtWithProvenance(now, maxAge, maxFutureSkew)
 }

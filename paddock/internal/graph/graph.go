@@ -3,6 +3,8 @@ package graph
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -77,11 +79,49 @@ type Document struct {
 	Root         string           `json:"root"`
 	Roots        []string         `json:"roots,omitempty"`
 	ModulePath   string           `json:"module_path"`
+	Adapter      *AdapterMetadata `json:"adapter,omitempty"`
 	Capabilities Capabilities     `json:"capabilities"`
 	PackageCount int              `json:"package_count"`
 	EdgeCount    int              `json:"edge_count"`
 	Packages     []*model.Package `json:"packages"`
 	Edges        []*model.Edge    `json:"edges"`
+}
+
+// AdapterMetadata records how a graph was produced without persisting raw
+// adapter arguments, which may contain paths or secrets. External adapter
+// invocations are annotated by Paddock after the response is validated.
+type AdapterMetadata struct {
+	Kind               string `json:"kind"`
+	Name               string `json:"name,omitempty"`
+	Version            string `json:"version,omitempty"`
+	Executable         string `json:"executable,omitempty"`
+	ResolvedExecutable string `json:"resolved_executable,omitempty"`
+	ExecutableSHA256   string `json:"executable_sha256,omitempty"`
+	ArgsSHA256         string `json:"args_sha256,omitempty"`
+}
+
+func (m *AdapterMetadata) Validate() error {
+	if m == nil {
+		return nil
+	}
+	if m.Kind != "builtin" && m.Kind != "external" {
+		return fmt.Errorf("graph adapter metadata kind must be builtin or external, got %q", m.Kind)
+	}
+	for name, value := range map[string]string{
+		"executable_sha256": m.ExecutableSHA256,
+		"args_sha256":       m.ArgsSHA256,
+	} {
+		if value == "" {
+			continue
+		}
+		if len(value) != sha256.Size*2 {
+			return fmt.Errorf("graph adapter metadata %s must be a SHA-256 digest", name)
+		}
+		if _, err := hex.DecodeString(value); err != nil {
+			return fmt.Errorf("graph adapter metadata %s must be hexadecimal: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func LoadDocument(path string) (*model.Graph, Document, error) {
@@ -125,6 +165,9 @@ func (d Document) Validate() error {
 	}
 	if d.Root == "" {
 		return fmt.Errorf("graph document root is required")
+	}
+	if err := d.Adapter.Validate(); err != nil {
+		return err
 	}
 	if len(d.Packages) == 0 {
 		return fmt.Errorf("graph document must contain packages")
@@ -351,7 +394,53 @@ func LoadExternal(ctx context.Context, executable string, args []string, request
 	document.Edges = loaded.Edges
 	document.PackageCount = len(loaded.Packages)
 	document.EdgeCount = len(loaded.Edges)
+	metadata := document.Adapter
+	if metadata == nil {
+		metadata = &AdapterMetadata{}
+	}
+	if metadata.Kind != "external" {
+		// A pass-through adapter may return a graph that was originally
+		// produced by a built-in adapter. Do not misattribute that name or
+		// version to the external executable that ran now.
+		metadata.Name = ""
+		metadata.Version = ""
+	}
+	metadata.Kind = "external"
+	metadata.Executable = executable
+	metadata.ResolvedExecutable = resolvedExecutable(executable)
+	metadata.ExecutableSHA256 = fileSHA256(metadata.ResolvedExecutable)
+	metadata.ArgsSHA256 = argsSHA256(args)
+	document.Adapter = metadata
 	return loaded, document, nil
+}
+
+func resolvedExecutable(executable string) string {
+	resolved, err := exec.LookPath(executable)
+	if err != nil {
+		return ""
+	}
+	return resolved
+}
+
+func fileSHA256(path string) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func argsSHA256(args []string) string {
+	data, err := json.Marshal(args)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
 }
 
 type Adapter interface {

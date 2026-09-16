@@ -521,7 +521,7 @@ func lifecycleObservationLimitation(access *lifecycle.AccessTelemetry) string {
 
 func evidenceCommand(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: sorna evidence verify <directory> | replay --oracle <path> --base-url <url> [--format json|ci-result] [--source-root <dir>] [--output <path>] <directory>")
+		fmt.Fprintln(os.Stderr, "usage: sorna evidence verify <directory> | replay --oracle <path> --base-url <url> [--format json|ci-result] [--source-root <dir>] [--output <path>] <directory> | replay matrix --case <id=path|ci-status|replay-status> ...")
 		return 2
 	}
 	switch args[0] {
@@ -540,11 +540,68 @@ func evidenceCommand(args []string) int {
 		if len(args) > 1 && args[1] == "verify" {
 			return verifyReplayReport(args[2:])
 		}
+		if len(args) > 1 && args[1] == "matrix" {
+			if len(args) > 2 && args[2] == "verify" {
+				return verifyReplayMatrix(args[3:])
+			}
+			return replayMatrix(args[2:])
+		}
 		return replayEvidence(args[1:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown evidence command:", args[0])
 		return 2
 	}
+}
+
+func replayMatrix(args []string) int {
+	flags := flag.NewFlagSet("evidence replay matrix", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	sourceRoot := flags.String("source-root", ".", "source root used to resolve relative CI input paths")
+	outputPath := flags.String("output", "", "optional matrix CI result output path; existing files are not overwritten")
+	var rawCases stringList
+	flags.Var(&rawCases, "case", "matrix case: id=path|expected-ci-status|expected-replay-status (repeatable)")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	cases, err := parseReplayMatrixCases(rawCases)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	artifact, err := evidence.BuildReplayMatrixCIResult(cases, *sourceRoot)
+	if err != nil {
+		errorArtifact, artifactErr := evidence.BuildReplayMatrixCIErrorResult(cases, *sourceRoot, err)
+		if artifactErr != nil {
+			fmt.Fprintln(os.Stderr, "build replay matrix CI error result:", artifactErr)
+			return 2
+		}
+		return emitCIResult(errorArtifact, *outputPath, "replay matrix")
+	}
+	return emitCIResult(artifact, *outputPath, "replay matrix")
+}
+
+func parseReplayMatrixCases(rawCases []string) ([]evidence.ReplayMatrixCase, error) {
+	if len(rawCases) == 0 {
+		return nil, fmt.Errorf("usage: sorna evidence replay matrix --case <id=path|ci-status|replay-status> [--case ...] [--source-root <dir>] [--output <path>]")
+	}
+	cases := make([]evidence.ReplayMatrixCase, 0, len(rawCases))
+	for _, raw := range rawCases {
+		identity := strings.SplitN(raw, "=", 2)
+		if len(identity) != 2 || strings.TrimSpace(identity[0]) == "" {
+			return nil, fmt.Errorf("invalid replay matrix case %q: expected id=path|ci-status|replay-status", raw)
+		}
+		parts := strings.Split(identity[1], "|")
+		if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" || strings.TrimSpace(parts[2]) == "" {
+			return nil, fmt.Errorf("invalid replay matrix case %q: expected id=path|ci-status|replay-status", raw)
+		}
+		cases = append(cases, evidence.ReplayMatrixCase{
+			ID:                  strings.TrimSpace(identity[0]),
+			Path:                strings.TrimSpace(parts[0]),
+			ExpectedCIStatus:    strings.TrimSpace(parts[1]),
+			ExpectedReplayState: strings.TrimSpace(parts[2]),
+		})
+	}
+	return cases, nil
 }
 
 func verifyReplayReport(args []string) int {
@@ -557,6 +614,25 @@ func verifyReplayReport(args []string) int {
 		return 1
 	}
 	fmt.Println("verified:", args[0])
+	return 0
+}
+
+func verifyReplayMatrix(args []string) int {
+	flags := flag.NewFlagSet("evidence replay matrix verify", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	sourceRoot := flags.String("source-root", "", "source root used to resolve relative member paths; defaults to the artifact source root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: sorna evidence replay matrix verify [--source-root <dir>] <ci-result>")
+		return 2
+	}
+	if err := evidence.VerifyReplayMatrixCIResult(flags.Args()[0], *sourceRoot); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("verified:", flags.Args()[0])
 	return 0
 }
 
@@ -2276,6 +2352,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sorna evidence verify <directory>")
 	fmt.Fprintln(os.Stderr, "  sorna evidence replay --oracle <path> --base-url <url> [--format json|ci-result] [--source-root <dir>] [--output <path>] <directory>")
 	fmt.Fprintln(os.Stderr, "  sorna evidence replay verify <report>")
+	fmt.Fprintln(os.Stderr, "  sorna evidence replay matrix --case <id=path|ci-status|replay-status> [--case ...] [--source-root <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "  sorna evidence replay matrix verify [--source-root <dir>] <ci-result>")
 	fmt.Fprintln(os.Stderr, "  sorna gate [--minimum-observation-coverage <state>] [--format text|json|ci-result] <evidence-directory>")
 	fmt.Fprintln(os.Stderr, "  sorna run [--oracle <path> | --contract <path>] [--policy <path>] --base-url <url> [--subject-command <executable> --subject-arg <arg> ...] [--subject-policy <path>] [--baseline-evidence <dir>] [--output-dir <dir>]")
 }

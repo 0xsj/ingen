@@ -13,13 +13,16 @@ import (
 type Memory struct {
 	mu      sync.RWMutex
 	records map[string]Record
+	events  map[string]map[string]HandlingEvent
 }
 
 var _ RecordStore = (*Filesystem)(nil)
 var _ RecordStore = (*Memory)(nil)
+var _ HandlingEventStore = (*Filesystem)(nil)
+var _ HandlingEventStore = (*Memory)(nil)
 
 func NewMemory() *Memory {
-	return &Memory{records: make(map[string]Record)}
+	return &Memory{records: make(map[string]Record), events: make(map[string]map[string]HandlingEvent)}
 }
 
 func (s *Memory) Put(record Record) error {

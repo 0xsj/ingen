@@ -17,6 +17,11 @@ adapts simple functions; stateful implementations can refresh or sign through
 their own dependencies. Hammond never serializes the authenticator into a
 membership artifact or interprets its credentials.
 
+`BearerTokenAuthenticator` is a small generic implementation backed by a
+caller-owned `MembershipBearerTokenSource`. It resolves one token from the
+request context, rejects empty or newline-containing values, and sets the
+`Authorization` header for that request.
+
 The membership issuer signature remains a separate check: request
 authentication controls transport access, while the configured signature
 verifier authenticates the returned envelope's issuer.
@@ -35,6 +40,8 @@ without selecting one provider's identity protocol for Hammond.
   not prove that membership is absent or invalid.
 - Callers own secret storage, rotation, redaction, TLS configuration, and
   credential scope.
+- The bearer helper does not refresh or cache tokens; its source must provide
+  the right token for each request.
 - A successful request does not replace digest, issuer-signature, freshness, or
   completeness checks.
 

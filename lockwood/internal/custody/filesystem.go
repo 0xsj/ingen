@@ -22,6 +22,9 @@ func NewFilesystem(root string) (*Filesystem, error) {
 	if err := os.MkdirAll(filepath.Join(root, "records"), 0o755); err != nil {
 		return nil, fmt.Errorf("create custody record root: %w", err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "events"), 0o755); err != nil {
+		return nil, fmt.Errorf("create custody event root: %w", err)
+	}
 	tempRoot := filepath.Join(root, "tmp")
 	if err := os.MkdirAll(tempRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create custody temporary root: %w", err)

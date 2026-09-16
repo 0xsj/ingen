@@ -27,7 +27,7 @@ func TestCompareReportsVerdictAndInputChangesDeterministically(t *testing.T) {
 	}
 	assertChange(t, report.Changes[0], "verdict", "status")
 	assertChange(t, report.Changes[1], "verdict", "exit_code")
-	assertChange(t, report.Changes[2], "input", "inputs.contract")
+	assertChange(t, report.Changes[2], "contract", "inputs.contract")
 	assertChange(t, report.Changes[3], "producer-report", "report")
 	assertChange(t, report.Changes[4], "producer-report", "explanation")
 }
@@ -44,17 +44,31 @@ func TestCompareIgnoresJSONFormattingForOpaqueReports(t *testing.T) {
 	}
 }
 
-func TestCompareMarksDifferentSourceAsIncompatible(t *testing.T) {
+func TestCompareKeepsDifferentSourceComparable(t *testing.T) {
 	before := validArtifact()
 	after := validArtifact()
 	after.Source.Root = "/other/workspace"
 
 	report := Compare(before, after)
-	if report.Compatible {
-		t.Fatal("comparison marked different source roots compatible")
+	if !report.Compatible {
+		t.Fatal("comparison marked a source context change incompatible")
 	}
 	if len(report.Changes) != 1 || report.Changes[0].Field != "source.root" {
 		t.Fatalf("source change = %+v, want only source.root", report.Changes)
+	}
+}
+
+func TestCompareExplainsIncompatibleProducerIdentity(t *testing.T) {
+	before := validArtifact()
+	after := validArtifact()
+	after.Tool = "paddock"
+
+	report := Compare(before, after)
+	if report.Compatible {
+		t.Fatal("comparison marked different producers compatible")
+	}
+	if len(report.CompatibilityReasons) != 1 || !strings.Contains(report.CompatibilityReasons[0], "tool changed") {
+		t.Fatalf("compatibility reasons = %+v, want tool-change explanation", report.CompatibilityReasons)
 	}
 }
 
@@ -125,6 +139,36 @@ func TestCompareSurfacesUnavailableMutationCampaignDetail(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "warnings:") {
 		t.Fatalf("text output = %q, want warnings section", output.String())
+	}
+}
+
+func TestCompareClassifiesKnownInputRoles(t *testing.T) {
+	before := validArtifact()
+	after := validArtifact()
+	after.Inputs["contract"] = ciresult.FileRef{Path: "contract-v2.yaml"}
+	after.Inputs["plan"] = ciresult.FileRef{Path: "plan-v2.json"}
+	after.Inputs["provider"] = ciresult.FileRef{Path: "provider-v2.yaml"}
+	after.Inputs["environment"] = ciresult.FileRef{Path: "environment-v2.json"}
+	after.Inputs["custom-record"] = ciresult.FileRef{Path: "custom-v2.json"}
+
+	report := Compare(before, after)
+	want := map[string]string{
+		"inputs.contract":      "contract",
+		"inputs.plan":          "plan",
+		"inputs.provider":      "provider",
+		"inputs.environment":   "environment",
+		"inputs.custom-record": "input",
+	}
+	for _, change := range report.Changes {
+		if category, ok := want[change.Field]; ok {
+			if change.Category != category {
+				t.Errorf("%s category = %q, want %q", change.Field, change.Category, category)
+			}
+			delete(want, change.Field)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing classified changes: %v", want)
 	}
 }
 

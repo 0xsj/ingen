@@ -182,8 +182,8 @@ func ValidateReplayResult(result ReplayResult) error {
 			return fmt.Errorf("error replay must have an error replay verdict")
 		}
 	case "inconclusive":
-		if result.ReplayVerdict.Status != "inconclusive" {
-			return fmt.Errorf("inconclusive replay must have an inconclusive replay verdict")
+		if result.ReplayVerdict.Status != "inconclusive" && result.ReplayVerdict.Status != "fail" {
+			return fmt.Errorf("inconclusive replay must have an inconclusive or failed replay verdict")
 		}
 	}
 	return nil

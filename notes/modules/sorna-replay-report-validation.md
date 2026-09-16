@@ -18,6 +18,11 @@ semantics, request and observation counts, and top-level status consistency.
 In particular, a report cannot claim `matched` when request intent changed or
 when a request fingerprint was unavailable.
 
+Replay comparison also treats assertion ordering as non-semantic. The runner
+produces assertions in sorted property order, while the replay comparator sorts
+path/status pairs as a defense for older evidence produced before that
+determinism fix.
+
 `LoadReplayReport` parses a saved report with unknown-field rejection and then
 applies the same validation. The CLI surface is:
 

@@ -3,7 +3,9 @@ package store
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"ingen/hammond/internal/governance"
 )
@@ -122,6 +124,63 @@ func TestFileStoreDoesNotPersistInvalidAppend(t *testing.T) {
 	}
 	if len(loaded.Events) != 1 || loaded.State != governance.StateRegistered {
 		t.Fatalf("loaded record = %#v, want unchanged registration", loaded)
+	}
+}
+
+func TestFileStoreConditionalAppendRejectsStaleRevision(t *testing.T) {
+	fileStore, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := registeredRecord(contractDigest)
+	if err := fileStore.Register(record); err != nil {
+		t.Fatal(err)
+	}
+	readBeforeUpdate, err := fileStore.Get(record.Contract.Identity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleRevision, err := RecordRevision(readBeforeUpdate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fileStore.AppendEvent(record.Contract.Identity(), governance.Event{
+		ID:            "event-002",
+		Type:          governance.EventReviewOpened,
+		Actor:         "owner",
+		ReviewCycleID: "review-001",
+		At:            "2026-09-15T00:01:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	approval := governance.Event{
+		ID:             "event-003",
+		Type:           governance.EventApprovalRecorded,
+		Actor:          "reviewer@example.test",
+		Role:           "product-reviewer",
+		ReviewCycleID:  "review-001",
+		Decision:       governance.DecisionApprove,
+		ArtifactSHA256: contractDigest,
+		At:             "2026-09-15T00:02:00Z",
+	}
+	if _, err := fileStore.AppendEventIfRevision(record.Contract.Identity(), staleRevision, approval); err == nil || !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale append error = %v, want ErrConflict", err)
+	}
+	unchanged, err := fileStore.Get(record.Contract.Identity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unchanged.Events) != 2 || unchanged.State != governance.StateInReview {
+		t.Fatalf("record after stale append = %#v, want unchanged in-review record", unchanged)
+	}
+
+	freshRevision, err := RecordRevision(unchanged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fileStore.AppendEventIfRevision(record.Contract.Identity(), freshRevision, approval); err != nil {
+		t.Fatalf("fresh conditional append error = %v", err)
 	}
 }
 
@@ -284,6 +343,63 @@ func TestFileStoreReturnsNotFound(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("error = %v, want ErrNotFound", err)
 	}
+}
+
+func TestFileStoreCoordinatesLocksAcrossInstances(t *testing.T) {
+	root := t.TempDir()
+	first, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unlockFirst, err := first.lockFile(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if unlockFirst != nil {
+			unlockFirst()
+		}
+	}()
+
+	type lockResult struct {
+		unlock func()
+		err    error
+	}
+	result := make(chan lockResult, 1)
+	started := make(chan struct{})
+	var wait sync.WaitGroup
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		close(started)
+		unlock, err := second.lockFile(false)
+		result <- lockResult{unlock: unlock, err: err}
+	}()
+	<-started
+
+	select {
+	case <-result:
+		t.Fatal("second store acquired the lock while first store held it")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	unlockFirst()
+	unlockFirst = nil
+	select {
+	case acquired := <-result:
+		if acquired.err != nil {
+			t.Fatal(acquired.err)
+		}
+		acquired.unlock()
+	case <-time.After(time.Second):
+		t.Fatal("second store did not acquire the lock after release")
+	}
+	wait.Wait()
 }
 
 func registeredRecord(digest string) governance.Record {

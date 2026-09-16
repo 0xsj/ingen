@@ -310,6 +310,37 @@ func TestEvaluateShapeRejectsUndeclaredAdditionalProperties(t *testing.T) {
 	}
 }
 
+func TestEvaluateShapeSortsPropertyAssertions(t *testing.T) {
+	assertions := evaluateShape("body", map[string]any{"zeta": "last", "alpha": "first"}, map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"zeta":  map[string]any{"equals": "last"},
+			"alpha": map[string]any{"equals": "first"},
+		},
+	})
+	paths := make([]string, 0, len(assertions))
+	for _, assertion := range assertions {
+		paths = append(paths, assertion.Path)
+	}
+	if got, want := strings.Join(paths, ","), "body,body.alpha,body.zeta"; got != want {
+		t.Fatalf("assertion paths = %q, want %q", got, want)
+	}
+}
+
+func TestEvaluateExactObjectSortsFieldAssertions(t *testing.T) {
+	assertions := evaluateExactObject("body.error", map[string]any{"code": "bad", "message": "invalid"}, map[string]any{
+		"message": "invalid",
+		"code":    "bad",
+	})
+	paths := make([]string, 0, len(assertions))
+	for _, assertion := range assertions {
+		paths = append(paths, assertion.Path)
+	}
+	if got, want := strings.Join(paths, ","), "body.error.code,body.error.message"; got != want {
+		t.Fatalf("assertion paths = %q, want %q", got, want)
+	}
+}
+
 func TestExecuteOracleSendsMaterializedFrozenBody(t *testing.T) {
 	rule := map[string]any{
 		"id":       "document.create.oversize",

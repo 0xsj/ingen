@@ -213,9 +213,25 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
   graph: `handoff` preserves exit `1`, retains the one finding in the CI
   artifact, and emits a filtered `domain-is-pure` explanation with no mixed
   stdout.
+- A fresh compatibility replay of the real Overwatch backend proposal keeps
+  the sealed lock valid, reports exactly two normalized policy changes, and
+  verifies a durable `PASS` review artifact with one expected-failure case and
+  three measured findings. Neither the sealed policy nor Overwatch was changed.
 - Repository-local `AGENTS.md` guidance now defines the safe agent workflow,
   result interpretation, adapter-failure handling, expected exit-`1` handling
   in `set -e` scripts, and the human approval boundary for policy changes.
+- CI-derived explanations now retain optional artifact, policy, lock, graph,
+  and baseline provenance so filtered agent handoffs can be correlated with
+  their authoritative evidence; acceptance tests independently recompute the
+  artifact hash and compare the lock reference.
+- External graph evidence now records non-secret adapter invocation metadata,
+  and CI-derived explanations surface it when the retained graph is available;
+  raw adapter arguments remain excluded from artifacts.
+- The real Overwatch handoff was replayed in a restricted runner with an
+  explicit writable `GOCACHE`: the backend returned the expected blocking
+  result and the UI returned a clean result. The setup requirement is now
+  documented as an adapter evaluation prerequisite; cache failures remain
+  exit-`2` errors.
 - Machine-readable architecture policy schema and documented v1 compatibility
   rules for Paddock contracts.
 

@@ -48,6 +48,14 @@ artifact contract. They follow the same versioning rules below.
 - The reserved rule-selector keys `path` and `path-not`, including `|`-joined
   path alternatives, are additive v1 policy vocabulary. Existing label
   selectors and component matching remain unchanged.
+- The optional `provenance` field on `paddock.explanation/v1` is additive. It
+  identifies the enclosing CI artifact and its policy, lock, graph, and
+  baseline references when an explanation is derived from a CI artifact. It
+  may also carry optional adapter identity and non-secret invocation metadata;
+  report-derived explanations may omit it.
+- The optional `adapter` field on `paddock.graph/v1` is additive. Paddock may
+  populate external executable and argument-list digests when it invokes an
+  adapter; existing graph consumers may ignore the field.
 - A changed meaning, field type, identifier, exit-code contract, or capability
   interpretation requires a new version.
 - Graph adapters own language analysis, not policy semantics. New edge kinds or

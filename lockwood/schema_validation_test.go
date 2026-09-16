@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	artifactSchemaURL    = "https://ingen.example/spec/lockwood.artifact-v1.schema.json"
-	custodySchemaURL     = "https://ingen.example/spec/lockwood.custody-v1.schema.json"
-	custodyV2SchemaURL   = "https://ingen.example/spec/lockwood.custody-v2.schema.json"
-	attestationSchemaURL = "https://ingen.example/spec/lockwood.attestation-v1.schema.json"
+	artifactSchemaURL      = "https://ingen.example/spec/lockwood.artifact-v1.schema.json"
+	custodySchemaURL       = "https://ingen.example/spec/lockwood.custody-v1.schema.json"
+	custodyV2SchemaURL     = "https://ingen.example/spec/lockwood.custody-v2.schema.json"
+	attestationSchemaURL   = "https://ingen.example/spec/lockwood.attestation-v1.schema.json"
+	trustSchemaURL         = "https://ingen.example/spec/lockwood.attestation-trust-v1.schema.json"
+	handlingEventSchemaURL = "https://ingen.example/spec/lockwood.handling-event-v1.schema.json"
 )
 
 func TestDraftSchemasValidateFixtures(t *testing.T) {
@@ -60,6 +62,20 @@ func TestDraftAttestationSchemaValidatesFixture(t *testing.T) {
 	}
 }
 
+func TestDraftAttestationTrustSchemaValidatesFixture(t *testing.T) {
+	schema := compileLockwoodSchema(t, trustSchemaURL, "spec/lockwood.attestation-trust-v1.schema.json")
+	if err := schema.Validate(loadJSONDocument(t, "testdata/valid-attestation-trust-v1.json")); err != nil {
+		t.Fatalf("valid attestation trust registry rejected by draft schema: %v", err)
+	}
+}
+
+func TestDraftHandlingEventSchemaValidatesFixture(t *testing.T) {
+	schema := compileLockwoodSchema(t, handlingEventSchemaURL, "spec/lockwood.handling-event-v1.schema.json")
+	if err := schema.Validate(loadJSONDocument(t, "testdata/valid-handling-event-v1.json")); err != nil {
+		t.Fatalf("valid handling event rejected by draft schema: %v", err)
+	}
+}
+
 func compileLockwoodSchema(t *testing.T, url, relativePath string) *jsonschema.Schema {
 	t.Helper()
 	compiler := jsonschema.NewCompiler()
@@ -72,6 +88,8 @@ func compileLockwoodSchema(t *testing.T, url, relativePath string) *jsonschema.S
 		{url: custodySchemaURL, path: "spec/lockwood.custody-v1.schema.json"},
 		{url: custodyV2SchemaURL, path: "spec/lockwood.custody-v2.schema.json"},
 		{url: attestationSchemaURL, path: "spec/lockwood.attestation-v1.schema.json"},
+		{url: trustSchemaURL, path: "spec/lockwood.attestation-trust-v1.schema.json"},
+		{url: handlingEventSchemaURL, path: "spec/lockwood.handling-event-v1.schema.json"},
 	} {
 		data, err := os.ReadFile(resource.path)
 		if err != nil {

@@ -182,18 +182,19 @@ func (identity ContractIdentity) Equal(other ContractIdentity) bool {
 }
 
 type Event struct {
-	ID             string            `json:"id"`
-	Type           EventType         `json:"type"`
-	Actor          string            `json:"actor"`
-	Role           string            `json:"role,omitempty"`
-	At             string            `json:"at"`
-	ReviewCycleID  string            `json:"review_cycle_id,omitempty"`
-	Decision       Decision          `json:"decision,omitempty"`
-	ArtifactSHA256 string            `json:"artifact_sha256,omitempty"`
-	Reason         string            `json:"reason,omitempty"`
-	Predecessor    *ContractIdentity `json:"predecessor,omitempty"`
-	Successor      *ContractIdentity `json:"successor,omitempty"`
-	AmendmentKind  AmendmentKind     `json:"amendment_kind,omitempty"`
+	ID             string               `json:"id"`
+	Type           EventType            `json:"type"`
+	Actor          string               `json:"actor"`
+	Role           string               `json:"role,omitempty"`
+	At             string               `json:"at"`
+	ReviewCycleID  string               `json:"review_cycle_id,omitempty"`
+	Decision       Decision             `json:"decision,omitempty"`
+	ArtifactSHA256 string               `json:"artifact_sha256,omitempty"`
+	Membership     *MembershipReference `json:"membership,omitempty"`
+	Reason         string               `json:"reason,omitempty"`
+	Predecessor    *ContractIdentity    `json:"predecessor,omitempty"`
+	Successor      *ContractIdentity    `json:"successor,omitempty"`
+	AmendmentKind  AmendmentKind        `json:"amendment_kind,omitempty"`
 }
 
 type Record struct {

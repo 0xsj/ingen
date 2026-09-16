@@ -17,6 +17,17 @@ func TestValidateReplayResultAcceptsConsistentReport(t *testing.T) {
 	}
 }
 
+func TestValidateReplayResultAcceptsIncompleteReplayWithObservedFailure(t *testing.T) {
+	result := validReplayReport()
+	result.Status = "inconclusive"
+	result.Behavior.Status = "inconclusive"
+	result.Behavior.ObservationStatus = "unavailable"
+	result.ReplayVerdict = runner.ContractVerdict{Status: "fail", Reason: "one rule failed before another became evaluable"}
+	if err := ValidateReplayResult(result); err != nil {
+		t.Fatalf("ValidateReplayResult() = %v, want incomplete replay with observed failure valid", err)
+	}
+}
+
 func TestValidateReplayResultRejectsAmbiguousOrInconsistentReport(t *testing.T) {
 	tests := []struct {
 		name   string

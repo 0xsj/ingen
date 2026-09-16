@@ -69,6 +69,16 @@ func TestHerdrEventAdapterCommandAppendsAndReplays(t *testing.T) {
 	if len(loaded.Events) != 2 || loaded.Events[1].SourceID != "herdr-cli-event-1" || loaded.Status != "running" {
 		t.Fatalf("loaded events = %+v, want appended source event", loaded.Events)
 	}
+	if code := run([]string{"adapter", "herdr-event", "--receipt", receiptPath, "--event", eventPath, "--output", receiptPath}); code != 0 {
+		t.Fatalf("same-path adapter command exit code = %d, want lock-protected success", code)
+	}
+	inPlace, err := sentinelrun.LoadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inPlace.Events) != 2 || inPlace.Status != "running" {
+		t.Fatalf("same-path receipt = %+v, want one appended event", inPlace)
+	}
 
 	if code := run([]string{"adapter", "herdr-event", "--receipt", updatedPath, "--event", eventPath}); code != 0 {
 		t.Fatalf("replay adapter command exit code = %d, want 0", code)
@@ -196,6 +206,106 @@ func TestCIResultCommandRejectsCompletedReceiptWithDriftedReference(t *testing.T
 	}
 }
 
+func TestCIResultCommandPublishesFailedLifecycleAsFailedEnvelope(t *testing.T) {
+	t.Chdir(t.TempDir())
+	receiptPath := filepath.Join(".artifacts", "receipt.json")
+	outputPath := filepath.Join(".artifacts", "ci-result.json")
+	if err := os.MkdirAll(filepath.Dir(receiptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workspaceBytes := []byte("workspace")
+	if err := os.WriteFile("workspace.yaml", workspaceBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	receipt := sentinelrun.Receipt{
+		Schema: sentinelrun.Schema,
+		RunID:  "run-ci-failed-test",
+		Workspace: sentinelrun.WorkspaceRef{
+			ID:      "webhook-validation",
+			Version: 1,
+			File:    ciresult.FileRef{Path: "workspace.yaml", SHA256: digestBytes(workspaceBytes)},
+		},
+		Status:    "failed",
+		CreatedAt: "2026-09-16T10:00:00Z",
+		UpdatedAt: "2026-09-16T10:00:01Z",
+		Events:    []sentinelrun.Event{{Sequence: 1, Type: "workspace-created", At: "2026-09-16T10:00:00Z"}},
+	}
+	if err := sentinelrun.SaveFile(receiptPath, receipt); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := run([]string{"run", "ci-result", "--receipt", receiptPath, "--source-root", ".", "--output", outputPath}); code != 1 {
+		t.Fatalf("failed ci-result exit code = %d, want producer failure code 1", code)
+	}
+	artifact, err := ciresult.LoadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Tool != "sentinel" || artifact.Status != "failed" || artifact.ExitCode != 1 || artifact.Error != "" {
+		t.Fatalf("failed Sentinel envelope = %+v, want failed producer envelope", artifact)
+	}
+	var explanation struct {
+		ReceiptStatus string `json:"receipt_status"`
+		Outcome       string `json:"outcome"`
+	}
+	if err := json.Unmarshal(artifact.Explanation, &explanation); err != nil {
+		t.Fatal(err)
+	}
+	if explanation.ReceiptStatus != "failed" || explanation.Outcome == "" {
+		t.Fatalf("explanation = %+v, want failed receipt context", explanation)
+	}
+}
+
+func TestCIResultCommandMapsBlockedLifecycleToErrorEnvelope(t *testing.T) {
+	t.Chdir(t.TempDir())
+	receiptPath := filepath.Join(".artifacts", "receipt.json")
+	outputPath := filepath.Join(".artifacts", "ci-result.json")
+	if err := os.MkdirAll(filepath.Dir(receiptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workspaceBytes := []byte("workspace")
+	if err := os.WriteFile("workspace.yaml", workspaceBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	receipt := sentinelrun.Receipt{
+		Schema: sentinelrun.Schema,
+		RunID:  "run-ci-blocked-test",
+		Workspace: sentinelrun.WorkspaceRef{
+			ID:      "webhook-validation",
+			Version: 1,
+			File:    ciresult.FileRef{Path: "workspace.yaml", SHA256: digestBytes(workspaceBytes)},
+		},
+		Status:    "blocked",
+		CreatedAt: "2026-09-16T10:00:00Z",
+		UpdatedAt: "2026-09-16T10:00:01Z",
+		Events:    []sentinelrun.Event{{Sequence: 1, Type: "workspace-created", At: "2026-09-16T10:00:00Z"}},
+	}
+	if err := sentinelrun.SaveFile(receiptPath, receipt); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := run([]string{"run", "ci-result", "--receipt", receiptPath, "--source-root", ".", "--output", outputPath}); code != 2 {
+		t.Fatalf("blocked ci-result exit code = %d, want orchestration error code 2", code)
+	}
+	artifact, err := ciresult.LoadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Tool != "sentinel" || artifact.Status != "error" || artifact.ExitCode != 2 || !strings.Contains(artifact.Error, "blocked") {
+		t.Fatalf("blocked Sentinel envelope = %+v, want error envelope with lifecycle reason", artifact)
+	}
+	var explanation struct {
+		ReceiptStatus string `json:"receipt_status"`
+		Outcome       string `json:"outcome"`
+	}
+	if err := json.Unmarshal(artifact.Explanation, &explanation); err != nil {
+		t.Fatal(err)
+	}
+	if explanation.ReceiptStatus != "blocked" || !strings.Contains(explanation.Outcome, "not a terminal verifier outcome") {
+		t.Fatalf("explanation = %+v, want blocked lifecycle context", explanation)
+	}
+}
+
 func TestHerdrEventBatchCommandPublishesAllEvents(t *testing.T) {
 	t.Chdir(t.TempDir())
 	receiptPath := filepath.Join(".artifacts", "receipt.json")
@@ -263,6 +373,16 @@ func TestHerdrEventBatchCommandPublishesAllEvents(t *testing.T) {
 	}
 	if len(loaded.Events) != 3 || loaded.Status != "completed" || loaded.Events[2].SourceID != "herdr-batch-2" {
 		t.Fatalf("loaded receipt = %+v, want two appended events and completed status", loaded)
+	}
+	if code := run([]string{"adapter", "herdr-events", "--receipt", receiptPath, "--events", eventsPath, "--output", receiptPath}); code != 0 {
+		t.Fatalf("same-path batch command exit code = %d, want lock-protected success", code)
+	}
+	inPlace, err := sentinelrun.LoadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inPlace.Events) != 3 || inPlace.Status != "completed" {
+		t.Fatalf("same-path batch receipt = %+v, want two appended events", inPlace)
 	}
 }
 

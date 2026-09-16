@@ -12,9 +12,11 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"ingen/lockwood/internal/attestation"
 	"ingen/lockwood/internal/custody"
+	"ingen/lockwood/internal/store"
 )
 
 func TestCLIEndToEnd(t *testing.T) {
@@ -138,6 +140,208 @@ func TestCLIGetRefusesOverwrite(t *testing.T) {
 	}
 	if string(data) != "existing" {
 		t.Fatalf("existing output changed to %q", data)
+	}
+}
+
+func TestCLILineageStatusReportsUnresolvedWithoutChangingStatus(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(t.TempDir(), "child.txt")
+	if err := os.WriteFile(input, []byte("child"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	missingSum := sha256.Sum256([]byte("missing-parent"))
+	missingDigest := "sha256:" + hex.EncodeToString(missingSum[:])
+	const custodyID = "lockwood-cli-lineage-status-unresolved"
+	var putOutput bytes.Buffer
+	if code := run([]string{
+		"put",
+		"--root", root,
+		"--id", custodyID,
+		"--media-type", "text/plain",
+		"--producer", "example",
+		"--kind", "lineage-status-fixture",
+		"--parent", "references=" + missingDigest,
+		input,
+	}, strings.NewReader(""), &putOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("put exit code = %d", code)
+	}
+	var stored custody.Record
+	if err := json.Unmarshal(putOutput.Bytes(), &stored); err != nil {
+		t.Fatal(err)
+	}
+	var statusOutput bytes.Buffer
+	if code := run([]string{"lineage-status", "--root", root, custodyID}, strings.NewReader(""), &statusOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("lineage-status exit code = %d", code)
+	}
+	var report custody.LineageReport
+	if err := json.Unmarshal(statusOutput.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != custody.LineageIncomplete || len(report.Issues) != 1 || report.Issues[0].Kind != custody.UnresolvedParentIssue {
+		t.Fatalf("lineage-status report = %+v", report)
+	}
+	if stored.Status != custody.Accepted {
+		t.Fatalf("lineage-status changed custody status to %q", stored.Status)
+	}
+}
+
+func TestCLIHandlingEventsAreAppendOnly(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(t.TempDir(), "handled.txt")
+	if err := os.WriteFile(input, []byte("handled bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const custodyID = "lockwood-cli-handling-events-0001"
+	var putOutput bytes.Buffer
+	if code := run([]string{
+		"put",
+		"--root", root,
+		"--id", custodyID,
+		"--media-type", "text/plain",
+		"--producer", "example",
+		"--kind", "handling-events-fixture",
+		input,
+	}, strings.NewReader(""), &putOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("put exit code = %d", code)
+	}
+	var original custody.Record
+	if err := json.Unmarshal(putOutput.Bytes(), &original); err != nil {
+		t.Fatalf("decode put output: %v", err)
+	}
+	originalRecordDigest, err := custody.CanonicalDigest(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var retentionOutput bytes.Buffer
+	if code := run([]string{
+		"append-event",
+		"--root", root,
+		"--id", custodyID,
+		"--event-id", "event-retention-0001",
+		"--type", string(custody.RetentionClassifiedEvent),
+		"--recorded-at", "2026-09-16T12:00:00Z",
+		"--actor", "operator@example",
+		"--reason", "classified under the standard retention schedule",
+		"--retention-class", "standard-7y",
+	}, strings.NewReader(""), &retentionOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("append retention event exit code = %d", code)
+	}
+	var retentionEvent custody.HandlingEvent
+	if err := json.Unmarshal(retentionOutput.Bytes(), &retentionEvent); err != nil {
+		t.Fatalf("decode retention event: %v", err)
+	}
+	if retentionEvent.Type != custody.RetentionClassifiedEvent || retentionEvent.RetentionClass != "standard-7y" {
+		t.Fatalf("retention event = %+v", retentionEvent)
+	}
+
+	resultingDigest := "sha256:" + strings.Repeat("b", 64)
+	var redactionOutput bytes.Buffer
+	if code := run([]string{
+		"append-event",
+		"--root", root,
+		"--id", custodyID,
+		"--event-id", "event-redaction-0001",
+		"--type", string(custody.RedactionEvent),
+		"--recorded-at", "2026-09-16T12:01:00Z",
+		"--actor", "operator@example",
+		"--reason", "removed restricted fields",
+		"--original-digest", original.Artifact.Digest,
+		"--resulting-digest", resultingDigest,
+	}, strings.NewReader(""), &redactionOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("append redaction event exit code = %d", code)
+	}
+
+	var listOutput bytes.Buffer
+	if code := run([]string{"list-events", "--root", root, "--id", custodyID}, strings.NewReader(""), &listOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("list-events exit code = %d", code)
+	}
+	var events []custody.HandlingEvent
+	if err := json.Unmarshal(listOutput.Bytes(), &events); err != nil {
+		t.Fatalf("decode handling events: %v", err)
+	}
+	if len(events) != 2 || events[0].EventID != "event-retention-0001" || events[1].EventID != "event-redaction-0001" {
+		t.Fatalf("handling events = %+v", events)
+	}
+
+	var conflictStderr bytes.Buffer
+	if code := run([]string{
+		"append-event",
+		"--root", root,
+		"--id", custodyID,
+		"--event-id", "event-retention-0001",
+		"--type", string(custody.RetentionClassifiedEvent),
+		"--recorded-at", "2026-09-16T12:00:00Z",
+		"--actor", "operator@example",
+		"--reason", "changed reason",
+		"--retention-class", "standard-7y",
+	}, strings.NewReader(""), &bytes.Buffer{}, &conflictStderr); code == 0 {
+		t.Fatal("append-event accepted conflicting event ID")
+	}
+	if !strings.Contains(conflictStderr.String(), "already exists with different contents") {
+		t.Fatalf("conflict stderr = %q", conflictStderr.String())
+	}
+
+	var inspectOutput bytes.Buffer
+	if code := run([]string{"inspect", "--root", root, custodyID}, strings.NewReader(""), &inspectOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("inspect exit code = %d", code)
+	}
+	var after custody.Record
+	if err := json.Unmarshal(inspectOutput.Bytes(), &after); err != nil {
+		t.Fatalf("decode inspected record: %v", err)
+	}
+	afterRecordDigest, err := custody.CanonicalDigest(after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterRecordDigest != originalRecordDigest || after.Handling != original.Handling {
+		t.Fatalf("handling events changed custody record: before=%+v after=%+v", original, after)
+	}
+}
+
+func TestCLIReconcileClassifiesOldOrphansWithoutDeleting(t *testing.T) {
+	root := t.TempDir()
+	artifacts, _, err := openStores(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphan, err := artifacts.Put(strings.NewReader("orphan"), store.PutOptions{MediaType: "text/plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hexDigest := strings.TrimPrefix(orphan.Digest, "sha256:")
+	blobPath := filepath.Join(root, "blobs", "sha256", hexDigest[:2], hexDigest[2:4], hexDigest)
+	oldTime := "2026-09-10T12:00:00Z"
+	parsedOldTime, err := time.Parse(time.RFC3339, oldTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(blobPath, parsedOldTime, parsedOldTime); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if code := run([]string{
+		"reconcile",
+		"--root", root,
+		"--orphan-grace", "24h",
+		"--as-of", "2026-09-16T12:00:00Z",
+	}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("reconcile exit code = %d", code)
+	}
+	var report struct {
+		Orphans           []any `json:"orphans"`
+		CleanupCandidates []struct {
+			Digest string `json:"digest"`
+		} `json:"cleanup_candidates"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Orphans) != 1 || len(report.CleanupCandidates) != 1 || report.CleanupCandidates[0].Digest != orphan.Digest {
+		t.Fatalf("reconciliation output = %+v", report)
+	}
+	if err := artifacts.Verify(orphan.Digest); err != nil {
+		t.Fatalf("reconcile removed or damaged orphan: %v", err)
 	}
 }
 
@@ -322,6 +526,22 @@ func TestCLIVerifyAttestation(t *testing.T) {
 	if inspection.AttestationDigest != ref.Digest || inspection.Envelope.KeyID != "review-key-2026-01" {
 		t.Fatalf("attestation inspection = %+v", inspection)
 	}
+	var linkOutput bytes.Buffer
+	if code := run([]string{
+		"inspect-attestation-link",
+		"--root", root,
+		"--id", custodyID,
+		ref.Digest,
+	}, strings.NewReader(""), &linkOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("inspect-attestation-link exit code = %d", code)
+	}
+	var link attestation.LinkInspection
+	if err := json.Unmarshal(linkOutput.Bytes(), &link); err != nil {
+		t.Fatalf("decode attestation link: %v", err)
+	}
+	if link.Relation != attestation.CustodyRecordLinkRelation || link.AttestationDigest != ref.Digest || link.CustodyID != custodyID || link.CustodyRecordDigest != targetDigest || link.PayloadArtifactDigest != record.Artifact.Digest {
+		t.Fatalf("attestation link = %+v", link)
+	}
 	publicKeyPath := filepath.Join(t.TempDir(), "review-key.pub")
 	encodedKey := base64.StdEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey)) + "\n"
 	if err := os.WriteFile(publicKeyPath, []byte(encodedKey), 0o600); err != nil {
@@ -343,6 +563,73 @@ func TestCLIVerifyAttestation(t *testing.T) {
 	}
 	if receipt.CustodyID != custodyID || receipt.AttestationDigest != ref.Digest || receipt.KeyID != "review-key-2026-01" || receipt.Algorithm != attestation.Algorithm || !receipt.Verified {
 		t.Fatalf("verification receipt = %+v", receipt)
+	}
+	registry := attestation.TrustRegistry{
+		Schema: attestation.TrustRegistrySchema,
+		Keys: []attestation.TrustedKey{{
+			KeyID:     "review-key-2026-01",
+			Algorithm: attestation.Algorithm,
+			PublicKey: base64.StdEncoding.EncodeToString(privateKey.Public().(ed25519.PublicKey)),
+			Status:    attestation.KeyActive,
+		}},
+	}
+	registryBytes, err := attestation.MarshalCanonicalTrustRegistry(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryPath := filepath.Join(t.TempDir(), "attestation-trust.json")
+	if err := os.WriteFile(registryPath, registryBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var trustedOutput bytes.Buffer
+	if code := run([]string{
+		"verify-attestation-trusted",
+		"--root", root,
+		"--id", custodyID,
+		"--registry", registryPath,
+		"--at", "2026-09-16T12:00:01Z",
+		ref.Digest,
+	}, strings.NewReader(""), &trustedOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("verify-attestation-trusted exit code = %d", code)
+	}
+	var trustedReceipt attestation.TrustedVerificationReceipt
+	if err := json.Unmarshal(trustedOutput.Bytes(), &trustedReceipt); err != nil {
+		t.Fatalf("decode trusted verification receipt: %v", err)
+	}
+	if !trustedReceipt.Verified || !trustedReceipt.Trusted || trustedReceipt.RegistryDigest == "" || trustedReceipt.EvaluatedAt != "2026-09-16T12:00:01Z" {
+		t.Fatalf("trusted verification receipt = %+v", trustedReceipt)
+	}
+	var trustedFindOutput bytes.Buffer
+	if code := run([]string{
+		"find-trusted-attestation",
+		"--root", root,
+		"--registry", registryPath,
+		"--at", "2026-09-16T12:00:01Z",
+		"--target-digest", targetDigest,
+	}, strings.NewReader(""), &trustedFindOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("find-trusted-attestation exit code = %d", code)
+	}
+	var trustedFound []attestation.TrustedStoredAttestation
+	if err := json.Unmarshal(trustedFindOutput.Bytes(), &trustedFound); err != nil {
+		t.Fatalf("decode trusted attestation inventory: %v", err)
+	}
+	if len(trustedFound) != 1 || !trustedFound[0].Verification.Trusted || trustedFound[0].Artifact.Digest != ref.Digest {
+		t.Fatalf("trusted attestation inventory = %+v", trustedFound)
+	}
+	var reconcileOutput bytes.Buffer
+	if code := run([]string{"reconcile", "--root", root}, strings.NewReader(""), &reconcileOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("reconcile after attestation exit code = %d", code)
+	}
+	var reconcileReport struct {
+		Orphans []struct {
+			Digest string `json:"digest"`
+		} `json:"orphans"`
+	}
+	if err := json.Unmarshal(reconcileOutput.Bytes(), &reconcileReport); err != nil {
+		t.Fatalf("decode reconcile after attestation: %v", err)
+	}
+	if len(reconcileReport.Orphans) != 0 {
+		t.Fatalf("reconcile misclassified detached attestation as orphan: %+v", reconcileReport.Orphans)
 	}
 
 	w := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{19}, ed25519.SeedSize))

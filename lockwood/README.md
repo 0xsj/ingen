@@ -36,14 +36,35 @@ Custody v2 can preserve credential-free remote source URI/version metadata;
 this records provenance only and does not fetch or attest remote objects.
 
 The initial local CLI exposes `put`, `import-sorna`, `import-ci-result`,
-`import-attestation`, `get`, `inspect`, `inspect-attestation`, `find-attestation`, `record-digest`, `sign-attestation`,
-`verify-attestation`, `verify`,
-`find`, `recover`, and read-only `reconcile` reporting for
+`import-attestation`, `get`, `inspect`, `lineage-status`, `append-event`,
+`list-events`, `inspect-attestation`, `inspect-attestation-link`,
+`find-attestation`, `record-digest`, `sign-attestation`,
+`verify-attestation`, `verify-attestation-trusted`, `find-trusted-attestation`,
+`verify`, `find`, `recover`, and read-only `reconcile` reporting for
 orphaned or damaged storage. `recover` accepts a saved pending custody record,
 re-verifies its existing blob, and retries record publication. Intake commands
 accept `--max-bytes`; zero means unlimited and a positive value rejects
 oversized input before custody publication. Use `--pending-record <path>` to
 save a recoverable record when publication fails.
+
+`reconcile --orphan-grace <duration>` can classify sufficiently old, still
+valid orphan blobs as cleanup candidates. This report is read-only; Lockwood
+does not delete candidates automatically. Use `--as-of <RFC3339>` for a
+reproducible age cutoff. The CLI recognizes and protects valid published
+detached attestation artifacts from orphan classification; ordinary
+unreferenced blobs remain reportable.
+
+`lineage-status --root <root> <custody-id>` provides a read-only projection of
+reachable lineage. It reports unresolved parents, cycles, and damaged
+reachable artifacts without changing the custody record's status; `verify`
+continues to fail closed when lineage is incomplete.
+
+The append-only `handling-event/v1` contract records redaction observations,
+retention classification, and legal-hold placement or release as separate
+immutable events under a custody ID. `append-event` requires an existing
+custody record and an explicit event time; `list-events` returns events in
+recorded-time order. Events do not edit custody records, delete blobs, perform
+redaction, enforce retention, or authenticate the descriptive `actor` field.
 
 The library also includes process-local in-memory artifact and custody-record
 stores for tests and short-lived workflows; they provide no durability
@@ -64,8 +85,11 @@ The detached attestation boundary is drafted in
 [`SIGNATURE-SPEC.md`](SIGNATURE-SPEC.md). Its draft schema is in
 [`spec/lockwood.attestation-v1.schema.json`](spec/lockwood.attestation-v1.schema.json);
 the local helper can sign and verify Ed25519 attestations against a
-caller-supplied key or exact `key_id` key set, but Lockwood does not provide
-signer trust or authorization.
+caller-supplied key or exact `key_id` key set. A separate canonical trust
+registry schema is available at
+[`spec/lockwood.attestation-trust-v1.schema.json`](spec/lockwood.attestation-trust-v1.schema.json)
+for explicit local trust decisions; it does not provide access control or
+human identity.
 
 Attestation envelopes have a strict canonical JSON encoding for reproducible
 detached-artifact storage; their envelope digest is distinct from the custody
@@ -77,7 +101,8 @@ lineage, because the current lineage model addresses payload artifacts while
 attestations target custody-record representations.
 
 Published envelopes can be loaded by content digest and verified end to end
-against a custody record using a caller-supplied key set.
+against a custody record using a caller-supplied key set or explicit trust
+registry snapshot.
 
 The `sign-attestation` command accepts a standard-base64 Ed25519 private-key
 file containing 64-byte private-key bytes, with an optional final newline; the
@@ -88,7 +113,10 @@ reference and envelope; publication also checks that the envelope targets that
 exact record. The read-only
 `verify-attestation` command accepts an explicit public-key file containing
 standard-base64 Ed25519 public-key bytes, with an optional final newline. It
-does not treat either file as a Lockwood trust registry.
+does not treat that key file as a Lockwood trust registry. The
+`verify-attestation-trusted` command instead accepts a canonical registry file,
+checks the key's active status and validity window at `--at` (or current UTC
+time), and reports the registry snapshot digest in its transient receipt.
 
 Successful `verify-attestation` output is a transient verification receipt
 containing the custody ID and both digests, plus the key ID, algorithm, and a
@@ -107,3 +135,19 @@ the signature or establish signer trust.
 The read-only `find-attestation` command filters persisted attestation
 references by target custody-record digest or key ID. It verifies the matching
 artifact bytes and canonical envelope but does not verify signatures.
+
+The read-only `inspect-attestation-link` command reports the typed detached
+relationship between an attestation artifact and its target custody-record
+representation, alongside the payload artifact digest. It verifies the
+canonical envelope binding and direct payload artifact, but does not assert
+signature trust, lineage resolution, or a custody `verifies` edge.
+
+The read-only `find-trusted-attestation` command applies the explicit trust
+registry to that inventory. It resolves each target custody record, verifies
+its payload and reachable lineage, verifies the detached signature, and
+returns only trusted results with transient verification receipts.
+
+The handling-event draft schema is in
+[`spec/lockwood.handling-event-v1.schema.json`](spec/lockwood.handling-event-v1.schema.json),
+with a representative fixture in
+[`testdata/valid-handling-event-v1.json`](testdata/valid-handling-event-v1.json).

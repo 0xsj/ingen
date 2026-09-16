@@ -95,13 +95,79 @@ fingerprints producer-owned reports without interpreting their semantics. When
 both inputs are Sorna mutation campaigns, it additionally summarizes the
 producer-owned plan and mutation outcome changes. If a recognized producer
 report cannot be decoded, Sattler keeps the generic comparison and emits an
-explicit warning instead of hiding the missing detail.
+explicit warning instead of hiding the missing detail. Common input names are
+classified as `contract`, `plan`, `provider`, or `environment`; unknown names
+remain generic `input` changes.
+
+Changed file references also carry an identity relation. Matching SHA-256
+digests are `same-bytes` even when paths move; differing known digests are
+`replaced`; missing and newly introduced references are `removed` or `added`.
+Sattler reports `unknown` when the available references cannot establish a
+byte identity.
+
+Compatibility is intentionally narrow: a CI comparison requires the same
+producer and result kind, while source, workflow-file, and input changes remain
+comparable context and are reported explicitly.
+
+Comparison summaries retain producer timestamps, Nublar completion boundaries,
+and Lockwood receipt timestamps for historical analysis. These times are
+context, not regression findings.
+
+Each comparison also includes a deterministic `change_summary` with total and
+per-category counts. It is a navigation aid, not a quality score.
 
 ```sh
 go run ./sattler/cmd/sattler compare before.json after.json
 go run ./sattler/cmd/sattler compare --format json before.json after.json
+go run ./sattler/cmd/sattler run compare before-run.json after-run.json
+go run ./sattler/cmd/sattler custody compare before-custody.json after-custody.json
+go run ./sattler/cmd/sattler provenance compare before-provenance.json after-provenance.json
+go run ./sattler/cmd/sattler bundle compare comparison.json
 ```
 
 The comparison report is currently `ingen.sattler-comparison/v0`; it is a
 working seam for exploration, not a compatibility promise. Sattler still does
 not infer causation or reinterpret a producer's verdict.
+
+Nublar collection runs can be compared at the coordinator boundary with
+`sattler run compare`. This reports workflow identity, coordinator verdicts,
+and check-state changes while leaving nested producer results opaque.
+
+Lockwood custody records can be compared with `sattler custody compare`. This
+reports custody and integrity status, producer/source metadata, and whether
+the stored artifact digest stayed the same or was replaced. A digest remains
+an identity reference, not proof of correctness.
+
+Amber provenance values can be compared with `sattler provenance compare`.
+This reports work, execution, and correlation identity plus retry/replay
+transition changes. Amber remains authoritative for provenance validation and
+causation semantics.
+
+Related artifacts can be aligned with a small JSON comparison manifest:
+
+```json
+{
+  "schema": "ingen.sattler-comparison-input/v0",
+  "before": {
+    "ci_result": "before-ci.json",
+    "nublar_run": "before-run.json"
+  },
+  "after": {
+    "ci_result": "after-ci.json",
+    "nublar_run": "after-run.json"
+  }
+}
+```
+
+`sattler bundle compare comparison.json` combines whichever complete artifact
+pairs are declared. Each subsystem report remains independent and optional.
+The bundle also emits a top-level summary with aggregate compatibility,
+subsystem-qualified compatibility reasons, total/category change counts, and
+per-subsystem change counts. This summary is navigation metadata, not a
+quality score or causal conclusion.
+
+Manifests are validated before any artifact is opened. Wrong schemas,
+incomplete pairs, and empty manifests produce stable issue codes such as
+`invalid-schema`, `incomplete-pair`, and `no-artifact-pairs`. When `--format
+json` is selected, operation failures are emitted on stderr as the
+`ingen.sattler-error/v0` envelope with an operation name and `errors` array.

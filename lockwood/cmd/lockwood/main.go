@@ -43,18 +43,30 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGet(args[1:], stdout, stderr)
 	case "inspect":
 		return runInspect(args[1:], stdout, stderr)
+	case "lineage-status":
+		return runLineageStatus(args[1:], stdout, stderr)
+	case "append-event":
+		return runAppendEvent(args[1:], stdout, stderr)
+	case "list-events":
+		return runListEvents(args[1:], stdout, stderr)
 	case "inspect-attestation":
 		return runInspectAttestation(args[1:], stdout, stderr)
+	case "inspect-attestation-link":
+		return runInspectAttestationLink(args[1:], stdout, stderr)
 	case "record-digest":
 		return runRecordDigest(args[1:], stdout, stderr)
 	case "find-attestation":
 		return runFindAttestation(args[1:], stdout, stderr)
+	case "find-trusted-attestation":
+		return runFindTrustedAttestation(args[1:], stdout, stderr)
 	case "sign-attestation":
 		return runSignAttestation(args[1:], stdout, stderr)
 	case "import-attestation":
 		return runImportAttestation(args[1:], stdout, stderr)
 	case "verify-attestation":
 		return runVerifyAttestation(args[1:], stdout, stderr)
+	case "verify-attestation-trusted":
+		return runVerifyAttestationTrusted(args[1:], stdout, stderr)
 	case "verify":
 		return runVerify(args[1:], stdout, stderr)
 	case "find":
@@ -393,6 +405,136 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runLineageStatus(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood lineage-status", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" {
+		fmt.Fprintln(stderr, "lineage-status requires --root and exactly one custody ID")
+		return 2
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	record, err := records.Get(flags.Arg(0))
+	if err != nil {
+		fmt.Fprintf(stderr, "lineage-status: %v\n", err)
+		return 1
+	}
+	report, err := custody.AnalyzeLineage(records, artifacts, record)
+	if err != nil {
+		fmt.Fprintf(stderr, "lineage-status: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, report); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runAppendEvent(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood append-event", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	custodyID := flags.String("id", "", "target custody record ID")
+	eventID := flags.String("event-id", "", "immutable handling event ID")
+	eventType := flags.String("type", "", "handling event type")
+	recordedAt := flags.String("recorded-at", "", "RFC3339 event time")
+	actor := flags.String("actor", "", "descriptive actor identity")
+	reason := flags.String("reason", "", "reason recorded for the event")
+	originalDigest := flags.String("original-digest", "", "original artifact digest for a redaction event")
+	resultingDigest := flags.String("resulting-digest", "", "resulting artifact digest for a redaction event")
+	retentionClass := flags.String("retention-class", "", "retention class for a classification event")
+	legalHoldID := flags.String("legal-hold-id", "", "legal hold ID for a legal-hold event")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *custodyID == "" || *eventID == "" || *eventType == "" || *recordedAt == "" || *actor == "" || *reason == "" {
+		fmt.Fprintln(stderr, "append-event requires --root, --id, --event-id, --type, --recorded-at, --actor, --reason, and no positional arguments")
+		return 2
+	}
+	parsedRecordedAt, err := parseTime(*recordedAt)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid --recorded-at: %v\n", err)
+		return 2
+	}
+	_, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	if _, err := records.Get(*custodyID); err != nil {
+		fmt.Fprintf(stderr, "append-event: read custody record: %v\n", err)
+		return 1
+	}
+	event := custody.HandlingEvent{
+		Schema:          custody.HandlingEventSchema,
+		EventID:         *eventID,
+		CustodyID:       *custodyID,
+		Type:            custody.HandlingEventType(*eventType),
+		RecordedAt:      parsedRecordedAt,
+		Actor:           *actor,
+		Reason:          *reason,
+		OriginalDigest:  *originalDigest,
+		ResultingDigest: *resultingDigest,
+		RetentionClass:  *retentionClass,
+		LegalHoldID:     *legalHoldID,
+	}
+	if err := records.AppendEvent(event); err != nil {
+		fmt.Fprintf(stderr, "append-event: %v\n", err)
+		return 1
+	}
+	stored, err := records.GetEvent(*custodyID, *eventID)
+	if err != nil {
+		fmt.Fprintf(stderr, "append-event: read published event: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, stored); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runListEvents(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood list-events", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	custodyID := flags.String("id", "", "target custody record ID")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *custodyID == "" {
+		fmt.Fprintln(stderr, "list-events requires --root, --id, and no positional arguments")
+		return 2
+	}
+	_, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	if _, err := records.Get(*custodyID); err != nil {
+		fmt.Fprintf(stderr, "list-events: read custody record: %v\n", err)
+		return 1
+	}
+	events, err := records.ListEvents(*custodyID)
+	if err != nil {
+		fmt.Fprintf(stderr, "list-events: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, events); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runInspectAttestation(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood inspect-attestation", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -415,6 +557,40 @@ func runInspectAttestation(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err := writeJSON(stdout, inspection); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runInspectAttestationLink(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood inspect-attestation-link", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	custodyID := flags.String("id", "", "target custody record ID")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" || *custodyID == "" {
+		fmt.Fprintln(stderr, "inspect-attestation-link requires --root, --id, and exactly one attestation digest")
+		return 2
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	record, err := records.Get(*custodyID)
+	if err != nil {
+		fmt.Fprintf(stderr, "inspect-attestation-link: read custody record: %v\n", err)
+		return 1
+	}
+	link, err := attestation.InspectLink(record, flags.Arg(0), artifacts)
+	if err != nil {
+		fmt.Fprintf(stderr, "inspect-attestation-link: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, link); err != nil {
 		fmt.Fprintf(stderr, "write result: %v\n", err)
 		return 1
 	}
@@ -472,6 +648,51 @@ func runFindAttestation(args []string, stdout, stderr io.Writer) int {
 	results, err := attestation.Find(artifacts, attestation.Query{TargetDigest: *targetDigest, KeyID: *keyID})
 	if err != nil {
 		fmt.Fprintf(stderr, "find-attestation: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, results); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runFindTrustedAttestation(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood find-trusted-attestation", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	targetDigest := flags.String("target-digest", "", "custody-record digest to match")
+	keyID := flags.String("key-id", "", "attestation key ID to match")
+	registryPath := flags.String("registry", "", "canonical attestation trust registry file")
+	evaluatedAt := flags.String("at", "", "RFC3339 trust evaluation time; defaults to current UTC time")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *registryPath == "" {
+		fmt.Fprintln(stderr, "find-trusted-attestation requires --root, --registry, and no positional arguments")
+		return 2
+	}
+	when, err := parseTime(*evaluatedAt)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid --at: %v\n", err)
+		return 2
+	}
+	if when.IsZero() {
+		when = time.Now().UTC()
+	}
+	registry, err := readTrustRegistryFile(*registryPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "find-trusted-attestation: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	results, err := attestation.FindTrusted(records, artifacts, attestation.Query{TargetDigest: *targetDigest, KeyID: *keyID}, registry, when)
+	if err != nil {
+		fmt.Fprintf(stderr, "find-trusted-attestation: %v\n", err)
 		return 1
 	}
 	if err := writeJSON(stdout, results); err != nil {
@@ -631,6 +852,55 @@ func runVerifyAttestation(args []string, stdout, stderr io.Writer) int {
 		KeyID:             envelope.KeyID,
 		Algorithm:         envelope.Algorithm,
 		Verified:          true,
+	}
+	if err := writeJSON(stdout, receipt); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runVerifyAttestationTrusted(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood verify-attestation-trusted", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	custodyID := flags.String("id", "", "target custody record ID")
+	registryPath := flags.String("registry", "", "canonical attestation trust registry file")
+	evaluatedAt := flags.String("at", "", "RFC3339 trust evaluation time; defaults to current UTC time")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 1 || *root == "" || *custodyID == "" || *registryPath == "" {
+		fmt.Fprintln(stderr, "verify-attestation-trusted requires --root, --id, --registry, and exactly one attestation digest")
+		return 2
+	}
+	when, err := parseTime(*evaluatedAt)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid --at: %v\n", err)
+		return 2
+	}
+	if when.IsZero() {
+		when = time.Now().UTC()
+	}
+	registry, err := readTrustRegistryFile(*registryPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-attestation-trusted: %v\n", err)
+		return 1
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	record, err := custody.VerifyRecord(records, artifacts, *custodyID)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-attestation-trusted: verify custody record: %v\n", err)
+		return 1
+	}
+	receipt, err := attestation.VerifyPublishedWithRegistryReceipt(record, flags.Arg(0), artifacts, registry, when)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-attestation-trusted: %v\n", err)
+		return 1
 	}
 	if err := writeJSON(stdout, receipt); err != nil {
 		fmt.Fprintf(stderr, "write result: %v\n", err)
@@ -815,6 +1085,8 @@ func runReconcile(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood reconcile", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	root := flags.String("root", "", "Lockwood data root")
+	orphanGrace := flags.Duration("orphan-grace", 0, "classify valid orphans at least this old as cleanup candidates; no deletion")
+	asOf := flags.String("as-of", "", "RFC3339 time used for orphan age classification; defaults to current UTC time")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -822,12 +1094,25 @@ func runReconcile(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "reconcile requires --root and no positional arguments")
 		return 2
 	}
+	if *orphanGrace < 0 {
+		fmt.Fprintln(stderr, "reconcile: --orphan-grace cannot be negative")
+		return 2
+	}
+	when, err := parseTime(*asOf)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid --as-of: %v\n", err)
+		return 2
+	}
 	artifacts, records, err := openStores(*root)
 	if err != nil {
 		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
 		return 1
 	}
-	report, err := custody.Reconcile(artifacts, records)
+	report, err := custody.ReconcileWithOptions(artifacts, records, custody.ReconcileOptions{
+		OrphanGrace:        *orphanGrace,
+		Now:                when,
+		DetachedMediaTypes: []string{attestation.MediaType},
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "reconcile: %v\n", err)
 		return 1
@@ -865,6 +1150,25 @@ func readPrivateKeyFile(path string) (ed25519.PrivateKey, error) {
 		return nil, err
 	}
 	return ed25519.PrivateKey(decoded), nil
+}
+
+func readTrustRegistryFile(path string) (attestation.TrustRegistry, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return attestation.TrustRegistry{}, fmt.Errorf("stat trust registry: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return attestation.TrustRegistry{}, fmt.Errorf("trust registry must be a regular file")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return attestation.TrustRegistry{}, fmt.Errorf("read trust registry: %w", err)
+	}
+	registry, err := attestation.UnmarshalCanonicalTrustRegistry(data)
+	if err != nil {
+		return attestation.TrustRegistry{}, err
+	}
+	return registry, nil
 }
 
 func readBase64KeyFile(path string, expectedSize int, label string, restrictPermissions bool) ([]byte, error) {
@@ -982,11 +1286,17 @@ func usage(writer io.Writer) {
 	fmt.Fprintln(writer, "  get <digest>       retrieve verified bytes")
 	fmt.Fprintln(writer, "  inspect <id>       print one custody record")
 	fmt.Fprintln(writer, "  inspect-attestation inspect a published detached attestation")
+	fmt.Fprintln(writer, "  inspect-attestation-link show its typed custody-record link")
+	fmt.Fprintln(writer, "  lineage-status     report reachable lineage resolution")
+	fmt.Fprintln(writer, "  append-event       append an immutable handling event to a custody record")
+	fmt.Fprintln(writer, "  list-events        list immutable handling events for a custody record")
 	fmt.Fprintln(writer, "  record-digest <id> print the canonical custody-record digest")
 	fmt.Fprintln(writer, "  find-attestation   find published attestations by target or key ID")
+	fmt.Fprintln(writer, "  find-trusted-attestation find and verify attestations through a trust registry")
 	fmt.Fprintln(writer, "  sign-attestation   sign and publish a detached attestation")
 	fmt.Fprintln(writer, "  import-attestation import and publish a detached attestation")
 	fmt.Fprintln(writer, "  verify-attestation verify a published attestation with an explicit public key")
+	fmt.Fprintln(writer, "  verify-attestation-trusted verify with an explicit trust registry")
 	fmt.Fprintln(writer, "  verify <digest>    verify stored bytes")
 	fmt.Fprintln(writer, "  verify --id <id>   verify a custody record and its blob")
 	fmt.Fprintln(writer, "  find               query custody records")

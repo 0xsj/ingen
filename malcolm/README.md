@@ -94,6 +94,64 @@ source text → parser → typed AST → semantic validation → compiled output
 
 Possible outputs include Sorna verification plans, Amber requirements, JSON fixtures, Markdown documentation, and Nublar CI envelopes.
 
+## Try the first slice
+
+The initial Rust crate parses and validates the core syntax, then emits a
+language-neutral JSON intermediate representation:
+
+```sh
+cargo run --manifest-path malcolm/Cargo.toml -- \
+  malcolm/examples/document_api.malcolm
+```
+
+Write the JSON to a file with `-o` or `--output`; use `-` as the input path to
+read the specification from standard input.
+
+## Executable request data
+
+The first executable request slice uses a typed body block instead of treating
+request JSON as free-form text:
+
+~~~text
+scenario create_document {
+  given body {
+    name = "welcome.md"
+    published = true
+    retries = 2
+  }
+  when POST "/documents"
+  must response.status == 202
+}
+~~~
+
+Stateful scenarios can add named setup requests and capture a top-level
+response field for a later URL:
+
+~~~text
+scenario read_document {
+  state document_accepted
+  setup accept_document {
+    given body {
+      name = "welcome.md"
+    }
+    when POST "/documents"
+    must response.status == 202
+    capture document_id = response.body.id
+  }
+  when GET "/documents/{document_id}"
+  must response.status == 200
+}
+~~~
+
+Run the cross-language validation proof with:
+
+~~~sh
+make malcolm-sorna-flow-contract
+~~~
+
 ## Status
 
-Early research and design. No stable syntax or compatibility guarantees exist yet.
+The first Rust slice now parses and validates executable request bodies and
+stateful setup metadata, then emits them in `malcolm.ir/v1` JSON. Sorna's
+adapter lowers this supported subset into `ingen.contract/v1`; the syntax, IR,
+and compatibility rules are still experimental.

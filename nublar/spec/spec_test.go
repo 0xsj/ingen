@@ -94,6 +94,61 @@ func TestNublarSchemaContracts(t *testing.T) {
 	}
 }
 
+func TestCorrelationSchemaIsOptionalClosedAndBounded(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	for _, name := range []string{"run", "decision"} {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(repoRoot, "nublar", "spec", name+"-v1.schema.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var schema struct {
+				Required   []string `json:"required"`
+				Properties map[string]struct {
+					Ref string `json:"$ref"`
+				} `json:"properties"`
+				Definitions map[string]struct {
+					Type                 string `json:"type"`
+					AdditionalProperties bool   `json:"additionalProperties"`
+					Required             []string
+					Properties           map[string]struct {
+						Type      string `json:"type"`
+						MinLength int    `json:"minLength"`
+						Minimum   int64  `json:"minimum"`
+					} `json:"properties"`
+				} `json:"$defs"`
+			}
+			if err := json.Unmarshal(data, &schema); err != nil {
+				t.Fatal(err)
+			}
+			if contains(schema.Required, "correlation") {
+				t.Fatalf("%s schema makes optional correlation required", name)
+			}
+			property, ok := schema.Properties["correlation"]
+			if !ok || property.Ref != "#/$defs/correlation" {
+				t.Fatalf("%s correlation property = %+v, want local correlation reference", name, property)
+			}
+			definition, ok := schema.Definitions["correlation"]
+			if !ok || definition.Type != "object" || definition.AdditionalProperties {
+				t.Fatalf("%s correlation definition = %+v, want closed object", name, definition)
+			}
+			if len(definition.Required) != 3 || !contains(definition.Required, "system") || !contains(definition.Required, "id") || !contains(definition.Required, "attempt") {
+				t.Fatalf("%s correlation required fields = %v, want system/id/attempt", name, definition.Required)
+			}
+			for _, field := range []string{"system", "id"} {
+				property := definition.Properties[field]
+				if property.Type != "string" || property.MinLength != 1 {
+					t.Fatalf("%s correlation.%s = %+v, want non-empty string", name, field, property)
+				}
+			}
+			attempt := definition.Properties["attempt"]
+			if attempt.Type != "integer" || attempt.Minimum != 1 {
+				t.Fatalf("%s correlation.attempt = %+v, want integer >= 1", name, attempt)
+			}
+		})
+	}
+}
+
 func TestRunSchemaReferencesSharedCIEnvelope(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	data, err := os.ReadFile(filepath.Join(repoRoot, "nublar", "spec", "run-v1.schema.json"))

@@ -112,8 +112,14 @@ The CI-facing output and exit-code contract is documented in
 [`OUTPUT-BOUNDARY.md`](OUTPUT-BOUNDARY.md).
 The provider-neutral delivery projection is documented in
 [`DELIVERY-BOUNDARY.md`](DELIVERY-BOUNDARY.md).
+The optional local delivery-receipt store is documented in
+[`RECEIPT-STORAGE.md`](RECEIPT-STORAGE.md).
 The external consumer handoff is documented in
 [`CONSUMER-GUIDE.md`](CONSUMER-GUIDE.md).
+The current local contract checkpoint is documented in
+[`CONTRACT-CHECKPOINT.md`](CONTRACT-CHECKPOINT.md).
+The provider-neutral CI gate example is documented in
+[`examples/consumer/README.md`](examples/consumer/README.md).
 The first Sentinel verifier handoff into Nublar is documented in
 [`nublar-sentinel-verifier-workflow.md`](../notes/modules/nublar-sentinel-verifier-workflow.md).
 
@@ -144,3 +150,8 @@ and multiple JSON values in one result file are rejected. Producer `report` and
 The focused repository check is `make nublar-check`; it runs Nublar's race
 tests and static analysis, then parses the Nublar and shared CI-envelope
 schema files without running any producer workflow.
+
+The provider-neutral consumer smoke check is `make nublar-consumer-check`; it
+exercises the example CI gate against fixed passed, failed, missing-artifact,
+and malformed-envelope fixtures and verifies the persisted runs, decision
+projections, correlation metadata, and expected exit codes.

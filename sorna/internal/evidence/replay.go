@@ -278,6 +278,7 @@ func assertionShape(assertions []runner.Assertion) string {
 	for _, assertion := range assertions {
 		parts = append(parts, assertion.Path+"="+assertion.Status)
 	}
+	sort.Strings(parts)
 	return strings.Join(parts, ";")
 }
 

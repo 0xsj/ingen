@@ -36,6 +36,13 @@ difference is `drifted`. Observation hashes are compared for diagnosis but are
 tracked separately: an observation can change while the contract-visible
 outcome remains `matched`.
 
+The first host-enabled fresh replay exposed a producer determinism bug: Go map
+iteration changed the order of equivalent assertion records between the
+baseline and replay. Sorna now sorts contract property keys when producing
+assertions, and replay canonicalizes assertion path/status pairs defensively
+when comparing existing evidence. The initial red was therefore a useful
+false-positive finding, not subject behavior drift.
+
 If the supplied subject cannot be evaluated, replay reports `error` (or
 `inconclusive` when evaluation is incomplete) rather than calling that a
 behavioral drift. An unavailable observation is not compared as a changed
@@ -67,3 +74,43 @@ separate `replay-fixture` harness. It creates no Sorna evidence itself: it
 starts a fresh subject, waits for readiness, invokes the replay CLI, and
 tears the subject down. Keeping that lifecycle outside Sorna prevents a
 convenience target from changing the verifier's explicit URL-only boundary.
+
+The negative fixture uses the controlled `unsupported-type-500` subject against
+a clean baseline. Its Make target treats replay exit code 1 as the expected
+result, then leaves the failed shared CI artifact available for inspection.
+This is a useful distinction for CI: a known behavioral red is successful
+regression coverage, while an unevaluable replay remains an infrastructure
+error.
+
+The `status-200-create` defect also exposed a separate edge case: one visible
+failure can prevent later stateful cases from becoming evaluable. Replay keeps
+that run `inconclusive` rather than overstating it as drift, while retaining the
+failed replay verdict and the visible rule difference in the report.
+
+The replay regression target now exercises both classifications together:
+`unsupported-type-500` is a complete behavioral red (`failed` / `drifted`),
+while `status-200-create` is an incomplete stateful experiment (`error` /
+`inconclusive`) with its observed failed verdict preserved inside the report.
+The `process-stays-queued` and `persistence-wrong-key` defects follow the same
+incomplete-state classification, covering a failed process transition and a
+broken captured document identity respectively.
+
+The matrix also covers the remaining complete defects: `remove-name-create`
+checks response-shape enforcement, and `accepts-png` checks input-validation
+enforcement. Both should remain fully evaluable and produce `failed` /
+`drifted` CI results.
+
+The replay-matrix adapter is the next aggregation boundary. It consumes the
+six producer-owned `behavioral-replay` envelopes, validates each nested replay
+report and the outer CI status mapping, hashes every member envelope, and
+preserves those references as `replay:<id>` inputs. The matrix has its own
+explicit expectations, so intentional reds are counted as matched regression
+cases rather than being confused with an infrastructure error. The aggregate
+only passes when all expected classifications match.
+
+The saved aggregate has a separate verification path:
+`sorna evidence replay matrix verify`. This is deliberately independent of
+creation. It re-hashes the member envelopes, revalidates each nested replay
+report, and checks the compact explanation plus contract/run lineage against
+the current bytes. An error matrix can still be verified as an error outcome,
+but any member bytes that were available at creation must remain unchanged.

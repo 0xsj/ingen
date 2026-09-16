@@ -336,6 +336,7 @@ func graphCommand(args []string) error {
 	roots := []string(nil)
 	modulePath := ""
 	capabilities := paddockgraph.Capabilities{}
+	var adapterMetadata *paddockgraph.AdapterMetadata
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return fmt.Errorf("resolve source root: %w", err)
@@ -354,6 +355,7 @@ func graphCommand(args []string) error {
 		unit = document.Unit
 		roots = append([]string(nil), document.Roots...)
 		modulePath = document.ModulePath
+		adapterMetadata = document.Adapter
 		capabilities = document.Capabilities
 		if policyPath != "" {
 			config, err := paddockpolicy.Load(policyPath)
@@ -411,6 +413,7 @@ func graphCommand(args []string) error {
 			unit = document.Unit
 			roots = append([]string(nil), document.Roots...)
 			modulePath = document.ModulePath
+			adapterMetadata = document.Adapter
 			capabilities = document.Capabilities
 		} else {
 			registry := paddockgraph.DefaultRegistry()
@@ -425,6 +428,7 @@ func graphCommand(args []string) error {
 			unit = request.Unit
 			roots = request.Roots
 			modulePath = loaded.ModulePath
+			adapterMetadata = &paddockgraph.AdapterMetadata{Kind: "builtin", Name: language}
 			capabilities = adapter.Capabilities()
 		}
 	}
@@ -442,6 +446,7 @@ func graphCommand(args []string) error {
 		Root:         absRoot,
 		Roots:        roots,
 		ModulePath:   modulePath,
+		Adapter:      adapterMetadata,
 		Capabilities: capabilities,
 		PackageCount: len(loaded.Packages),
 		EdgeCount:    len(loaded.Edges),
@@ -2358,6 +2363,11 @@ func explainReport(args []string) error {
 			return fmt.Errorf("CI artifact has no explanation")
 		}
 		document = *ciArtifact.Explanation
+		provenance, err := explanationProvenance(reportPath, ciArtifact)
+		if err != nil {
+			return err
+		}
+		document.Provenance = provenance
 	case "paddock.report/v1":
 		var result model.Result
 		if err := json.Unmarshal(data, &result); err != nil {
@@ -2380,6 +2390,55 @@ func explainReport(args []string) error {
 		return fmt.Errorf("unsupported format %q; use text or json", format)
 	}
 	return err
+}
+
+func explanationProvenance(path string, artifact paddockartifact.Artifact) (*paddockexplain.Provenance, error) {
+	artifactRef, err := paddockartifact.File(path)
+	if err != nil {
+		return nil, err
+	}
+	provenance := &paddockexplain.Provenance{
+		ArtifactSchema:   artifact.Schema,
+		ArtifactPath:     path,
+		ArtifactSHA256:   artifactRef.SHA256,
+		ArtifactStatus:   artifact.Status,
+		ArtifactExitCode: artifact.ExitCode,
+		CreatedAt:        artifact.CreatedAt,
+		Policy: paddockexplain.FileReference{
+			Path:   artifact.Policy.Path,
+			SHA256: artifact.Policy.SHA256,
+		},
+	}
+	if artifact.PolicyLock != nil {
+		provenance.PolicyLock = &paddockexplain.FileReference{
+			Path:   artifact.PolicyLock.Path,
+			SHA256: artifact.PolicyLock.SHA256,
+		}
+	}
+	if artifact.Graph != nil {
+		provenance.Graph = &paddockexplain.FileReference{
+			Path:   artifact.Graph.Path,
+			SHA256: artifact.Graph.SHA256,
+		}
+		if _, graphDocument, err := paddockgraph.LoadDocument(artifact.Graph.Path); err == nil && graphDocument.Adapter != nil {
+			provenance.Adapter = &paddockexplain.AdapterReference{
+				Kind:               graphDocument.Adapter.Kind,
+				Name:               graphDocument.Adapter.Name,
+				Version:            graphDocument.Adapter.Version,
+				Executable:         graphDocument.Adapter.Executable,
+				ResolvedExecutable: graphDocument.Adapter.ResolvedExecutable,
+				ExecutableSHA256:   graphDocument.Adapter.ExecutableSHA256,
+				ArgsSHA256:         graphDocument.Adapter.ArgsSHA256,
+			}
+		}
+	}
+	if artifact.Baseline != nil {
+		provenance.Baseline = &paddockexplain.FileReference{
+			Path:   artifact.Baseline.Path,
+			SHA256: artifact.Baseline.SHA256,
+		}
+	}
+	return provenance, nil
 }
 
 func versionCommand(args []string) error {

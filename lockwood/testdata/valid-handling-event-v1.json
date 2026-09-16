@@ -1,0 +1,11 @@
+{
+  "schema": "lockwood.handling-event/v1",
+  "event_id": "event-redaction-0001",
+  "custody_id": "lockwood-handling-event-record",
+  "type": "redaction",
+  "recorded_at": "2026-09-16T12:00:00Z",
+  "actor": "operator@example",
+  "reason": "redaction policy applied",
+  "original_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "resulting_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

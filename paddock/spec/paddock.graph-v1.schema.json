@@ -42,6 +42,9 @@
     "module_path": {
       "type": "string"
     },
+    "adapter": {
+      "$ref": "#/$defs/adapter"
+    },
     "capabilities": {
       "$ref": "#/$defs/capabilities"
     },
@@ -68,6 +71,40 @@
     }
   },
   "$defs": {
+    "adapter": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["builtin", "external"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executable": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolved_executable": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executable_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "args_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
     "capabilities": {
       "type": "object",
       "additionalProperties": true,

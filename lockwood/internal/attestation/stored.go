@@ -2,6 +2,7 @@ package attestation
 
 import (
 	"fmt"
+	"time"
 
 	"ingen/lockwood/internal/artifact"
 	"ingen/lockwood/internal/custody"
@@ -18,6 +19,17 @@ type VerificationReceipt struct {
 	KeyID             string `json:"key_id"`
 	Algorithm         string `json:"algorithm"`
 	Verified          bool   `json:"verified"`
+}
+
+// TrustedVerificationReceipt is transient evidence that a published
+// attestation both verified cryptographically and resolved through the
+// supplied trust-registry snapshot. It is not a custody record or an access
+// decision.
+type TrustedVerificationReceipt struct {
+	VerificationReceipt
+	RegistryDigest string `json:"registry_digest"`
+	EvaluatedAt    string `json:"evaluated_at"`
+	Trusted        bool   `json:"trusted"`
 }
 
 // Inspection is read-only metadata for a known detached envelope artifact.
@@ -87,5 +99,42 @@ func VerifyPublishedReceipt(record custody.Record, digest string, artifacts stor
 		KeyID:             envelope.KeyID,
 		Algorithm:         envelope.Algorithm,
 		Verified:          true,
+	}, nil
+}
+
+// VerifyPublishedWithRegistry verifies a published envelope against a target
+// record using an explicit trust-registry snapshot and evaluation time.
+func VerifyPublishedWithRegistry(record custody.Record, digest string, artifacts store.Store, registry TrustRegistry, evaluatedAt time.Time) error {
+	_, err := VerifyPublishedWithRegistryReceipt(record, digest, artifacts, registry, evaluatedAt)
+	return err
+}
+
+// VerifyPublishedWithRegistryReceipt returns transient evidence for a
+// successful cryptographic verification performed with a trusted registry.
+func VerifyPublishedWithRegistryReceipt(record custody.Record, digest string, artifacts store.Store, registry TrustRegistry, evaluatedAt time.Time) (TrustedVerificationReceipt, error) {
+	envelope, err := Load(artifacts, digest)
+	if err != nil {
+		return TrustedVerificationReceipt{}, err
+	}
+	if err := VerifyWithRegistry(record, envelope, registry, evaluatedAt); err != nil {
+		return TrustedVerificationReceipt{}, fmt.Errorf("verify published attestation with trust registry: %w", err)
+	}
+	registryDigest, err := TrustRegistryDigest(registry)
+	if err != nil {
+		return TrustedVerificationReceipt{}, err
+	}
+	evaluatedAt = evaluatedAt.UTC()
+	return TrustedVerificationReceipt{
+		VerificationReceipt: VerificationReceipt{
+			CustodyID:         record.CustodyID,
+			AttestationDigest: digest,
+			TargetDigest:      envelope.Target.Digest,
+			KeyID:             envelope.KeyID,
+			Algorithm:         envelope.Algorithm,
+			Verified:          true,
+		},
+		RegistryDigest: registryDigest,
+		EvaluatedAt:    evaluatedAt.Format(time.RFC3339),
+		Trusted:        true,
 	}, nil
 }

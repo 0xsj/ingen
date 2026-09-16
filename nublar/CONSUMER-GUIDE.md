@@ -93,12 +93,16 @@ nublar run deliver \
   --store .artifacts/nublar-runs \
   --run-id <run-id> \
   --webhook https://example.test/nublar \
-  --receipt delivery-receipt.json
+  --receipt delivery-receipt.json \
+  --receipt-store .artifacts/nublar-receipts
 ```
 
 Delivery uses the run ID as its idempotency key. A delivery failure produces a
 separate `ingen.nublar-delivery-receipt/v1` failure record and does not mutate
-the stored run decision.
+the stored run decision. Use `run receipt list --receipt-store <dir>` to read
+the immutable local delivery-attempt history; add `--run-id`, `--status`, or
+`--transport` for exact-match filters. See
+[`RECEIPT-STORAGE.md`](RECEIPT-STORAGE.md) for its storage boundary.
 
 ## Identity and future extensions
 

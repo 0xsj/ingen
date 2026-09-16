@@ -53,8 +53,11 @@ paddock graph /path/to/workspace \
 ```
 
 The fixture supports `rust` with `file` source units and declares the
-`import` edge kind. It intentionally checks capability negotiation and that
-adapter arguments preserve the workspace boundary.
+`import` edge kind. It identifies itself as
+`paddock-conformance-python` version `1.0.0`, so the resulting graph and CI
+handoff also demonstrate adapter-supplied provenance. It intentionally checks
+capability negotiation and that adapter arguments preserve the workspace
+boundary.
 Pass `--violate` after the workspace argument to emit a deliberate
 domain-to-application edge for negative policy-enforcement tests.
 

@@ -1,7 +1,8 @@
 # Lockwood detached attestation draft
 
-Status: draft contract with a local Ed25519 helper. It does not add signer
-trust, authentication, or authorization to Lockwood.
+Status: draft contract with a local Ed25519 helper and explicit local trust
+registry. It does not add authentication, human identity, or access
+authorization to Lockwood.
 
 ## Purpose
 
@@ -46,8 +47,10 @@ replayed as an attestation for another Lockwood object type or relabeled under
 another key identifier.
 
 The draft algorithm is Ed25519. The signature is standard base64 and must
-decode to the 64-byte Ed25519 signature size. `key_id` is an opaque, single-line
-lookup identifier, not a public key and not proof that the signer is trusted.
+decode to the 64-byte Ed25519 signature size; its text must be canonical
+standard-base64 with no embedded whitespace. `key_id` is an opaque,
+single-line lookup identifier, not a public key and not proof that the signer
+is trusted.
 
 ## Canonical envelope encoding
 
@@ -61,24 +64,49 @@ record.
 ## Verification boundary
 
 The local helper verifies with a caller-supplied public key, or resolves the
-envelope's exact `key_id` from a caller-supplied public-key set. The published
-artifact helper also loads by content digest and requires canonical bytes
-before performing that verification. A complete workflow should additionally:
+envelope's exact `key_id` from a caller-supplied public-key set or trust
+registry. The published artifact helper also loads by content digest and
+requires canonical bytes before performing that verification. A complete
+workflow should additionally:
 
 1. Load and validate the target custody record.
 2. Recompute its canonical digest.
 3. Require the recomputed digest to equal `target.digest`.
-4. Resolve `key_id` from a caller-supplied trusted key set.
+4. Resolve `key_id` from a caller-supplied trusted key set or registry.
 5. Verify the Ed25519 signature over the signing payload above.
 
-Lockwood must not fetch keys, decide whether a key is authorized, or infer
-that a valid signature makes a producer verdict true. Key distribution,
-rotation, revocation, and authorization belong to the surrounding governance
-system.
+Lockwood must not fetch keys, identify a human signer, enforce access
+permissions, or infer that a valid signature makes a producer verdict true.
+Key distribution and access authorization belong to the surrounding
+governance system.
 
-The read-only CLI verification path accepts one explicit standard-base64
-Ed25519 public-key file. It is an operator-supplied verification input, not a
-persisted Lockwood trust registry.
+## Explicit local trust registry
+
+The optional `lockwood.attestation-trust/v1` registry is a caller-supplied,
+canonical JSON snapshot. Each entry contains an exact `key_id`, `ed25519`
+algorithm, standard-base64 public key, `active` or `revoked` status, and
+optional canonical UTC `not_before`/`not_after` timestamps. Key IDs must be
+unique within a registry, and public-key text must be canonical
+standard-base64 without embedded whitespace. Validity windows are inclusive at `not_before` and
+exclusive at `not_after`.
+
+Registry resolution is exact by `key_id`. A revoked key is rejected
+immediately, including when evaluating an earlier timestamp. An expired or
+not-yet-active key is rejected at the evaluation time. Rotation adds a new key
+ID and retains the old ID as revoked; IDs must not be reused by governance.
+Old envelopes are never mutated and remain available for direct
+cryptographic verification even after a key is revoked or expires.
+
+The registry makes a key-status decision for detached-attestation verification
+only. It is not a signer directory, an access-control list, or proof of a
+producer claim. The `verify-attestation-trusted` CLI requires this registry
+explicitly and reports its canonical snapshot digest and evaluation time in a
+transient receipt.
+
+The read-only `verify-attestation` CLI path accepts one explicit
+standard-base64 Ed25519 public-key file. It is an operator-supplied
+verification input. The separate `verify-attestation-trusted` path accepts a
+canonical trust registry file and does not persist or mutate that registry.
 
 The local signing CLI accepts one standard-base64 Ed25519 private-key file
 containing the 64-byte private key, with an optional final newline. The file
@@ -102,9 +130,22 @@ The read-only `inspect-attestation` CLI loads a known envelope by artifact
 digest and reports its canonical metadata. It does not verify the signature;
 use `verify-attestation` when cryptographic verification is required.
 
+The read-only `inspect-attestation-link` CLI verifies the envelope's target
+against an explicitly named custody record and verifies that record's direct
+payload artifact. Its typed output keeps the attestation artifact digest,
+custody-record representation digest, and payload artifact digest separate.
+It does not verify the signature or resolve the record's reachable lineage.
+
 The read-only `find-attestation` CLI filters persisted references by target
 custody-record digest or key ID, verifies the matching canonical artifacts, and
 does not verify signatures. It is discovery, not a trust decision.
+
+The separate read-only `find-trusted-attestation` CLI applies an explicit trust
+registry to that inventory. It resolves each target digest to a custody record,
+verifies the record's payload and reachable lineage, verifies the detached
+signature, and returns only successful results. A missing target, damaged
+record, unresolved lineage, invalid signature, revoked key, or invalid validity
+window fails closed; no result is silently omitted.
 
 Successful verification may return a transient receipt containing the target
 custody ID, attestation artifact digest, target record digest, key ID,
@@ -112,18 +153,15 @@ algorithm, and `verified: true`. The receipt is operational evidence only; it
 does not replace the detached envelope, create a custody record, or assert
 semantic correctness.
 
-The attestation itself can be stored as a separate immutable artifact. Do not
-automatically add a `verifies` lineage edge yet: current custody lineage
-digests identify stored payload artifacts, while `target.digest` identifies a
-custody-record representation. A future linkage model must define that type
-boundary explicitly before custody records are changed.
+The attestation itself can be stored as a separate immutable artifact. The
+typed `attests-custody-record` inspection relation makes the boundary explicit
+without adding a `verifies` lineage edge: current custody lineage digests
+identify stored payload artifacts, while `target.digest` identifies a
+custody-record representation. Custody records remain unchanged.
 
 ## Open decisions
 
-- Define the trusted-key registry and revocation behavior.
 - Decide whether signer identity belongs beside `key_id` or remains registry
   metadata.
-- Define expiry and key-rotation handling without mutating old attestations.
-- Define how a detached envelope artifact links to a custody-record digest
-  without conflating record identity with payload-artifact identity.
+- Define access authorization around the local key-status decision.
 - Decide whether a future attestation record needs its own custody status.

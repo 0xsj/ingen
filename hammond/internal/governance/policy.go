@@ -12,6 +12,13 @@ type AuthorityVerifier interface {
 	Verify(actor, role, at string) (bool, error)
 }
 
+// MembershipAuthorityVerifier is an optional provenance seam for membership
+// verifiers created from a specific snapshot.
+type MembershipAuthorityVerifier interface {
+	AuthorityVerifier
+	MembershipReference() MembershipReference
+}
+
 // ReviewPolicy controls when an active review cycle materializes approved
 // state. Authority, when present, points to a separately versioned local
 // actor-to-role snapshot; it is not an external identity proof.
@@ -188,6 +195,18 @@ func (policy ReviewPolicy) authorizes(actor, role, at string) (bool, error) {
 	return ReviewAuthority{Actors: policy.ActorRoles}.Verify(actor, role, at)
 }
 
+func (policy ReviewPolicy) authorizesEvent(event Event) (bool, error) {
+	if verifier, ok := policy.AuthorityVerifier.(MembershipAuthorityVerifier); ok {
+		if event.Membership == nil {
+			return false, fmt.Errorf("membership provenance is required for the supplied membership verifier")
+		}
+		if !event.Membership.Equal(verifier.MembershipReference()) {
+			return false, fmt.Errorf("membership provenance does not match the supplied membership verifier")
+		}
+	}
+	return policy.authorizes(event.Actor, event.Role, event.At)
+}
+
 func (policy ReviewPolicy) hasAuthorityVerifier() bool {
 	return policy.AuthorityVerifier != nil || !isEmptyAuthorityReference(policy.Authority) || len(policy.ActorRoles) > 0
 }
@@ -205,7 +224,7 @@ func (policy ReviewPolicy) satisfied(events []Event, cycleID string) (bool, erro
 		}
 		actor := strings.TrimSpace(event.Actor)
 		role := strings.TrimSpace(event.Role)
-		authorized, err := policy.authorizes(actor, role, event.At)
+		authorized, err := policy.authorizesEvent(event)
 		if err != nil {
 			return false, fmt.Errorf("verify actor %q for role %q: %w", actor, role, err)
 		}

@@ -9,8 +9,8 @@ response is complete or semantically correct.
 
 The time-scoped authority adapter made historical role checks possible, but it
 accepted caller-supplied grants without provenance. A signed membership
-snapshot adds an auditable provider response without making Hammond a network
-client.
+snapshot adds an auditable provider response while keeping the core loader and
+provider semantics separate from optional transport.
 
 ## What
 
@@ -34,8 +34,9 @@ injecting the resulting verifier.
   `VerifierAt` to enforce freshness.
 - A valid signature authenticates the configured issuer key, not the provider's
   internal directory semantics.
-- The membership reference is not yet embedded in the v1 governance record;
-  callers that inject it must preserve that provenance alongside the record.
+- Decision events may carry the membership reference used by the caller's
+  injected verifier, but Hammond validates only its shape; callers must keep
+  the reference aligned with the verifier and preserve the source artifact.
 - `HTTPMembershipProvider` performs only bounded HTTP fetching and invokes the
   caller's authentication hook; callers still own credentials, TLS and
   endpoint policy, freshness limits, and provider-specific mapping.

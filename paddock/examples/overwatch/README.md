@@ -55,6 +55,12 @@ For an agent-driven review, use the shared handoff helper after building
 Paddock. It preserves the CI verdict in `overwatch-backend-ci-result.json`
 and writes a filtered, machine-readable explanation alongside it:
 
+The Go adapter needs a writable toolchain cache. On a restricted runner, set
+`GOCACHE` to a job-local directory before running the handoff, for example
+`GOCACHE=.cache/paddock-go-build`. If the cache cannot be accessed, Paddock
+returns exit `2` and records an evaluation-error artifact rather than treating
+the source as compliant.
+
 ```sh
 make -C paddock build
 

@@ -1,0 +1,66 @@
+{
+  "$id": "https://ingen.example/spec/lockwood.handling-event-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lockwood handling event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event_id", "custody_id", "type", "recorded_at", "actor", "reason"],
+  "properties": {
+    "schema": {"const": "lockwood.handling-event/v1"},
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "custody_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "type": {
+      "enum": ["redaction", "retention-classified", "legal-hold-placed", "legal-hold-released"]
+    },
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "actor": {"type": "string", "minLength": 1},
+    "reason": {"type": "string", "minLength": 1},
+    "original_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "resulting_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "retention_class": {"type": "string", "minLength": 1},
+    "legal_hold_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"type": {"const": "redaction"}}},
+      "then": {
+        "required": ["original_digest", "resulting_digest"],
+        "not": {"required": ["retention_class", "legal_hold_id"]}
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "retention-classified"}}},
+      "then": {
+        "required": ["retention_class"],
+        "not": {"required": ["original_digest", "resulting_digest", "legal_hold_id"]}
+      }
+    },
+    {
+      "if": {"properties": {"type": {"enum": ["legal-hold-placed", "legal-hold-released"]}}},
+      "then": {
+        "required": ["legal_hold_id"],
+        "not": {"required": ["original_digest", "resulting_digest", "retention_class"]}
+      }
+    }
+  ]
+}
