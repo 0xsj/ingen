@@ -11,6 +11,8 @@ The current execution ownership evaluation is documented in
 For the practical command flow, see [`USAGE-GUIDE.md`](USAGE-GUIDE.md).
 The completed baseline and candidate future phases are tracked in
 [`ROADMAP.md`](ROADMAP.md).
+The current implementation status and reopen conditions are summarized in
+[`STATUS.md`](STATUS.md).
 
 Nublar is InGen's CI and delivery surface. Its first implementation slice is a
 small coordinator that aggregates shared CI result envelopes. It may eventually

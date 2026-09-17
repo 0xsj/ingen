@@ -12,7 +12,9 @@ need and acceptance behavior.
 
 ## Current status
 
-The first local slice is complete and frozen. Its verification command is:
+The first local slice and the validated GitHub Checks extension are complete;
+Nublar is frozen pending a new concrete consumer requirement. Its verification
+command is:
 
 ```sh
 make nublar-freeze-check
