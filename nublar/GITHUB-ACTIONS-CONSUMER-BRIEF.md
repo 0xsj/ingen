@@ -35,9 +35,10 @@ consumer job for live handoff validation.
 - Owning system or repository: an InGen repository workflow job
 - Invocation boundary: one job step after producer steps have written their
   `ingen.ci-result/v1` files
-- Expected operating environment: a POSIX GitHub-hosted or self-hosted runner
-  with the repository checkout, `bash`, `jq`, and either the Nublar binary or
-  the repository's Go toolchain
+- Expected operating environment: the producer job runs on a macOS runner
+  because the current Sorna host-enforcement backend is macOS-specific; the
+  separate Nublar consumer job runs on a POSIX runner with the repository
+  checkout, `bash`, `jq`, and the Go toolchain
 
 The job must run after the producer workflows complete. Nublar remains a
 consumer of their result envelopes; it does not launch Sorna, Paddock, or
@@ -49,7 +50,15 @@ The existing provider-neutral gate is
 [`examples/consumer/nublar-ci-gate.sh`](examples/consumer/nublar-ci-gate.sh).
 The workflow's producer job invokes the existing producer targets, uploads only
 the four declared result envelopes, and the separate Nublar job runs the gate
-against those downloaded files. The equivalent consumer command is:
+against those downloaded files.
+
+The producer runner platform is part of the external executor contract. The
+first Ubuntu attempt correctly reached the producer targets but produced no
+envelopes because Sorna reported that no host enforcement backend was
+available. The workflow therefore uses `macos-latest` for production and
+retains Ubuntu for the provider-neutral Nublar consumer.
+
+The equivalent consumer command is:
 
 ```sh
 bash nublar/examples/consumer/nublar-ci-gate.sh \

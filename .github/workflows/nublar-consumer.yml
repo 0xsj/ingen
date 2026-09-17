@@ -9,7 +9,7 @@ permissions:
 jobs:
   producer:
     name: Produce CI envelopes
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 30
 
     steps:

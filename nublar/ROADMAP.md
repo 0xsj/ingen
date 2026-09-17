@@ -110,8 +110,11 @@ it has now passed externally from `dev` at commit `b036117` in
 That proof covers the GitHub Actions invocation, correlation, artifact upload,
 and decision propagation using a checked-in producer fixture. A live producer
 handoff is now represented by a separate producer and Nublar consumer job in
-the same workflow; dispatching that path is the next validation gate before
-adding destination-specific behavior.
+the same workflow. The first live attempt identified the expected platform
+boundary—Sorna requires its macOS host-enforcement backend—so the producer job
+now runs on `macos-latest` while Nublar remains a separate POSIX consumer.
+Dispatching the corrected path is the next validation gate before adding
+destination-specific behavior.
 
 Entry criteria:
 
