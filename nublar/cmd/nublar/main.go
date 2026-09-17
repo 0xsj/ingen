@@ -14,6 +14,7 @@ import (
 	"ingen/core/ciresult"
 	"ingen/nublar/internal/aggregate"
 	nublardelivery "ingen/nublar/internal/delivery"
+	nublargithubchecks "ingen/nublar/internal/delivery/githubchecks"
 	nublarwebhook "ingen/nublar/internal/delivery/webhook"
 	nublaroutput "ingen/nublar/internal/output"
 	nublarrun "ingen/nublar/internal/run"
@@ -346,14 +347,36 @@ func decisionCommand(args []string) int {
 type webhookPublisherFactory func(endpoint string, secret []byte) (nublardelivery.Publisher, error)
 
 func deliverCommand(args []string) int {
+	switch transport := deliveryTransportArg(args); transport {
+	case "github-checks":
+		return githubChecksDeliverCommand(args)
+	case "http-webhook":
+		// The original webhook flags remain the default delivery surface.
+	default:
+		fmt.Fprintf(os.Stderr, "unsupported delivery transport %q\n", transport)
+		return 2
+	}
 	return deliverCommandWithFactory(args, func(endpoint string, secret []byte) (nublardelivery.Publisher, error) {
 		return nublarwebhook.NewWithSecret(endpoint, nil, secret)
 	})
 }
 
+func deliveryTransportArg(args []string) string {
+	for index, arg := range args {
+		if arg == "--transport" && index+1 < len(args) {
+			return args[index+1]
+		}
+		if strings.HasPrefix(arg, "--transport=") {
+			return strings.TrimPrefix(arg, "--transport=")
+		}
+	}
+	return "http-webhook"
+}
+
 func deliverCommandWithFactory(args []string, newPublisher webhookPublisherFactory) int {
 	flags := flag.NewFlagSet("run deliver", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
+	transport := flags.String("transport", "http-webhook", "delivery transport")
 	storeRoot := flags.String("store", "", "filesystem store root")
 	runID := flags.String("run-id", "", "Nublar run ID")
 	endpoint := flags.String("webhook", "", "HTTP(S) webhook endpoint")
@@ -364,8 +387,57 @@ func deliverCommandWithFactory(args []string, newPublisher webhookPublisherFacto
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if *storeRoot == "" || *runID == "" || *endpoint == "" || *timeout <= 0 || len(flags.Args()) > 0 {
+	if *transport != "http-webhook" || *storeRoot == "" || *runID == "" || *endpoint == "" || *timeout <= 0 || len(flags.Args()) > 0 {
 		fmt.Fprintln(os.Stderr, "run deliver requires --store, --run-id, --webhook, and a positive --timeout")
+		return 2
+	}
+	var secret []byte
+	if *secretEnv != "" {
+		value, ok := os.LookupEnv(*secretEnv)
+		if !ok || value == "" {
+			fmt.Fprintf(os.Stderr, "webhook secret environment variable %q is missing or empty\n", *secretEnv)
+			return 2
+		}
+		secret = []byte(value)
+	}
+	publisher, err := newPublisher(*endpoint, secret)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	return deliverStoredRun(*storeRoot, *runID, *timeout, *receiptPath, *receiptStoreRoot, publisher)
+}
+
+type githubChecksPublisherFactory func(nublargithubchecks.Config) (nublardelivery.Publisher, error)
+
+func githubChecksDeliverCommand(args []string) int {
+	return githubChecksDeliverCommandWithFactory(args, func(config nublargithubchecks.Config) (nublardelivery.Publisher, error) {
+		return nublargithubchecks.New(config)
+	})
+}
+
+func githubChecksDeliverCommandWithFactory(args []string, newPublisher githubChecksPublisherFactory) int {
+	flags := flag.NewFlagSet("run deliver", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	transport := flags.String("transport", "github-checks", "delivery transport")
+	storeRoot := flags.String("store", "", "filesystem store root")
+	runID := flags.String("run-id", "", "Nublar run ID")
+	repository := flags.String("repository", "", "GitHub repository in owner/name form")
+	headSHA := flags.String("head-sha", "", "GitHub commit SHA for the check run")
+	checkName := flags.String("check-name", "", "GitHub check name; defaults to Nublar / <workflow-id>")
+	detailsURL := flags.String("details-url", "", "optional GitHub check details URL")
+	tokenEnv := flags.String("token-env", "GITHUB_TOKEN", "environment variable containing the GitHub token")
+	apiBaseURL := flags.String("api-base-url", "", "GitHub Checks API base URL; defaults to api.github.com")
+	timeout := flags.Duration("timeout", 30*time.Second, "maximum time for one delivery")
+	maxAttempts := flags.Int("max-attempts", 3, "maximum attempts per GitHub API request")
+	retryDelay := flags.Duration("retry-delay", 100*time.Millisecond, "initial delay between transient retries")
+	receiptPath := flags.String("receipt", "", "path for the delivery receipt; no receipt file when empty")
+	receiptStoreRoot := flags.String("receipt-store", "", "optional filesystem receipt store; stores every publisher outcome")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *transport != "github-checks" || *storeRoot == "" || *runID == "" || *repository == "" || *headSHA == "" || *timeout <= 0 || *maxAttempts <= 0 || *retryDelay < 0 || len(flags.Args()) > 0 {
+		fmt.Fprintln(os.Stderr, "GitHub Checks delivery requires --transport github-checks, --store, --run-id, --repository, --head-sha, and positive timeout/attempts")
 		return 2
 	}
 	store, err := nublarstore.New(*storeRoot)
@@ -383,33 +455,65 @@ func deliverCommandWithFactory(args []string, newPublisher webhookPublisherFacto
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	var secret []byte
-	if *secretEnv != "" {
-		value, ok := os.LookupEnv(*secretEnv)
-		if !ok || value == "" {
-			fmt.Fprintf(os.Stderr, "webhook secret environment variable %q is missing or empty\n", *secretEnv)
-			return 2
-		}
-		secret = []byte(value)
+	name := strings.TrimSpace(*checkName)
+	if name == "" {
+		name = "Nublar / " + decision.Workflow.ID
 	}
+	var token string
+	if *tokenEnv != "" {
+		token, _ = os.LookupEnv(*tokenEnv)
+	}
+	publisher, err := newPublisher(nublargithubchecks.Config{
+		Repository:  *repository,
+		HeadSHA:     *headSHA,
+		CheckName:   name,
+		Token:       token,
+		DetailsURL:  *detailsURL,
+		BaseURL:     *apiBaseURL,
+		MaxAttempts: *maxAttempts,
+		RetryDelay:  *retryDelay,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	return deliverDecision(decision, *timeout, *receiptPath, *receiptStoreRoot, publisher)
+}
+
+func deliverStoredRun(storeRoot, runID string, timeout time.Duration, receiptPath, receiptStoreRoot string, publisher nublardelivery.Publisher) int {
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	record, err := store.Load(runID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	decision, err := nublardelivery.Project(record)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	return deliverDecision(decision, timeout, receiptPath, receiptStoreRoot, publisher)
+}
+
+func deliverDecision(decision nublardelivery.Decision, timeout time.Duration, receiptPath, receiptStoreRoot string, publisher nublardelivery.Publisher) int {
 	var receiptStore *nublarstore.ReceiptStore
-	if *receiptStoreRoot != "" {
-		receiptStore, err = nublarstore.NewReceiptStore(*receiptStoreRoot)
+	var err error
+	if receiptStoreRoot != "" {
+		receiptStore, err = nublarstore.NewReceiptStore(receiptStoreRoot)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
 	}
-	publisher, err := newPublisher(*endpoint, secret)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	receipt, publishErr := publisher.Publish(ctx, decision)
-	if *receiptPath != "" {
-		if err := saveReceipt(*receiptPath, receipt); err != nil {
+	if receiptPath != "" {
+		if err := saveReceipt(receiptPath, receipt); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
@@ -548,7 +652,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  nublar run show --store <dir> --run-id <id> [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>] [--external-system <name>] [--external-id <id>] [--attempt <n>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar run decision --store <dir> --run-id <id> [--output <path>]")
-	fmt.Fprintln(os.Stderr, "  nublar run deliver --store <dir> --run-id <id> --webhook <url> [--timeout <duration>] [--secret-env <name>] [--receipt <path>] [--receipt-store <dir>]")
+	fmt.Fprintln(os.Stderr, "  nublar run deliver --transport http-webhook --store <dir> --run-id <id> --webhook <url> [--timeout <duration>] [--secret-env <name>] [--receipt <path>] [--receipt-store <dir>]")
+	fmt.Fprintln(os.Stderr, "  nublar run deliver --transport github-checks --store <dir> --run-id <id> --repository <owner/name> --head-sha <sha> [--check-name <name>] [--token-env <name>] [--receipt <path>] [--receipt-store <dir>]")
 	fmt.Fprintln(os.Stderr, "  nublar run receipt list --receipt-store <dir> [--run-id <id>] [--status <accepted|failed>] [--transport <name>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "  nublar aggregate [--workflow <path> --root <dir>] [--output <path>] <ci-result> [<ci-result> ...]")
 }

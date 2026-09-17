@@ -26,6 +26,15 @@ sent as `X-InGen-Signature-256`; the CLI reads its secret from `--secret-env`
 so secrets do not appear in shell arguments. It is covered with in-memory HTTP
 transports only; no live endpoint is configured by Nublar.
 
+The first concrete adapter is GitHub Checks in
+`internal/delivery/githubchecks`. The `run deliver --transport github-checks`
+command attaches a completed check run to a supplied repository and head SHA,
+uses the Nublar `run_id` as the GitHub `external_id`, and reads a workflow token
+from the environment. It maps coordinator errors to a failing GitHub check
+while preserving Nublar's exact `error` status and exit code in the check
+output. Its API behavior is covered by local HTTP contract tests; a live
+repository acceptance proof remains a separate gate.
+
 The projection contains:
 
 - the opaque `run_id`, logical workflow ID, and exact workflow file reference;
@@ -81,8 +90,8 @@ written back as a producer or coordinator result.
 
 ## Deliberately deferred
 
-No hosted provider, authentication model, annotation vocabulary, or delivery
-retry store is selected yet. The generic webhook establishes transport shape
-and optional signing only; the first concrete consumer should establish key
-rotation, authentication policy, and destination-specific details behind this
-projection.
+GitHub Checks is the first selected destination, but annotations, pull-request
+comments, key rotation, a durable retry store, and other hosted providers
+remain deferred. The generic webhook and GitHub Checks adapter both publish
+only the provider-neutral projection; neither reinterprets producer-owned
+reports.

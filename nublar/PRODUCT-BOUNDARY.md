@@ -114,7 +114,8 @@ nublar run show --store <dir> --run-id <id>
 nublar run list --store <dir> [--status <passed|failed|error>] [--workflow <id>] \
   [--external-system <name>] [--external-id <id>] [--attempt <n>]
 nublar run decision --store <dir> --run-id <id>
-nublar run deliver --store <dir> --run-id <id> --webhook <url> [--receipt <path>] [--receipt-store <dir>]
+nublar run deliver --transport http-webhook --store <dir> --run-id <id> --webhook <url> [--receipt <path>] [--receipt-store <dir>]
+nublar run deliver --transport github-checks --store <dir> --run-id <id> --repository <owner/name> --head-sha <sha> [--check-name <name>] [--token-env <name>] [--receipt <path>] [--receipt-store <dir>]
 nublar run receipt list --receipt-store <dir> [--run-id <id>] [--status <accepted|failed>] [--transport <name>] [--output <path>]
 ```
 
@@ -131,8 +132,8 @@ available as the compatibility command for the older
   [`RUN-IDENTITY.md`](RUN-IDENTITY.md).
 - Whether workflow declarations eventually include producer commands or only
   describe expected artifacts.
-- Which hosted provider, authentication model, and retry store should sit
-  behind the generic webhook transport.
+- Which additional hosted providers, key-rotation policy, and durable retry
+  store should sit behind the provider-neutral projection.
 - How the proposed `ingen.nublar-run/v1` record should transition from the
   current `ingen.nublar-result/v1` prototype output.
 

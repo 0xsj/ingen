@@ -141,7 +141,9 @@ The first concrete destination is GitHub Checks. Its requirements draft is
 [`GITHUB-CHECKS-ADAPTER-REQUIREMENTS.md`](GITHUB-CHECKS-ADAPTER-REQUIREMENTS.md).
 The document defines the destination mapping, least-privilege authentication,
 same-run idempotency, bounded retries, receipt behavior, and acceptance proof;
-the adapter itself remains unimplemented until that proof is approved.
+the adapter is implemented in `internal/delivery/githubchecks` and wired through
+`run deliver --transport github-checks`. Local HTTP contract proof is complete;
+live repository acceptance remains the next proof gate.
 
 Entry criteria:
 

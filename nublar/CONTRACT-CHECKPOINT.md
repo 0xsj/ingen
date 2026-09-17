@@ -1,9 +1,11 @@
 # Nublar local contract checkpoint
 
-As of 2026-09-16, Nublar's first product-shaped slice is a local,
+As of 2026-09-17, Nublar's first product-shaped slice is a local,
 filesystem-backed coordinator. It collects already-produced CI envelopes,
 records one immutable run, exposes a read-only history, and projects a
-provider-neutral delivery decision.
+provider-neutral delivery decision. A separately tested GitHub Checks adapter
+publishes that decision without changing the v1 run, decision, or receipt
+schemas.
 
 The resulting freeze boundary and change rule are recorded in
 [`FREEZE-RECORD.md`](FREEZE-RECORD.md).
@@ -29,7 +31,7 @@ validate workflow
     → persist immutable run
     → list/show/filter history
     → project decision
-    → optionally deliver webhook and export/store receipt
+    → optionally deliver webhook or GitHub check and export/store receipt
 ```
 
 `run_id` remains the local per-attempt identity. When an external system
@@ -55,6 +57,10 @@ composable, and read-only.
   regressions cover accepted and failed receipts and unchanged run state after
   delivery failure. Repeating the same delivery keeps the same idempotency key
   and records independent receipt outcomes.
+- The GitHub Checks adapter contract covers completed-check status mapping,
+  token injection, same-run remote lookup/update, bounded transient retries,
+  failed receipts, and omission of producer-owned reports from the published
+  check output.
 
 ## Verification
 
@@ -78,8 +84,9 @@ the race, vet, schema, and diff-whitespace gates.
 
 ## Deferred until a concrete consumer requires them
 
-Producer execution, hosted APIs, remote storage, retention, pagination,
-summary-only responses, rerun relationships, authentication, retry stores,
-and provider-specific delivery formats remain outside this checkpoint. New
-fields or behavior should be added through a documented contract decision and
-an executable consumer test, rather than speculative infrastructure.
+Producer execution, hosted Nublar APIs, remote storage, retention, pagination,
+summary-only responses, and durable retry stores remain outside this checkpoint.
+GitHub-specific comments, annotations, approvals, branch-rule management, and
+other provider delivery formats remain deferred. New fields or behavior should
+be added through a documented contract decision and an executable consumer
+test, rather than speculative infrastructure.

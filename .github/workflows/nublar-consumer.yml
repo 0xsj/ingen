@@ -57,6 +57,9 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
 
     steps:
       - name: Check out source
@@ -103,6 +106,28 @@ jobs:
             '.correlation == {system: "github-actions", id: $id, attempt: $attempt}' \
             .artifacts/nublar-run.json >/dev/null
 
+      - name: Publish Nublar GitHub Check
+        id: github-checks
+        if: always() && hashFiles('.artifacts/nublar-run.json') != ''
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOCACHE: ${{ runner.temp }}/ingen-go-build
+          GOMODCACHE: ${{ runner.temp }}/ingen-go-mod
+        run: |
+          run_id="$(jq -er '.run_id' .artifacts/nublar-run.json)"
+          details_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          go run ./nublar/cmd/nublar run deliver \
+            --transport github-checks \
+            --store .artifacts/nublar-runs \
+            --run-id "$run_id" \
+            --repository "$GITHUB_REPOSITORY" \
+            --head-sha "$GITHUB_SHA" \
+            --details-url "$details_url" \
+            --token-env GITHUB_TOKEN \
+            --receipt .artifacts/nublar-github-checks-receipt.json \
+            --receipt-store .artifacts/nublar-receipts
+
       - name: Upload Nublar run artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -112,6 +137,8 @@ jobs:
             .artifacts/nublar-run.json
             .artifacts/nublar-run.decision.json
             .artifacts/nublar-runs
+            .artifacts/nublar-github-checks-receipt.json
+            .artifacts/nublar-receipts
           if-no-files-found: warn
           retention-days: 14
 

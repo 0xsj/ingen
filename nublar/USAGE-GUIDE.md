@@ -170,6 +170,30 @@ environment variable:
   --receipt-store .artifacts/nublar-receipts
 ```
 
+The concrete GitHub Checks transport publishes the same decision as a
+completed check run attached to a commit. It uses the stored Nublar `run_id`
+as the remote check's `external_id` and reads the token from an environment
+variable:
+
+```sh
+# GITHUB_TOKEN must have checks: write in the publishing job.
+"$NUBLAR_BIN" run deliver \
+  --transport github-checks \
+  --store .artifacts/nublar-runs \
+  --run-id "$run_id" \
+  --repository "$GITHUB_REPOSITORY" \
+  --head-sha "$GITHUB_SHA" \
+  --token-env GITHUB_TOKEN \
+  --receipt .artifacts/nublar-github-checks-receipt.json \
+  --receipt-store .artifacts/nublar-receipts
+```
+
+The check name defaults to `Nublar / <workflow-id>`. A passed Nublar decision
+maps to GitHub `success`; failed and coordinator-error decisions map to a
+failing check while retaining Nublar's exact status and exit code in the
+summary. The adapter retries bounded transient API failures and never changes
+the stored run decision.
+
 Read receipt history with exact optional filters:
 
 ```sh

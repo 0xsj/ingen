@@ -11,6 +11,7 @@ import (
 
 	"ingen/core/ciresult"
 	nublardelivery "ingen/nublar/internal/delivery"
+	nublargithubchecks "ingen/nublar/internal/delivery/githubchecks"
 	nublarrun "ingen/nublar/internal/run"
 	nublarstore "ingen/nublar/internal/storage/filesystem"
 )
@@ -752,6 +753,64 @@ func TestRunDeliverWritesFailedReceiptFromCLI(t *testing.T) {
 	}
 	if len(storedReceipts) != 1 || storedReceipts[0].Status != "failed" || storedReceipts[0].RunID != "cli-deliver-failed-01" {
 		t.Fatalf("stored receipts = %+v, want failed receipt history", storedReceipts)
+	}
+}
+
+func TestRunDeliverGithubChecksUsesStoredDecisionAndTokenEnv(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "runs")
+	store, err := nublarstore.New(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(cliTestRun("cli-github-checks-01")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NUBLAR_TEST_GITHUB_TOKEN", "github-token")
+	var received nublardelivery.Decision
+	var receivedConfig nublargithubchecks.Config
+	publisher := publisherFunc(func(_ context.Context, decision nublardelivery.Decision) (nublardelivery.Receipt, error) {
+		received = decision
+		return nublardelivery.Receipt{
+			Schema:      nublardelivery.ReceiptSchema,
+			RunID:       decision.RunID,
+			Transport:   "github-checks",
+			Status:      "accepted",
+			HTTPStatus:  http.StatusCreated,
+			AttemptedAt: "2026-09-17T12:00:02Z",
+		}, nil
+	})
+	receiptPath := filepath.Join(t.TempDir(), "github-checks-receipt.json")
+	args := []string{
+		"--transport", "github-checks",
+		"--store", storeRoot,
+		"--run-id", "cli-github-checks-01",
+		"--repository", "acme/ingen",
+		"--head-sha", "abc123",
+		"--token-env", "NUBLAR_TEST_GITHUB_TOKEN",
+		"--receipt", receiptPath,
+	}
+	if exitCode := githubChecksDeliverCommandWithFactory(args, func(config nublargithubchecks.Config) (nublardelivery.Publisher, error) {
+		receivedConfig = config
+		return publisher, nil
+	}); exitCode != 0 {
+		t.Fatalf("run(%v) = %d, want accepted GitHub Checks delivery", args, exitCode)
+	}
+	if received.RunID != "cli-github-checks-01" || received.Status != "passed" {
+		t.Fatalf("received decision = %+v, want stored passed decision", received)
+	}
+	if receivedConfig.Repository != "acme/ingen" || receivedConfig.HeadSHA != "abc123" || receivedConfig.CheckName != "Nublar / cli-test-workflow" || receivedConfig.Token != "github-token" {
+		t.Fatalf("publisher config = %+v, want derived GitHub Checks configuration", receivedConfig)
+	}
+	contents, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt nublardelivery.Receipt
+	if err := json.Unmarshal(contents, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Transport != "github-checks" || receipt.Status != "accepted" || receipt.RunID != "cli-github-checks-01" {
+		t.Fatalf("receipt = %+v, want accepted GitHub Checks receipt", receipt)
 	}
 }
 
