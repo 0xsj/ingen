@@ -90,12 +90,12 @@ executable regression, documentation updates, and a passing freeze gate. Use
 [`CONSUMER-REQUEST-TEMPLATE.md`](CONSUMER-REQUEST-TEMPLATE.md) to start that
 process.
 
-## Next possible phases
+## Candidate phases and decision gates
 
 These are ordered by the evidence needed to begin them, not by a promise that
 all of them will be built.
 
-### 1. Concrete consumer integration — next gate
+### 1. Concrete consumer integration — completed gate
 
 Select one real CI or delivery consumer and document its required invocation,
 outputs, authentication, retry behavior, scale, and acceptance cases. Use the
@@ -119,6 +119,10 @@ corrected live handoff passed in
 [run 35200478467](https://github.com/0xsj/ingen/actions/runs/35200478467),
 including all four producer envelopes, cross-job transfer, and the final
 passed/0 Nublar decision.
+
+This gate is complete. The live consumer proof did not expose a missing Nublar
+command, schema, or provider-specific delivery surface, so no implementation
+work is opened from this phase.
 
 Entry criteria:
 
