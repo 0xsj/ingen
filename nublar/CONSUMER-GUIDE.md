@@ -120,6 +120,15 @@ Rerun relationships, hosted APIs, retention, and provider-specific delivery
 should be added only when a concrete consumer defines their required semantics.
 They should not be encoded into `run_id`.
 
+## Propose the next slice
+
+If this frozen surface is insufficient for a real CI or delivery consumer,
+capture the requirement in [`CONSUMER-REQUEST-TEMPLATE.md`](CONSUMER-REQUEST-TEMPLATE.md)
+before changing a command or schema. The template records the consumer's
+boundary, required behavior, acceptance proof, and explicit non-goals. The
+ordered candidate phases and their entry criteria are tracked in
+[`ROADMAP.md`](ROADMAP.md).
+
 ## Acceptance check
 
 The Nublar-only verification gate is:

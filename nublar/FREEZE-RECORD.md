@@ -45,6 +45,7 @@ update the relevant schema and documentation, add an executable regression,
 and rerun `make nublar-freeze-check`.
 The request shape is available in
 [`CONSUMER-REQUEST-TEMPLATE.md`](CONSUMER-REQUEST-TEMPLATE.md).
+Possible future phases are outlined in [`ROADMAP.md`](ROADMAP.md).
 
 ## Deferred
 

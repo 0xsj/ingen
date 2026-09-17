@@ -7,6 +7,8 @@ is described in [`RUN-ARTIFACT.md`](RUN-ARTIFACT.md), with run identity
 defined in [`RUN-IDENTITY.md`](RUN-IDENTITY.md). Execution ownership is
 defined in [`EXECUTION-BOUNDARY.md`](EXECUTION-BOUNDARY.md).
 For the practical command flow, see [`USAGE-GUIDE.md`](USAGE-GUIDE.md).
+The completed baseline and candidate future phases are tracked in
+[`ROADMAP.md`](ROADMAP.md).
 
 Nublar is InGen's CI and delivery surface. Its first implementation slice is a
 small coordinator that aggregates shared CI result envelopes. It may eventually
@@ -125,6 +127,8 @@ The local freeze boundary and change rule are recorded in
 [`FREEZE-RECORD.md`](FREEZE-RECORD.md).
 The template for proposing the next concrete consumer requirement is
 [`CONSUMER-REQUEST-TEMPLATE.md`](CONSUMER-REQUEST-TEMPLATE.md).
+The prepared GitHub Actions consumer brief is
+[`GITHUB-ACTIONS-CONSUMER-BRIEF.md`](GITHUB-ACTIONS-CONSUMER-BRIEF.md).
 The provider-neutral CI gate example is documented in
 [`examples/consumer/README.md`](examples/consumer/README.md).
 The first Sentinel verifier handoff into Nublar is documented in

@@ -1,0 +1,78 @@
+name: Nublar consumer gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nublar-consumer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Prepare producer fixture
+        run: |
+          mkdir -p .artifacts
+          cp nublar/testdata/ci-results/sorna.json .artifacts/sorna.json
+
+      - name: Run Nublar CI gate
+        id: nublar
+        continue-on-error: true
+        env:
+          GOCACHE: ${{ runner.temp }}/ingen-go-build
+          GOMODCACHE: ${{ runner.temp }}/ingen-go-mod
+        run: |
+          set +e
+          bash nublar/examples/consumer/nublar-ci-gate.sh \
+            --workflow nublar/testdata/workflows/passed-producer.yaml \
+            --root .artifacts \
+            --store .artifacts/nublar-runs \
+            --output .artifacts/nublar-run.json \
+            --external-system github-actions \
+            --external-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT"
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Verify GitHub Actions correlation
+        if: steps.nublar.outcome == 'success'
+        run: |
+          jq -e \
+            --arg id "$GITHUB_RUN_ID" \
+            --argjson attempt "$GITHUB_RUN_ATTEMPT" \
+            '.correlation == {system: "github-actions", id: $id, attempt: $attempt}' \
+            .artifacts/nublar-run.json >/dev/null
+
+      - name: Upload Nublar run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nublar-run-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .artifacts/nublar-run.json
+            .artifacts/nublar-run.decision.json
+            .artifacts/nublar-runs
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Propagate Nublar decision
+        if: always()
+        env:
+          NUBLAR_GATE_OUTCOME: ${{ steps.nublar.outcome }}
+          NUBLAR_GATE_EXIT_CODE: ${{ steps.nublar.outputs.exit_code }}
+        run: |
+          if [[ "$NUBLAR_GATE_OUTCOME" != "success" ]]; then
+            echo "Nublar decision exit code: ${NUBLAR_GATE_EXIT_CODE:-unknown}" >&2
+            exit "${NUBLAR_GATE_EXIT_CODE:-2}"
+          fi
