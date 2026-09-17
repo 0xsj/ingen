@@ -7,7 +7,54 @@ permissions:
   contents: read
 
 jobs:
+  producer:
+    name: Produce CI envelopes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run producer workflows
+        id: producers
+        continue-on-error: true
+        env:
+          GOCACHE: ${{ runner.temp }}/ingen-go-build
+          GOMODCACHE: ${{ runner.temp }}/ingen-go-mod
+        run: |
+          set +e
+          make -k \
+            sorna-ci-result \
+            mutation-go-provider-ci-result \
+            mutation-go-preparation-ci-result \
+            mutation-go-campaign-ci-result
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload declared producer envelopes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nublar-producer-envelopes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .artifacts/document-pipeline-go-provider-ci-result.json
+            .artifacts/document-pipeline-go-preparation-ci-result.json
+            .artifacts/document-pipeline-ci-result.json
+            .artifacts/document-pipeline-go-campaign-ci-result.json
+          if-no-files-found: warn
+          retention-days: 14
+
   nublar-consumer:
+    name: Collect with Nublar
+    needs: producer
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -20,10 +67,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Prepare producer fixture
-        run: |
-          mkdir -p .artifacts
-          cp nublar/testdata/ci-results/sorna.json .artifacts/sorna.json
+      - name: Download producer envelopes
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: nublar-producer-envelopes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts
 
       - name: Run Nublar CI gate
         id: nublar
@@ -34,7 +83,7 @@ jobs:
         run: |
           set +e
           bash nublar/examples/consumer/nublar-ci-gate.sh \
-            --workflow nublar/testdata/workflows/passed-producer.yaml \
+            --workflow nublar/workflows/document-pipeline.yaml \
             --root .artifacts \
             --store .artifacts/nublar-runs \
             --output .artifacts/nublar-run.json \

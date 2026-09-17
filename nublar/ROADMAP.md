@@ -109,7 +109,9 @@ it has now passed externally from `dev` at commit `b036117` in
 [run 35186484244](https://github.com/0xsj/ingen/actions/runs/35186484244).
 That proof covers the GitHub Actions invocation, correlation, artifact upload,
 and decision propagation using a checked-in producer fixture. A live producer
-handoff is still needed before adding destination-specific behavior.
+handoff is now represented by a separate producer and Nublar consumer job in
+the same workflow; dispatching that path is the next validation gate before
+adding destination-specific behavior.
 
 Entry criteria:
 

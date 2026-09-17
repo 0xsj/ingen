@@ -26,7 +26,8 @@ The uploaded artifacts were downloaded and verified to contain:
 - `correlation.system=github-actions`, the GitHub run ID, and attempt `1`.
 
 This proves the GitHub Actions consumer mechanics with the checked-in producer
-fixture. A live producer-to-Nublar handoff remains a separate validation step.
+fixture. The workflow now also contains a separate producer job and Nublar
+consumer job for live handoff validation.
 
 ## Consumer identity
 
@@ -46,8 +47,9 @@ Sentinel.
 
 The existing provider-neutral gate is
 [`examples/consumer/nublar-ci-gate.sh`](examples/consumer/nublar-ci-gate.sh).
-The workflow invokes it against the checked-in passed producer fixture. The
-equivalent command is:
+The workflow's producer job invokes the existing producer targets, uploads only
+the four declared result envelopes, and the separate Nublar job runs the gate
+against those downloaded files. The equivalent consumer command is:
 
 ```sh
 bash nublar/examples/consumer/nublar-ci-gate.sh \
@@ -73,7 +75,12 @@ The existing surface provides:
 ## Required behavior
 
 - Inputs: a checked-in Nublar workflow declaration, the artifact root, and
-  complete producer envelopes at the declared relative paths.
+  complete producer envelopes at the declared relative paths. The external
+  producer job owns creating those envelopes.
+- Handoff: the producer job uploads only the four paths declared by
+  `nublar/workflows/document-pipeline.yaml`; the Nublar job downloads them into
+  its artifact root. Missing uploads remain visible to Nublar as collection
+  errors.
 - Correlation: `system=github-actions`, `id=$GITHUB_RUN_ID`, and
   `attempt=$GITHUB_RUN_ATTEMPT`.
 - Outputs: the run JSON and decision JSON should be uploaded as workflow
@@ -127,12 +134,12 @@ The frozen Nublar commands and schemas are sufficient for this first
 GitHub-Actions-shaped consumer. No contract or schema change is proposed by
 this brief.
 
-The executable workflow now provides the selected consumer boundary. The next
-validation step is to dispatch it in GitHub Actions and confirm the producer
-artifact handoff in the intended repository workflow. A GitHub-specific
-status, annotation, API client, hosted receipt store, or provider retry queue
-would be a separate consumer requirement behind the provider-neutral decision
-projection.
+The executable workflow now provides the selected producer-to-consumer
+boundary. The next validation step is to dispatch it in GitHub Actions and
+confirm that the real producer envelopes survive the job boundary and are
+collected by Nublar. A GitHub-specific status, annotation, API client, hosted
+receipt store, or provider retry queue would be a separate consumer
+requirement behind the provider-neutral decision projection.
 
 ## Non-goals
 
