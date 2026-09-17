@@ -1,6 +1,6 @@
 # GitHub Actions consumer brief
 
-Status: intake prepared, 2026-09-17
+Status: externally validated with fixture-backed workflow, 2026-09-17
 
 This brief treats one GitHub Actions job as Nublar's first concrete consumer
 candidate. It is intentionally limited to a CI gate that collects producer
@@ -11,6 +11,22 @@ The executable workflow is
 [`../.github/workflows/nublar-consumer.yml`](../.github/workflows/nublar-consumer.yml).
 It is manually dispatched so it can validate the boundary without changing the
 repository's normal pull-request or push checks.
+
+## External validation
+
+The workflow was dispatched from `dev` at commit `b036117` in
+[GitHub Actions run 35186484244](https://github.com/0xsj/ingen/actions/runs/35186484244).
+The job completed successfully, including the Nublar gate, correlation check,
+artifact upload, and decision propagation steps.
+
+The uploaded artifacts were downloaded and verified to contain:
+
+- `ingen.nublar-run/v1` with `status=passed` and `exit_code=0`;
+- `ingen.nublar-decision/v1` with the same run identity and decision;
+- `correlation.system=github-actions`, the GitHub run ID, and attempt `1`.
+
+This proves the GitHub Actions consumer mechanics with the checked-in producer
+fixture. A live producer-to-Nublar handoff remains a separate validation step.
 
 ## Consumer identity
 

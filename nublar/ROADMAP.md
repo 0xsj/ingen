@@ -105,7 +105,11 @@ boundary are documented in
 [`GITHUB-ACTIONS-CONSUMER-BRIEF.md`](GITHUB-ACTIONS-CONSUMER-BRIEF.md). The
 brief currently finds the frozen surface sufficient. The executable manual
 workflow is [`../.github/workflows/nublar-consumer.yml`](../.github/workflows/nublar-consumer.yml);
-dispatching it is the next validation gate for this candidate.
+it has now passed externally from `dev` at commit `b036117` in
+[run 35186484244](https://github.com/0xsj/ingen/actions/runs/35186484244).
+That proof covers the GitHub Actions invocation, correlation, artifact upload,
+and decision propagation using a checked-in producer fixture. A live producer
+handoff is still needed before adding destination-specific behavior.
 
 Entry criteria:
 
