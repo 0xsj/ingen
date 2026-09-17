@@ -1,6 +1,6 @@
 # GitHub Checks adapter requirements
 
-Status: requirements draft; implementation not started, 2026-09-17
+Status: implemented and externally validated, 2026-09-17
 
 This document defines the next concrete delivery target for Nublar: publishing
 one provider-neutral Nublar decision as a GitHub Check Run attached to a commit
@@ -29,6 +29,12 @@ documented at
 
 The adapter consumes `ingen.nublar-decision/v1` from Nublar. It must not read
 or interpret nested producer reports to construct the check.
+
+The live acceptance proof ran in the manual Nublar workflow at
+[run 35204322692](https://github.com/0xsj/ingen/actions/runs/35204322692).
+It created GitHub Check Run `105146774540` with `completed/success`, the
+matching Nublar `run_id` in `external_id`, and an uploaded accepted receipt
+with HTTP status `201`.
 
 ## Decision mapping
 

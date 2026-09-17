@@ -1,6 +1,6 @@
 # GitHub Actions consumer brief
 
-Status: externally validated with live producer handoff, 2026-09-17
+Status: externally validated with live producer handoff and GitHub Checks delivery, 2026-09-17
 
 This brief treats one GitHub Actions job as Nublar's first concrete consumer
 candidate. It is intentionally limited to a CI gate that collects producer
@@ -39,6 +39,13 @@ The downloaded artifacts were verified to contain four passed
 `ingen.ci-result/v1` producer envelopes and a passed `ingen.nublar-run/v1` plus
 `ingen.nublar-decision/v1` with `exit_code=0` and the matching GitHub run
 correlation.
+
+The same workflow now publishes the stored decision through the concrete
+GitHub Checks adapter. In
+[run 35204322692](https://github.com/0xsj/ingen/actions/runs/35204322692), the
+consumer job created Check Run `105146774540` named
+`Nublar / document-pipeline-ci` with `completed/success`; its uploaded
+`github-checks` receipt was accepted with HTTP status `201`.
 
 ## Consumer identity
 

@@ -33,7 +33,9 @@ uses the Nublar `run_id` as the GitHub `external_id`, and reads a workflow token
 from the environment. It maps coordinator errors to a failing GitHub check
 while preserving Nublar's exact `error` status and exit code in the check
 output. Its API behavior is covered by local HTTP contract tests; a live
-repository acceptance proof remains a separate gate.
+repository acceptance passed in
+[run 35204322692](https://github.com/0xsj/ingen/actions/runs/35204322692),
+which created Check Run `105146774540` and an accepted HTTP `201` receipt.
 
 The projection contains:
 

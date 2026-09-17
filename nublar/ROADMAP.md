@@ -143,7 +143,13 @@ The document defines the destination mapping, least-privilege authentication,
 same-run idempotency, bounded retries, receipt behavior, and acceptance proof;
 the adapter is implemented in `internal/delivery/githubchecks` and wired through
 `run deliver --transport github-checks`. Local HTTP contract proof is complete;
-live repository acceptance remains the next proof gate.
+live repository acceptance is also complete in
+[run 35204322692](https://github.com/0xsj/ingen/actions/runs/35204322692).
+That run created GitHub Check Run `105146774540` with `completed/success` and
+persisted an accepted `github-checks` receipt with HTTP status `201`.
+
+This phase is complete. The next Nublar work should be driven by a new
+destination requirement rather than expanding the GitHub adapter speculatively.
 
 Entry criteria:
 

@@ -61,6 +61,9 @@ composable, and read-only.
   token injection, same-run remote lookup/update, bounded transient retries,
   failed receipts, and omission of producer-owned reports from the published
   check output.
+- The manual GitHub Actions proof created a real completed/success Check Run
+  and an accepted `github-checks` receipt with HTTP status `201`; the evidence
+  is recorded in [`GITHUB-CHECKS-ADAPTER-REQUIREMENTS.md`](GITHUB-CHECKS-ADAPTER-REQUIREMENTS.md).
 
 ## Verification
 
