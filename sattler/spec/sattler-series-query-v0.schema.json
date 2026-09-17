@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-series-query-v0.schema.json",
+  "title": "InGen Sattler series query",
+  "description": "The compatibility-treated exact-selector projection over an ordered Sattler history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "query", "summary", "entries"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-series-query/v0"},
+    "manifest": {"type": "string", "minLength": 1},
+    "query": {"$ref": "#/$defs/query"},
+    "summary": {"$ref": "#/$defs/summary"},
+    "entries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {"enum": ["rule", "mutation", "contract", "provider", "workflow"]},
+        "value": {"type": "string", "minLength": 1}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["points", "matches"],
+      "properties": {
+        "points": {"type": "integer", "minimum": 0},
+        "matches": {"type": "integer", "minimum": 0}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subsystem", "side", "field"],
+      "properties": {
+        "subsystem": {"enum": ["ci_result", "sorna_run", "nublar_run", "custody", "provenance"]},
+        "side": {"enum": ["before", "after"]},
+        "path": {"type": "string", "minLength": 1},
+        "field": {"type": "string", "minLength": 1}
+      }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subsystem", "side", "field", "value", "source"],
+      "properties": {
+        "subsystem": {"enum": ["ci_result", "sorna_run", "nublar_run", "custody", "provenance"]},
+        "side": {"enum": ["before", "after"]},
+        "field": {"type": "string", "minLength": 1},
+        "value": {"type": "string", "minLength": 1},
+        "source": {"$ref": "#/$defs/source"}
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "manifest", "summary"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string"},
+        "latest": {"type": "boolean"},
+        "manifest": {"type": "string", "minLength": 1},
+        "summary": {"$ref": "https://ingen.example/spec/sattler-bundle-summary-v0.schema.json#/$defs/bundle-summary"},
+        "correlations": {
+          "type": "array",
+          "items": {"$ref": "https://ingen.example/spec/sattler-bundle-summary-v0.schema.json#/$defs/correlation"}
+        },
+        "change_id_filter": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "mutation_change_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "sorna_rule_change_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["point", "matches"],
+      "properties": {
+        "point": {"$ref": "#/$defs/point"},
+        "matches": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/match"}
+        }
+      }
+    }
+  }
+}

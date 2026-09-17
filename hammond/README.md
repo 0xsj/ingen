@@ -10,6 +10,17 @@ shared governance beyond a single Herdr workspace.
 
 The working v1 governance model is documented in
 [GOVERNANCE-SPEC.md](GOVERNANCE-SPEC.md).
+The implementation status is tracked in [status.md](status.md), and the
+forward plan is in [roadmap.md](roadmap.md).
+The optional GitHub provider boundary is recorded in
+[PROVIDER-INTEGRATION-CHECKLIST.md](PROVIDER-INTEGRATION-CHECKLIST.md).
+The active solo workflow is documented in
+[examples/solo/README.md](examples/solo/README.md).
+The step-by-step operator guide is in [usage.md](usage.md).
+The single-machine operating boundary is documented in
+[SOLO-OPERATIONS.md](SOLO-OPERATIONS.md).
+The deployment-owned root trust handoff is outlined in
+[ROOT-BOOTSTRAP-OPERATIONS.md](ROOT-BOOTSTRAP-OPERATIONS.md).
 
 ## Proposed v1 tree
 
@@ -21,6 +32,7 @@ hammond/
 ├── README.md
 ├── GOVERNANCE-SPEC.md
 ├── status.md
+├── roadmap.md
 ├── Makefile
 │
 ├── cmd/
@@ -41,6 +53,7 @@ hammond/
 │   │   ├── authority_membership.go # effective-dated membership adapter
 │   │   ├── membership.go      # authenticated provider membership snapshots
 │   │   ├── membership_provider.go # bounded HTTP transport and auth hook
+│   │   ├── github_membership.go # GitHub team-to-role adapter
 │   │   ├── codec.go          # strict decoding and contract/policy hashing
 │   │   └── governance_test.go
 │   │
@@ -64,6 +77,13 @@ hammond/
 ├── examples/
 │   ├── review-authority-v1.json
 │   ├── review-policy-v1.json
+│   ├── solo/
+│   │   ├── README.md
+│   │   ├── review-authority-v1.json
+│   │   ├── review-policy-v1.json
+│   │   ├── record-v2.json
+│   │   ├── event-review-opened.json
+│   │   └── event-approved.json
 │   └── document-pipeline/
 │       ├── contract-v2.canonical.json
 │       ├── record-v2.json
@@ -97,6 +117,9 @@ conditional mutations:
 
 ```sh
 STORE=/tmp/hammond-records
+
+go run ./hammond/cmd/hammond validate \
+  --record hammond/examples/document-pipeline/record-v2.json
 
 go run ./hammond/cmd/hammond register \
   --store "$STORE" \
@@ -149,14 +172,18 @@ the root → trust → authority chain to remain explicit at the API boundary.
 effective and expiry timestamps. `MembershipSnapshot` adds a digest-bound,
 optionally signed provider-response envelope around those grants; callers can
 use `VerifierAt` to enforce snapshot freshness before evaluation, and its
-rotation helper rejects equal or older versions.
+rotation helper rejects equal or older versions. The read-only
+`hammond membership-current --store <dir> --id <membership-id>` command
+inspects the latest accepted local reference.
 `HTTPMembershipProvider` is a narrow transport adapter for fetching one such
 snapshot. It requires a caller-owned signature verifier, bounds the response,
 and exposes authentication, endpoint-resolution, and endpoint-policy hooks;
 provider credentials, TLS policy, discovery policy, and response mapping
 remain outside Hammond. `FetchNormalized` hands provider-native bytes to a
 caller-owned normalizer, which may reject an incomplete view before Hammond
-verifies the resulting envelope. `BearerTokenAuthenticator` is available as a
+verifies the resulting envelope. Normalized-fetch helpers can then apply
+freshness and return a timestamp-aware verifier with optional provenance.
+`BearerTokenAuthenticator` is available as a
 small token-source adapter; the source remains responsible for token storage,
 refresh, and rotation. Decision events may carry the membership reference used
 by the caller's injected verifier for audit provenance. Callers can use

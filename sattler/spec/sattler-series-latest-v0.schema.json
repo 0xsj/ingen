@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-series-latest-v0.schema.json",
+  "title": "InGen Sattler latest comparison point",
+  "description": "The compatibility-treated retrieval projection for the final ordered point in a Sattler series.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "point"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-comparison-series-latest/v0"},
+    "manifest": {"type": "string"},
+    "change_id_filter": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "point": {"$ref": "#/$defs/point"}
+  },
+  "$defs": {
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "latest", "manifest", "summary"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string"},
+        "latest": {"const": true},
+        "manifest": {"type": "string", "minLength": 1},
+        "summary": {"$ref": "https://ingen.example/spec/sattler-bundle-summary-v0.schema.json#/$defs/bundle-summary"},
+        "correlations": {
+          "type": "array",
+          "items": {"$ref": "https://ingen.example/spec/sattler-bundle-summary-v0.schema.json#/$defs/correlation"}
+        },
+        "change_id_filter": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "mutation_change_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "sorna_rule_change_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

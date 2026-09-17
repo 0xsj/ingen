@@ -71,6 +71,10 @@ The current schema identifiers and compatibility rules are documented in
 [`spec/`](spec/).
 Working product boundaries and unresolved design choices are tracked in
 [`DECISIONS.md`](DECISIONS.md).
+The development sequence and stopping points are tracked in
+[`roadmap.md`](roadmap.md).
+The end-to-end live usage walkthrough is in
+[`usage.md`](usage.md).
 
 The implemented Go commands are the checker, graph inspector, baseline
 generator, report explainer, and CI artifact producer:
@@ -203,8 +207,15 @@ overall verdict. The JSON contract is defined in
 When the input is an `ingen.ci-result/v1` artifact, the explanation also
 includes optional provenance with the artifact path/hash, recorded status and
 exit code, timestamp, and policy, lock, graph, and baseline file references.
+When Paddock can identify the source Git worktree, that provenance also
+includes the full source revision and whether the evaluated root was dirty.
+Dirty worktrees also include a non-content-identifying changes hash so agents
+can distinguish separate local snapshots.
 This lets an agent correlate a filtered explanation with the exact CI evidence
-it came from.
+and determine whether that evidence came from a reproducible committed source
+or a worktree that may contain local changes. Paddock-produced CI artifacts
+and their filtered explanations also identify the Paddock producer version
+(`dev` for an unversioned development build).
 
 `graph` exposes the adapter output before classification and rule evaluation.
 It accepts either `--policy` or an explicit `--language`, and emits the stable
@@ -234,7 +245,10 @@ otherwise `package`); use `--unit` to override it for an external adapter.
 `paddock.component-map/v1` shape with component package counts, cross-component
 edge counts, and grouped external or unresolved dependencies. It is an
 inspection aid only and never changes the policy verdict; use `--format json`
-when an agent or another tool needs the structured map.
+when an agent or another tool needs the structured map. If one policy component
+name resolves to multiple label sets, the map preserves each group with an
+`identity` and carries `from_identity`/`to_identity` on its dependency entries;
+the base `name` remains available for simple consumers.
 
 `adapter validate` exercises an external adapter and validates its graph
 response without evaluating a policy. It is useful as a language-adapter
@@ -293,9 +307,11 @@ writes all generated rules as warnings. The output is intentionally not an
 architecture verdict and will not overwrite an existing file without
 `--force`. Use `--format json` for a `paddock.init/v1` summary that reports
 source-unit and edge counts, unclassified components, warning rules, and the
-required human-review state. This gives an agent enough context to judge the
-review surface without pretending that the scaffold inferred the intended
-architecture.
+required human-review state. When available, it also includes the source Git
+revision/dirty state and a SHA-256 identity for the normalized graph consumed
+by the draft. This gives an agent enough context to correlate the review
+surface with the analyzed source and graph without pretending that the
+scaffold inferred the intended architecture.
 It accepts `--graph` or `--adapter` for languages outside the
 built-in adapter registry; generic layered and cyclic drafts remain available
 for those languages.
@@ -385,8 +401,9 @@ go run ./paddock/cmd/paddock init \
 `ci` writes the language-neutral `ingen.ci-result/v1` envelope defined in
 [`core/CI-RESULT-SPEC.md`](../core/CI-RESULT-SPEC.md). It includes the
 deterministic report, explanation, policy hash, optional policy-lock hash,
-optional graph hash, source identity, and the same exit code that the CI gate
-receives. Profile-backed runs also record the exact profile as the
+optional graph hash, source identity, and optional source VCS revision/dirty
+state. It uses the same exit code that the CI gate receives. Profile-backed
+runs also record the exact profile as the
 `adapter_profile` entry in the language-neutral `inputs` map.
 The shared envelope schema is
 [`core/ciresult-v1.schema.json`](../core/ciresult-v1.schema.json).

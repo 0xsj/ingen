@@ -90,6 +90,12 @@ IDs. `sorna mutation list` provides a compact review view. The catalogue is
 not yet an instruction to mutate source code, and validation does not claim
 that an operator is safe or supported by a provider.
 
+The structural cross-language shape is published as
+[`spec/ingen.mutation-catalogue-v1.schema.json`](spec/ingen.mutation-catalogue-v1.schema.json).
+It covers the `mutation_catalogue` file wrapper and mutation declaration
+fields; runtime validation remains responsible for duplicate IDs and binding
+expected rules to a specific contract.
+
 ## 3. Campaign plan
 
 `sorna mutation plan` resolves a validated catalogue against a frozen oracle
@@ -107,6 +113,12 @@ provider must consume the plan and preserve its identities in the resulting
 evidence. The exact plan-byte hash remains the run-bound binding. Sorna may
 also expose `semantic_sha256`, a stable plan identity calculated after
 normalizing only the generated baseline `run_id`.
+
+The structural cross-language shape is published as
+[`spec/ingen.mutation-plan-v1.schema.json`](spec/ingen.mutation-plan-v1.schema.json).
+It is intentionally structural: runtime validation remains responsible for
+matching the baseline, contract, oracle, catalogue, and ordered mutation
+identities.
 
 ## 4. Provider and execution boundary
 
@@ -136,6 +148,15 @@ The review may also report the plan's semantic identity and an optional
 provider semantic binding. Semantic identity is informative unless a future
 caller policy requires it; strict execution continues to require the exact
 plan-byte binding.
+
+The language-neutral conformance fixtures can be run with:
+
+```sh
+make mutation-provider-conformance
+```
+
+They cover valid and intentionally blocked handoffs before any subject process
+is launched.
 
 `sorna mutation run` launches one fresh managed Sorna run per plan entry. Each
 entry receives its own address and evidence directory, and the campaign result
@@ -197,6 +218,12 @@ sorna mutation provider preparation preparation.json \
 
 The resulting `mutation-preparation` envelope retains the summary and binds it
 to the provider manifest and plan without interpreting source-language details.
+
+The structural cross-language shape is published as
+[`spec/ingen.mutation-preparation-v1.schema.json`](spec/ingen.mutation-preparation-v1.schema.json).
+`campaign.LoadPreparationBytes` rejects unknown fields, trailing JSON values,
+non-canonical bytes, and invalid preparation structure before the summary is
+used by the CI adapter.
 
 Each classified entry in `ingen.mutation-campaign-result/v1` also preserves a
 compact diagnosis. `expected_rule_status` records `pass`, `fail`,

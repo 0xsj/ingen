@@ -180,6 +180,9 @@ func Validate(document Document) []string {
 					if setup, hasSetup := givenBody["setup"]; hasSetup {
 						validateSetup(setup, path+".given.setup", &problems)
 					}
+					if isolation, hasIsolation := givenBody["isolation"]; hasIsolation {
+						validateIsolationSpec(isolation, path+".given.isolation", &problems)
+					}
 				}
 			}
 			if expect, present := rule["expect"]; present {
@@ -206,6 +209,11 @@ func Validate(document Document) []string {
 				}
 				if !nonEmptyString(fixture["purpose"]) {
 					problems = append(problems, path+".purpose must be a non-empty string")
+				}
+				if owner, present := fixture["owner"]; present {
+					if !nonEmptyString(owner) || (owner != "oracle" && owner != "subject") {
+						problems = append(problems, path+".owner must be oracle or subject")
+					}
 				}
 				if digest, present := fixture["sha256"]; present {
 					value, valid := digest.(string)
@@ -546,6 +554,28 @@ func validateSetup(value any, path string, problems *[]string) {
 	}
 }
 
+func validateIsolationSpec(value any, path string, problems *[]string) {
+	spec, ok := value.(map[string]any)
+	if !ok {
+		*problems = append(*problems, path+" must be an object")
+		return
+	}
+	if scope, present := spec["scope"]; !present || !nonEmptyString(scope) || scope != "scenario" {
+		*problems = append(*problems, path+".scope must be scenario")
+	}
+	reset, ok := spec["reset"].(map[string]any)
+	if !ok {
+		*problems = append(*problems, path+".reset must be an object")
+		return
+	}
+	if method, present := reset["method"]; !present || !nonEmptyString(method) || method != "POST" {
+		*problems = append(*problems, path+".reset.method must be POST")
+	}
+	if resetPath, present := reset["path"]; !present || !nonEmptyString(resetPath) || !strings.HasPrefix(resetPath.(string), "/") {
+		*problems = append(*problems, path+".reset.path must start with /")
+	}
+}
+
 func validateNegativeSetupExpectations(value any, path string, problems *[]string) {
 	expectations, ok := value.([]any)
 	if !ok || len(expectations) == 0 {
@@ -573,6 +603,37 @@ func validateExpectationShape(value any, path string, problems *[]string) {
 	}
 	if events, present := expect["events"]; present {
 		validateEventSpec(events, path+".events", problems)
+	}
+	if provenance, present := expect["provenance"]; present {
+		validateProvenanceSpec(provenance, path+".provenance", problems)
+	}
+}
+
+func validateProvenanceSpec(value any, path string, problems *[]string) {
+	spec, ok := value.(map[string]any)
+	if !ok {
+		*problems = append(*problems, path+" must be an object")
+		return
+	}
+	rawRequired, ok := spec["required"]
+	if !ok {
+		*problems = append(*problems, path+".required is required")
+		return
+	}
+	required, ok := rawRequired.([]any)
+	if !ok || len(required) == 0 {
+		*problems = append(*problems, path+".required must be a non-empty list")
+		return
+	}
+	for index, value := range required {
+		field, ok := value.(string)
+		if !ok || strings.TrimSpace(field) == "" {
+			*problems = append(*problems, fmt.Sprintf("%s.required[%d] must be a non-empty string", path, index))
+			continue
+		}
+		if field != "execution_id" {
+			*problems = append(*problems, fmt.Sprintf("%s.required[%d] must be execution_id", path, index))
+		}
 	}
 }
 

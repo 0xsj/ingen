@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.dev/schema/ingen.mutation-provider-review-v1.schema.json",
+  "title": "InGen Sorna mutation provider review",
+  "description": "No-execution structural review of a mutation provider against a frozen Sorna campaign plan.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "plan", "provider", "capabilities", "mutations"],
+  "properties": {
+    "schema": {"const": "ingen.mutation-provider-review/v1"},
+    "status": {"enum": ["ready", "blocked"]},
+    "require_plan_binding": {"type": "boolean"},
+    "plan": {"$ref": "#/$defs/plan"},
+    "provider": {"$ref": "#/$defs/provider"},
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/capability"}
+    },
+    "mutations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/mutation"}
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "semantic_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "id", "version", "plan_binding"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "plan_sha256": {"$ref": "#/$defs/digest"},
+        "plan_semantic_sha256": {"$ref": "#/$defs/digest"},
+        "plan_binding": {"enum": ["unbound", "matched", "mismatch"]},
+        "semantic_binding": {"enum": ["unbound", "matched", "mismatch"]}
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plane", "operator", "target"],
+      "properties": {
+        "plane": {"type": "string", "minLength": 1},
+        "operator": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1}
+      }
+    },
+    "mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "mutation_id", "plane", "operator", "target", "entry_status", "capability_status", "status"],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 1},
+        "mutation_id": {"type": "string", "minLength": 1},
+        "plane": {"type": "string", "minLength": 1},
+        "operator": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "entry_status": {"enum": ["present", "missing"]},
+        "capability_status": {"enum": ["declared", "undeclared"]},
+        "status": {"enum": ["supported", "blocked"]}
+      }
+    }
+  }
+}

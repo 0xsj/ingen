@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-investigation-v0.schema.json",
+  "title": "InGen Sattler investigation",
+  "description": "The compatibility-treated neutral investigation projection over a Sattler bundle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "compatible", "notice"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-investigation/v0"},
+    "manifest": {"type": "string", "minLength": 1},
+    "compatible": {"type": "boolean"},
+    "change_id_filter": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "notice": {"const": "Findings and evidence are co-observed comparison context; they are not regression or causation claims."},
+    "findings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/finding"}
+    },
+    "evidence": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/evidence"}
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/unknown"}
+    }
+  },
+  "$defs": {
+    "confidence": {
+      "enum": ["direct", "partial", "unknown"]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subsystem", "side", "field"],
+      "properties": {
+        "subsystem": {"enum": ["ci_result", "sorna_run", "nublar_run", "custody", "provenance"]},
+        "side": {"enum": ["before", "after"]},
+        "path": {"type": "string", "minLength": 1},
+        "field": {"type": "string", "minLength": 1}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "subject", "confidence", "sources"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["rule-change", "mutation-change"]},
+        "subject": {"type": "string", "minLength": 1},
+        "before": {},
+        "after": {},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/source"}
+        },
+        "related_evidence_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subsystem", "field", "confidence", "sources"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "subsystem": {"enum": ["ci_result", "sorna_run", "nublar_run", "custody", "provenance"]},
+        "field": {"type": "string", "minLength": 1},
+        "before": {},
+        "after": {},
+        "identity": {"enum": ["same-bytes", "replaced", "added", "removed", "unknown"]},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/source"}
+        }
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "subject", "message", "confidence"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "subject": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "sources": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/source"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "workspace_id": "workspace-fixture",
+  "workspace_label": "fixture",
+  "workspace_cwd": "/workspace/ingen",
+  "tab_id": "workspace-fixture:tab-fixture",
+  "tab_label": "fixture-tab",
+  "focused_pane_id": "workspace-fixture:pane-fixture",
+  "focused_pane_cwd": "/workspace/ingen",
+  "focused_pane_agent": "codex",
+  "focused_pane_status": "blocked",
+  "invocation_source": "api",
+  "correlation_id": "pane.agent_status_changed"
+}

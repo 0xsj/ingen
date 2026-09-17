@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-outcome-receipt-v1.schema.json",
+  "title": "Lockwood cleanup outcome receipt v1",
+  "description": "A canonical lifecycle receipt for a future cleanup workflow; it does not itself authorize deletion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "receipt_id", "target_digest", "action", "cleanup_plan_digest", "policy_snapshot_digest", "hold_snapshot_digest", "handoff_digest", "evaluation_time", "authorization_authority", "authorization_assertion_digest", "principal_reference", "authorization_decision", "hold_decision", "outcome", "postcondition"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-outcome-receipt/v1"},
+    "receipt_id": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "target_digest": {"$ref": "#/$defs/digest"},
+    "action": {"const": "cleanup-delete"},
+    "cleanup_plan_digest": {"$ref": "#/$defs/digest"},
+    "policy_snapshot_digest": {"$ref": "#/$defs/digest"},
+    "hold_snapshot_digest": {"$ref": "#/$defs/digest"},
+    "handoff_digest": {"$ref": "#/$defs/digest"},
+    "evaluation_time": {"type": "string", "format": "date-time"},
+    "attempt_time": {"type": "string", "format": "date-time"},
+    "authorization_authority": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"},
+    "authorization_assertion_digest": {"$ref": "#/$defs/digest"},
+    "principal_reference": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "authorization_decision": {"enum": ["authorized", "denied", "indeterminate"]},
+    "hold_decision": {"enum": ["not-held", "held", "indeterminate"]},
+    "coordinator": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "lease_id": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "fencing_token": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "outcome": {"enum": ["requested", "authorized", "attempted", "succeeded", "failed", "eligibility-lost"]},
+    "postcondition": {"enum": ["not-checked", "verified", "failed"]},
+    "failure_code": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"enum": ["failed", "eligibility-lost"]}}},
+      "then": {"required": ["failure_code"]}
+    }
+  ]
+}

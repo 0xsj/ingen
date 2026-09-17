@@ -1,0 +1,21 @@
+{
+  "schema": "lockwood.verification-report/v1",
+  "checked": 2,
+  "verified": 1,
+  "failed": 1,
+  "results": [
+    {
+      "custody_id": "lockwood-report-0001",
+      "artifact_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "custody_status": "accepted",
+      "status": "verified"
+    },
+    {
+      "custody_id": "lockwood-report-0002",
+      "artifact_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "custody_status": "accepted",
+      "status": "failed",
+      "error": "unresolved lineage parent sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ]
+}

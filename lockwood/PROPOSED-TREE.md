@@ -14,6 +14,12 @@ mistaken for an exact filesystem listing.
 ```text
 lockwood/
 ├── README.md
+├── roadmap.md                    # Implemented foundation and candidate next steps
+├── AUTHORIZATION-HANDOFF.md      # Draft external identity/authorization boundary
+├── REMOTE-OBJECT-SPEC.md         # Provider-neutral remote retrieval boundary and local verification seam
+├── CLEANUP-ENFORCEMENT-SPEC.md   # Read-only cleanup plan and future enforcement boundary
+├── CLEANUP-AUTHORIZATION.md      # Proposed cleanup target, policy, authorization, and receipt handoff
+├── CROSS-MODULE-EVIDENCE-SPEC.md  # Draft Sorna/Hammond/Nublar custody handoff
 ├── CUSTODY-SPEC.md              # Lockwood boundary and invariants
 ├── cmd/
 │   └── lockwood/
@@ -39,19 +45,32 @@ lockwood/
 │   ├── integrity/                # Hash and manifest verification
 │   │   ├── verify.go
 │   │   └── verify_test.go
-│   ├── attestation/              # Detached signing, encoding, and publication
+│   ├── remote/                   # Credential-free references and caller-owned fetch verification
+│   ├── attestation/              # Detached signing, handoff validation, cleanup authorization, and publication
 │   └── adapters/
 │       ├── sorna/                # Import Sorna evidence bundles
 │       └── ciresult/             # Import ingen.ci-result/v1
 ├── spec/
 │   ├── lockwood.artifact-v1.schema.json
+│   ├── lockwood.cleanup-plan-v1.schema.json
+│   ├── lockwood.cleanup-authorization-target-v1.schema.json
+│   ├── lockwood.cleanup-policy-reference-v1.schema.json
+│   ├── lockwood.cleanup-hold-reference-v1.schema.json
+│   ├── lockwood.cleanup-readiness-v1.schema.json
+│   ├── lockwood.cleanup-revalidation-v1.schema.json
+│   ├── lockwood.cleanup-lease-v1.schema.json
+│   ├── lockwood.cleanup-worker-preflight-v1.schema.json
+│   ├── lockwood.cleanup-outcome-receipt-v1.schema.json
+│   ├── lockwood.cleanup-authorization-request-v1.schema.json
+│   ├── lockwood.cleanup-authorization-result-v1.schema.json
 │   ├── lockwood.custody-v1.schema.json
 │   ├── lockwood.custody-v2.schema.json
 │   ├── lockwood.attestation-v1.schema.json
 │   ├── lockwood.handling-event-attestation-v1.schema.json
 │   ├── lockwood.handling-event-policy-v1.schema.json
 │   ├── lockwood.handling-event-v1.schema.json
-│   └── lockwood.redaction-provenance-attestation-v1.schema.json
+│   ├── lockwood.redaction-provenance-attestation-v1.schema.json
+│   └── lockwood.verification-report-v1.schema.json
 ├── examples/
 │   └── custody-record.json
 └── testdata/
@@ -61,23 +80,26 @@ lockwood/
 
 ```text
 lockwood/
-├── cmd/lockwood/                 # put, imports/provenance intake, signed handling events/provenance, provenance discovery/inspection, get, inspect, lineage-status, handling events/status/guard, redaction status/registration/promotion, verify, find, recover, reconcile
+├── cmd/lockwood/                 # put, imports/provenance intake, signed handling events/provenance, provenance discovery/inspection, get, inspect, lineage-status, handling events/status/guard, redaction status/registration/promotion, verify, verify-report, find, recover, reconcile, cleanup-plan
 ├── internal/
 │   ├── artifact/                 # SHA-256 references
 │   ├── store/                    # filesystem and in-memory blobs, inventories, reference manifests
 │   ├── custody/                  # filesystem and in-memory records, handling events, lineage, recovery, verification
 │   ├── catalog/                  # deterministic metadata queries
 │   ├── integrity/                # shared streaming hash and size verification
-│   ├── attestation/              # detached record/event/provenance sign/verify, encoding, and publication
+│   ├── remote/                   # canonical remote references and fetch-result verification
+│   ├── attestation/              # detached sign/verify, handoff validation, encoding, and publication
 │   └── adapters/
 │       ├── ciresult/             # validated ingen.ci-result/v1 intake
 │       └── sorna/                # deterministic verified Sorna bundle intake
-├── spec/                         # artifact-v1, custody-v1/v2, attestation-v1/trust-v1, handling-event-v1, event-attestation-v1, event-policy-v1, redaction-provenance-attestation-v1
-└── testdata/                     # valid and invalid contract fixtures
+├── spec/                         # artifact-v1, cleanup-plan-v1, cleanup target/policy/hold/request/result/readiness/revalidation/lease/preflight/receipt-v1, custody-v1/v2, remote-object-v1, attestation-v1/trust-v1, handling-event-v1, event-attestation-v1, event-policy-v1, redaction-provenance-attestation-v1, verification-report-v1
+├── testdata/                     # contract, authorization, and cross-module fixtures
+└── cross_module_evidence_test.go # offline Hammond/Sorna/CI/Nublar custody path
 ```
 
-The proposed remote/object-store area and broader action-authorization implementation
-remain future work rather than missing implementation files. The detached
+Provider-specific remote/object-store integration, local remote publication,
+and broader action-authorization implementation remain future work rather than
+missing implementation files. The detached
 attestation and handling-event-signature contracts, local Ed25519 helper, and
 explicit canonical trust registry now exist. The registry makes only key-status
 and validity decisions;

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.dev/schema/ingen.mutation-catalogue-v1.schema.json",
+  "title": "InGen Sorna mutation catalogue",
+  "description": "A reviewable declaration of mutation experiments before a campaign plan is created.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mutation_catalogue"],
+  "properties": {
+    "mutation_catalogue": {"$ref": "#/$defs/catalogue"}
+  },
+  "$defs": {
+    "catalogue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "id", "version", "contract_id", "contract_version", "mutations"],
+      "properties": {
+        "schema": {"const": "ingen.mutation-catalogue/v1"},
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "contract_id": {"type": "string", "minLength": 1},
+        "contract_version": {"type": "integer", "minimum": 1},
+        "mutations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/mutation"}
+        }
+      }
+    },
+    "mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "plane", "operator", "target", "description", "change", "expected_rule_ids", "status"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "plane": {"enum": ["implementation", "contract"]},
+        "operator": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "change": {"type": "object", "minProperties": 1},
+        "expected_rule_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "status": {"enum": ["candidate", "validated", "executed", "classified", "reported"]}
+      }
+    }
+  }
+}

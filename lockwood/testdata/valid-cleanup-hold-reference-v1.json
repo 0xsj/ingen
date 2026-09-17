@@ -1,0 +1,1 @@
+{"schema":"lockwood.cleanup-hold-reference/v1","target_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","snapshot_digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","decision":"not-held","evaluated_at":"2026-09-17T12:30:00Z","status":"complete"}

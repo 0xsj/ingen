@@ -1,7 +1,7 @@
 contract:
   schema: ingen.contract/v1
   id: document-pipeline
-  version: 2
+  version: 3
   status: draft
   title: Deterministic document processing boundary
 
@@ -125,6 +125,42 @@ contract:
           required: [id, status]
           properties:
             status: {equals: completed}
+
+    - id: document.process.completed-is-not-reprocessed
+      strength: must
+      subject: POST /documents/{document_id}/process
+      given:
+        state: document_completed
+        setup:
+          - id: accept-document
+            request:
+              method: POST
+              path: /documents
+              body:
+                name: welcome.md
+                content: "Read the contract."
+            expect:
+              status: 202
+              body:
+                required: [id]
+                properties:
+                  id: {type: string, non_empty: true}
+            capture:
+              document_id: body.id
+          - id: process-document
+            request:
+              method: POST
+              path: /documents/{document_id}/process
+            expect:
+              status: 200
+              body:
+                required: [id, status]
+                properties:
+                  status: {equals: completed}
+      expect:
+        status: 409
+        error:
+          code: document_not_queued
 
     - id: document.result.exposes-derived-metadata
       strength: must

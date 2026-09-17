@@ -3,6 +3,7 @@ package catalog
 import (
 	"fmt"
 
+	"ingen/lockwood/internal/artifact"
 	"ingen/lockwood/internal/custody"
 )
 
@@ -26,6 +27,34 @@ type Catalog struct {
 	records custody.RecordStore
 }
 
+func (query Query) Validate() error {
+	if query.Digest != "" {
+		if err := artifact.ValidateDigest(query.Digest); err != nil {
+			return err
+		}
+	}
+	if query.ParentDigest != "" {
+		if err := artifact.ValidateDigest(query.ParentDigest); err != nil {
+			return fmt.Errorf("invalid parent digest: %w", err)
+		}
+	}
+	if query.Status != "" {
+		switch query.Status {
+		case custody.Accepted, custody.Quarantined, custody.Rejected:
+		default:
+			return fmt.Errorf("invalid custody status %q", query.Status)
+		}
+	}
+	if query.ParentRelation != "" {
+		switch query.ParentRelation {
+		case custody.References, custody.DerivedFrom, custody.Contains, custody.Verifies:
+		default:
+			return fmt.Errorf("invalid parent relation %q", query.ParentRelation)
+		}
+	}
+	return nil
+}
+
 func New(records custody.RecordStore) (*Catalog, error) {
 	if records == nil {
 		return nil, fmt.Errorf("custody record store is required")
@@ -38,6 +67,9 @@ func (c *Catalog) Inspect(custodyID string) (custody.Record, error) {
 }
 
 func (c *Catalog) Find(query Query) ([]custody.Record, error) {
+	if err := query.Validate(); err != nil {
+		return nil, err
+	}
 	records, err := c.records.List()
 	if err != nil {
 		return nil, err

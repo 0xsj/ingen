@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-projections-v0.schema.json",
+  "title": "InGen Sattler machine-readable projections",
+  "description": "Required envelope fields for Sattler's provisional v0 projections. Additional fields remain forward-compatible until the individual shapes are promoted.",
+  "oneOf": [
+    {"$ref": "#/$defs/comparison"},
+    {"$ref": "#/$defs/sorna-comparison"},
+    {"$ref": "#/$defs/nublar-comparison"},
+    {"$ref": "#/$defs/custody-comparison"},
+    {"$ref": "#/$defs/provenance-comparison"},
+    {"$ref": "#/$defs/bundle-comparison"},
+    {"$ref": "#/$defs/bundle-summary"},
+    {"$ref": "#/$defs/series"},
+    {"$ref": "#/$defs/series-summary"},
+    {"$ref": "#/$defs/series-latest"},
+    {"$ref": "#/$defs/investigation"},
+    {"$ref": "#/$defs/series-query"},
+    {"$ref": "#/$defs/error"}
+  ],
+  "$defs": {
+    "comparison": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-comparison/v0"},
+        "compatible": {"type": "boolean"},
+        "before": {"type": "object"},
+        "after": {"type": "object"},
+        "transition": {"type": "object"},
+        "change_summary": {"type": "object"}
+      }
+    },
+    "sorna-comparison": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-sorna-run-comparison/v0"},
+        "compatible": {"type": "boolean"},
+        "before": {"type": "object"},
+        "after": {"type": "object"},
+        "transition": {"type": "object"},
+        "change_summary": {"type": "object"}
+      }
+    },
+    "nublar-comparison": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-nublar-run-comparison/v0"},
+        "compatible": {"type": "boolean"},
+        "before": {"type": "object"},
+        "after": {"type": "object"},
+        "transition": {"type": "object"},
+        "change_summary": {"type": "object"}
+      }
+    },
+    "custody-comparison": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-lockwood-custody-comparison/v0"},
+        "compatible": {"type": "boolean"},
+        "before": {"type": "object"},
+        "after": {"type": "object"},
+        "transition": {"type": "object"},
+        "change_summary": {"type": "object"}
+      }
+    },
+    "provenance-comparison": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-amber-provenance-comparison/v0"},
+        "compatible": {"type": "boolean"},
+        "before": {"type": "object"},
+        "after": {"type": "object"},
+        "transition": {"type": "object"},
+        "change_summary": {"type": "object"}
+      }
+    },
+    "bundle-comparison": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "summary"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-bundle-comparison/v0"},
+        "summary": {"type": "object"}
+      }
+    },
+    "bundle-summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "summary"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-bundle-summary/v0"},
+        "summary": {"type": "object"}
+      }
+    },
+    "series": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "summary", "entries"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-comparison-series/v0"},
+        "summary": {"type": "object"},
+        "entries": {"type": "array"}
+      }
+    },
+    "series-summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "summary"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-comparison-series-summary/v0"},
+        "summary": {"type": "object"}
+      }
+    },
+    "series-latest": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "point"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-comparison-series-latest/v0"},
+        "point": {"type": "object"}
+      }
+    },
+    "investigation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "compatible", "notice"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-investigation/v0"},
+        "compatible": {"type": "boolean"},
+        "notice": {"type": "string", "minLength": 1}
+      }
+    },
+    "series-query": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "query", "summary", "entries"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-series-query/v0"},
+        "query": {"type": "object"},
+        "summary": {"type": "object"},
+        "entries": {"type": "array"}
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "operation", "errors"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-error/v0"},
+        "operation": {"type": "string", "minLength": 1},
+        "errors": {"type": "array", "minItems": 1}
+      }
+    }
+  }
+}

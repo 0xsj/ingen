@@ -1,0 +1,32 @@
+{
+  "schema": "ingen.hammond-governance/v1",
+  "record_id": "document-pipeline-v3-solo",
+  "contract": {
+    "project_id": "document-pipeline",
+    "id": "document-pipeline",
+    "version": 3,
+    "schema": "ingen.contract/v1",
+    "artifact": {
+      "uri": "hammond/examples/document-pipeline/contract-v3.canonical.json",
+      "sha256": "c8f7f9f675f6355f7eda3cc3ee2a3f6a84ee8fdf209ee7bd35defae16e528745"
+    }
+  },
+  "policy": {
+    "id": "solo-approval",
+    "version": 1,
+    "schema": "ingen.hammond-review-policy/v1",
+    "artifact": {
+      "uri": "hammond/examples/solo/review-policy-v1.json",
+      "sha256": "42813c913aafa55b6f47beec7ee3845cf25dad943fe6aebe72e4cfbb2f86203d"
+    }
+  },
+  "state": "registered",
+  "events": [
+    {
+      "id": "solo-v3-event-001",
+      "type": "registered",
+      "actor": "solo",
+      "at": "2026-09-17T00:00:00Z"
+    }
+  ]
+}

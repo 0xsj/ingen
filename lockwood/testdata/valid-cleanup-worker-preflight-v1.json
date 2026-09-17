@@ -1,0 +1,1 @@
+{"schema":"lockwood.cleanup-worker-preflight/v1","target_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","cleanup_plan_digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","state":"ready-for-worker","action_status":"not-authorized","blockers":["destructive worker is not implemented; no deletion may occur"]}

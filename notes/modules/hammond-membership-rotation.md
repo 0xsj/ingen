@@ -15,7 +15,9 @@ returned snapshot before policy evaluation.
 processes. It stores only the reference, uses an exclusive file lock for the
 read-compare-write step, accepts equal references idempotently, and rejects
 lower or same-version different-digest references. It also binds the stored
-membership ID to the deterministic ledger path.
+membership ID to the deterministic ledger path. The CLI exposes this state
+through the read-only `membership-current` command; it does not fetch or
+accept provider data itself.
 
 ## Why
 

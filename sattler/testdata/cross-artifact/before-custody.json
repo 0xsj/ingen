@@ -1,0 +1,20 @@
+{
+  "schema": "lockwood.custody/v1",
+  "custody_id": "custody-before",
+  "status": "accepted",
+  "received_at": "2026-09-17T10:00:05Z",
+  "artifact": {
+    "schema": "lockwood.artifact/v1",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "producer": {
+    "tool": "sorna",
+    "kind": "mutation-campaign"
+  },
+  "source": {
+    "run_id": "run-before"
+  },
+  "integrity": {
+    "status": "verified"
+  }
+}

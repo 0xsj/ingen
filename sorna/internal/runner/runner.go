@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -107,16 +108,29 @@ type Summary struct {
 }
 
 type RuleResult struct {
-	RuleID            string       `json:"rule_id"`
-	CaseID            string       `json:"case_id"`
-	Subject           string       `json:"subject"`
-	Status            string       `json:"status"`
-	Setup             []StepResult `json:"setup,omitempty"`
-	Request           Request      `json:"request"`
-	Observation       Observation  `json:"observation"`
-	ObservationSHA256 string       `json:"observation_sha256"`
-	Assertions        []Assertion  `json:"assertions,omitempty"`
-	Reason            string       `json:"reason,omitempty"`
+	RuleID            string           `json:"rule_id"`
+	CaseID            string           `json:"case_id"`
+	Subject           string           `json:"subject"`
+	Status            string           `json:"status"`
+	Isolation         *IsolationResult `json:"isolation,omitempty"`
+	Setup             []StepResult     `json:"setup,omitempty"`
+	Request           Request          `json:"request"`
+	Observation       Observation      `json:"observation"`
+	ObservationSHA256 string           `json:"observation_sha256"`
+	Assertions        []Assertion      `json:"assertions,omitempty"`
+	Reason            string           `json:"reason,omitempty"`
+}
+
+// IsolationResult records the subject-owned reset operation that established
+// a clean case boundary. The reset is evidence about the public fixture hook,
+// not proof that every private subject resource was cleared.
+type IsolationResult struct {
+	Scope             string      `json:"scope"`
+	Reset             Request     `json:"reset"`
+	Observation       Observation `json:"observation"`
+	ObservationSHA256 string      `json:"observation_sha256"`
+	Status            string      `json:"status"`
+	Reason            string      `json:"reason,omitempty"`
 }
 
 type StepResult struct {
@@ -136,10 +150,22 @@ type Request struct {
 }
 
 type Observation struct {
-	Status   int             `json:"status"`
-	Events   []string        `json:"events,omitempty"`
-	Body     json.RawMessage `json:"body,omitempty"`
-	BodyText string          `json:"body_text,omitempty"`
+	Status     int                    `json:"status"`
+	Events     []string               `json:"events,omitempty"`
+	Body       json.RawMessage        `json:"body,omitempty"`
+	BodyText   string                 `json:"body_text,omitempty"`
+	Provenance *ProvenanceObservation `json:"provenance,omitempty"`
+}
+
+// ProvenanceObservation records the public Amber header without making Sorna
+// the owner of Amber's full provenance semantics.
+type ProvenanceObservation struct {
+	Header        string `json:"header"`
+	Present       bool   `json:"present"`
+	ShapeValid    bool   `json:"shape_valid"`
+	ExecutionID   string `json:"execution_id,omitempty"`
+	PayloadSHA256 string `json:"payload_sha256,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 type Assertion struct {
@@ -366,6 +392,20 @@ func executeCase(ctx context.Context, base *url.URL, client *http.Client, index 
 	}
 
 	given := testCase.Given
+	if rawIsolation, hasIsolation := given["isolation"]; hasIsolation {
+		isolation, err := executeIsolationReset(ctx, base, client, rawIsolation)
+		result.Isolation = &isolation
+		if err != nil {
+			result.Status = "error"
+			result.Reason = err.Error()
+			return result
+		}
+		if isolation.Status != "pass" {
+			result.Status = "inconclusive"
+			result.Reason = isolation.Reason
+			return result
+		}
+	}
 	captures := make(map[string]any)
 	if rawSetup, hasSetup := given["setup"]; hasSetup {
 		setup, ok := rawSetup.([]any)
@@ -440,6 +480,50 @@ func executeCase(ctx context.Context, base *url.URL, client *http.Client, index 
 		}
 	}
 	return result
+}
+
+func executeIsolationReset(ctx context.Context, base *url.URL, client *http.Client, value any) (IsolationResult, error) {
+	spec, ok := value.(map[string]any)
+	if !ok {
+		return IsolationResult{}, fmt.Errorf("isolation must be an object")
+	}
+	scope, ok := spec["scope"].(string)
+	if !ok || strings.TrimSpace(scope) == "" {
+		return IsolationResult{}, fmt.Errorf("isolation.scope must be a non-empty string")
+	}
+	reset, ok := spec["reset"].(map[string]any)
+	if !ok {
+		return IsolationResult{}, fmt.Errorf("isolation.reset must be an object")
+	}
+	method, ok := reset["method"].(string)
+	if !ok || strings.TrimSpace(method) == "" {
+		return IsolationResult{}, fmt.Errorf("isolation.reset.method must be a non-empty string")
+	}
+	path, ok := reset["path"].(string)
+	if !ok || strings.TrimSpace(path) == "" {
+		return IsolationResult{}, fmt.Errorf("isolation.reset.path must be a non-empty string")
+	}
+
+	request, observation, err := performRequest(ctx, base, client, strings.ToUpper(method), path, nil, nil)
+	result := IsolationResult{
+		Scope:       scope,
+		Reset:       request,
+		Observation: observation,
+		Status:      "error",
+	}
+	if err != nil {
+		result.Reason = err.Error()
+		return result, nil
+	}
+	result.ObservationSHA256 = observationHash(observation)
+	if observation.Status < http.StatusOK || observation.Status >= http.StatusMultipleChoices {
+		result.Status = "inconclusive"
+		result.Reason = fmt.Sprintf("isolation reset returned HTTP %d", observation.Status)
+		return result, nil
+	}
+	result.Status = "pass"
+	result.Reason = "subject-owned reset returned a successful response"
+	return result, nil
 }
 
 func executeSetupStep(ctx context.Context, base *url.URL, client *http.Client, index int, value any, captures map[string]any) StepResult {
@@ -645,6 +729,14 @@ func resolveURL(base *url.URL, path string) string {
 }
 
 func resolveTemplates(raw string, captures map[string]any) (string, error) {
+	return resolveTemplateString(raw, captures, true)
+}
+
+func resolveBodyTemplates(raw string, captures map[string]any) (string, error) {
+	return resolveTemplateString(raw, captures, false)
+}
+
+func resolveTemplateString(raw string, captures map[string]any, escapePath bool) (string, error) {
 	var builder strings.Builder
 	for len(raw) > 0 {
 		start := strings.IndexByte(raw, '{')
@@ -670,7 +762,11 @@ func resolveTemplates(raw string, captures map[string]any) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("capture %q is not a string", name)
 		}
-		builder.WriteString(url.PathEscape(text))
+		if escapePath {
+			builder.WriteString(url.PathEscape(text))
+		} else {
+			builder.WriteString(text)
+		}
 		raw = raw[end+1:]
 	}
 	return builder.String(), nil
@@ -682,7 +778,7 @@ func resolveTemplatesValue(value any, captures map[string]any) (any, error) {
 		if !strings.Contains(value, "{") {
 			return value, nil
 		}
-		return resolveTemplates(value, captures)
+		return resolveBodyTemplates(value, captures)
 	case map[string]any:
 		object := make(map[string]any, len(value))
 		for key, child := range value {
@@ -716,8 +812,9 @@ func readObservation(response *http.Response) (Observation, error) {
 		return Observation{}, err
 	}
 	observation := Observation{
-		Status: response.StatusCode,
-		Events: responseEvents(response.Header),
+		Status:     response.StatusCode,
+		Events:     responseEvents(response.Header),
+		Provenance: inspectProvenance(response.Header),
 	}
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 {
@@ -735,6 +832,40 @@ func readObservation(response *http.Response) (Observation, error) {
 	}
 	observation.Body = json.RawMessage(compact.Bytes())
 	return observation, nil
+}
+
+const amberProvenanceHeader = "Amber-Provenance"
+
+func inspectProvenance(headers http.Header) *ProvenanceObservation {
+	raw := strings.TrimSpace(headers.Get(amberProvenanceHeader))
+	if raw == "" {
+		return nil
+	}
+	observation := &ProvenanceObservation{
+		Header:  amberProvenanceHeader,
+		Present: true,
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		observation.Reason = "header is not valid unpadded base64url"
+		return observation
+	}
+	digest := sha256.Sum256(payload)
+	observation.PayloadSHA256 = hex.EncodeToString(digest[:])
+
+	var value map[string]any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		observation.Reason = "header payload is not a JSON object"
+		return observation
+	}
+	executionID, ok := value["execution_id"].(string)
+	if !ok || strings.TrimSpace(executionID) == "" {
+		observation.Reason = "header payload does not contain a non-empty execution_id"
+		return observation
+	}
+	observation.ShapeValid = true
+	observation.ExecutionID = strings.TrimSpace(executionID)
+	return observation
 }
 
 const subjectEventHeader = "X-InGen-Event"
@@ -816,6 +947,17 @@ func evaluate(expect map[string]any, observation Observation) ([]Assertion, erro
 		}
 		assertions = append(assertions, eventAssertions...)
 	}
+	if expectedProvenance, present := expect["provenance"]; present {
+		spec, ok := expectedProvenance.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("expect.provenance must be an object")
+		}
+		provenanceAssertions, err := evaluateProvenance(spec, observation.Provenance)
+		if err != nil {
+			return nil, err
+		}
+		assertions = append(assertions, provenanceAssertions...)
+	}
 	if expectedBody, present := expect["body"]; present {
 		spec, ok := expectedBody.(map[string]any)
 		if !ok {
@@ -833,6 +975,43 @@ func evaluate(expect map[string]any, observation Observation) ([]Assertion, erro
 			errorValue = object["error"]
 		}
 		assertions = append(assertions, evaluateExactObject("body.error", errorValue, spec)...)
+	}
+	return assertions, nil
+}
+
+func evaluateProvenance(spec map[string]any, observed *ProvenanceObservation) ([]Assertion, error) {
+	rawRequired, ok := spec["required"]
+	if !ok {
+		return nil, fmt.Errorf("expect.provenance.required is required")
+	}
+	required, ok := rawRequired.([]any)
+	if !ok || len(required) == 0 {
+		return nil, fmt.Errorf("expect.provenance.required must be a non-empty list")
+	}
+	assertions := make([]Assertion, 0, len(required))
+	for index, rawField := range required {
+		field, ok := rawField.(string)
+		if !ok || strings.TrimSpace(field) == "" {
+			return nil, fmt.Errorf("expect.provenance.required[%d] must be a non-empty string", index)
+		}
+		if field != "execution_id" {
+			return nil, fmt.Errorf("expect.provenance.required[%d] must be execution_id", index)
+		}
+		present := observed != nil && observed.ShapeValid && observed.ExecutionID != ""
+		reason := ""
+		if !present {
+			reason = "Amber-Provenance response header did not expose a non-empty execution_id"
+			if observed != nil && observed.Reason != "" {
+				reason = observed.Reason
+			}
+		}
+		assertions = append(assertions, Assertion{
+			Path:     "provenance." + field,
+			Expected: "present",
+			Actual:   existenceValue(present),
+			Status:   statusFor(present),
+			Reason:   reason,
+		})
 	}
 	return assertions, nil
 }
@@ -1050,6 +1229,12 @@ func evaluateExactObject(path string, actual any, spec map[string]any) []Asserti
 }
 
 func evaluateValue(path string, value any, exists bool, spec map[string]any) []Assertion {
+	if _, hasRequired := spec["required"]; hasRequired {
+		return evaluateShape(path, valueIfPresent(value, exists), spec)
+	}
+	if _, hasProperties := spec["properties"]; hasProperties {
+		return evaluateShape(path, valueIfPresent(value, exists), spec)
+	}
 	assertions := make([]Assertion, 0)
 	actual := valueIfPresent(value, exists)
 	if expected, present := spec["equals"]; present {

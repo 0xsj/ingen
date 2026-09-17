@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-sorna-run-comparison-v0.schema.json",
+  "title": "InGen Sattler Sorna run comparison",
+  "description": "The compatibility-treated Sorna subject-run comparison with stable run summaries and opaque producer payloads excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-sorna-run-comparison/v0"},
+    "compatible": {"type": "boolean"},
+    "compatibility_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "before": {"$ref": "#/$defs/run-summary"},
+    "after": {"$ref": "#/$defs/run-summary"},
+    "transition": {"$ref": "#/$defs/transition"},
+    "change_id_filter": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "changes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/change"}
+    },
+    "changed_rules": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/rule-change"}
+    },
+    "change_summary": {"$ref": "#/$defs/change-summary"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "sha256"],
+      "properties": {
+        "schema": {"const": "ingen.oracle/v1"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_path", "run_id", "contract"],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "minLength": 1},
+        "contract": {"$ref": "#/$defs/contract"}
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "error", "inconclusive"]},
+        "reason": {"type": "string"}
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_url", "adapter"],
+      "properties": {
+        "base_url": {"type": "string", "minLength": 1},
+        "adapter": {"type": "string", "minLength": 1},
+        "variant": {"type": "string"}
+      }
+    },
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "status", "limitations"],
+      "properties": {
+        "level": {"type": "integer", "minimum": 0},
+        "status": {"type": "string", "minLength": 1},
+        "observation_coverage": {"type": "string"},
+        "limitations": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "outcome", "exit_code"],
+      "properties": {
+        "mode": {"type": "string", "minLength": 1},
+        "outcome": {"type": "string", "minLength": 1},
+        "exit_code": {"type": "integer", "minimum": 0}
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failed", "errors", "inconclusive", "skipped"],
+      "properties": {
+        "passed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "errors": {"type": "integer", "minimum": 0},
+        "inconclusive": {"type": "integer", "minimum": 0},
+        "skipped": {"type": "integer", "minimum": 0}
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id", "case_id", "subject", "status"],
+      "properties": {
+        "rule_id": {"type": "string", "minLength": 1},
+        "case_id": {"type": "string", "minLength": 1},
+        "subject": {"type": "string", "minLength": 1},
+        "status": {"enum": ["pass", "fail", "error", "inconclusive", "skipped"]},
+        "reason": {"type": "string"}
+      }
+    },
+    "mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "outcome"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "outcome": {"enum": ["killed", "survived", "inconclusive"]}
+      }
+    },
+    "run-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "run_id", "created_at", "contract", "contract_verdict", "subject", "assurance", "summary", "rules"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "schema": {"const": "ingen.run/v1"},
+        "run_id": {"type": "string", "minLength": 1},
+        "created_at": {"type": "string", "minLength": 1},
+        "contract": {"$ref": "#/$defs/contract"},
+        "oracle": {"$ref": "#/$defs/oracle"},
+        "baseline": {"$ref": "#/$defs/baseline"},
+        "contract_verdict": {"$ref": "#/$defs/verdict"},
+        "subject": {"$ref": "#/$defs/subject"},
+        "assurance": {"$ref": "#/$defs/assurance"},
+        "lifecycle": {"$ref": "#/$defs/lifecycle"},
+        "summary": {"$ref": "#/$defs/totals"},
+        "rules": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/rule"}
+        },
+        "mutation": {"$ref": "#/$defs/mutation"}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "before", "after", "classification"],
+      "properties": {
+        "field": {"type": "string", "minLength": 1},
+        "before": {"type": "string", "minLength": 1},
+        "after": {"type": "string", "minLength": 1},
+        "classification": {"enum": ["unchanged", "changed", "incompatible"]}
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "field", "before", "after"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "minLength": 1},
+        "field": {"type": "string", "minLength": 1},
+        "before": {},
+        "after": {},
+        "identity": {"enum": ["same-bytes", "replaced", "added", "removed", "unknown"]}
+      }
+    },
+    "rule-change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_id"],
+      "properties": {
+        "rule_id": {"type": "string", "minLength": 1},
+        "before": {"enum": ["pass", "fail", "error", "inconclusive", "skipped"]},
+        "after": {"enum": ["pass", "fail", "error", "inconclusive", "skipped"]}
+      }
+    },
+    "change-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "by_category": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

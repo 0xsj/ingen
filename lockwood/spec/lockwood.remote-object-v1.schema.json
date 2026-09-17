@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.remote-object-v1.schema.json",
+  "title": "Lockwood remote object reference v1",
+  "description": "A credential-free provider object locator bound to expected local bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "uri", "expected_digest"],
+  "properties": {
+    "schema": {"const": "lockwood.remote-object/v1"},
+    "uri": {"type": "string", "format": "uri", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "etag": {"type": "string", "minLength": 1},
+    "expected_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "expected_size_bytes": {"type": "integer", "minimum": 0}
+  }
+}

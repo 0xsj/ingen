@@ -199,5 +199,15 @@ the boundary instead of treating an unfinished workflow as success.
 The producer-owned explanation shape is versioned in
 [`spec/ci-explanation-v1.schema.json`](spec/ci-explanation-v1.schema.json).
 
-The `plugin/` directory remains the place for native Herdr bindings once the
-host application's plugin API is available.
+The `plugin/` directory contains the version-pinned Herdr compatibility probe
+and remains the place for the production binding. The probe targets Herdr 0.9.0
+and captures raw event hooks without appending to Sentinel receipts; see its
+[`README.md`](plugin/README.md) and the
+[`Herdr 0.9.0 compatibility note`](../notes/modules/sentinel-herdr-v0-9-compatibility.md).
+The checked-in contract snapshot and sanitized live fixture are also available
+under [`plugin/host-contract-status.json`](plugin/host-contract-status.json)
+and [`plugin/fixtures/`](plugin/fixtures/).
+
+The raw callback inspection seam is available with
+`sentinel adapter herdr-host-envelope --event <path>`; it is evidence-only and
+does not update a Sentinel receipt.

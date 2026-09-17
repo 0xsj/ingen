@@ -53,3 +53,23 @@ func TestStandaloneFiltersRecordSelectedIDs(t *testing.T) {
 		t.Fatalf("Nublar filtered report = %+v, want no unmatched changes", nublar)
 	}
 }
+
+func TestFilterSornaRunChangesKeepsChangedRulesAligned(t *testing.T) {
+	report := SornaRunComparison{
+		Changes: []Change{
+			NewChange("verdict", "status", "pass", "fail"),
+			NewChange("rules.document.create.accepted", "status", "pass", "fail"),
+		},
+		ChangedRules: []SornaRuleStatusChange{{RuleID: "document.create.accepted", Before: "pass", After: "fail"}},
+	}
+
+	filtered := FilterSornaRunChanges(report, []string{"verdict.status"})
+	if len(filtered.Changes) != 1 || len(filtered.ChangedRules) != 0 {
+		t.Fatalf("verdict-filtered Sorna report = %+v, want no changed rule detail", filtered)
+	}
+
+	filtered = FilterSornaRunChanges(report, []string{"rules.document.create.accepted.status"})
+	if len(filtered.Changes) != 1 || len(filtered.ChangedRules) != 1 || filtered.ChangedRules[0].RuleID != "document.create.accepted" {
+		t.Fatalf("rule-filtered Sorna report = %+v, want matching changed rule detail", filtered)
+	}
+}

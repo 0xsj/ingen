@@ -104,6 +104,16 @@ func TestHerdrEventAdapterCommandAppendsAndReplays(t *testing.T) {
 	}
 }
 
+func TestHerdrHostEnvelopeCommandInspectsRawEnvelope(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("raw-event.json", []byte(`{"event":"pane_agent_status_changed","data":{"type":"pane_agent_status_changed","workspace_id":"workspace-fixture","pane_id":"workspace-fixture:pane-fixture","agent_status":"blocked"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"adapter", "herdr-host-envelope", "--event", "raw-event.json"}); code != 0 {
+		t.Fatalf("Herdr host envelope command exit code = %d, want 0", code)
+	}
+}
+
 func TestArtifactCommandRegistersHashedArtifact(t *testing.T) {
 	t.Chdir(t.TempDir())
 	receiptPath := filepath.Join(".artifacts", "receipt.json")

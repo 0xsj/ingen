@@ -1,0 +1,74 @@
+{
+  "schema": "ingen.herdr-host-contract/v1",
+  "binding_status": "blocked",
+  "host": {
+    "name": "Herdr",
+    "version": "0.9.0",
+    "api_protocol": 22,
+    "api_schema_version": 1
+  },
+  "probe": {
+    "manifest_version": "0.1.0",
+    "live_capture_count": 52,
+    "live_capture_status": "captured_then_disabled",
+    "fixture_status": "sanitized_from_live_capture"
+  },
+  "observed": {
+    "hook": "pane.agent_status_changed",
+    "envelope_fields": ["event", "data"],
+    "event_fields": ["type", "workspace_id", "pane_id", "agent_status", "agent"],
+    "context_fields": [
+      "workspace_id",
+      "workspace_label",
+      "workspace_cwd",
+      "tab_id",
+      "tab_label",
+      "focused_pane_id",
+      "focused_pane_cwd",
+      "focused_pane_agent",
+      "focused_pane_status",
+      "invocation_source",
+      "correlation_id"
+    ],
+    "probe_observed_at": true,
+    "plugin_command_completion_log": true,
+    "plugin_state_path": "host-created path with plugin-owned files"
+  },
+  "required_for_sentinel": {
+    "event_id": {
+      "status": "missing",
+      "owner": "Herdr",
+      "reason": "Sentinel needs a stable identity across duplicate delivery and restart."
+    },
+    "event_timestamp": {
+      "status": "missing",
+      "owner": "Herdr",
+      "reason": "Sentinel must order lifecycle events using host time, not probe observation time."
+    },
+    "replay_cursor": {
+      "status": "unsupported_or_undocumented",
+      "owner": "Herdr",
+      "reason": "Lifecycle subscriptions do not replay events from before subscription acknowledgement."
+    },
+    "ack_retry_recovery": {
+      "status": "partial_command_logging_only",
+      "owner": "Herdr",
+      "reason": "Herdr runs event commands asynchronously and records completion, but the public plugin hook does not define Sentinel delivery outcomes, retry, or durable recovery."
+    },
+    "callback_authentication": {
+      "status": "unobserved",
+      "owner": "Herdr",
+      "reason": "Host callback provenance must be separate from Sentinel structural validation."
+    },
+    "artifact_handoff": {
+      "status": "unobserved",
+      "owner": "Herdr",
+      "reason": "Artifact namespace, byte availability, and immutability authority are not defined by the probe."
+    },
+    "shutdown_semantics": {
+      "status": "unobserved",
+      "owner": "Herdr",
+      "reason": "In-flight callback cancellation and plugin unload behavior remain untested."
+    }
+  }
+}

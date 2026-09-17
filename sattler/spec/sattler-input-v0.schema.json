@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-input-v0.schema.json",
+  "title": "InGen Sattler input manifests",
+  "description": "Strict structural contracts for Sattler comparison and series manifests.",
+  "oneOf": [
+    {
+      "title": "Comparison manifest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "before", "after"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-comparison-input/v0"},
+        "before": {"$ref": "#/$defs/comparison-inputs"},
+        "after": {"$ref": "#/$defs/comparison-inputs"}
+      }
+    },
+    {
+      "title": "Comparison series manifest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "entries"],
+      "properties": {
+        "schema": {"const": "ingen.sattler-comparison-series-input/v0"},
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/series-entry"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "comparison-inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ci_result": {"type": "string", "minLength": 1},
+        "sorna_run": {"type": "string", "minLength": 1},
+        "nublar_run": {"type": "string", "minLength": 1},
+        "custody": {"type": "string", "minLength": 1},
+        "provenance": {"type": "string", "minLength": 1}
+      }
+    },
+    "series-entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "manifest"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "label": {"type": "string"},
+        "manifest": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

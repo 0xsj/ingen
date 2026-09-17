@@ -1,0 +1,17 @@
+{
+  "schema": "ingen.sattler-comparison-input/v0",
+  "before": {
+    "ci_result": "before-ci.json",
+    "sorna_run": "before-sorna-run.json",
+    "nublar_run": "before-nublar.json",
+    "custody": "before-custody.json",
+    "provenance": "before-provenance.json"
+  },
+  "after": {
+    "ci_result": "after-ci.json",
+    "sorna_run": "after-sorna-run.json",
+    "nublar_run": "after-nublar.json",
+    "custody": "after-custody.json",
+    "provenance": "after-provenance.json"
+  }
+}

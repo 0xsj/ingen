@@ -1,0 +1,15 @@
+mutation_provider:
+  schema: ingen.mutation-provider/v1
+  id: conformance-partial-preparation
+  version: 1
+  plan_schema: ingen.mutation-plan/v1
+  capabilities:
+    - plane: implementation
+      operator: response.status.replace
+      target: POST /documents
+    - plane: implementation
+      operator: response.field.remove
+      target: POST /documents
+  entries:
+    - mutation_id: status-200-create
+      command: subject-status

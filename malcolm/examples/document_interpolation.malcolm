@@ -1,0 +1,23 @@
+spec document_interpolation v1 {
+  subject "document-pipeline"
+
+  scenario reuse_captured_name {
+    setup create_seed {
+      given body {
+        name = "seed copy.txt"
+        content = "seed"
+      }
+      when POST "/documents"
+      must response.status == 202
+      must response.body.name exists
+      capture document_name = response.body.name
+    }
+    given body {
+      name = "{document_name}"
+      content = "copied"
+    }
+    when POST "/documents"
+    must response.status == 202
+    must response.body.name == "seed copy.txt"
+  }
+}

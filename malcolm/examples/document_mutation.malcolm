@@ -1,0 +1,15 @@
+spec document_mutation v1 {
+  subject "document-pipeline"
+
+  scenario submit_document {
+    when POST "/documents"
+    must response.status == 202
+    must response.body.id exists
+  }
+
+  mutation "return-200" {
+    target submit_document
+    change response.status from 202 to 200
+    expect rule submit_document.requirement.1 to fail
+  }
+}

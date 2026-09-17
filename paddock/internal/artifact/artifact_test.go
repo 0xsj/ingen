@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"ingen/core/ciresult"
 	"ingen/paddock/internal/artifact"
 	"ingen/paddock/internal/model"
 )
@@ -41,11 +42,28 @@ func TestSaveLoadPreservesFailedResultAndExplanation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Schema != "ingen.ci-result/v1" || loaded.Report == nil || loaded.Explanation == nil || loaded.Inputs[artifact.AdapterProfileInput].SHA256 != strings.Repeat("b", 64) {
+	if loaded.Schema != "ingen.ci-result/v1" || loaded.ToolVersion == "" || loaded.Report == nil || loaded.Explanation == nil || loaded.Inputs[artifact.AdapterProfileInput].SHA256 != strings.Repeat("b", 64) {
 		t.Fatalf("artifact lost required fields: %#v", loaded)
 	}
 	if loaded.Explanation.Status != "FAIL" || loaded.Explanation.Triage.Outcome != "remediate" || len(loaded.Explanation.Findings) != 1 || len(loaded.Explanation.Summary) != 1 {
 		t.Fatalf("artifact explanation is incomplete: %#v", loaded.Explanation)
+	}
+}
+
+func TestSaveLoadPreservesSourceVCS(t *testing.T) {
+	result := &model.Result{Schema: "paddock.report/v1", Root: "/service", ModulePath: "example.com/service"}
+	ciArtifact := artifact.New(result, artifact.FileRef{Path: "paddock.yaml"}, nil, time.Now())
+	ciArtifact.Source.VCS = &ciresult.VCS{System: "git", Revision: "0123456789abcdef", Dirty: true, ChangesSHA256: strings.Repeat("a", 64)}
+	path := filepath.Join(t.TempDir(), "ci-result.json")
+	if err := artifact.Save(path, ciArtifact); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := artifact.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Source.VCS == nil || loaded.Source.VCS.System != "git" || loaded.Source.VCS.Revision != "0123456789abcdef" || !loaded.Source.VCS.Dirty || loaded.Source.VCS.ChangesSHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("source VCS provenance was not preserved: %#v", loaded.Source.VCS)
 	}
 }
 

@@ -1,0 +1,1 @@
+{"schema":"lockwood.cleanup-authorization-target/v1","kind":"artifact-blob","action":"cleanup-delete","artifact_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","cleanup_plan_digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","plan_as_of":"2026-09-17T12:00:00Z"}

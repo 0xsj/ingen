@@ -1,0 +1,13 @@
+spec document_boundary v1 {
+  subject "document-pipeline"
+
+  scenario reject_oversized_document {
+    given body {
+      name = "too-large.txt"
+      content = repeat("a", 4097)
+    }
+    when POST "/documents"
+    must response.status == 413
+    must response.body.error exists
+  }
+}

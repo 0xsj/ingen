@@ -1,0 +1,6 @@
+{
+  "schema": "ingen.contract/v1",
+  "id": "document-pipeline",
+  "version": 1,
+  "status": "sealed"
+}

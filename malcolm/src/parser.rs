@@ -1,8 +1,10 @@
 use std::fmt;
 
 use crate::ast::{
-    BodyField, CaptureClause, Literal, RequestClause, Requirement, RequirementKind, Scenario,
-    SetupClause, Specification, WhenClause,
+    BodyField, CaptureClause, FixtureClause, FixtureOwner, IsolationClause, IsolationScope,
+    Literal, MutationChange, MutationClause, ProvenanceClause, ProvenanceField,
+    ProvenanceRequirement, ProvenanceRequirementKind, RequestClause, Requirement, RequirementKind,
+    ResetClause, Scenario, SetupClause, Specification, WhenClause,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,7 +18,12 @@ pub fn parse(source: &str) -> Result<Specification, ParseError> {
     let mut specification: Option<Specification> = None;
     let mut scenario: Option<Scenario> = None;
     let mut setup: Option<SetupClause> = None;
+    let mut mutation: Option<MutationClause> = None;
+    let mut fixture: Option<FixtureClause> = None;
+    let mut provenance_clause: Option<ProvenanceClause> = None;
+    let mut isolation_clause: Option<IsolationClause> = None;
     let mut body_owner: Option<BodyOwner> = None;
+    let mut pending_body_value: Option<(String, usize)> = None;
 
     for (index, raw_line) in source.lines().enumerate() {
         let line_number = index + 1;
@@ -27,28 +34,60 @@ pub fn parse(source: &str) -> Result<Specification, ParseError> {
         }
 
         if let Some(owner) = body_owner {
+            if let Some((mut value, start_line)) = pending_body_value.take() {
+                value.push(' ');
+                value.push_str(line);
+                if body_value_is_complete(&value) {
+                    match owner {
+                        BodyOwner::Scenario => {
+                            let current = scenario.as_mut().expect("scenario owns request body");
+                            let request = current
+                                .request
+                                .as_mut()
+                                .expect("scenario request exists while parsing body");
+                            parse_body_line(&mut request.body, &value, start_line)?;
+                        }
+                        BodyOwner::Setup => {
+                            let current = setup.as_mut().expect("setup owns request body");
+                            let request = current
+                                .request
+                                .as_mut()
+                                .expect("setup request exists while parsing body");
+                            parse_body_line(&mut request.body, &value, start_line)?;
+                        }
+                    }
+                } else {
+                    pending_body_value = Some((value, start_line));
+                }
+                continue;
+            }
+
             if line == "}" {
                 body_owner = None;
                 continue;
             }
 
-            match owner {
-                BodyOwner::Scenario => {
-                    let current = scenario.as_mut().expect("scenario owns request body");
-                    let request = current
-                        .request
-                        .as_mut()
-                        .expect("scenario request exists while parsing body");
-                    parse_body_line(&mut request.body, line, line_number)?;
+            if body_value_is_complete(line) {
+                match owner {
+                    BodyOwner::Scenario => {
+                        let current = scenario.as_mut().expect("scenario owns request body");
+                        let request = current
+                            .request
+                            .as_mut()
+                            .expect("scenario request exists while parsing body");
+                        parse_body_line(&mut request.body, line, line_number)?;
+                    }
+                    BodyOwner::Setup => {
+                        let current = setup.as_mut().expect("setup owns request body");
+                        let request = current
+                            .request
+                            .as_mut()
+                            .expect("setup request exists while parsing body");
+                        parse_body_line(&mut request.body, line, line_number)?;
+                    }
                 }
-                BodyOwner::Setup => {
-                    let current = setup.as_mut().expect("setup owns request body");
-                    let request = current
-                        .request
-                        .as_mut()
-                        .expect("setup request exists while parsing body");
-                    parse_body_line(&mut request.body, line, line_number)?;
-                }
+            } else {
+                pending_body_value = Some((line.to_owned(), line_number));
             }
             continue;
         }
@@ -77,6 +116,58 @@ pub fn parse(source: &str) -> Result<Specification, ParseError> {
             }
 
             parse_setup_line(current, line, line_number)?;
+            continue;
+        }
+
+        if let Some(current) = mutation.as_mut() {
+            if line == "}" {
+                let finished = mutation.take().expect("mutation exists while parsing");
+                specification_mut(&mut specification, line_number)?
+                    .mutations
+                    .push(finished);
+                continue;
+            }
+
+            parse_mutation_line(current, line, line_number)?;
+            continue;
+        }
+
+        if let Some(current) = fixture.as_mut() {
+            if line == "}" {
+                let finished = fixture.take().expect("fixture exists while parsing");
+                specification_mut(&mut specification, line_number)?
+                    .fixtures
+                    .push(finished);
+                continue;
+            }
+
+            parse_fixture_line(current, line, line_number)?;
+            continue;
+        }
+
+        if let Some(current) = provenance_clause.as_mut() {
+            if line == "}" {
+                let finished = provenance_clause
+                    .take()
+                    .expect("provenance clause exists while parsing");
+                specification_mut(&mut specification, line_number)?.provenance = Some(finished);
+                continue;
+            }
+
+            parse_provenance_line(current, line, line_number)?;
+            continue;
+        }
+
+        if let Some(current) = isolation_clause.as_mut() {
+            if line == "}" {
+                let finished = isolation_clause
+                    .take()
+                    .expect("isolation clause exists while parsing");
+                specification_mut(&mut specification, line_number)?.isolation = Some(finished);
+                continue;
+            }
+
+            parse_isolation_line(current, line, line_number)?;
             continue;
         }
 
@@ -133,15 +224,87 @@ pub fn parse(source: &str) -> Result<Specification, ParseError> {
                 continue;
             }
 
+            if let Some(header) = line.strip_prefix("mutation ") {
+                mutation = Some(parse_mutation_header(header, line_number)?);
+                continue;
+            }
+
+            if let Some(header) = line.strip_prefix("fixture ") {
+                fixture = Some(parse_fixture_header(header, line_number)?);
+                continue;
+            }
+
+            if line == "provenance {" {
+                if current.provenance.is_some() {
+                    return Err(ParseError::new(
+                        line_number,
+                        "specification has more than one provenance clause",
+                    ));
+                }
+                provenance_clause = Some(ProvenanceClause {
+                    requirements: Vec::new(),
+                });
+                continue;
+            }
+
+            if line == "isolation per scenario {" {
+                if current.isolation.is_some() {
+                    return Err(ParseError::new(
+                        line_number,
+                        "specification has more than one isolation clause",
+                    ));
+                }
+                isolation_clause = Some(IsolationClause {
+                    scope: IsolationScope::Scenario,
+                    reset: None,
+                });
+                continue;
+            }
+
             return Err(ParseError::new(
                 line_number,
-                "expected `subject`, `scenario`, or `}` inside specification",
+                "expected `subject`, `scenario`, `fixture`, `mutation`, `provenance`, `isolation per scenario`, or `}` inside specification",
             ));
         }
 
         if specification.is_none() {
             specification = Some(parse_spec_header(line, line_number)?);
         }
+    }
+
+    if let Some((_, line_number)) = pending_body_value {
+        return Err(ParseError::new(
+            line_number,
+            "request body literal is missing a closing delimiter",
+        ));
+    }
+
+    if mutation.is_some() {
+        return Err(ParseError::new(
+            source.lines().count().max(1),
+            "mutation is missing a closing `}`",
+        ));
+    }
+
+    if fixture.is_some() {
+        return Err(ParseError::new(
+            source.lines().count().max(1),
+            "fixture is missing a closing brace",
+        ));
+    }
+
+    if provenance_clause.is_some() {
+        return Err(ParseError::new(
+            source.lines().count().max(1),
+            "provenance is missing a closing brace",
+        ));
+    }
+
+    if isolation_clause.is_some() {
+        return Err(ParseError::new(
+            source.lines().count().max(1),
+            "isolation is missing a closing brace",
+        ));
     }
 
     if body_owner.is_some() {
@@ -187,7 +350,220 @@ fn parse_spec_header(line: &str, line_number: usize) -> Result<Specification, Pa
         version: fields.get(2).map(|value| (*value).to_owned()),
         subject: None,
         scenarios: Vec::new(),
+        fixtures: Vec::new(),
+        mutations: Vec::new(),
+        provenance: None,
+        isolation: None,
     })
+}
+
+fn parse_mutation_header(line: &str, line_number: usize) -> Result<MutationClause, ParseError> {
+    let content = require_open_brace(line, line_number, "mutation")?;
+    Ok(MutationClause {
+        id: parse_quoted(content, line_number, "mutation id")?,
+        scenario: None,
+        change: None,
+        expected_rule: None,
+    })
+}
+
+fn parse_fixture_header(line: &str, line_number: usize) -> Result<FixtureClause, ParseError> {
+    let content = require_open_brace(line, line_number, "fixture")?;
+    Ok(FixtureClause {
+        id: parse_quoted(content, line_number, "fixture id")?,
+        owner: None,
+        purpose: None,
+        sha256: None,
+    })
+}
+
+fn parse_fixture_line(
+    fixture: &mut FixtureClause,
+    line: &str,
+    line_number: usize,
+) -> Result<(), ParseError> {
+    if let Some(value) = line.strip_prefix("owner ") {
+        if fixture.owner.is_some() {
+            return Err(ParseError::new(
+                line_number,
+                "fixture has more than one owner clause",
+            ));
+        }
+        let owner = parse_identifier(value, line_number, "fixture owner")?;
+        if owner != "oracle" {
+            return Err(ParseError::new(line_number, "fixture owner must be oracle"));
+        }
+        fixture.owner = Some(FixtureOwner::Oracle);
+        return Ok(());
+    }
+
+    if let Some(value) = line.strip_prefix("purpose ") {
+        if fixture.purpose.is_some() {
+            return Err(ParseError::new(
+                line_number,
+                "fixture has more than one purpose clause",
+            ));
+        }
+        fixture.purpose = Some(parse_quoted(value, line_number, "fixture purpose")?);
+        return Ok(());
+    }
+
+    if let Some(value) = line.strip_prefix("sha256 ") {
+        if fixture.sha256.is_some() {
+            return Err(ParseError::new(
+                line_number,
+                "fixture has more than one sha256 clause",
+            ));
+        }
+        fixture.sha256 = Some(parse_quoted(value, line_number, "fixture sha256")?);
+        return Ok(());
+    }
+
+    Err(ParseError::new(
+        line_number,
+        "expected owner oracle, purpose \"...\", sha256 \"...\", or } inside fixture",
+    ))
+}
+
+fn parse_mutation_line(
+    mutation: &mut MutationClause,
+    line: &str,
+    line_number: usize,
+) -> Result<(), ParseError> {
+    if let Some(value) = line.strip_prefix("target ") {
+        if mutation.scenario.is_some() {
+            return Err(ParseError::new(
+                line_number,
+                "mutation has more than one target clause",
+            ));
+        }
+        mutation.scenario = Some(parse_identifier(
+            value,
+            line_number,
+            "mutation target scenario",
+        )?);
+        return Ok(());
+    }
+
+    if let Some(value) = line.strip_prefix("change ") {
+        if mutation.change.is_some() {
+            return Err(ParseError::new(
+                line_number,
+                "mutation has more than one change clause",
+            ));
+        }
+        let fields: Vec<&str> = value.split_whitespace().collect();
+        if fields.len() != 5
+            || fields[0] != "response.status"
+            || fields[1] != "from"
+            || fields[3] != "to"
+        {
+            return Err(ParseError::new(
+                line_number,
+                "expected `change response.status from STATUS to STATUS`",
+            ));
+        }
+        mutation.change = Some(MutationChange {
+            field: fields[0].to_owned(),
+            from: parse_integer(fields[2], line_number, "mutation source status")?,
+            to: parse_integer(fields[4], line_number, "mutation target status")?,
+        });
+        return Ok(());
+    }
+
+    if let Some(value) = line.strip_prefix("expect rule ") {
+        if mutation.expected_rule.is_some() {
+            return Err(ParseError::new(
+                line_number,
+                "mutation has more than one expected-rule clause",
+            ));
+        }
+        let rule = value.strip_suffix(" to fail").unwrap_or_default().trim();
+        if rule.is_empty() {
+            return Err(ParseError::new(
+                line_number,
+                "expected `expect rule SCENARIO.requirement.N to fail`",
+            ));
+        }
+        mutation.expected_rule = Some(rule.to_owned());
+        return Ok(());
+    }
+
+    Err(ParseError::new(
+        line_number,
+        "expected target, change, expect rule, or } inside mutation",
+    ))
+}
+
+fn parse_provenance_line(
+    provenance: &mut ProvenanceClause,
+    line: &str,
+    line_number: usize,
+) -> Result<(), ParseError> {
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    if fields.len() == 3
+        && fields[0] == "must"
+        && fields[1] == "create"
+        && fields[2] == "execution_id"
+    {
+        let requirement = ProvenanceRequirement {
+            kind: ProvenanceRequirementKind::Create,
+            field: ProvenanceField::ExecutionId,
+        };
+        if provenance.requirements.contains(&requirement) {
+            return Err(ParseError::new(
+                line_number,
+                "provenance has more than one must create execution_id clause",
+            ));
+        }
+        provenance.requirements.push(requirement);
+        return Ok(());
+    }
+
+    Err(ParseError::new(
+        line_number,
+        "expected must create execution_id or closing brace inside provenance",
+    ))
+}
+
+fn parse_isolation_line(
+    isolation: &mut IsolationClause,
+    line: &str,
+    line_number: usize,
+) -> Result<(), ParseError> {
+    if let Some(value) = line.strip_prefix("reset ") {
+        if isolation.reset.is_some() {
+            return Err(ParseError::new(
+                line_number,
+                "isolation has more than one reset clause",
+            ));
+        }
+        let (method, path) = value
+            .split_once(' ')
+            .ok_or_else(|| ParseError::new(line_number, "expected `reset METHOD \"/path\"`"))?;
+        if method != "POST" {
+            return Err(ParseError::new(
+                line_number,
+                "isolation reset must use POST",
+            ));
+        }
+        isolation.reset = Some(ResetClause {
+            method: method.to_owned(),
+            path: parse_quoted(path.trim(), line_number, "isolation reset path")?,
+        });
+        return Ok(());
+    }
+
+    Err(ParseError::new(
+        line_number,
+        "expected reset POST \"/path\" or closing brace inside isolation",
+    ))
+}
+
+fn parse_integer(value: &str, line_number: usize, field: &str) -> Result<i64, ParseError> {
+    value
+        .parse::<i64>()
+        .map_err(|_| ParseError::new(line_number, format!("{field} must be an integer")))
 }
 
 fn parse_scenario_header(line: &str, line_number: usize) -> Result<Scenario, ParseError> {
@@ -354,24 +730,74 @@ fn parse_body_line(
     Ok(())
 }
 
+fn body_value_is_complete(value: &str) -> bool {
+    let mut expected_closers = Vec::new();
+    let mut quoted = false;
+    let mut escaped = false;
+
+    for character in value.chars() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+
+        if character == '"' {
+            quoted = true;
+            continue;
+        }
+
+        match character {
+            '{' => expected_closers.push('}'),
+            '[' => expected_closers.push(']'),
+            '}' | ']' => {
+                if expected_closers.last() == Some(&character) {
+                    expected_closers.pop();
+                } else {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    quoted || expected_closers.is_empty()
+}
+
 fn parse_capture(value: &str, line_number: usize) -> Result<CaptureClause, ParseError> {
     let (name, selector) = value.split_once('=').ok_or_else(|| {
         ParseError::new(line_number, "expected capture NAME = response.body.FIELD")
     })?;
     let name = parse_identifier(name.trim(), line_number, "capture name")?;
     let selector = selector.trim();
-    let field = selector.strip_prefix("response.body.").ok_or_else(|| {
+    let path = selector.strip_prefix("response.body.").ok_or_else(|| {
         ParseError::new(
             line_number,
             "capture selector must start with response.body.",
         )
     })?;
-    let field = parse_identifier(field, line_number, "capture selector field")?;
+    let path = parse_selector_path(path, line_number)?;
 
     Ok(CaptureClause {
         name,
-        selector: format!("body.{field}"),
+        selector: format!("body.{path}"),
     })
+}
+
+fn parse_selector_path(value: &str, line_number: usize) -> Result<String, ParseError> {
+    if value.split('.').all(is_identifier) {
+        Ok(value.to_owned())
+    } else {
+        Err(ParseError::new(
+            line_number,
+            "capture selector path must contain identifier-like fields separated by dots",
+        ))
+    }
 }
 
 fn parse_literal(value: &str, line_number: usize) -> Result<Literal, ParseError> {
@@ -404,9 +830,51 @@ impl<'a> LiteralParser<'a> {
             Some('"') => Ok(Literal::String(self.parse_string()?)),
             Some('[') => self.parse_array(),
             Some('{') => self.parse_object(),
+            Some(character) if character.is_ascii_alphabetic() => {
+                if self.input[self.position..].starts_with("repeat") {
+                    self.parse_repeat()
+                } else {
+                    self.parse_scalar()
+                }
+            }
             Some(_) => self.parse_scalar(),
             None => Err(self.error("request body value cannot be empty")),
         }
+    }
+
+    fn parse_repeat(&mut self) -> Result<Literal, ParseError> {
+        for expected in "repeat".chars() {
+            self.consume(expected)?;
+        }
+        self.skip_whitespace();
+        self.consume('(')?;
+        self.skip_whitespace();
+        if self.peek() != Some('"') {
+            return Err(self.error("repeat generator value must be a quoted string"));
+        }
+        let value = self.parse_string()?;
+        self.skip_whitespace();
+        self.consume(',')?;
+        self.skip_whitespace();
+        let count = self.parse_repeat_count()?;
+        self.skip_whitespace();
+        self.consume(')')?;
+        Ok(Literal::Repeat { value, count })
+    }
+
+    fn parse_repeat_count(&mut self) -> Result<i64, ParseError> {
+        let start = self.position;
+        while matches!(
+            self.peek(),
+            Some(character)
+                if !character.is_whitespace() && !matches!(character, ',' | ']' | '}' | ')')
+        ) {
+            self.advance();
+        }
+        let value = &self.input[start..self.position];
+        value
+            .parse::<i64>()
+            .map_err(|_| self.error("repeat generator count must be an integer"))
     }
 
     fn parse_array(&mut self) -> Result<Literal, ParseError> {
@@ -483,23 +951,35 @@ impl<'a> LiteralParser<'a> {
             "true" => Ok(Literal::Boolean(true)),
             "false" => Ok(Literal::Boolean(false)),
             _ => value.parse::<i64>().map(Literal::Integer).map_err(|_| {
-                self.error("request body value must be true, false, an integer, a quoted string, an object, or an array")
+                self.error("request body value must be true, false, an integer, a quoted string, an object, an array, or repeat(\"text\", count)")
             }),
         }
     }
 
     fn parse_string(&mut self) -> Result<String, ParseError> {
         self.consume('"')?;
-        let start = self.position;
+        let mut raw_value = String::new();
         while let Some(character) = self.peek() {
             if character == '"' {
-                let value = self.input[start..self.position].to_owned();
                 self.advance();
-                return Ok(value);
+                return decode_quoted_content(&raw_value, self.line_number, "request body string");
+            }
+            if character == '\\' {
+                raw_value.push(character);
+                self.advance();
+                if let Some(escaped) = self.peek() {
+                    raw_value.push(escaped);
+                    self.advance();
+                    continue;
+                }
+                return Err(
+                    self.error("request body string contains an incomplete escape sequence")
+                );
             }
             if character.is_control() {
                 return Err(self.error("request body string contains a control character"));
             }
+            raw_value.push(character);
             self.advance();
         }
         Err(self.error("request body string is missing a closing quote"))
@@ -602,13 +1082,61 @@ fn parse_quoted(value: &str, line_number: usize, field: &str) -> Result<String, 
     }
 
     let inner = &value[1..value.len() - 1];
-    if inner.contains('"') {
-        return Err(ParseError::new(
-            line_number,
-            format!("{field} contains an unsupported unescaped quote"),
-        ));
+    decode_quoted_content(inner, line_number, field)
+}
+
+fn decode_quoted_content(
+    value: &str,
+    line_number: usize,
+    field: &str,
+) -> Result<String, ParseError> {
+    let mut decoded = String::new();
+    let mut characters = value.chars();
+
+    while let Some(character) = characters.next() {
+        if character == '"' {
+            return Err(ParseError::new(
+                line_number,
+                format!("{field} contains an unsupported unescaped quote"),
+            ));
+        }
+
+        if character == '\\' {
+            let escaped = characters.next().ok_or_else(|| {
+                ParseError::new(
+                    line_number,
+                    format!("{field} contains an incomplete escape sequence"),
+                )
+            })?;
+            let decoded_character = match escaped {
+                '"' => '"',
+                '\\' => '\\',
+                'b' => '\u{08}',
+                'f' => '\u{0C}',
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                _ => {
+                    return Err(ParseError::new(
+                        line_number,
+                        format!("{field} contains an unsupported escape sequence \\\\{escaped}"),
+                    ))
+                }
+            };
+            decoded.push(decoded_character);
+            continue;
+        }
+
+        if character.is_control() {
+            return Err(ParseError::new(
+                line_number,
+                format!("{field} contains a control character"),
+            ));
+        }
+        decoded.push(character);
     }
-    Ok(inner.to_owned())
+
+    Ok(decoded)
 }
 
 fn require_expression<'a>(
@@ -813,6 +1341,315 @@ mod tests {
                 ]),
             }
         );
+    }
+
+    #[test]
+    fn parses_escaped_quotes_and_backslashes() {
+        let source = r#"
+            spec document_api v1 {
+              subject "document \"api\""
+              scenario create_document {
+                given body {
+                  message = "say \"hello\"\\world\nnext"
+                }
+                when GET "/documents/a\\b"
+                must response.status == 200
+              }
+            }
+        "#;
+
+        let specification = parse(source).expect("escaped quoted strings should parse");
+        let scenario = &specification.scenarios[0];
+
+        assert_eq!(specification.subject.as_deref(), Some("document \"api\""));
+        assert_eq!(
+            scenario.when.as_ref().expect("when clause").path,
+            "/documents/a\\b"
+        );
+        assert_eq!(
+            scenario.request.as_ref().expect("request body").body[0].value,
+            Literal::String("say \"hello\"\\world\nnext".into())
+        );
+    }
+
+    #[test]
+    fn parses_multiline_nested_body_literals() {
+        let source = r#"
+            spec document_api v1 {
+              scenario create_document {
+                given body {
+                  metadata = {
+                    "source": "import }",
+                    "labels": [
+                      "docs",
+                      "contract"
+                    ]
+                  }
+                  tags = [
+                    "nested",
+                    "body"
+                  ]
+                }
+                when POST "/documents"
+                must response.status == 202
+              }
+            }
+        "#;
+
+        let specification = parse(source).expect("multiline body literals should parse");
+        let body = &specification.scenarios[0]
+            .request
+            .as_ref()
+            .expect("request body")
+            .body;
+
+        assert_eq!(
+            body,
+            &vec![
+                BodyField {
+                    name: "metadata".into(),
+                    value: Literal::Object(vec![
+                        BodyField {
+                            name: "source".into(),
+                            value: Literal::String("import }".into()),
+                        },
+                        BodyField {
+                            name: "labels".into(),
+                            value: Literal::Array(vec![
+                                Literal::String("docs".into()),
+                                Literal::String("contract".into()),
+                            ]),
+                        },
+                    ]),
+                },
+                BodyField {
+                    name: "tags".into(),
+                    value: Literal::Array(vec![
+                        Literal::String("nested".into()),
+                        Literal::String("body".into()),
+                    ]),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_string_escape() {
+        let error = parse(
+            "spec demo {\n scenario one {\n given body {\n name = \"bad\\q\"\n }\n when POST \"/documents\"\n must response.status == 400\n }\n}",
+        )
+        .unwrap_err();
+
+        assert_eq!(error.line, 4);
+        assert!(error.message.contains("unsupported escape sequence"));
+    }
+
+    #[test]
+    fn reports_the_start_line_for_an_unclosed_multiline_literal() {
+        let error = parse(
+            "spec demo {\n scenario one {\n given body {\n metadata = {\n \"source\": \"import\"\n",
+        )
+        .unwrap_err();
+
+        assert_eq!(error.line, 4);
+        assert!(error.message.contains("missing a closing delimiter"));
+    }
+
+    #[test]
+    fn parses_a_status_mutation_declaration() {
+        let source = r#"
+            spec document_api v1 {
+              scenario submit_document {
+                when POST "/documents"
+                must response.status == 202
+              }
+              mutation "return-200" {
+                target submit_document
+                change response.status from 202 to 200
+                expect rule submit_document.requirement.1 to fail
+              }
+            }
+        "#;
+
+        let specification = parse(source).expect("mutation declaration should parse");
+
+        assert_eq!(
+            specification.mutations,
+            vec![MutationClause {
+                id: "return-200".into(),
+                scenario: Some("submit_document".into()),
+                change: Some(MutationChange {
+                    field: "response.status".into(),
+                    from: 202,
+                    to: 200,
+                }),
+                expected_rule: Some("submit_document.requirement.1".into()),
+            }]
+        );
+    }
+
+    #[test]
+    fn parses_an_execution_id_provenance_declaration() {
+        let source = r#"
+            spec document_api v1 {
+              provenance {
+                must create execution_id
+              }
+              scenario submit_document {
+                when POST "/documents"
+                must response.status == 202
+              }
+            }
+        "#;
+
+        let specification = parse(source).expect("provenance declaration should parse");
+
+        assert_eq!(
+            specification.provenance,
+            Some(ProvenanceClause {
+                requirements: vec![ProvenanceRequirement {
+                    kind: ProvenanceRequirementKind::Create,
+                    field: ProvenanceField::ExecutionId,
+                }],
+            })
+        );
+    }
+
+    #[test]
+    fn parses_per_scenario_isolation_with_a_reset_request() {
+        let source = r#"
+            spec document_api v1 {
+              isolation per scenario {
+                reset POST "/__malcolm/reset"
+              }
+              scenario submit_document {
+                when POST "/documents"
+                must response.status == 202
+              }
+            }
+        "#;
+
+        let specification = parse(source).expect("isolation declaration should parse");
+
+        assert_eq!(
+            specification.isolation,
+            Some(IsolationClause {
+                scope: IsolationScope::Scenario,
+                reset: Some(ResetClause {
+                    method: "POST".into(),
+                    path: "/__malcolm/reset".into(),
+                }),
+            })
+        );
+    }
+
+    #[test]
+    fn parses_a_digest_pinned_oracle_fixture() {
+        let source = r#"
+            spec document_api v1 {
+              fixture "welcome-document" {
+                owner oracle
+                purpose "canonical document input"
+                sha256 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+              }
+              scenario submit_document {
+                when POST "/documents"
+                must response.status == 202
+              }
+            }
+        "#;
+
+        let specification = parse(source).expect("fixture declaration should parse");
+
+        assert_eq!(specification.fixtures.len(), 1);
+        assert_eq!(specification.fixtures[0].id, "welcome-document");
+        assert_eq!(specification.fixtures[0].owner, Some(FixtureOwner::Oracle));
+        assert_eq!(
+            specification.fixtures[0].purpose.as_deref(),
+            Some("canonical document input")
+        );
+        assert_eq!(
+            specification.fixtures[0].sha256.as_deref(),
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+        );
+    }
+
+    #[test]
+    fn parses_repeat_generator() {
+        let source = r#"
+            spec document_boundary v1 {
+              scenario reject_oversized_document {
+                given body {
+                  content = repeat("a", 4097)
+                }
+                when POST "/documents"
+                must response.status == 413
+              }
+            }
+        "#;
+
+        let specification = parse(source).expect("repeat generator source should parse");
+        assert_eq!(
+            specification.scenarios[0]
+                .request
+                .as_ref()
+                .expect("request body")
+                .body[0]
+                .value,
+            Literal::Repeat {
+                value: "a".into(),
+                count: 4097,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_nested_capture_selector_paths() {
+        let source = r#"
+            spec document_api v1 {
+              scenario inspect_document {
+                setup create_document {
+                  given body {
+                    name = "welcome.md"
+                  }
+                  when POST "/documents"
+                  must response.status == 202
+                  capture owner_id = response.body.metadata.owner.id
+                }
+                when GET "/documents"
+                must response.status == 200
+              }
+            }
+        "#;
+
+        let specification = parse(source).expect("nested selector source should parse");
+
+        assert_eq!(
+            specification.scenarios[0].setups[0].captures[0].selector,
+            "body.metadata.owner.id"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_nested_capture_selector_paths() {
+        let error = parse(
+            "spec demo v1 {\n scenario inspect {\n setup create {\n given body {\n name = \"a\"\n }\n when POST \"/documents\"\n must response.status == 202\n capture owner = response.body.metadata..id\n }\n when GET \"/documents\"\n must response.status == 200\n }\n}",
+        )
+        .unwrap_err();
+
+        assert_eq!(error.line, 9);
+        assert!(error.message.contains("identifier-like fields"));
+    }
+
+    #[test]
+    fn rejects_repeat_generator_with_non_string_value() {
+        let error = parse(
+            "spec demo v1 {\n scenario one {\n given body {\n content = repeat(true, 2)\n }\n when POST \"/documents\"\n must response.status == 413\n }\n}",
+        )
+        .unwrap_err();
+
+        assert_eq!(error.line, 4);
+        assert!(error.message.contains("quoted string"));
     }
 
     #[test]

@@ -199,7 +199,7 @@ func TestWriteSeriesSummaryOmitsPointEntries(t *testing.T) {
 			Compatible:   1,
 			Incompatible: 1,
 			TotalChanges: 3,
-			ChangesByID:  map[string]int{"verdict.status": 2},
+			ChangesByID:  map[string]int{"verdict.exit_code": 1, "verdict.status": 2},
 		},
 		Entries: []SeriesPoint{{ID: "one"}, {ID: "two"}},
 	}
@@ -234,9 +234,17 @@ func TestWriteSeriesLatestProjectsFinalPoint(t *testing.T) {
 		ChangeIDFilter: []string{"verdict.status"},
 		Entries: []SeriesPoint{
 			{ID: "one", Summary: BundleSummary{Compatible: true}},
-			{ID: "two", Label: "current", Latest: true, Summary: BundleSummary{
-				Compatible:    false,
-				ChangeSummary: ChangeSummary{Total: 1},
+			{ID: "two", Label: "current", Latest: true, Manifest: "bundle/two.json", Summary: BundleSummary{
+				Compatible:           false,
+				CompatibilityReasons: []string{"workflow changed"},
+				ChangeSummary:        ChangeSummary{Total: 1, ByCategory: map[string]int{"context": 1}},
+				Subsystems: map[string]BundleSubsystemSummary{
+					"nublar_run": {
+						Compatible:    false,
+						Transition:    NewStateTransition("status", "passed", "failed", false),
+						ChangeSummary: ChangeSummary{Total: 1, ByCategory: map[string]int{"context": 1}},
+					},
+				},
 			}},
 		},
 	}

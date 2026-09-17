@@ -103,6 +103,9 @@ correctness.
 See [MODULES.md](MODULES.md) for the repository map and the intended status of
 each area.
 
+See [roadmap.md](roadmap.md) for the overall InGen checkpoint, completed
+surfaces, explicit non-claims, and candidate next phases.
+
 The current cross-tool alpha boundary is recorded in
 [ALPHA-INTERFACES.md](ALPHA-INTERFACES.md). The focused verification command
 is `make alpha-interface-check`; the complete clean workflow is

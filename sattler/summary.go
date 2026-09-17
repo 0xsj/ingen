@@ -13,6 +13,28 @@ type ChangeSummary struct {
 	ByCategory map[string]int `json:"by_category,omitempty"`
 }
 
+// Validate checks the count invariants used by compatibility-treated
+// projections. It does not assign meaning to a category.
+func (summary ChangeSummary) Validate() error {
+	if summary.Total < 0 {
+		return fmt.Errorf("change summary total must not be negative")
+	}
+	total := 0
+	for category, count := range summary.ByCategory {
+		if strings.TrimSpace(category) == "" {
+			return fmt.Errorf("change summary category must not be empty")
+		}
+		if count < 0 {
+			return fmt.Errorf("change summary category %q count must not be negative", category)
+		}
+		total += count
+	}
+	if total != summary.Total {
+		return fmt.Errorf("change summary category counts must equal total")
+	}
+	return nil
+}
+
 // SummarizeChanges returns deterministic category counts for a change list.
 func SummarizeChanges(changes []Change) ChangeSummary {
 	summary := ChangeSummary{Total: len(changes)}

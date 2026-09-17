@@ -67,6 +67,26 @@ func TestDocumentWorkflowExposesContractedStatesAndResult(t *testing.T) {
 	}
 }
 
+func TestProcessCompletedDocumentIsNotReprocessed(t *testing.T) {
+	handler := NewHandler(NewStore())
+	create := requestJSON(t, handler, http.MethodPost, "/documents", map[string]string{
+		"name":    "welcome.md",
+		"content": "Read the contract.",
+	})
+	var accepted struct {
+		ID string `json:"id"`
+	}
+	decodeJSON(t, create, &accepted)
+
+	first := requestJSON(t, handler, http.MethodPost, "/documents/"+accepted.ID+"/process", nil)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first process status = %d, want %d", first.Code, http.StatusOK)
+	}
+
+	second := requestJSON(t, handler, http.MethodPost, "/documents/"+accepted.ID+"/process", nil)
+	assertErrorCode(t, second, http.StatusConflict, "document_not_queued")
+}
+
 func TestHealthEndpointSupportsManagedSubjectReadiness(t *testing.T) {
 	response := requestJSON(t, NewHandler(NewStore()), http.MethodGet, "/healthz", nil)
 
@@ -79,6 +99,36 @@ func TestHealthEndpointSupportsManagedSubjectReadiness(t *testing.T) {
 	decodeJSON(t, response, &body)
 	if body.Status != "ok" {
 		t.Fatalf("health body = %+v, want status=ok", body)
+	}
+}
+
+func TestFixtureResetClearsSubjectOwnedState(t *testing.T) {
+	handler := NewHandler(NewStore())
+	create := requestJSON(t, handler, http.MethodPost, "/documents", map[string]string{
+		"name":    "reset-me.md",
+		"content": "temporary state",
+	})
+	if create.Code != http.StatusAccepted {
+		t.Fatalf("create status = %d, want %d", create.Code, http.StatusAccepted)
+	}
+
+	reset := requestJSON(t, handler, http.MethodPost, "/__malcolm/reset", nil)
+	if reset.Code != http.StatusNoContent {
+		t.Fatalf("reset status = %d, want %d", reset.Code, http.StatusNoContent)
+	}
+
+	missing := requestJSON(t, handler, http.MethodGet, "/documents/doc-1", nil)
+	assertErrorCode(t, missing, http.StatusNotFound, "document_not_found")
+	createdAgain := requestJSON(t, handler, http.MethodPost, "/documents", map[string]string{
+		"name":    "after-reset.md",
+		"content": "fresh state",
+	})
+	var accepted struct {
+		ID string `json:"id"`
+	}
+	decodeJSON(t, createdAgain, &accepted)
+	if accepted.ID != "doc-1" {
+		t.Fatalf("first ID after reset = %q, want doc-1", accepted.ID)
 	}
 }
 

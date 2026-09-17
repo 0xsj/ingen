@@ -1,0 +1,13 @@
+spec document_provenance v1 {
+  subject "document-pipeline"
+
+  provenance {
+    must create execution_id
+  }
+
+  scenario submit_document {
+    when POST "/documents"
+    must response.status == 202
+    must response.body.id exists
+  }
+}

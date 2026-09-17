@@ -153,6 +153,33 @@ func TestValidationRequiresSetupForStatefulRule(t *testing.T) {
 	}
 }
 
+func TestValidationChecksPerScenarioIsolationReset(t *testing.T) {
+	document := minimalDocument()
+	document.Contract["rules"] = []any{map[string]any{
+		"id":      "isolated-rule",
+		"strength": "must",
+		"subject": "POST /documents",
+		"given": map[string]any{
+			"isolation": map[string]any{
+				"scope": "scenario",
+				"reset": map[string]any{
+					"method": "POST",
+					"path":   "/__malcolm/reset",
+				},
+			},
+		},
+	}}
+	if problems := Validate(document); len(problems) > 0 {
+		t.Fatalf("valid isolation declaration has problems: %v", problems)
+	}
+
+	document.Contract["rules"].([]any)[0].(map[string]any)["given"].(map[string]any)["isolation"].(map[string]any)["scope"] = "run"
+	problems := Validate(document)
+	if !containsProblem(problems, "given.isolation.scope must be scenario") {
+		t.Fatalf("problems = %v, want invalid isolation scope", problems)
+	}
+}
+
 func TestValidationRequiresBooleanAdditionalProperties(t *testing.T) {
 	document := minimalDocument()
 	document.Contract["rules"] = []any{map[string]any{

@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-nublar-run-comparison-v0.schema.json",
+  "title": "InGen Sattler Nublar run comparison",
+  "description": "The compatibility-treated Nublar coordination comparison with opaque nested producer results.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-nublar-run-comparison/v0"},
+    "compatible": {"type": "boolean"},
+    "compatibility_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "before": {"$ref": "#/$defs/run-summary"},
+    "after": {"$ref": "#/$defs/run-summary"},
+    "transition": {"$ref": "#/$defs/transition"},
+    "change_id_filter": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "changes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/change"}
+    },
+    "change_summary": {"$ref": "#/$defs/change-summary"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "file-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "file"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "file": {"$ref": "#/$defs/file-ref"}
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "id", "attempt"],
+      "properties": {
+        "system": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "attempt": {"type": "integer", "minimum": 1}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "required", "status"],
+      "properties": {
+        "tool": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"},
+        "status": {"type": "string", "minLength": 1},
+        "reason": {"type": "string"}
+      }
+    },
+    "run-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "run_id", "workflow", "status", "exit_code", "checks"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "schema": {"const": "ingen.nublar-run/v1"},
+        "run_id": {"type": "string", "minLength": 1},
+        "workflow": {"$ref": "#/$defs/workflow"},
+        "correlation": {"$ref": "#/$defs/correlation"},
+        "status": {"type": "string", "minLength": 1},
+        "exit_code": {"type": "integer", "minimum": 0},
+        "created_at": {"type": "string", "minLength": 1},
+        "completed_at": {"type": "string", "minLength": 1},
+        "checks": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/check"}
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "before", "after", "classification"],
+      "properties": {
+        "field": {"const": "status"},
+        "before": {"type": "string", "minLength": 1},
+        "after": {"type": "string", "minLength": 1},
+        "classification": {"enum": ["unchanged", "changed", "incompatible"]}
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "field", "before", "after"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "minLength": 1},
+        "field": {"type": "string", "minLength": 1},
+        "before": {},
+        "after": {},
+        "identity": {"enum": ["same-bytes", "replaced", "added", "removed", "unknown"]}
+      }
+    },
+    "change-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "by_category": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

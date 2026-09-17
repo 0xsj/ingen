@@ -152,3 +152,27 @@ domain allow-list and keeps all other rules unchanged.
 
 This makes the proposal useful for review, but it is not sealed and must not
 replace `overwatch-backend-review.lock.json` without approval.
+
+## Current handoff validation
+
+A subsequent agent handoff replay on 2026-09-17 used the checked-in sealed
+locks and the current dirty sibling repositories. The backend gate returned
+exit `1`; the UI gate returned exit `0`.
+
+- The backend graph contained 162 packages and 1,779 edges with 45 findings:
+  43 `domain-is-pure` findings, one
+  `application-not-infrastructure` finding, and one `layers-point-inward`
+  finding.
+- The filtered backend explanation isolated one blocking
+  `internal/audit/app/query/ledger.go:9` →
+  `internal/audit/infra/postgres` edge and retained its related rule,
+  artifact hash, policy hash, lock hash, Paddock tool version, and source
+  revision/changes hash.
+- The UI graph contained 450 source units and 1,773 edges. Its
+  explanation reports `clear` with zero findings.
+
+This replay found no Paddock handoff usability defect: an agent can identify
+the affected boundary, the violated rule, the blocking status, the relevant
+provenance, and the deterministic remediation direction. The changed backend
+and UI counts reflect current Overwatch source drift; the earlier measurements
+remain historical evidence. No policy, waiver, baseline, or lock was changed.

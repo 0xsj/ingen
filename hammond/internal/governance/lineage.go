@@ -14,11 +14,44 @@ func ValidateLineage(records []Record) error {
 // ValidateLineageWithPolicy validates records and their references using an
 // explicit review policy.
 func ValidateLineageWithPolicy(records []Record, policy ReviewPolicy) error {
+	return validateLineage(records, func(PolicyReference) (ReviewPolicy, error) {
+		return policy, nil
+	})
+}
+
+// ValidateLineageWithPolicyResolver validates records and their references by
+// resolving each record's policy reference. This keeps read-only registry and
+// lineage checks correct when a store contains records governed by custom
+// policies rather than the default policy.
+func ValidateLineageWithPolicyResolver(records []Record, resolve func(PolicyReference) (ReviewPolicy, error)) error {
+	if resolve == nil {
+		return fmt.Errorf("Hammond lineage policy resolver is required")
+	}
+	return validateLineage(records, resolve)
+}
+
+func validateLineage(records []Record, resolve func(PolicyReference) (ReviewPolicy, error)) error {
 	problems := make([]string, 0)
 	byIdentity := make(map[string]Record, len(records))
+	policies := make(map[string]ReviewPolicy, len(records))
 	for index, record := range records {
-		if err := record.ValidateWithPolicy(policy); err != nil {
-			problems = append(problems, fmt.Sprintf("record[%d]: %v", index, err))
+		policyKey := record.Policy.Key()
+		policy, ok := policies[policyKey]
+		policyResolved := ok
+		if !ok {
+			resolved, err := resolve(record.Policy)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("record[%d]: resolve policy: %v", index, err))
+			} else {
+				policy = resolved
+				policies[policyKey] = policy
+				policyResolved = true
+			}
+		}
+		if policyResolved {
+			if err := record.ValidateWithPolicy(policy); err != nil {
+				problems = append(problems, fmt.Sprintf("record[%d]: %v", index, err))
+			}
 		}
 		key := record.Contract.Identity().Key()
 		if _, exists := byIdentity[key]; exists {

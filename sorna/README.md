@@ -17,6 +17,57 @@ check with:
 make sorna-alpha-check
 ```
 
+The broader release checkpoint also exercises the provider conformance corpus,
+the experimental TypeScript handoff, and Nublar downstream collection:
+
+```sh
+make sorna-release-check
+```
+
+The repository CI workflow runs the complete Sorna checkpoint on macOS and
+uploads the fresh downstream handoff artifacts for review.
+
+Build the standalone CLI locally with embedded development metadata:
+
+```sh
+make sorna-build
+./.artifacts/sorna/sorna version --format json
+```
+
+The CI workflow builds the same binary with checkpoint metadata and uploads it
+alongside the handoff artifacts. Cross-platform release archives are available
+through the release-shaped targets below; publication remains a separate
+decision.
+
+The release-shaped bundle can be built and verified with fresh output paths:
+
+```sh
+make sorna-release-artifacts \
+  SORNA_VERSION=0.1.0 \
+  SORNA_COMMIT="$(git rev-parse --short HEAD)" \
+  SORNA_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+make sorna-release-verify \
+  SORNA_VERSION=0.1.0 \
+  SORNA_RELEASE_DIR=.artifacts/sorna-release/0.1.0
+```
+
+The bundle contains macOS and Linux archives for amd64 and arm64, a
+`SHA256SUMS` file, and a `sorna.release/v1` manifest. The standalone CLI
+verifier emits `sorna.release-verification/v1` and fails on missing or changed
+archives.
+
+After verification, `make sorna-release-provenance` can emit a
+`release-provenance.json` record that binds the exact manifest and verification
+bytes to source and CI build metadata. This is signing-ready provenance, not a
+signature or an independent attestation.
+
+A tag named `sorna-v<version>` runs the tagged release-bundle job in
+[`.github/workflows/sorna-release.yml`](../.github/workflows/sorna-release.yml).
+The job rebuilds and verifies the same bundle, then uploads the verified
+archives and manifests as a 90-day CI artifact. It does not yet create a
+public GitHub Release or sign binaries; that policy is recorded in
+[`notes/modules/sorna-release-publication-policy.md`](../notes/modules/sorna-release-publication-policy.md).
+
 The cross-language artifact boundary includes the published
 [`ingen.run/v1`](spec/ingen.run-v1.schema.json) execution record and
 [`sorna.evidence/v1`](spec/sorna.evidence-v1.schema.json) evidence manifest.
@@ -100,7 +151,16 @@ Provider preparation can be exposed before mutation execution with
 `sorna mutation provider preparation <summary> --provider <manifest>
 --format ci-result`. The resulting `mutation-preparation` envelope binds the
 summary to the exact provider and plan inputs for a coordinator such as
-Nublar.
+Nublar. The summary's structural cross-language shape is published as
+[`ingen.mutation-preparation/v1`](spec/ingen.mutation-preparation-v1.schema.json),
+and Sorna's loader rejects unknown fields and trailing JSON values before the
+envelope is emitted.
+
+The no-execution provider review report is also published as
+[`ingen.mutation-provider-review/v1`](spec/ingen.mutation-provider-review-v1.schema.json).
+The schema describes the portable report shape; Sorna's runtime review still
+owns the relationships between plan mutations, exact capabilities, entries,
+and binding decisions.
 
 The oracle access boundary is a real security boundary. The rest of the
 directory layout is a maintainable starting point, not a demand for separate
@@ -300,6 +360,7 @@ go run ./sorna/cmd/sorna mutation contract ci-result \
   --output .artifacts/document-pipeline-contract-mutations-ci.json
 make mutation-plan
 make mutation-provider-validate
+make mutation-provider-conformance
 make mutation-provider-inspect
 make mutation-campaign-run
 make mutation-campaign-verify
@@ -316,6 +377,17 @@ targets, reproducible changes, expected contract rules, and lifecycle status.
 It does not apply mutations or launch a subject. `make mutation-plan` creates
 the reviewable handoff for an execution provider and requires the passing clean
 baseline.
+
+The structural cross-language shape of the catalogue input is published as
+[`spec/ingen.mutation-catalogue-v1.schema.json`](spec/ingen.mutation-catalogue-v1.schema.json).
+The schema covers the YAML/JSON `mutation_catalogue` wrapper; runtime
+validation additionally checks duplicate IDs and contract rule bindings.
+
+The structural cross-language shape is published as
+[`spec/ingen.mutation-plan-v1.schema.json`](spec/ingen.mutation-plan-v1.schema.json).
+The schema describes the ready implementation-campaign handoff; Sorna's
+runtime validation additionally checks cross-artifact identity and sequence
+invariants.
 
 The first execution provider is intentionally a prebuilt-variant manifest for
 the document lab. `make mutation-campaign-run` consumes the plan, launches one
@@ -337,6 +409,20 @@ It describes the versioned provider envelope, capability tuples, prepared
 entries, and optional source provenance. Runtime Go validation remains the
 execution boundary; the schema gives other tools a language-neutral review
 surface.
+
+The alpha provider handoff is frozen in
+[`PROVIDER-HANDOFF.md`](PROVIDER-HANDOFF.md). It defines the responsibilities,
+invariants, conformance cases, and compatibility rule for future SDKs.
+
+`make mutation-provider-conformance` runs the checked-in provider handoff
+fixtures for a valid provider, exact-plan drift, semantic-plan drift,
+unsupported capability, partial preparation, and malformed entry. These cases
+exercise the review boundary without launching a subject.
+
+`make mutation-typescript-provider-conformance` runs the experimental
+TypeScript manifest adapter and validates its emitted v1 provider with Sorna's
+Go loader. It proves cross-language handoff compatibility only; the strict Go
+source provider remains the behavioral implementation.
 
 `mutation provider inspect` produces a versioned review report without
 launching a subject. It shows the exact plan/provider hashes, plan binding

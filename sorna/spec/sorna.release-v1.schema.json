@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.dev/schema/sorna.release-v1.schema.json",
+  "title": "Sorna release manifest",
+  "description": "The publishing handoff for cross-platform Sorna CLI archives.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "version", "commit", "build_date", "artifacts"],
+  "properties": {
+    "schema": {"const": "sorna.release/v1"},
+    "name": {"const": "sorna"},
+    "version": {"type": "string", "minLength": 1},
+    "commit": {"type": "string", "minLength": 1},
+    "build_date": {"type": "string", "minLength": 1},
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/artifact"}
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._-]+$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

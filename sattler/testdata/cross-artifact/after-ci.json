@@ -1,0 +1,27 @@
+{
+  "schema": "ingen.ci-result/v1",
+  "tool": "sorna",
+  "kind": "mutation-campaign",
+  "status": "failed",
+  "exit_code": 1,
+  "created_at": "2026-09-17T10:05:00Z",
+  "source": {
+    "root": "/workspace/document-pipeline",
+    "module_path": "example/document-pipeline"
+  },
+  "inputs": {
+    "contract": {
+      "path": "contract-v2.yaml",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "report": {
+    "schema": "sorna.mutation-campaign-result/v0",
+    "status": "failed"
+  },
+  "explanation": {
+    "schema": "sorna.mutation-campaign-explanation/v1",
+    "status": "failed",
+    "reason": "producer detail unavailable"
+  }
+}

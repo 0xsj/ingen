@@ -1,6 +1,10 @@
 spec document_flow v2 {
   subject "document-pipeline"
 
+  isolation per scenario {
+    reset POST "/__malcolm/reset"
+  }
+
   scenario create_document {
     given body {
       name = "welcome.md"

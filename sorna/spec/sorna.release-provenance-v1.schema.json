@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.dev/schema/sorna.release-provenance-v1.schema.json",
+  "title": "Sorna release provenance",
+  "description": "Signing-ready source and build context bound to exact Sorna release evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "version", "source", "build", "manifest", "verification"],
+  "properties": {
+    "schema": {"const": "sorna.release-provenance/v1"},
+    "name": {"const": "sorna"},
+    "version": {"type": "string", "minLength": 1},
+    "source": {"$ref": "#/$defs/source"},
+    "build": {"$ref": "#/$defs/build"},
+    "manifest": {"$ref": "#/$defs/file"},
+    "verification": {"$ref": "#/$defs/verification"}
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "ref", "tag", "commit"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "ref": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "minLength": 1},
+        "commit": {"type": "string", "minLength": 1}
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow", "run_id", "run_attempt", "runner", "build_date"],
+      "properties": {
+        "workflow": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "minLength": 1},
+        "run_attempt": {"type": "string", "minLength": 1},
+        "runner": {"type": "string", "minLength": 1},
+        "build_date": {"type": "string", "minLength": 1}
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "status"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "status": {"const": "passed"}
+      }
+    }
+  }
+}

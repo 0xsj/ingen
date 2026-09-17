@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-revalidation-v1.schema.json",
+  "title": "Lockwood cleanup revalidation evidence v1",
+  "description": "A caller-supplied fresh local revalidation report bound to one cleanup target and plan.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target_digest", "cleanup_plan_digest", "observed_digest", "observed_size_bytes", "checked_at", "reference_state", "recovery_state", "protection_state", "state", "blockers"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-revalidation/v1"},
+    "target_digest": {"$ref": "#/$defs/digest"},
+    "cleanup_plan_digest": {"$ref": "#/$defs/digest"},
+    "observed_digest": {"$ref": "#/$defs/digest"},
+    "observed_size_bytes": {"type": "integer", "minimum": 0},
+    "checked_at": {"type": "string", "format": "date-time"},
+    "reference_state": {"enum": ["clear", "blocked", "indeterminate"]},
+    "recovery_state": {"enum": ["clear", "blocked", "indeterminate"]},
+    "protection_state": {"enum": ["clear", "blocked", "indeterminate"]},
+    "state": {"enum": ["clear", "blocked", "indeterminate"]},
+    "blockers": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

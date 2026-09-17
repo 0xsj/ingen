@@ -1,0 +1,8 @@
+fixture_provider:
+  schema: ingen.fixture-provider/v1
+  id: document-fixtures
+  version: 1
+  fixtures:
+    - id: welcome-document
+      path: welcome-document.txt
+      sha256: 637cecb53db658da5231f933fad366fce94f982501e59d7ddc7688cfaf81b825

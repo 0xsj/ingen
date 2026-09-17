@@ -32,6 +32,10 @@ error pattern can be used as a state-establishing precondition. One create case
 also proves that the subject's
 `X-InGen-Event` response signals satisfy `must emit "document.accepted"` and
 `must emit "document.queued"`; another checks their relative order.
+Before each of the eight cases, the document fixture's subject-owned
+`POST /__malcolm/reset` hook clears its in-memory store. Sorna records that
+reset request and response in the rule's isolation evidence before executing
+the case setup and target.
 
 ## Why
 
@@ -54,8 +58,11 @@ sealed contract, and subject artifacts use the corresponding
 
 - A passing flow run proves these eight declared cases against this subject
   boundary; it does not prove the entire document API.
-- Setup runs once per generated rule case. Each rule therefore creates its own
-  document and captures its own ID.
+- The isolation declaration resets the fixture once per generated rule case.
+  Setup still runs once per case, so each rule creates its own document and
+  captures its own ID.
+- Reset evidence proves that the fixture hook returned success; it does not
+  prove that arbitrary private databases, queues, or files were cleared.
 - The subject policy permits only inbound localhost traffic on port 8080 and
   denies Malcolm and generated contract/oracle paths.
 - macOS host enforcement may require the local Seatbelt permission needed by

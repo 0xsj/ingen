@@ -1,0 +1,10 @@
+{
+  "schema": "ingen.sattler-comparison-series-input/v0",
+  "entries": [
+    {
+      "id": "document-pipeline-attempt-1",
+      "label": "cross-artifact fixture",
+      "manifest": "comparison.json"
+    }
+  ]
+}

@@ -851,6 +851,28 @@ func TestHTTPMembershipProviderDelegatesNormalizationAndCompleteness(t *testing.
 	if authorized, err := snapshot.Verifier().Verify("reviewer@example.test", "product-reviewer", "2026-09-15T00:30:00Z"); err != nil || !authorized {
 		t.Fatalf("normalized membership grant = %v, %v; want authorized", authorized, err)
 	}
+	if verifierAt, err := provider.FetchNormalizedVerifierAt(context.Background(), normalizer, verifier, "2026-09-15T00:30:00Z", time.Hour, 5*time.Minute); err != nil {
+		t.Fatalf("normalized freshness verifier error = %v", err)
+	} else if authorized, err := verifierAt.Verify("reviewer@example.test", "product-reviewer", "2026-09-15T00:30:00Z"); err != nil || !authorized {
+		t.Fatalf("normalized freshness grant = %v, %v; want authorized", authorized, err)
+	}
+	if verifierWithProvenance, err := provider.FetchNormalizedVerifierAtWithProvenance(context.Background(), normalizer, verifier, "2026-09-15T00:30:00Z", time.Hour, 5*time.Minute); err != nil {
+		t.Fatalf("normalized provenance verifier error = %v", err)
+	} else if !verifierWithProvenance.MembershipReference().Equal(snapshot.Reference) {
+		t.Fatalf("normalized provenance reference = %#v, want %#v", verifierWithProvenance.MembershipReference(), snapshot.Reference)
+	}
+	verifierWithProvenance, err := provider.FetchNormalizedVerifierAtWithProvenance(context.Background(), normalizer, verifier, "2026-09-15T00:30:00Z", time.Hour, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("end-to-end normalized verifier error = %v", err)
+	}
+	policy := DefaultReviewPolicy()
+	policy.AuthorityVerifier = verifierWithProvenance
+	record := approvedRecord(strings.Repeat("a", 64))
+	record.Events[2].Actor = "reviewer@example.test"
+	record.Events[2].Membership = &snapshot.Reference
+	if err := record.ValidateWithPolicy(policy); err != nil {
+		t.Fatalf("normalized membership policy authorization error = %v", err)
+	}
 
 	incomplete := MembershipResponseNormalizer(func(context.Context, string, []byte) (NormalizedMembershipResponse, error) {
 		return NormalizedMembershipResponse{}, errors.New("provider view is incomplete")

@@ -1,0 +1,36 @@
+{
+  "schema": "ingen.hammond-governance/v1",
+  "record_id": "governance-document-pipeline-v1",
+  "contract": {
+    "project_id": "document-pipeline",
+    "id": "document-pipeline",
+    "version": 1,
+    "schema": "ingen.contract/v1",
+    "artifact": {
+      "uri": "lockwood/testdata/valid-hammond-contract-v1.json",
+      "sha256": "c3c2af168f624624f6678f959126826d2d69dfb32d0c8ffd6a29f6ad944b2871"
+    }
+  },
+  "policy": {
+    "id": "single-approval",
+    "version": 1,
+    "schema": "ingen.hammond-review-policy/v1",
+    "artifact": {
+      "uri": "hammond/examples/review-policy-v1.json",
+      "sha256": "f478a9d1b32421f22645b2f374feb8cbcf5978aec2ef3317605e92d8322e3c62"
+    }
+  },
+  "state": "approved",
+  "events": [
+    {
+      "id": "approval-0001",
+      "type": "approval-recorded",
+      "actor": "product-reviewer",
+      "role": "product-reviewer",
+      "at": "2026-09-15T11:00:00Z",
+      "review_cycle_id": "review-0001",
+      "decision": "approve",
+      "artifact_sha256": "c3c2af168f624624f6678f959126826d2d69dfb32d0c8ffd6a29f6ad944b2871"
+    }
+  ]
+}

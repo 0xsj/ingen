@@ -1,0 +1,8 @@
+{
+  "schema": "ingen.hammond-authority/v1",
+  "id": "solo-reviewer",
+  "version": 1,
+  "actors": {
+    "solo": ["product-reviewer"]
+  }
+}

@@ -258,6 +258,83 @@ func sameEvent(left, right sentinelrun.Event) bool {
 	return true
 }
 
+// HerdrHostEnvelope is the raw event shape emitted by Herdr's plugin hooks.
+// It is an evidence-only representation; it is deliberately not accepted by
+// ApplyHerdrEvent until a host binding supplies the normalized Sentinel fields.
+type HerdrHostEnvelope struct {
+	Event string
+	Data  json.RawMessage
+	Raw   json.RawMessage
+}
+
+func (e HerdrHostEnvelope) Validate() error {
+	if strings.TrimSpace(e.Event) == "" {
+		return fmt.Errorf("Herdr host event name is required")
+	}
+	if len(bytes.TrimSpace(e.Data)) == 0 {
+		return fmt.Errorf("Herdr host event data is required")
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(e.Data, &object); err != nil || object == nil {
+		if err != nil {
+			return fmt.Errorf("Herdr host event data must be a JSON object: %w", err)
+		}
+		return fmt.Errorf("Herdr host event data must be a JSON object")
+	}
+	return nil
+}
+
+// LoadHerdrHostEnvelope loads a raw Herdr callback for compatibility evidence.
+// Callers must not treat the returned envelope as an ingen.herdr-event/v1
+// event; LoadHerdrEvent is the strict normalized-event boundary.
+func LoadHerdrHostEnvelope(path string) (HerdrHostEnvelope, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return HerdrHostEnvelope{}, fmt.Errorf("read Herdr host event %s: %w", path, err)
+	}
+	envelope, err := parseHerdrHostEnvelope(contents, path)
+	if err != nil {
+		return HerdrHostEnvelope{}, err
+	}
+	return envelope, nil
+}
+
+func parseHerdrHostEnvelope(contents []byte, name string) (HerdrHostEnvelope, error) {
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	var fields map[string]json.RawMessage
+	if err := decoder.Decode(&fields); err != nil {
+		return HerdrHostEnvelope{}, fmt.Errorf("parse Herdr host event %s: %w", name, err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return HerdrHostEnvelope{}, fmt.Errorf("parse Herdr host event %s: multiple JSON values are not supported", name)
+		}
+		return HerdrHostEnvelope{}, fmt.Errorf("parse Herdr host event %s: %w", name, err)
+	}
+	eventBytes, ok := fields["event"]
+	if !ok {
+		return HerdrHostEnvelope{}, fmt.Errorf("validate Herdr host event %s: event is required", name)
+	}
+	var eventName string
+	if err := json.Unmarshal(eventBytes, &eventName); err != nil {
+		return HerdrHostEnvelope{}, fmt.Errorf("validate Herdr host event %s: event must be a string: %w", name, err)
+	}
+	data, ok := fields["data"]
+	if !ok {
+		return HerdrHostEnvelope{}, fmt.Errorf("validate Herdr host event %s: data is required", name)
+	}
+	envelope := HerdrHostEnvelope{
+		Event: eventName,
+		Data:  append(json.RawMessage(nil), data...),
+		Raw:   append(json.RawMessage(nil), bytes.TrimSpace(contents)...),
+	}
+	if err := envelope.Validate(); err != nil {
+		return HerdrHostEnvelope{}, fmt.Errorf("validate Herdr host event %s: %w", name, err)
+	}
+	return envelope, nil
+}
+
 func LoadHerdrEvent(path string) (HerdrEvent, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {

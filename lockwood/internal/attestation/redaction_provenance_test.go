@@ -133,3 +133,32 @@ func TestRedactionProvenanceRejectsInvalidRelationship(t *testing.T) {
 		t.Fatalf("invalid relationship error = %v", err)
 	}
 }
+
+func TestCanonicalRedactionProvenanceTargetDigestIsStableAndRelationshipBound(t *testing.T) {
+	_, _, source, event, promoted := redactionProvenanceFixture(t)
+	privateKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{59}, ed25519.SeedSize))
+	envelope, err := SignRedactionProvenance(source, event, promoted, "provenance-key-target-digest", privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := CanonicalRedactionProvenanceTargetDigest(envelope.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CanonicalRedactionProvenanceTargetDigest(envelope.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" || first != second {
+		t.Fatalf("target digest is not stable: %q vs %q", first, second)
+	}
+	changed := envelope.Target
+	changed.EventID = "event-redaction-provenance-0002"
+	changedDigest, err := CanonicalRedactionProvenanceTargetDigest(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedDigest == first {
+		t.Fatalf("target digest did not change with event identity: %q", first)
+	}
+}

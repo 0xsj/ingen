@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-authorization-target-v1.schema.json",
+  "title": "Lockwood cleanup authorization target v1",
+  "description": "A read-only, exact artifact cleanup target bound to a canonical cleanup plan.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "kind", "action", "artifact_digest", "cleanup_plan_digest", "plan_as_of"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-authorization-target/v1"},
+    "kind": {"const": "artifact-blob"},
+    "action": {"const": "cleanup-delete"},
+    "artifact_digest": {"$ref": "#/$defs/digest"},
+    "cleanup_plan_digest": {"$ref": "#/$defs/digest"},
+    "plan_as_of": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

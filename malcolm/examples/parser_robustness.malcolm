@@ -1,0 +1,18 @@
+spec parser_robustness v1 {
+  subject "document \"api\""
+
+  scenario submit_document {
+    given body {
+      metadata = {
+        "source": "import",
+        "labels": [
+          "docs",
+          "contract"
+        ]
+      }
+      message = "say \"hello\"\\world\nnext"
+    }
+    when POST "/documents"
+    must response.status == 202
+  }
+}

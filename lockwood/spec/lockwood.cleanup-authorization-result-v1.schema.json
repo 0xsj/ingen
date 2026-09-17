@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-authorization-result-v1.schema.json",
+  "title": "Lockwood cleanup authorization result v1",
+  "description": "A read-only, action-bound external authorization result with a legal-hold decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "handoff_digest", "hold_snapshot_digest", "hold_decision", "authorization"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-authorization-result/v1"},
+    "handoff_digest": {"$ref": "#/$defs/digest"},
+    "hold_snapshot_digest": {"$ref": "#/$defs/digest"},
+    "hold_decision": {"enum": ["not-held", "held", "indeterminate"]},
+    "authorization": {"$ref": "#/$defs/authorization"}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_digest", "action", "principal_reference", "identity_verified", "authorization_decision", "authorization_verified", "assertion_digest", "policy_digest", "revocation_snapshot_digest", "evaluated_at"],
+      "properties": {
+        "target_digest": {"$ref": "#/$defs/digest"},
+        "action": {"const": "cleanup-delete"},
+        "principal_reference": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+        "identity_assertion_digest": {"$ref": "#/$defs/digest"},
+        "identity_verified": {"type": "boolean"},
+        "authorization_decision": {"enum": ["authorized", "denied", "indeterminate"]},
+        "authorization_verified": {"type": "boolean"},
+        "assertion_digest": {"$ref": "#/$defs/digest"},
+        "policy_digest": {"$ref": "#/$defs/digest"},
+        "revocation_snapshot_digest": {"$ref": "#/$defs/digest"},
+        "evaluated_at": {"type": "string", "format": "date-time"},
+        "failure_code": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"authorization_verified": {"const": false}}},
+          "then": {"required": ["failure_code"]}
+        }
+      ]
+    }
+  }
+}

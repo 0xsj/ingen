@@ -127,6 +127,25 @@ These are the important guarantees of the current slice:
     receipt update; an artifact path is never implicitly resolved from the
     caller's working directory.
 
+## Executable evidence index
+
+The frozen invariants are backed by focused tests in the owning package:
+
+| Invariants | Primary executable evidence |
+| --- | --- |
+| 1–4 | [Sorna contract tests](sorna/internal/contract/contract_test.go), [oracle tests](sorna/internal/oracle/oracle_test.go), [runner tests](sorna/internal/runner/runner_test.go), and [mutation tests](sorna/internal/mutation/mutation_test.go) |
+| 5 | [Shared CI-result tests](core/ciresult/ciresult_test.go) |
+| 6, 8–12 | [Nublar aggregate tests](nublar/internal/aggregate/aggregate_test.go), [run tests](nublar/internal/run/run_test.go), [delivery projection tests](nublar/internal/delivery/projection_test.go), and [CLI collection/delivery tests](nublar/cmd/nublar/main_test.go) |
+| 7 | [Sentinel receipt tests](herdr-sentinel/internal/run/run_test.go) and [Nublar artifact tests](nublar/internal/artifact/artifact_test.go) |
+| 13–14 | [Herdr adapter tests](herdr-sentinel/internal/adapter/herdr_test.go), [Sentinel CLI adapter tests](herdr-sentinel/cmd/sentinel/main_test.go), and [receipt update-lock tests](herdr-sentinel/internal/run/update_test.go) |
+| 15–16 | [Sentinel CI-result tests](herdr-sentinel/internal/run/ciresult_test.go), [audit tests](herdr-sentinel/internal/audit/audit_test.go), [report tests](herdr-sentinel/internal/report/report_test.go), and [Nublar Sentinel integration tests](nublar/integration/mixed_producers_test.go) |
+| 17 | [Sorna replay-matrix tests](sorna/internal/evidence/replay_matrix_test.go) |
+| 18–24 | [Rooted receipt tests](herdr-sentinel/internal/run/run_test.go), [rooted adapter tests](herdr-sentinel/internal/adapter/adapter_test.go), [rooted Herdr-event tests](herdr-sentinel/internal/adapter/herdr_test.go), [capability-root tests](herdr-sentinel/internal/capability/capability_test.go), and [Sentinel CLI root tests](herdr-sentinel/cmd/sentinel/main_test.go) |
+
+The index establishes local executable coverage. It does not claim native Herdr
+callback authentication, host-owned restart recovery, or shutdown semantics;
+those remain outside the repository until the host contract is supplied.
+
 ## What is deliberately not frozen
 
 - The complete mutation-operator vocabulary and language-specific target
@@ -179,7 +198,9 @@ Run the Sentinel positive and expected-failure collection proofs with:
 
 ```sh
 make nublar-sentinel-run-collect-fresh
+make nublar-sentinel-run-collect-external-root-fresh
 make nublar-sentinel-run-collect-failure-fresh
+make nublar-sentinel-run-collect-external-root-failure-fresh
 ```
 
 The failure proof returns success only after observing the expected Nublar
@@ -190,8 +211,8 @@ the strict Go provider, emit provider-review and preparation CI results,
 execute the campaign, and aggregate or persist four required checks in a
 temporary workspace.
 
-The full repository check remains separate because unrelated pre-existing
-Paddock compile errors currently prevent `go test ./...`; the focused command
+The full repository check remains separate because the unrelated Paddock
+acceptance test currently times out while building its CLI; the focused command
 covers the alpha surfaces named here.
 
 ## Related specifications

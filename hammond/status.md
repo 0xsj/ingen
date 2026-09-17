@@ -1,5 +1,8 @@
 # Hammond status
 
+See the [Hammond roadmap](roadmap.md) for the completed milestones, decision
+gates, and recommended next sequence.
+
 ## Current slice
 
 The local v1 governance slice is implemented:
@@ -19,6 +22,16 @@ The local v1 governance slice is implemented:
   default policy, optional required-role coverage, per-role distinct-actor
   thresholds, and a digest-bound local authority snapshot for actor-role
   grants;
+- store mutations that reload and apply each record's referenced policy,
+  including custom solo authority mappings;
+- registry and lineage reads that resolve each stored record's referenced
+  policy before validation, including custom solo policies;
+- a runnable solo local-authority approval fixture with revision-aware CLI
+  appends and regression coverage;
+- a local `validate` CLI preflight that checks the record, contract, policy,
+  and authority artifacts before registration;
+- documented single-machine solo operations covering permissions, backups,
+  revision checks, and the threshold for adding issuer signing;
 - an `AuthorityVerifier` runtime seam for future verified organization
   membership providers, including the decision timestamp;
 - a time-scoped membership adapter with explicit effective and expiry windows;
@@ -32,6 +45,13 @@ The local v1 governance slice is implemented:
 - a generic bearer-token authenticator backed by a caller-owned token source;
 - a caller-owned normalization hook that can reject incomplete provider views
   before Hammond verifies the normalized envelope;
+- normalized-fetch helpers that apply freshness and expose timestamp-aware
+  verifiers with optional membership provenance;
+- a selected GitHub team-membership adapter that paginates the official REST
+  endpoint, excludes inherited child-team entries, maps stable numeric user IDs
+  to one configured Hammond role, and verifies a caller-signed snapshot;
+- provider-neutral end-to-end coverage from normalized membership bytes through
+  policy authorization and decision provenance;
 - optional membership references on decision events for authority provenance;
 - provenance-carrying membership verifiers that bind decision references to the
   snapshot used for authorization;
@@ -51,17 +71,35 @@ The local v1 governance slice is implemented:
 - conditional event appends with deterministic revision conflict detection;
 - amendment and supersession lineage checks; and
 - a local CLI for registration, review events, amendments, supersession, and
-  lineage inspection, with revision-aware conditional mutations.
+  lineage inspection, revision-aware conditional mutations, and read-only
+  membership-version inspection.
 
-## Next boundary
+## Active boundary
 
-The next design decision is organization integration: provider-specific
-credential implementation and deployment-level TLS/network configuration. The
-current local authority, membership, trust, and root snapshots are explicit,
-digest-bound inputs; signatures are only meaningful when checked against a
-caller-owned, root-approved trust set. Provider selection is required before
-that adapter can be implemented without guessing at credential scope or role
-mapping.
+The current workflow is solo and local, and its active boundary is complete:
+local authority, read-only preflight, revision-aware mutations, private
+filesystem handling, and backup guidance are documented. The local authority
+remains unsigned while it stays inside one private filesystem boundary.
+
+The first concrete governed artifact was the document-pipeline v2 contract at
+[`examples/document-pipeline/contract-v2.canonical.json`](examples/document-pipeline/contract-v2.canonical.json).
+It is now superseded by the additive v3 contract at
+[`examples/document-pipeline/contract-v3.canonical.json`](examples/document-pipeline/contract-v3.canonical.json),
+whose exact SHA-256 is
+`c8f7f9f675f6355f7eda3cc3ee2a3f6a84ee8fdf209ee7bd35defae16e528745`.
+The gitignored local store contains the approved v3 record and the validated
+v2 -> v3 lineage.
+The document-pipeline subject and defect fixtures pass against the updated
+contract behavior.
+
+No GitHub organization, browser session, token source, or external membership
+provider is required.
+
+The GitHub team adapter remains an isolated, tested future option for shared
+reviewers across projects. The local authority, membership, trust, and root
+snapshots remain explicit, digest-bound inputs. Signing and root bootstrap are
+conditional future work, activated only when authority crosses a trust
+boundary.
 
 ## Deferred
 

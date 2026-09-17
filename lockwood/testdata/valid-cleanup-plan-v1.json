@@ -1,0 +1,33 @@
+{
+  "schema": "lockwood.cleanup-plan/v1",
+  "as_of": "2026-09-16T12:00:00Z",
+  "orphan_grace": "24h0m0s",
+  "entries": [
+    {
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size_bytes": 12,
+      "modified_at": "2026-09-10T12:00:00Z",
+      "state": "cleanup-candidate",
+      "action_status": "not-authorized",
+      "blockers": [
+        "fresh exclusive reference, recovery, protection, and legal-hold checks are required",
+        "retention policy evaluation and policy snapshot are required",
+        "explicit delete authorization is required"
+      ]
+    },
+    {
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "size_bytes": 8,
+      "modified_at": "2026-09-15T12:00:00Z",
+      "state": "reported-orphan",
+      "action_status": "not-authorized",
+      "blockers": [
+        "cleanup grace period has not been satisfied",
+        "fresh reference, recovery, protection, and legal-hold checks are required",
+        "retention policy evaluation and explicit delete authorization are required"
+      ]
+    }
+  ],
+  "dangling_references": [],
+  "corrupt_blobs": []
+}

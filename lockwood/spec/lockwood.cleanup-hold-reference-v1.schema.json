@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-hold-reference-v1.schema.json",
+  "title": "Lockwood cleanup hold reference v1",
+  "description": "A target-specific reference to an externally owned legal-hold snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target_digest", "snapshot_digest", "decision", "evaluated_at", "status"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-hold-reference/v1"},
+    "target_digest": {"$ref": "#/$defs/digest"},
+    "snapshot_digest": {"$ref": "#/$defs/digest"},
+    "decision": {"enum": ["not-held", "held", "indeterminate"]},
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["complete", "indeterminate"]}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "complete"}}},
+      "then": {"properties": {"decision": {"enum": ["not-held", "held"]}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "indeterminate"}}},
+      "then": {"properties": {"decision": {"const": "indeterminate"}}}
+    }
+  ]
+}

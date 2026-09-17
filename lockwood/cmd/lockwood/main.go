@@ -103,12 +103,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runVerifyRedactionProvenanceTrusted(args[1:], stdout, stderr)
 	case "verify":
 		return runVerify(args[1:], stdout, stderr)
+	case "verify-report":
+		return runVerifyReport(args[1:], stdout, stderr)
 	case "find":
 		return runFind(args[1:], stdout, stderr)
 	case "recover":
 		return runRecover(args[1:], stdout, stderr)
 	case "reconcile":
 		return runReconcile(args[1:], stdout, stderr)
+	case "cleanup-plan":
+		return runCleanupPlan(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -1796,6 +1800,97 @@ func runVerify(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runVerifyReport(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood verify-report", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	custodyID := flags.String("id", "", "custody record ID")
+	digest := flags.String("digest", "", "artifact digest")
+	runID := flags.String("run-id", "", "producer run ID")
+	sourceURI := flags.String("source-uri", "", "remote source URI")
+	sourceVersion := flags.String("source-version", "", "remote source version or object version")
+	producer := flags.String("producer", "", "producing tool")
+	kind := flags.String("kind", "", "producer artifact kind")
+	status := flags.String("status", "", "custody status")
+	mediaType := flags.String("media-type", "", "artifact media type")
+	logicalName := flags.String("name", "", "artifact logical name")
+	retentionClass := flags.String("retention-class", "", "retention class")
+	parentDigest := flags.String("parent-digest", "", "parent artifact digest")
+	parentRelation := flags.String("parent-relation", "", "parent lineage relation")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" {
+		fmt.Fprintln(stderr, "verify-report requires --root and no positional arguments")
+		return 2
+	}
+	if *status != "" && *status != string(custody.Accepted) && *status != string(custody.Quarantined) && *status != string(custody.Rejected) {
+		fmt.Fprintf(stderr, "invalid status %q\n", *status)
+		return 2
+	}
+	if *parentRelation != "" {
+		switch custody.Relation(*parentRelation) {
+		case custody.References, custody.DerivedFrom, custody.Contains, custody.Verifies:
+		default:
+			fmt.Fprintf(stderr, "invalid parent relation %q\n", *parentRelation)
+			return 2
+		}
+	}
+	if *parentDigest != "" {
+		if err := artifact.ValidateDigest(*parentDigest); err != nil {
+			fmt.Fprintf(stderr, "invalid parent digest: %v\n", err)
+			return 2
+		}
+	}
+	query := catalog.Query{
+		CustodyID:      *custodyID,
+		Digest:         *digest,
+		RunID:          *runID,
+		SourceURI:      *sourceURI,
+		SourceVersion:  *sourceVersion,
+		ProducerTool:   *producer,
+		ProducerKind:   *kind,
+		Status:         custody.Status(*status),
+		MediaType:      *mediaType,
+		LogicalName:    *logicalName,
+		RetentionClass: *retentionClass,
+		ParentDigest:   *parentDigest,
+		ParentRelation: custody.Relation(*parentRelation),
+	}
+	if err := query.Validate(); err != nil {
+		fmt.Fprintf(stderr, "invalid query: %v\n", err)
+		return 2
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	cat, err := catalog.New(records)
+	if err != nil {
+		fmt.Fprintf(stderr, "create catalog: %v\n", err)
+		return 1
+	}
+	results, err := cat.Find(query)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-report: %v\n", err)
+		return 1
+	}
+	report, err := custody.VerifyRecords(records, artifacts, results)
+	if err != nil {
+		fmt.Fprintf(stderr, "verify-report: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, report); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	if report.Failed > 0 {
+		return 1
+	}
+	return 0
+}
+
 func runFind(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood find", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -1838,17 +1933,7 @@ func runFind(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	_, records, err := openStores(*root)
-	if err != nil {
-		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
-		return 1
-	}
-	cat, err := catalog.New(records)
-	if err != nil {
-		fmt.Fprintf(stderr, "create catalog: %v\n", err)
-		return 1
-	}
-	results, err := cat.Find(catalog.Query{
+	query := catalog.Query{
 		CustodyID:      *custodyID,
 		Digest:         *digest,
 		RunID:          *runID,
@@ -1862,7 +1947,22 @@ func runFind(args []string, stdout, stderr io.Writer) int {
 		RetentionClass: *retentionClass,
 		ParentDigest:   *parentDigest,
 		ParentRelation: custody.Relation(*parentRelation),
-	})
+	}
+	if err := query.Validate(); err != nil {
+		fmt.Fprintf(stderr, "invalid query: %v\n", err)
+		return 2
+	}
+	_, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	cat, err := catalog.New(records)
+	if err != nil {
+		fmt.Fprintf(stderr, "create catalog: %v\n", err)
+		return 1
+	}
+	results, err := cat.Find(query)
 	if err != nil {
 		fmt.Fprintf(stderr, "find: %v\n", err)
 		return 1
@@ -1968,6 +2068,60 @@ func runReconcile(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err := writeJSON(stdout, report); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runCleanupPlan(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood cleanup-plan", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	orphanGrace := flags.Duration("orphan-grace", 0, "classify valid orphans at least this old as cleanup candidates; no deletion")
+	asOf := flags.String("as-of", "", "RFC3339 time used for orphan age classification; defaults to current UTC time")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" {
+		fmt.Fprintln(stderr, "cleanup-plan requires --root and no positional arguments")
+		return 2
+	}
+	if *orphanGrace < 0 {
+		fmt.Fprintln(stderr, "cleanup-plan: --orphan-grace cannot be negative")
+		return 2
+	}
+	when, err := parseTime(*asOf)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid --as-of: %v\n", err)
+		return 2
+	}
+	if when.IsZero() {
+		when = time.Now().UTC()
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	reconciliation, err := custody.ReconcileWithOptions(artifacts, records, custody.ReconcileOptions{
+		OrphanGrace:        *orphanGrace,
+		Now:                when,
+		DetachedMediaTypes: []string{attestation.MediaType, attestation.HandlingEventMediaType, attestation.RedactionProvenanceMediaType},
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "cleanup-plan: %v\n", err)
+		return 1
+	}
+	plan, err := custody.BuildCleanupPlan(reconciliation, custody.CleanupPlanOptions{
+		OrphanGrace: *orphanGrace,
+		AsOf:        when,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "cleanup-plan: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, plan); err != nil {
 		fmt.Fprintf(stderr, "write result: %v\n", err)
 		return 1
 	}
@@ -2185,7 +2339,9 @@ func usage(writer io.Writer) {
 	fmt.Fprintln(writer, "  verify-redaction-provenance-trusted verify provenance through a trust registry")
 	fmt.Fprintln(writer, "  verify <digest>    verify stored bytes")
 	fmt.Fprintln(writer, "  verify --id <id>   verify a custody record and its blob")
+	fmt.Fprintln(writer, "  verify-report      batch-verify matched custody records")
 	fmt.Fprintln(writer, "  find               query custody records")
 	fmt.Fprintln(writer, "  recover            verify an existing blob and append a pending custody record")
 	fmt.Fprintln(writer, "  reconcile          report orphans, dangling records, and corrupt blobs")
+	fmt.Fprintln(writer, "  cleanup-plan       classify orphan cleanup states without authorizing deletion")
 }

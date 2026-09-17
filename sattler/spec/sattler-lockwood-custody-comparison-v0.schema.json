@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-lockwood-custody-comparison-v0.schema.json",
+  "title": "InGen Sattler Lockwood custody comparison",
+  "description": "The compatibility-treated Lockwood custody comparison with bounded custody identity, receipt, producer, integrity, and artifact identity observations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-lockwood-custody-comparison/v0"},
+    "compatible": {"type": "boolean"},
+    "compatibility_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "before": {"$ref": "#/$defs/custody-summary"},
+    "after": {"$ref": "#/$defs/custody-summary"},
+    "transition": {"$ref": "#/$defs/transition"},
+    "change_id_filter": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "changes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/change"}
+    },
+    "change_summary": {"$ref": "#/$defs/change-summary"}
+  },
+  "$defs": {
+    "custody-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "custody_id", "status", "received_at", "artifact_digest", "producer_tool", "producer_kind", "integrity_status"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "schema": {"const": "lockwood.custody/v1"},
+        "custody_id": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "received_at": {"type": "string", "minLength": 1},
+        "artifact_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-fA-F]{64}$"
+        },
+        "producer_tool": {"type": "string", "minLength": 1},
+        "producer_kind": {"type": "string", "minLength": 1},
+        "source_run_id": {"type": "string", "minLength": 1},
+        "integrity_status": {"type": "string", "minLength": 1}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "before", "after", "classification"],
+      "properties": {
+        "field": {"const": "status"},
+        "before": {"type": "string", "minLength": 1},
+        "after": {"type": "string", "minLength": 1},
+        "classification": {"enum": ["unchanged", "changed", "incompatible"]}
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "field", "before", "after"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "minLength": 1},
+        "field": {"type": "string", "minLength": 1},
+        "before": {},
+        "after": {},
+        "identity": {"enum": ["same-bytes", "replaced", "added", "removed", "unknown"]}
+      }
+    },
+    "change-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "by_category": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

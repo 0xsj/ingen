@@ -26,13 +26,17 @@ func FilterChanges(changes []Change, ids []string) []Change {
 }
 
 // FilterBundleChanges applies a stable-ID filter to all independent boundary
-// reports and recalculates their summaries. Producer-owned mutation details
+// reports and recalculates their summaries. CI producer-owned mutation details
 // remain untouched because they use a separate producer-specific model.
 func FilterBundleChanges(report BundleComparison, ids []string) BundleComparison {
 	report.ChangeIDFilter = sortedChangeIDs(ids)
 	if report.CIResult != nil {
 		comparison := FilterComparisonChanges(*report.CIResult, ids)
 		report.CIResult = &comparison
+	}
+	if report.SornaRun != nil {
+		comparison := FilterSornaRunChanges(*report.SornaRun, ids)
+		report.SornaRun = &comparison
 	}
 	if report.NublarRun != nil {
 		comparison := FilterNublarRunChanges(*report.NublarRun, ids)
@@ -79,6 +83,30 @@ func FilterLockwoodCustodyChanges(report LockwoodCustodyComparison, ids []string
 func FilterAmberProvenanceChanges(report AmberProvenanceComparison, ids []string) AmberProvenanceComparison {
 	report.ChangeIDFilter = sortedChangeIDs(ids)
 	report.Changes = FilterChanges(report.Changes, ids)
+	report.ChangeSummary = SummarizeChanges(report.Changes)
+	return report
+}
+
+// FilterSornaRunChanges applies a stable-ID filter to a Sorna run comparison.
+func FilterSornaRunChanges(report SornaRunComparison, ids []string) SornaRunComparison {
+	report.ChangeIDFilter = sortedChangeIDs(ids)
+	report.Changes = FilterChanges(report.Changes, ids)
+	if len(normalizedChangeIDs(ids)) > 0 {
+		selectedRules := make(map[string]struct{})
+		for _, change := range report.Changes {
+			id := change.StableID()
+			if strings.HasPrefix(id, "rules.") && strings.HasSuffix(id, ".status") {
+				selectedRules[id] = struct{}{}
+			}
+		}
+		filteredRules := make([]SornaRuleStatusChange, 0, len(report.ChangedRules))
+		for _, rule := range report.ChangedRules {
+			if _, ok := selectedRules["rules."+rule.RuleID+".status"]; ok {
+				filteredRules = append(filteredRules, rule)
+			}
+		}
+		report.ChangedRules = filteredRules
+	}
 	report.ChangeSummary = SummarizeChanges(report.Changes)
 	return report
 }

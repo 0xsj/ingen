@@ -5,6 +5,24 @@ GO_CACHE ?= $(CURDIR)/.cache/go-build
 GO_MOD_CACHE ?= $(CURDIR)/.cache/go-mod
 GO_CMD = GOCACHE="$(GO_CACHE)" GOMODCACHE="$(GO_MOD_CACHE)" $(GO)
 ARTIFACT_ROOT ?= .artifacts
+SORNA_BINARY_DIR ?= $(ARTIFACT_ROOT)/sorna
+SORNA_BINARY ?= $(SORNA_BINARY_DIR)/sorna
+SORNA_VERSION ?= dev
+SORNA_COMMIT ?= unknown
+SORNA_BUILD_DATE ?= unknown
+SORNA_LDFLAGS := -X ingen/sorna/internal/version.Version=$(SORNA_VERSION) -X ingen/sorna/internal/version.Commit=$(SORNA_COMMIT) -X ingen/sorna/internal/version.BuildDate=$(SORNA_BUILD_DATE)
+SORNA_RELEASE_DIR ?= $(ARTIFACT_ROOT)/sorna-release/$(SORNA_VERSION)
+SORNA_RELEASE_TARGETS ?= darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
+SORNA_RELEASE_MANIFEST ?= $(SORNA_RELEASE_DIR)/release-manifest.json
+SORNA_RELEASE_VERIFICATION ?= $(SORNA_RELEASE_DIR)/release-verification.json
+SORNA_RELEASE_PROVENANCE ?= $(SORNA_RELEASE_DIR)/release-provenance.json
+SORNA_RELEASE_REPOSITORY ?= local
+SORNA_RELEASE_REF ?= local
+SORNA_RELEASE_TAG ?= sorna-v$(SORNA_VERSION)
+SORNA_RELEASE_WORKFLOW ?= local
+SORNA_RELEASE_RUN_ID ?= local
+SORNA_RELEASE_RUN_ATTEMPT ?= 1
+SORNA_RELEASE_RUNNER ?= local
 MALCOLM_EXAMPLE ?= malcolm/examples/healthz.malcolm
 MALCOLM_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-healthz.ir.json
 MALCOLM_SORNA_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-healthz-contract.json
@@ -25,6 +43,35 @@ MALCOLM_FLOW_EVENT_DEFECT_BINARY ?= $(ARTIFACT_ROOT)/document-pipeline-subject/m
 MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-flow-event-defect-run
 MALCOLM_FLOW_EVENT_DEFECT_ADDR ?= $(SUBJECT_ADDR)
 MALCOLM_FLOW_EVENT_DEFECT_URL ?= $(SUBJECT_URL)
+MALCOLM_BOUNDARY_EXAMPLE ?= malcolm/examples/document_boundary.malcolm
+MALCOLM_BOUNDARY_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-boundary.ir.json
+MALCOLM_BOUNDARY_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-boundary-contract.json
+MALCOLM_BOUNDARY_ORACLE_POLICY ?= malcolm/examples/document_boundary/oracle-policy.yaml
+MALCOLM_BOUNDARY_SUBJECT_POLICY ?= malcolm/examples/document_boundary/subject-policy.yaml
+MALCOLM_BOUNDARY_SEALED_DIR ?= $(ARTIFACT_ROOT)/malcolm-boundary-contract-sealed
+MALCOLM_BOUNDARY_ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-boundary-oracle
+MALCOLM_BOUNDARY_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-boundary-run
+MALCOLM_INTERPOLATION_EXAMPLE ?= malcolm/examples/document_interpolation.malcolm
+MALCOLM_INTERPOLATION_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-interpolation.ir.json
+MALCOLM_INTERPOLATION_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-interpolation-contract.json
+MALCOLM_INTERPOLATION_ORACLE_POLICY ?= malcolm/examples/document_interpolation/oracle-policy.yaml
+MALCOLM_INTERPOLATION_SUBJECT_POLICY ?= malcolm/examples/document_interpolation/subject-policy.yaml
+MALCOLM_INTERPOLATION_SEALED_DIR ?= $(ARTIFACT_ROOT)/malcolm-interpolation-contract-sealed
+MALCOLM_INTERPOLATION_ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-interpolation-oracle
+MALCOLM_INTERPOLATION_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-interpolation-run
+MALCOLM_MUTATION_EXAMPLE ?= malcolm/examples/document_mutation.malcolm
+MALCOLM_MUTATION_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-mutation.ir.json
+MALCOLM_MUTATION_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-mutation-contract.json
+MALCOLM_MUTATION_CATALOGUE_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-mutation-catalogue.json
+MALCOLM_PROVENANCE_EXAMPLE ?= malcolm/examples/document_provenance.malcolm
+MALCOLM_PROVENANCE_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-provenance.ir.json
+MALCOLM_PROVENANCE_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-provenance-contract.json
+MALCOLM_FIXTURE_EXAMPLE ?= malcolm/examples/document_fixture.malcolm
+MALCOLM_FIXTURE_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-fixture.ir.json
+MALCOLM_FIXTURE_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-fixture-contract.json
+MALCOLM_FIXTURE_SEALED_DIR ?= $(ARTIFACT_ROOT)/malcolm-fixture-contract-sealed
+MALCOLM_FIXTURE_PROVIDER ?= malcolm/examples/document_fixture_provider/provider.yaml
+MALCOLM_FIXTURE_HANDOFF_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-fixture-handoff.json
 CONTRACT ?= examples/document-pipeline-lab/contract/contract.yaml
 POLICY ?= examples/document-pipeline-lab/policy/isolation.yaml
 SEALED_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-contract
@@ -146,15 +193,31 @@ MUTATION_SURVIVOR_PREPARATION_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipe
 MUTATION_SURVIVOR_CAMPAIGN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/document-pipeline-survivor-go-campaign
 MUTATION_SURVIVOR_CAMPAIGN_RESULT_OUTPUT ?= $(MUTATION_SURVIVOR_CAMPAIGN_OUTPUT_DIR)/campaign-result.json
 MUTATION_SURVIVOR_CAMPAIGN_CI_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/document-pipeline-survivor-go-campaign-ci-result.json
+TYPESCRIPT_PROVIDER_DIR ?= sorna/providers/typescript
+TYPESCRIPT_PROVIDER_PLAN ?= $(TYPESCRIPT_PROVIDER_DIR)/fixtures/plan.json
+TYPESCRIPT_PROVIDER_OUTPUT ?= $(ARTIFACT_ROOT)/typescript-provider/provider.json
+TYPESCRIPT_PROVIDER_REVIEW_OUTPUT ?= $(ARTIFACT_ROOT)/typescript-provider/provider-review-ci-result.json
+TYPESCRIPT_PROVIDER_NUBLAR_OUTPUT ?= $(ARTIFACT_ROOT)/typescript-provider/nublar-result.json
+TYPESCRIPT_PROVIDER_NUBLAR_STORE ?= $(ARTIFACT_ROOT)/typescript-provider/nublar-runs
+TYPESCRIPT_PROVIDER_NUBLAR_RUN_ID ?= typescript-provider-run
+TYPESCRIPT_PROVIDER_NUBLAR_RUN_OUTPUT ?= $(ARTIFACT_ROOT)/typescript-provider/nublar-run.json
+TYPESCRIPT_PROVIDER_NUBLAR_SHOW_OUTPUT ?= $(ARTIFACT_ROOT)/typescript-provider/nublar-run-show.json
+TYPESCRIPT_PROVIDER_NUBLAR_DECISION_OUTPUT ?= $(ARTIFACT_ROOT)/typescript-provider/nublar-decision.json
+TYPESCRIPT_PROVIDER_ID ?= typescript-fixture-provider
+TYPESCRIPT_PROVIDER_COMMAND ?= /bin/echo
+TYPESCRIPT_CMD ?= /opt/homebrew/bin/bun
+SORNA_RELEASE_WORKSPACE ?=
 
 .DEFAULT_GOAL := help
 
-.PHONY: malcolm-sorna-contract malcolm-sorna-flow-contract malcolm-sorna-seal malcolm-sorna-oracle-freeze malcolm-sorna-run malcolm-sorna-flow-seal malcolm-sorna-flow-oracle-freeze malcolm-sorna-flow-run malcolm-sorna-flow-event-defect-build malcolm-sorna-flow-event-defect-run
+.PHONY: malcolm-sorna-contract malcolm-sorna-flow-contract malcolm-sorna-seal malcolm-sorna-oracle-freeze malcolm-sorna-run malcolm-sorna-flow-seal malcolm-sorna-flow-oracle-freeze malcolm-sorna-flow-run malcolm-sorna-flow-event-defect-build malcolm-sorna-flow-event-defect-run malcolm-sorna-boundary-contract malcolm-sorna-boundary-seal malcolm-sorna-boundary-oracle-freeze malcolm-sorna-boundary-run malcolm-sorna-interpolation-contract malcolm-sorna-interpolation-seal malcolm-sorna-interpolation-oracle-freeze malcolm-sorna-interpolation-run malcolm-sorna-mutation-catalogue malcolm-sorna-provenance-contract malcolm-sorna-fixture-contract malcolm-sorna-fixture-handoff
 
 .PHONY: help build test test-race vet check alpha-interface-check nublar-check nublar-consumer-check nublar-freeze-check \
-	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build defect-build sorna-run \
-	sorna-external-run evidence-verify sorna-replay sorna-replay-ci-result sorna-replay-fresh sorna-replay-defect-fresh sorna-replay-stateful-defect-fresh sorna-replay-process-defect-fresh sorna-replay-persistence-defect-fresh sorna-replay-remove-name-defect-fresh sorna-replay-accepts-png-defect-fresh sorna-replay-regression sorna-replay-matrix-ci-result sorna-replay-matrix-verify sorna-replay-matrix-ci-result-fresh sorna-alpha-check oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
-	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-campaign-ci-result-fresh mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap sentinel-capability-plan sentinel-adapter-oracle-probe sentinel-adapter-verifier-probe sentinel-ci-result nublar-sentinel-aggregate nublar-sentinel-run-collect nublar-sentinel-run-collect-fresh sentinel-adapter-verifier-failure-probe sentinel-ci-result-failure nublar-sentinel-run-collect-failure nublar-sentinel-run-collect-failure-fresh
+	contract-validate contract-seal policy-validate subject-policy-validate subject-test subject-run subject-build sorna-build sorna-release-artifacts sorna-release-verify sorna-release-provenance defect-build sorna-run \
+	sorna-external-run evidence-verify sorna-replay sorna-replay-ci-result sorna-replay-fresh sorna-replay-defect-fresh sorna-replay-stateful-defect-fresh sorna-replay-process-defect-fresh sorna-replay-persistence-defect-fresh sorna-replay-remove-name-defect-fresh sorna-replay-accepts-png-defect-fresh sorna-replay-regression sorna-replay-matrix-ci-result sorna-replay-matrix-verify sorna-replay-matrix-ci-result-fresh sorna-alpha-check sorna-release-check oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
+	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-conformance mutation-typescript-provider-conformance mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-campaign-ci-result-fresh mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap sentinel-capability-plan sentinel-adapter-oracle-probe sentinel-adapter-verifier-probe sentinel-ci-result nublar-sentinel-aggregate nublar-sentinel-run-collect nublar-sentinel-run-collect-fresh nublar-sentinel-run-collect-external-root-fresh sentinel-adapter-verifier-failure-probe sentinel-ci-result-failure nublar-sentinel-run-collect-failure nublar-sentinel-run-collect-failure-fresh
+
+.PHONY: nublar-sentinel-run-collect-external-root-failure-fresh sentinel-herdr-probe-fixture sentinel-herdr-contract-status-check sentinel-herdr-host-envelope-check
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -173,9 +236,9 @@ vet: ## Run the Go static analysis checks
 
 check: test vet ## Run the normal test and analysis checks
 
-alpha-interface-check: ## Run tests and analysis for the current Sorna/Nublar alpha boundary
-	$(GO_CMD) test ./core/... ./sorna/... ./examples/... ./nublar/...
-	$(GO_CMD) vet ./core/... ./sorna/... ./examples/... ./nublar/...
+alpha-interface-check: ## Run tests and analysis for the current Sentinel/Sorna/Nublar alpha boundary
+	$(GO_CMD) test ./core/... ./herdr-sentinel/... ./sorna/... ./examples/... ./nublar/...
+	$(GO_CMD) vet ./core/... ./herdr-sentinel/... ./sorna/... ./examples/... ./nublar/...
 
 nublar-check: ## Run Nublar tests, analysis, and schema syntax checks
 	$(GO_CMD) test -race ./nublar/...
@@ -203,6 +266,32 @@ malcolm-sorna-flow-contract: ## Compile the Malcolm request-body/stateful exampl
 	$(GO_CMD) run ./sorna/cmd/sorna-malcolm "$(MALCOLM_FLOW_IR_OUTPUT)" --output "$(MALCOLM_FLOW_CONTRACT_OUTPUT)"
 	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(MALCOLM_FLOW_CONTRACT_OUTPUT)"
 
+malcolm-sorna-mutation-catalogue: ## Compile the Malcolm mutation example into a Sorna contract and validate its mutation catalogue
+	mkdir -p "$(dir $(MALCOLM_MUTATION_IR_OUTPUT))"
+	cargo run --manifest-path malcolm/Cargo.toml -- "$(MALCOLM_MUTATION_EXAMPLE)" --output "$(MALCOLM_MUTATION_IR_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna-malcolm "$(MALCOLM_MUTATION_IR_OUTPUT)" --output "$(MALCOLM_MUTATION_CONTRACT_OUTPUT)" --mutations-output "$(MALCOLM_MUTATION_CATALOGUE_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(MALCOLM_MUTATION_CONTRACT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation validate "$(MALCOLM_MUTATION_CATALOGUE_OUTPUT)" --contract "$(MALCOLM_MUTATION_CONTRACT_OUTPUT)"
+
+malcolm-sorna-provenance-contract: ## Compile the Malcolm provenance example, validate its Sorna contract, and run the provenance boundary proof
+	mkdir -p "$(dir $(MALCOLM_PROVENANCE_IR_OUTPUT))"
+	cargo run --manifest-path malcolm/Cargo.toml -- "$(MALCOLM_PROVENANCE_EXAMPLE)" --output "$(MALCOLM_PROVENANCE_IR_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna-malcolm "$(MALCOLM_PROVENANCE_IR_OUTPUT)" --output "$(MALCOLM_PROVENANCE_CONTRACT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(MALCOLM_PROVENANCE_CONTRACT_OUTPUT)"
+	$(GO_CMD) test ./sorna/internal/runner -run TestExecuteChecksDeclaredAmberExecutionID
+
+malcolm-sorna-fixture-contract: ## Compile, validate, and seal the Malcolm fixture declaration example
+	mkdir -p "$(dir $(MALCOLM_FIXTURE_IR_OUTPUT))"
+	cargo run --manifest-path malcolm/Cargo.toml -- "$(MALCOLM_FIXTURE_EXAMPLE)" --output "$(MALCOLM_FIXTURE_IR_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna-malcolm "$(MALCOLM_FIXTURE_IR_OUTPUT)" --output "$(MALCOLM_FIXTURE_CONTRACT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(MALCOLM_FIXTURE_CONTRACT_OUTPUT)"
+	mkdir -p "$(MALCOLM_FIXTURE_SEALED_DIR)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract seal "$(MALCOLM_FIXTURE_CONTRACT_OUTPUT)" --output-dir "$(MALCOLM_FIXTURE_SEALED_DIR)"
+
+malcolm-sorna-fixture-handoff: malcolm-sorna-fixture-contract ## Verify provider-supplied fixture files against the sealed Malcolm contract
+	$(GO_CMD) run ./sorna/cmd/sorna fixture bind "$(MALCOLM_FIXTURE_SEALED_DIR)/canonical.json" --provider "$(MALCOLM_FIXTURE_PROVIDER)" --output "$(MALCOLM_FIXTURE_HANDOFF_OUTPUT)"
+	jq -e '(.schema == "ingen.fixture-handoff/v1") and (.status == "verified") and (.fixtures | length == 1) and (.fixtures[0].id == "welcome-document") and (.fixtures[0].sha256 == "637cecb53db658da5231f933fad366fce94f982501e59d7ddc7688cfaf81b825")' "$(MALCOLM_FIXTURE_HANDOFF_OUTPUT)"
+
 malcolm-sorna-flow-seal: malcolm-sorna-flow-contract ## Seal the Malcolm request-body/stateful contract
 	mkdir -p "$(MALCOLM_FLOW_SEALED_DIR)"
 	$(GO_CMD) run ./sorna/cmd/sorna contract seal "$(MALCOLM_FLOW_CONTRACT_OUTPUT)" --output-dir "$(MALCOLM_FLOW_SEALED_DIR)"
@@ -222,6 +311,44 @@ malcolm-sorna-flow-event-defect-run: malcolm-sorna-flow-run malcolm-sorna-flow-e
 	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(MALCOLM_FLOW_ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(MALCOLM_FLOW_ORACLE_POLICY)" --subject-policy "$(MALCOLM_FLOW_SUBJECT_POLICY)" --subject-root . --baseline-evidence "$(MALCOLM_FLOW_RUN_OUTPUT_DIR)" --base-url "$(MALCOLM_FLOW_EVENT_DEFECT_URL)" --subject-command "$(MALCOLM_FLOW_EVENT_DEFECT_BINARY)" --subject-arg=-addr --subject-arg "$(MALCOLM_FLOW_EVENT_DEFECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant malcolm-flow-event-removed --mutation-id malcolm-flow-remove-accepted-event --mutation-plane implementation --mutation-description "remove the document.accepted event signal" --expected-rule create_document.requirement.3 --output-dir "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)"
 	jq -e '(.mutation.outcome == "killed") and any(.rules[]; (.rule_id == "create_document.requirement.3") and (.status == "fail") and any(.assertions[]; (.path == "events.document.accepted") and (.status == "fail"))) and any(.rules[]; (.rule_id == "create_document.requirement.5") and (.status == "fail") and any(.assertions[]; (.path == "events.order") and (.status == "fail")))' "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)/run.json"
 	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR)"
+
+malcolm-sorna-boundary-contract: ## Compile the Malcolm generated-body example into a Sorna contract and validate it
+	mkdir -p "$(dir $(MALCOLM_BOUNDARY_IR_OUTPUT))"
+	cargo run --manifest-path malcolm/Cargo.toml -- "$(MALCOLM_BOUNDARY_EXAMPLE)" > "$(MALCOLM_BOUNDARY_IR_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna-malcolm "$(MALCOLM_BOUNDARY_IR_OUTPUT)" --output "$(MALCOLM_BOUNDARY_CONTRACT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(MALCOLM_BOUNDARY_CONTRACT_OUTPUT)"
+
+malcolm-sorna-boundary-seal: malcolm-sorna-boundary-contract ## Seal the Malcolm generated-body contract
+	mkdir -p "$(MALCOLM_BOUNDARY_SEALED_DIR)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract seal "$(MALCOLM_BOUNDARY_CONTRACT_OUTPUT)" --output-dir "$(MALCOLM_BOUNDARY_SEALED_DIR)"
+
+malcolm-sorna-boundary-oracle-freeze: malcolm-sorna-boundary-seal ## Freeze the generated-body oracle and verify materialization
+	$(GO_CMD) run ./sorna/cmd/sorna oracle freeze --contract "$(MALCOLM_BOUNDARY_CONTRACT_OUTPUT)" --policy "$(MALCOLM_BOUNDARY_ORACLE_POLICY)" --root . --output-dir "$(MALCOLM_BOUNDARY_ORACLE_OUTPUT_DIR)"
+	jq -e '(.cases | length == 2) and (.cases[0].given.body.content | (type == "string" and length == 4097)) and (.cases[1].given.body.content | (type == "string" and length == 4097))' "$(MALCOLM_BOUNDARY_ORACLE_OUTPUT_DIR)/oracle.json"
+
+malcolm-sorna-boundary-run: malcolm-sorna-boundary-oracle-freeze subject-build ## Run the generated-body oracle against the managed document subject
+	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(MALCOLM_BOUNDARY_ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(MALCOLM_BOUNDARY_ORACLE_POLICY)" --subject-policy "$(MALCOLM_BOUNDARY_SUBJECT_POLICY)" --subject-root . --base-url "$(SUBJECT_URL)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant malcolm-boundary --output-dir "$(MALCOLM_BOUNDARY_RUN_OUTPUT_DIR)"
+	jq -e 'all(.rules[]; .status == "pass")' "$(MALCOLM_BOUNDARY_RUN_OUTPUT_DIR)/run.json"
+	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(MALCOLM_BOUNDARY_RUN_OUTPUT_DIR)"
+
+malcolm-sorna-interpolation-contract: ## Compile the Malcolm capture-interpolation example into a Sorna contract and validate it
+	mkdir -p "$(dir $(MALCOLM_INTERPOLATION_IR_OUTPUT))"
+	cargo run --manifest-path malcolm/Cargo.toml -- "$(MALCOLM_INTERPOLATION_EXAMPLE)" > "$(MALCOLM_INTERPOLATION_IR_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna-malcolm "$(MALCOLM_INTERPOLATION_IR_OUTPUT)" --output "$(MALCOLM_INTERPOLATION_CONTRACT_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(MALCOLM_INTERPOLATION_CONTRACT_OUTPUT)"
+
+malcolm-sorna-interpolation-seal: malcolm-sorna-interpolation-contract ## Seal the Malcolm capture-interpolation contract
+	mkdir -p "$(MALCOLM_INTERPOLATION_SEALED_DIR)"
+	$(GO_CMD) run ./sorna/cmd/sorna contract seal "$(MALCOLM_INTERPOLATION_CONTRACT_OUTPUT)" --output-dir "$(MALCOLM_INTERPOLATION_SEALED_DIR)"
+
+malcolm-sorna-interpolation-oracle-freeze: malcolm-sorna-interpolation-seal ## Freeze the capture-interpolation oracle
+	$(GO_CMD) run ./sorna/cmd/sorna oracle freeze --contract "$(MALCOLM_INTERPOLATION_CONTRACT_OUTPUT)" --policy "$(MALCOLM_INTERPOLATION_ORACLE_POLICY)" --root . --output-dir "$(MALCOLM_INTERPOLATION_ORACLE_OUTPUT_DIR)"
+	jq -e '(.cases | length == 2) and (.cases[0].given.body.name == "{document_name}") and (.cases[1].given.body.name == "{document_name}")' "$(MALCOLM_INTERPOLATION_ORACLE_OUTPUT_DIR)/oracle.json"
+
+malcolm-sorna-interpolation-run: malcolm-sorna-interpolation-oracle-freeze subject-build ## Run the capture-interpolation oracle against the managed document subject
+	$(GO_CMD) run ./sorna/cmd/sorna run --oracle "$(MALCOLM_INTERPOLATION_ORACLE_OUTPUT_DIR)/oracle.json" --policy "$(MALCOLM_INTERPOLATION_ORACLE_POLICY)" --subject-policy "$(MALCOLM_INTERPOLATION_SUBJECT_POLICY)" --subject-root . --base-url "$(SUBJECT_URL)" --subject-command "$(SUBJECT_BINARY)" --subject-arg=-addr --subject-arg "$(SUBJECT_ADDR)" --ready-path "$(SUBJECT_READY_PATH)" --subject-variant malcolm-interpolation --output-dir "$(MALCOLM_INTERPOLATION_RUN_OUTPUT_DIR)"
+	jq -e 'all(.rules[]; .status == "pass")' "$(MALCOLM_INTERPOLATION_RUN_OUTPUT_DIR)/run.json"
+	$(GO_CMD) run ./sorna/cmd/sorna evidence verify "$(MALCOLM_INTERPOLATION_RUN_OUTPUT_DIR)"
 
 malcolm-sorna-seal: malcolm-sorna-contract ## Seal the Malcolm-generated Sorna contract
 	mkdir -p "$(MALCOLM_SORNA_SEALED_DIR)"
@@ -253,6 +380,23 @@ subject-run: ## Run the document-pipeline subject on SUBJECT_ADDR
 subject-build: ## Build the clean document-pipeline subject binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
 	$(GO_CMD) build -trimpath -o "$(SUBJECT_BINARY)" ./examples/document-pipeline-lab/subject/cmd/document-pipeline
+
+sorna-build: ## Build the standalone Sorna CLI with release metadata
+	mkdir -p "$(SORNA_BINARY_DIR)"
+	$(GO_CMD) build -trimpath -ldflags "$(SORNA_LDFLAGS)" -o "$(SORNA_BINARY)" ./sorna/cmd/sorna
+
+sorna-release-artifacts: sorna-release-check ## Build cross-platform Sorna archives and a checksum manifest
+	GOCACHE="$(GO_CACHE)" GOMODCACHE="$(GO_MOD_CACHE)" \
+	SORNA_VERSION="$(SORNA_VERSION)" SORNA_COMMIT="$(SORNA_COMMIT)" SORNA_BUILD_DATE="$(SORNA_BUILD_DATE)" \
+	SORNA_RELEASE_DIR="$(SORNA_RELEASE_DIR)" SORNA_RELEASE_TARGETS="$(SORNA_RELEASE_TARGETS)" \
+	sh ./sorna/release.sh
+
+sorna-release-verify: sorna-build ## Verify Sorna release archives against their manifest
+	"$(SORNA_BINARY)" release verify --manifest "$(SORNA_RELEASE_MANIFEST)" --directory "$(SORNA_RELEASE_DIR)" --format json
+
+sorna-release-provenance: sorna-build ## Verify a Sorna release and emit signing-ready provenance
+	"$(SORNA_BINARY)" release verify --manifest "$(SORNA_RELEASE_MANIFEST)" --directory "$(SORNA_RELEASE_DIR)" --format json > "$(SORNA_RELEASE_VERIFICATION)"
+	"$(SORNA_BINARY)" release provenance create --manifest "$(SORNA_RELEASE_MANIFEST)" --verification "$(SORNA_RELEASE_VERIFICATION)" --repository "$(SORNA_RELEASE_REPOSITORY)" --ref "$(SORNA_RELEASE_REF)" --tag "$(SORNA_RELEASE_TAG)" --commit "$(SORNA_COMMIT)" --workflow "$(SORNA_RELEASE_WORKFLOW)" --run-id "$(SORNA_RELEASE_RUN_ID)" --run-attempt "$(SORNA_RELEASE_RUN_ATTEMPT)" --runner "$(SORNA_RELEASE_RUNNER)" --build-date "$(SORNA_BUILD_DATE)" --output "$(SORNA_RELEASE_PROVENANCE)"
 
 webhook-contract-validate: ## Validate the webhook-validation contract
 	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$(WEBHOOK_CONTRACT)"
@@ -363,6 +507,26 @@ sentinel-capability-plan: ## Compile the Sentinel webhook capability handoff
 	mkdir -p "$(dir $(SENTINEL_CAPABILITY_OUTPUT))"
 	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel workspace capabilities --workspace "$(SENTINEL_WORKSPACE)" --output "$(SENTINEL_CAPABILITY_OUTPUT)"
 
+sentinel-herdr-probe-fixture: ## Exercise and machine-check the Herdr 0.9.0 compatibility probe
+	@probe_state="$$(mktemp -d /private/tmp/ingen-herdr-probe-state.XXXXXX)"; \
+	HERDR_PLUGIN_STATE_DIR="$$probe_state" \
+	HERDR_PLUGIN_EVENT="pane.agent_status_changed" \
+	HERDR_WORKSPACE_ID="w1" \
+	HERDR_TAB_ID="w1:t1" \
+	HERDR_PANE_ID="w1:p1" \
+	HERDR_PLUGIN_CONTEXT_JSON='{"workspace_id":"w1","pane_id":"w1:p1"}' \
+	HERDR_PLUGIN_EVENT_JSON='{"event":"pane_agent_status_changed","data":{"type":"pane_agent_status_changed","workspace_id":"w1","pane_id":"w1:p1","agent_status":"working"}}' \
+	sh herdr-sentinel/plugin/record-event.sh; \
+	sh herdr-sentinel/plugin/verify-captures.sh "$$probe_state"; \
+	printf 'probe_state=%s\n' "$$probe_state"
+
+sentinel-herdr-contract-status-check: ## Validate the Herdr host-contract status and sanitized live fixture
+	jq -e '.schema == "ingen.herdr-host-contract/v1" and .binding_status == "blocked" and .host.version == "0.9.0" and .observed.envelope_fields == ["event", "data"] and .required_for_sentinel.event_id.status == "missing" and .required_for_sentinel.event_timestamp.status == "missing"' herdr-sentinel/plugin/host-contract-status.json >/dev/null
+	sh herdr-sentinel/plugin/verify-captures.sh herdr-sentinel/plugin/fixtures/live-pane-agent-status-changed
+
+sentinel-herdr-host-envelope-check: ## Inspect the sanitized raw Herdr envelope without normalizing it
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel adapter herdr-host-envelope --event herdr-sentinel/plugin/fixtures/live-pane-agent-status-changed/capture.live-pane-agent-status-changed/event.json
+
 sentinel-adapter-oracle-probe: sentinel-run-bootstrap ## Delegate a contract-read probe through Sorna's host adapter
 	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel adapter oracle --workspace "$(SENTINEL_WORKSPACE)" --root . --receipt "$(SENTINEL_RUN_OUTPUT)" -- /bin/cat "$(SENTINEL_ORACLE_PROBE)"
 
@@ -408,6 +572,42 @@ nublar-sentinel-run-collect-fresh: ## Run the Sentinel verifier workflow in a fr
 	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
 	$(MAKE) -C "$$workspace" ARTIFACT_ROOT=.artifacts GO_CACHE="$(abspath $(GO_CACHE))" GO_MOD_CACHE="$(abspath $(GO_MOD_CACHE))" nublar-sentinel-run-collect; status=$$?; \
 	exit $$status
+
+nublar-sentinel-run-collect-external-root-fresh: ## Run the Sentinel verifier workflow from outside its project root
+	workspace=$$(mktemp -d /private/tmp/ingen-sentinel-external-root.XXXXXX); \
+	trap 'printf "workspace: %s\nartifact root: %s\nrun store: %s\n" "$$workspace" "$$workspace/.artifacts" "$$workspace/.artifacts/sentinel-webhook-nublar-runs"' EXIT; \
+	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
+	mkdir -p "$$workspace/.artifacts" && \
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel run bootstrap --workspace "herdr-sentinel/workspaces/webhook-validation.yaml" --root "$$workspace" --output "$$workspace/.artifacts/sentinel-webhook-run.json" && \
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$$workspace/examples/webhook-validation-lab/contract/contract.yaml" && \
+	$(GO_CMD) run ./sorna/cmd/sorna policy validate "$$workspace/examples/webhook-validation-lab/policy/isolation.yaml" && \
+	$(GO_CMD) run ./sorna/cmd/sorna oracle freeze --contract "examples/webhook-validation-lab/contract/contract.yaml" --policy "examples/webhook-validation-lab/policy/isolation.yaml" --root "$$workspace" --output-dir ".artifacts/webhook-validation-oracle" && \
+	$(GO_CMD) build -trimpath -o "$$workspace/.artifacts/webhook-validation-subject/webhook-validation" ./examples/webhook-validation-lab/subject/cmd/webhook-validation && \
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel adapter verifier --workspace "herdr-sentinel/workspaces/webhook-validation.yaml" --root "$$workspace" --oracle ".artifacts/webhook-validation-oracle/oracle.json" --base-url "$(WEBHOOK_SUBJECT_URL)" --subject-command ".artifacts/webhook-validation-subject/webhook-validation" --subject-arg=-addr --subject-arg "$(WEBHOOK_SUBJECT_ADDR)" --ready-path /healthz --subject-variant clean-baseline --output-dir ".artifacts/sentinel-webhook-verifier" --receipt "$$workspace/.artifacts/sentinel-webhook-run.json" && \
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel run ci-result --receipt "$$workspace/.artifacts/sentinel-webhook-run.json" --source-root "$$workspace" --output "$$workspace/.artifacts/sentinel-webhook-ci-result.json" && \
+	mkdir -p "$$workspace/.artifacts/sentinel-webhook-nublar-runs" && \
+	$(GO_CMD) run ./nublar/cmd/nublar run collect --workflow "nublar/workflows/sentinel-webhook.yaml" --root "$$workspace/.artifacts" --store "$$workspace/.artifacts/sentinel-webhook-nublar-runs" --output "$$workspace/.artifacts/sentinel-webhook-nublar-run.json"; status=$$?; \
+	exit $$status
+
+nublar-sentinel-run-collect-external-root-failure-fresh: ## Run the Sentinel failure proof from outside its project root
+	workspace=$$(mktemp -d /private/tmp/ingen-sentinel-external-failure-root.XXXXXX); \
+	trap 'printf "workspace: %s\nartifact root: %s\nrun store: %s\n" "$$workspace" "$$workspace/.artifacts" "$$workspace/.artifacts/sentinel-webhook-nublar-runs"' EXIT; \
+	rsync -a --exclude='.git' --exclude='.artifacts' --exclude='.cache' ./ "$$workspace/" && \
+	mkdir -p "$$workspace/.artifacts" && \
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel run bootstrap --workspace "herdr-sentinel/workspaces/webhook-validation.yaml" --root "$$workspace" --output "$$workspace/.artifacts/sentinel-webhook-run.json" && \
+	$(GO_CMD) run ./sorna/cmd/sorna contract validate "$$workspace/examples/webhook-validation-lab/contract/contract.yaml" && \
+	$(GO_CMD) run ./sorna/cmd/sorna policy validate "$$workspace/examples/webhook-validation-lab/policy/isolation.yaml" && \
+	$(GO_CMD) run ./sorna/cmd/sorna oracle freeze --contract "examples/webhook-validation-lab/contract/contract.yaml" --policy "examples/webhook-validation-lab/policy/isolation.yaml" --root "$$workspace" --output-dir ".artifacts/webhook-validation-oracle" && \
+	$(GO_CMD) build -trimpath -o "$$workspace/.artifacts/webhook-validation-subject/webhook-validation-defect" ./examples/webhook-validation-lab/defects/accepts-duplicate/cmd/webhook-validation-defect && \
+	set +e; \
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel adapter verifier --workspace "herdr-sentinel/workspaces/webhook-validation.yaml" --root "$$workspace" --oracle ".artifacts/webhook-validation-oracle/oracle.json" --base-url "$(SENTINEL_FAILURE_SUBJECT_URL)" --subject-command ".artifacts/webhook-validation-subject/webhook-validation-defect" --subject-arg=-addr --subject-arg "$(SENTINEL_FAILURE_SUBJECT_ADDR)" --ready-path /healthz --subject-variant "$(SENTINEL_FAILURE_SUBJECT_VARIANT)" --output-dir ".artifacts/sentinel-webhook-verifier" --receipt "$$workspace/.artifacts/sentinel-webhook-run.json"; verifier_status=$$?; \
+	if [ "$$verifier_status" -ne 1 ]; then printf 'expected Sentinel verifier failure (exit 1), got %s\n' "$$verifier_status" >&2; exit "$$verifier_status"; fi; \
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel run ci-result --receipt "$$workspace/.artifacts/sentinel-webhook-run.json" --source-root "$$workspace" --output "$$workspace/.artifacts/sentinel-webhook-ci-result.json"; ci_status=$$?; \
+	if [ "$$ci_status" -ne 1 ]; then printf 'expected Sentinel CI-result failure (exit 1), got %s\n' "$$ci_status" >&2; exit "$$ci_status"; fi; \
+	mkdir -p "$$workspace/.artifacts/sentinel-webhook-nublar-runs" && \
+	$(GO_CMD) run ./nublar/cmd/nublar run collect --workflow "nublar/workflows/sentinel-webhook.yaml" --root "$$workspace/.artifacts" --store "$$workspace/.artifacts/sentinel-webhook-nublar-runs" --output "$$workspace/.artifacts/sentinel-webhook-nublar-run.json"; nublar_status=$$?; \
+	if [ "$$nublar_status" -ne 1 ]; then printf 'expected Nublar failed decision (exit 1), got %s\n' "$$nublar_status" >&2; exit "$$nublar_status"; fi; \
+	printf 'expected failed external-root Nublar decision: %s\n' "$$workspace/.artifacts/sentinel-webhook-nublar-run.json"
 
 defect-build: ## Build the controlled status-200-create defect binary
 	mkdir -p "$(SUBJECT_BINARY_DIR)"
@@ -507,6 +707,20 @@ sorna-alpha-check: ## Run the complete Sorna package, schema, and fresh replay r
 	jq empty sorna/spec/*.json
 	$(MAKE) sorna-replay-matrix-ci-result-fresh
 
+sorna-release-check: sorna-alpha-check mutation-provider-conformance ## Run the complete Sorna checkpoint plus provider and downstream CI proofs
+	if test -n "$(SORNA_RELEASE_WORKSPACE)"; then \
+		workspace="$(SORNA_RELEASE_WORKSPACE)"; \
+		mkdir -p "$$workspace"; \
+		if test -n "$$(find "$$workspace" -mindepth 1 -maxdepth 1 -print -quit)"; then \
+			echo "Sorna release workspace is not empty: $$workspace" >&2; \
+			exit 2; \
+		fi; \
+	else \
+		workspace=$$(mktemp -d /private/tmp/ingen-sorna-release-check.XXXXXX); \
+	fi; \
+	trap 'printf "workspace: %s\nartifact root: %s\n" "$$workspace" "$$workspace"' EXIT; \
+	$(MAKE) ARTIFACT_ROOT="$$workspace" mutation-typescript-provider-conformance
+
 sorna-gate: ## Apply the default CI gate to RUN_OUTPUT_DIR; set GATE_MIN_OBSERVATION_COVERAGE for a strict minimum
 	$(GO_CMD) run ./sorna/cmd/sorna gate $(if $(GATE_MIN_OBSERVATION_COVERAGE),--minimum-observation-coverage "$(GATE_MIN_OBSERVATION_COVERAGE)",) "$(RUN_OUTPUT_DIR)"
 
@@ -555,6 +769,24 @@ mutation-plan: sorna-run mutation-catalogue-validate ## Build a ready mutation c
 
 mutation-provider-validate: ## Validate the document-pipeline mutation provider manifest
 	$(GO_CMD) run ./sorna/cmd/sorna mutation provider validate "$(MUTATION_PROVIDER)"
+
+mutation-provider-conformance: ## Run language-neutral provider conformance fixtures
+	$(GO_CMD) test ./sorna/internal/campaign
+
+mutation-typescript-provider-conformance: ## Emit a TypeScript provider manifest and validate it with Sorna
+	$(TYPESCRIPT_CMD) test "$(TYPESCRIPT_PROVIDER_DIR)/test/provider.test.mjs"
+	mkdir -p "$(dir $(TYPESCRIPT_PROVIDER_OUTPUT))"
+	$(TYPESCRIPT_CMD) run "$(TYPESCRIPT_PROVIDER_DIR)/bin/emit-provider.mjs" -- --plan "$(TYPESCRIPT_PROVIDER_PLAN)" --output "$(TYPESCRIPT_PROVIDER_OUTPUT)" --id "$(TYPESCRIPT_PROVIDER_ID)" --command "$(TYPESCRIPT_PROVIDER_COMMAND)" --arg --address --arg '$${SORA_ADDR}'
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider validate "$(TYPESCRIPT_PROVIDER_OUTPUT)"
+	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(TYPESCRIPT_PROVIDER_PLAN)" --provider "$(TYPESCRIPT_PROVIDER_OUTPUT)" --require-plan-binding --format ci-result --output "$(TYPESCRIPT_PROVIDER_REVIEW_OUTPUT)"
+	$(GO_CMD) run ./nublar/cmd/nublar aggregate --workflow "$(TYPESCRIPT_PROVIDER_DIR)/fixtures/nublar-workflow.yaml" --root "$(dir $(TYPESCRIPT_PROVIDER_REVIEW_OUTPUT))" --output "$(TYPESCRIPT_PROVIDER_NUBLAR_OUTPUT)"
+	jq -e '.schema == "ingen.nublar-result/v1" and .status == "passed" and (.results | length) == 1 and .results[0].result.tool == "sorna" and .results[0].result.kind == "mutation-provider-review"' "$(TYPESCRIPT_PROVIDER_NUBLAR_OUTPUT)"
+	$(GO_CMD) run ./nublar/cmd/nublar run collect --workflow "$(TYPESCRIPT_PROVIDER_DIR)/fixtures/nublar-workflow.yaml" --root "$(dir $(TYPESCRIPT_PROVIDER_REVIEW_OUTPUT))" --store "$(TYPESCRIPT_PROVIDER_NUBLAR_STORE)" --run-id "$(TYPESCRIPT_PROVIDER_NUBLAR_RUN_ID)" --external-system typescript-smoke --external-id provider-handoff --attempt 1 --output "$(TYPESCRIPT_PROVIDER_NUBLAR_RUN_OUTPUT)"
+	$(GO_CMD) run ./nublar/cmd/nublar run show --store "$(TYPESCRIPT_PROVIDER_NUBLAR_STORE)" --run-id "$(TYPESCRIPT_PROVIDER_NUBLAR_RUN_ID)" --output "$(TYPESCRIPT_PROVIDER_NUBLAR_SHOW_OUTPUT)"
+	$(GO_CMD) run ./nublar/cmd/nublar run decision --store "$(TYPESCRIPT_PROVIDER_NUBLAR_STORE)" --run-id "$(TYPESCRIPT_PROVIDER_NUBLAR_RUN_ID)" --output "$(TYPESCRIPT_PROVIDER_NUBLAR_DECISION_OUTPUT)"
+	jq -e '.schema == "ingen.nublar-run/v1" and .status == "passed" and .correlation.system == "typescript-smoke" and .correlation.id == "provider-handoff" and .correlation.attempt == 1 and .checks[0].result.artifact.kind == "mutation-provider-review"' "$(TYPESCRIPT_PROVIDER_NUBLAR_RUN_OUTPUT)"
+	jq -e '.schema == "ingen.nublar-run/v1" and .run_id == "$(TYPESCRIPT_PROVIDER_NUBLAR_RUN_ID)" and .checks[0].result.artifact.report.status == "ready"' "$(TYPESCRIPT_PROVIDER_NUBLAR_SHOW_OUTPUT)"
+	jq -e '.schema == "ingen.nublar-decision/v1" and .status == "passed" and (.checks[0].result.sha256 | length) == 64' "$(TYPESCRIPT_PROVIDER_NUBLAR_DECISION_OUTPUT)"
 
 mutation-provider-inspect: mutation-plan mutation-provider-validate ## Review provider capabilities against the ready mutation plan without launching subjects
 	$(GO_CMD) run ./sorna/cmd/sorna mutation provider inspect "$(MUTATION_PLAN_OUTPUT)" --provider "$(MUTATION_PROVIDER)" $(MUTATION_PROVIDER_BINDING_FLAG) --format json --output "$(MUTATION_PROVIDER_REVIEW_OUTPUT)"

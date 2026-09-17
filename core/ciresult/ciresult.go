@@ -25,6 +25,17 @@ type FileRef struct {
 type Source struct {
 	Root       string `json:"root"`
 	ModulePath string `json:"module_path,omitempty"`
+	VCS        *VCS   `json:"vcs,omitempty"`
+}
+
+// VCS identifies the source revision used for a CI result. Dirty is scoped to
+// the source root, so consumers can distinguish a reproducible committed
+// snapshot from a result produced from local changes.
+type VCS struct {
+	System        string `json:"system"`
+	Revision      string `json:"revision"`
+	Dirty         bool   `json:"dirty"`
+	ChangesSHA256 string `json:"changes_sha256,omitempty"`
 }
 
 // Artifact is the language-neutral result envelope. Report and Explanation
@@ -32,6 +43,7 @@ type Source struct {
 type Artifact struct {
 	Schema      string             `json:"schema"`
 	Tool        string             `json:"tool"`
+	ToolVersion string             `json:"tool_version,omitempty"`
 	Kind        string             `json:"kind"`
 	Status      string             `json:"status"`
 	ExitCode    int                `json:"exit_code"`
@@ -70,6 +82,9 @@ func (a Artifact) Validate() error {
 	if strings.TrimSpace(a.Tool) == "" || strings.TrimSpace(a.Kind) == "" {
 		return fmt.Errorf("CI result tool and kind are required")
 	}
+	if a.ToolVersion != "" && strings.TrimSpace(a.ToolVersion) == "" {
+		return fmt.Errorf("CI result tool_version must not be blank")
+	}
 	if strings.TrimSpace(a.CreatedAt) == "" {
 		return fmt.Errorf("CI result created_at is required")
 	}
@@ -78,6 +93,22 @@ func (a Artifact) Validate() error {
 	}
 	if strings.TrimSpace(a.Source.Root) == "" {
 		return fmt.Errorf("CI result source.root is required")
+	}
+	if a.Source.VCS != nil {
+		if strings.TrimSpace(a.Source.VCS.System) == "" {
+			return fmt.Errorf("CI result source.vcs.system is required")
+		}
+		if strings.TrimSpace(a.Source.VCS.Revision) == "" {
+			return fmt.Errorf("CI result source.vcs.revision is required")
+		}
+		if a.Source.VCS.ChangesSHA256 != "" {
+			if len(a.Source.VCS.ChangesSHA256) != 64 {
+				return fmt.Errorf("CI result source.vcs changes_sha256 must be 64 hexadecimal characters")
+			}
+			if _, err := hex.DecodeString(a.Source.VCS.ChangesSHA256); err != nil {
+				return fmt.Errorf("CI result source.vcs changes_sha256 is invalid: %w", err)
+			}
+		}
 	}
 	if err := validateFileRef("policy", a.Policy); err != nil {
 		return err

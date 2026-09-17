@@ -2,12 +2,17 @@
 //!
 //! This crate currently parses the small, declarative core described in the
 //! project README, including typed request bodies and stateful setup data.
-//! Execution, evidence, and mutation support will build on these typed values
-//! in later slices.
+//! Mutation declarations are carried as typed intent for the Sorna boundary;
+//! provenance declarations are carried as typed intent for the Amber/Sorna
+//! boundary; execution and provenance storage remain owned by the surrounding
+//! tools.
 
 mod ir;
 mod parser;
 mod semantic;
+
+/// Maximum repeat count accepted by the Malcolm-to-Sorna boundary.
+pub const MAX_GENERATED_REPEAT_COUNT: i64 = 1_000_000;
 
 pub mod ast {
     /// A named Malcolm specification.
@@ -17,6 +22,10 @@ pub mod ast {
         pub version: Option<String>,
         pub subject: Option<String>,
         pub scenarios: Vec<Scenario>,
+        pub fixtures: Vec<FixtureClause>,
+        pub mutations: Vec<MutationClause>,
+        pub provenance: Option<ProvenanceClause>,
+        pub isolation: Option<IsolationClause>,
     }
 
     /// A scenario containing setup, an action, and behavioral requirements.
@@ -52,6 +61,11 @@ pub mod ast {
         Boolean(bool),
         Object(Vec<BodyField>),
         Array(Vec<Literal>),
+        /// A deterministic string generator materialized by Sorna.
+        Repeat {
+            value: String,
+            count: i64,
+        },
     }
 
     /// A request/assertion sequence that establishes state before the target.
@@ -85,6 +99,80 @@ pub mod ast {
         pub expression: String,
     }
 
+    /// A reviewed mutation declaration lowered into Sorna's mutation catalogue.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct MutationClause {
+        pub id: String,
+        pub scenario: Option<String>,
+        pub change: Option<MutationChange>,
+        pub expected_rule: Option<String>,
+    }
+
+    /// The first supported mutation operator changes an HTTP status value.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct MutationChange {
+        pub field: String,
+        pub from: i64,
+        pub to: i64,
+    }
+
+    /// A digest-pinned logical input fixture owned by the oracle boundary.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct FixtureClause {
+        pub id: String,
+        pub owner: Option<FixtureOwner>,
+        pub purpose: Option<String>,
+        pub sha256: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum FixtureOwner {
+        Oracle,
+    }
+
+    /// Provenance requirements that a consumer must observe at the public
+    /// subject boundary.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ProvenanceClause {
+        pub requirements: Vec<ProvenanceRequirement>,
+    }
+
+    /// State reset semantics for independently executable scenario cases.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct IsolationClause {
+        pub scope: IsolationScope,
+        pub reset: Option<ResetClause>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum IsolationScope {
+        Scenario,
+    }
+
+    /// A subject-owned public operation that clears state before a case.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ResetClause {
+        pub method: String,
+        pub path: String,
+    }
+
+    /// One typed provenance requirement.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct ProvenanceRequirement {
+        pub kind: ProvenanceRequirementKind,
+        pub field: ProvenanceField,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ProvenanceRequirementKind {
+        Create,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ProvenanceField {
+        ExecutionId,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum RequirementKind {
         Must,
@@ -93,12 +181,15 @@ pub mod ast {
 }
 
 pub use ast::{
-    BodyField, CaptureClause, Literal, RequestClause, Requirement, RequirementKind, Scenario,
-    SetupClause, Specification, WhenClause,
+    BodyField, CaptureClause, FixtureClause, FixtureOwner, IsolationClause, IsolationScope,
+    Literal, MutationChange, MutationClause, ProvenanceClause, ProvenanceField,
+    ProvenanceRequirement, ProvenanceRequirementKind, RequestClause, Requirement, RequirementKind,
+    ResetClause, Scenario, SetupClause, Specification, WhenClause,
 };
 pub use ir::{
-    compile, BodyFieldIr, CaptureIr, IntermediateRepresentation, RequestIr, RequirementIr,
-    ScenarioIr, SetupIr, SpecificationIr, WhenIr, IR_SCHEMA,
+    compile, BodyFieldIr, CaptureIr, FixtureIr, IntermediateRepresentation, IsolationIr,
+    MutationChangeIr, MutationIr, ProvenanceIr, ProvenanceRequirementIr, RequestIr, RequirementIr,
+    ResetIr, ScenarioIr, SetupIr, SpecificationIr, WhenIr, IR_SCHEMA,
 };
 pub use parser::{parse, ParseError};
 pub use semantic::{validate, ValidationError};

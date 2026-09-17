@@ -12,6 +12,8 @@ import (
 	"ingen/core/ciresult"
 	"ingen/paddock/internal/explain"
 	"ingen/paddock/internal/model"
+	"ingen/paddock/internal/sourceprovenance"
+	"ingen/paddock/internal/version"
 )
 
 const Schema = "ingen.ci-result/v1"
@@ -23,13 +25,15 @@ type FileRef struct {
 }
 
 type Source struct {
-	Root       string `json:"root"`
-	ModulePath string `json:"module_path"`
+	Root       string        `json:"root"`
+	ModulePath string        `json:"module_path"`
+	VCS        *ciresult.VCS `json:"vcs,omitempty"`
 }
 
 type Artifact struct {
 	Schema      string             `json:"schema"`
 	Tool        string             `json:"tool"`
+	ToolVersion string             `json:"tool_version,omitempty"`
 	Kind        string             `json:"kind"`
 	Status      string             `json:"status"`
 	ExitCode    int                `json:"exit_code"`
@@ -64,11 +68,12 @@ func NewWithInputs(result *model.Result, policy FileRef, policyLock, graph *File
 	return Artifact{
 		Schema:      Schema,
 		Tool:        "paddock",
+		ToolVersion: version.Version,
 		Kind:        "architecture",
 		Status:      status,
 		ExitCode:    exitCode,
 		CreatedAt:   createdAt.UTC().Format(time.RFC3339Nano),
-		Source:      Source{Root: result.Root, ModulePath: result.ModulePath},
+		Source:      source(result.Root, result.ModulePath),
 		Policy:      policy,
 		PolicyLock:  policyLock,
 		Graph:       graph,
@@ -88,18 +93,27 @@ func NewErrorWithPolicyLock(root string, policy FileRef, policyLock *FileRef, ba
 
 func NewErrorWithInputs(root string, policy FileRef, policyLock, graph, baseline *FileRef, err error, createdAt time.Time) Artifact {
 	return Artifact{
-		Schema:     Schema,
-		Tool:       "paddock",
-		Kind:       "architecture",
-		Status:     "error",
-		ExitCode:   2,
-		CreatedAt:  createdAt.UTC().Format(time.RFC3339Nano),
-		Source:     Source{Root: root},
-		Policy:     policy,
-		PolicyLock: policyLock,
-		Graph:      graph,
-		Baseline:   baseline,
-		Error:      err.Error(),
+		Schema:      Schema,
+		Tool:        "paddock",
+		ToolVersion: version.Version,
+		Kind:        "architecture",
+		Status:      "error",
+		ExitCode:    2,
+		CreatedAt:   createdAt.UTC().Format(time.RFC3339Nano),
+		Source:      source(root, ""),
+		Policy:      policy,
+		PolicyLock:  policyLock,
+		Graph:       graph,
+		Baseline:    baseline,
+		Error:       err.Error(),
+	}
+}
+
+func source(root, modulePath string) Source {
+	return Source{
+		Root:       root,
+		ModulePath: modulePath,
+		VCS:        sourceprovenance.Detect(root),
 	}
 }
 
@@ -194,15 +208,17 @@ func (a Artifact) Validate() error {
 
 func validateSharedEnvelope(a Artifact) error {
 	shared := ciresult.Artifact{
-		Schema:    a.Schema,
-		Tool:      a.Tool,
-		Kind:      a.Kind,
-		Status:    a.Status,
-		ExitCode:  a.ExitCode,
-		CreatedAt: a.CreatedAt,
+		Schema:      a.Schema,
+		Tool:        a.Tool,
+		ToolVersion: a.ToolVersion,
+		Kind:        a.Kind,
+		Status:      a.Status,
+		ExitCode:    a.ExitCode,
+		CreatedAt:   a.CreatedAt,
 		Source: ciresult.Source{
 			Root:       a.Source.Root,
 			ModulePath: a.Source.ModulePath,
+			VCS:        a.Source.VCS,
 		},
 		Policy:     sharedFileRef(a.Policy),
 		PolicyLock: sharedFileRefPtr(a.PolicyLock),

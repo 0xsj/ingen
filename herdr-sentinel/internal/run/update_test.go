@@ -37,6 +37,50 @@ func TestUpdateFilePublishesUnderReceiptLock(t *testing.T) {
 	}
 }
 
+func TestUpdateFileReloadsPersistedReceiptAcrossWriterBoundaries(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := SaveFile("receipt.json", testCIReceipt("created")); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := UpdateFile("receipt.json", func(receipt *Receipt) (bool, error) {
+		if err := receipt.AppendEvent(Event{Type: "role-launched", At: "2026-09-16T10:00:02Z"}); err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+	if err != nil || !changed {
+		t.Fatalf("first UpdateFile() = %v, %v; want published update", changed, err)
+	}
+
+	// Reload the published file before the next writer boundary. This models a
+	// later Sentinel process recovering the durable local receipt.
+	recovered, err := LoadFile("receipt.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered.Events) != 2 {
+		t.Fatalf("recovered events = %d, want first update preserved", len(recovered.Events))
+	}
+
+	changed, err = UpdateFile("receipt.json", func(receipt *Receipt) (bool, error) {
+		if err := receipt.AppendEvent(Event{Type: "role-completed", At: "2026-09-16T10:00:03Z"}); err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+	if err != nil || !changed {
+		t.Fatalf("second UpdateFile() = %v, %v; want recovered receipt update", changed, err)
+	}
+	loaded, err := LoadFile("receipt.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Events) != 3 || loaded.Events[1].Type != "role-launched" || loaded.Events[2].Type != "role-completed" {
+		t.Fatalf("events after recovery = %+v, want both updates preserved", loaded.Events)
+	}
+}
+
 func TestUpdateFileDoesNotPublishFailedOrUnchangedUpdate(t *testing.T) {
 	t.Chdir(t.TempDir())
 	receipt := testCIReceipt("created")

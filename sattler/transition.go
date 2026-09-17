@@ -2,6 +2,19 @@ package sattler
 
 import "fmt"
 
+// Validate checks the structural contract of a neutral transition.
+func (transition StateTransition) Validate() error {
+	if transition.Field == "" || transition.Before == "" || transition.After == "" {
+		return fmt.Errorf("state transition needs field, before, and after")
+	}
+	switch transition.Classification {
+	case TransitionUnchanged, TransitionChanged, TransitionIncompatible:
+		return nil
+	default:
+		return fmt.Errorf("state transition has unsupported classification %q", transition.Classification)
+	}
+}
+
 // TransitionClassification is a neutral description of a primary state
 // transition. It does not rank a change as good or bad.
 type TransitionClassification string

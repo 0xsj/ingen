@@ -19,6 +19,23 @@ before enabling it in Overwatch CI; in particular, the policy tests whether
 domain packages may import `pkg/id`, `pkg/events`, or `pkg/blob`, and whether
 an application query may import infrastructure directly.
 
+To inspect a fresh draft without losing the source/graph it was based on, ask
+for the machine-readable initialization summary:
+
+```sh
+GOCACHE=.cache/paddock-go-build go run ./paddock/cmd/paddock init \
+  ../overwatch/overwatch-backend \
+  --template layered \
+  --output /tmp/overwatch-backend-draft.yaml \
+  --format json > /tmp/overwatch-backend-init.json
+```
+
+The summary includes source-unit and edge counts, a normalized `graph_sha256`,
+and Git revision/dirty provenance when the source root is in a Git worktree.
+Use those fields to decide whether a later review is still discussing the
+same graph; the generated policy remains a draft until its vocabulary and
+rules are explicitly reviewed.
+
 The companion policy-test manifest makes the current review reproducible:
 
 ```sh
@@ -48,8 +65,9 @@ go run ./paddock/cmd/paddock ci \
 ```
 
 The backend command is expected to exit `1` while the current code has its
-review findings; the latest locked run records 40 findings. The UI command
-below exits `0`. Both use the same language-neutral CI result contract.
+review findings; the documented baseline replay recorded 43 findings, while
+dirty worktree runs may change as Overwatch evolves. The UI command below exits
+`0`. Both use the same language-neutral CI result contract.
 
 For an agent-driven review, use the shared handoff helper after building
 Paddock. It preserves the CI verdict in `overwatch-backend-ci-result.json`
@@ -153,6 +171,10 @@ draft-to-proposal diff contains 22 changes, including replacing the generated
 per-directory `components/*` entries with one broader `components/**`
 presentation component. That collapse is intentional for this first boundary
 proposal, but it is the main UI vocabulary decision still awaiting approval.
+
+The current draft-to-proposal review reports those 22 changes, passes all three
+policy cases, and verifies as a durable `PASS` review artifact. This measures
+the proposal workflow; it does not approve the UI vocabulary.
 
 The proposal is now sealed at
 `overwatch-ui-layered-proposal.lock.json`. Verify the lock and run the

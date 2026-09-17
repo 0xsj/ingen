@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.dev/schema/ingen.mutation-plan-v1.schema.json",
+  "title": "InGen Sorna mutation campaign plan",
+  "description": "The immutable, provider-neutral handoff for a ready implementation mutation campaign.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "catalogue", "contract", "oracle", "baseline", "oracle_policy_sha256", "mutations"],
+  "properties": {
+    "schema": {"const": "ingen.mutation-plan/v1"},
+    "status": {"const": "ready"},
+    "catalogue": {"$ref": "#/$defs/catalogue_reference"},
+    "contract": {"$ref": "#/$defs/contract_reference"},
+    "oracle": {"$ref": "#/$defs/oracle_reference"},
+    "baseline": {"$ref": "#/$defs/baseline_reference"},
+    "oracle_policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "subject_policy_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "mutations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/mutation_entry"}
+    }
+  },
+  "$defs": {
+    "catalogue_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "id", "version", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "contract_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "oracle_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "sha256"],
+      "properties": {
+        "schema": {"const": "ingen.oracle/v1"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "baseline_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_path", "run_id", "contract", "oracle"],
+      "properties": {
+        "evidence_path": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "minLength": 1},
+        "contract": {"$ref": "#/$defs/contract_reference"},
+        "oracle": {"$ref": "#/$defs/oracle_reference"}
+      }
+    },
+    "mutation_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "spec"],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 1},
+        "spec": {"$ref": "#/$defs/mutation_spec"}
+      }
+    },
+    "mutation_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "plane", "operator", "target", "description", "change", "expected_rule_ids", "status"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "plane": {"const": "implementation"},
+        "operator": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "change": {"type": "object", "minProperties": 1},
+        "expected_rule_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "status": {"enum": ["candidate", "validated", "executed", "classified", "reported"]}
+      }
+    }
+  }
+}

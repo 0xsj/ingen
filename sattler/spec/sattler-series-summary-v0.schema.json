@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-series-summary-v0.schema.json",
+  "title": "InGen Sattler comparison series summary",
+  "description": "The compatibility-treated aggregate navigation projection for an ordered Sattler history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "summary"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-comparison-series-summary/v0"},
+    "manifest": {"type": "string"},
+    "change_id_filter": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "summary": {"$ref": "#/$defs/series-summary"}
+  },
+  "$defs": {
+    "count-map": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "change-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "by_category": {"$ref": "#/$defs/count-map"}
+      }
+    },
+    "correlation-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observations"],
+      "properties": {
+        "observations": {"type": "integer", "minimum": 0},
+        "by_kind": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "nublar-run-to-custody-source": {"type": "integer", "minimum": 0},
+            "nublar-correlation-to-amber": {"type": "integer", "minimum": 0}
+          }
+        },
+        "by_relation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "exact-match": {"type": "integer", "minimum": 0},
+            "mismatch": {"type": "integer", "minimum": 0},
+            "unknown": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "transition-counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unchanged", "changed", "incompatible"],
+      "properties": {
+        "unchanged": {"type": "integer", "minimum": 0},
+        "changed": {"type": "integer", "minimum": 0},
+        "incompatible": {"type": "integer", "minimum": 0}
+      }
+    },
+    "series-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries", "compatible", "incompatible", "total_changes", "correlations"],
+      "properties": {
+        "entries": {"type": "integer", "minimum": 1},
+        "compatible": {"type": "integer", "minimum": 0},
+        "incompatible": {"type": "integer", "minimum": 0},
+        "total_changes": {"type": "integer", "minimum": 0},
+        "changes_by_id": {"$ref": "#/$defs/count-map"},
+        "mutation_changes_by_id": {"$ref": "#/$defs/count-map"},
+        "sorna_rule_changes_by_id": {"$ref": "#/$defs/count-map"},
+        "correlations": {"$ref": "#/$defs/correlation-summary"},
+        "transitions_by_subsystem": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ci_result": {"$ref": "#/$defs/transition-counts"},
+            "sorna_run": {"$ref": "#/$defs/transition-counts"},
+            "nublar_run": {"$ref": "#/$defs/transition-counts"},
+            "custody": {"$ref": "#/$defs/transition-counts"},
+            "provenance": {"$ref": "#/$defs/transition-counts"}
+          }
+        },
+        "warnings_by_message": {"$ref": "#/$defs/count-map"}
+      }
+    }
+  }
+}

@@ -26,6 +26,8 @@
     "template": {"type": "string", "minLength": 1},
     "source_unit_count": {"type": "integer", "minimum": 1},
     "edge_count": {"type": "integer", "minimum": 0},
+    "source_vcs": {"$ref": "#/$defs/vcs"},
+    "graph_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "component_count": {"type": "integer", "minimum": 1},
     "unclassified_components": {
       "type": "array",
@@ -38,5 +40,18 @@
       "uniqueItems": true
     },
     "review_required": {"const": true}
+  },
+  "$defs": {
+    "vcs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "revision", "dirty"],
+      "properties": {
+        "system": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "dirty": {"type": "boolean"},
+        "changes_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    }
   }
 }

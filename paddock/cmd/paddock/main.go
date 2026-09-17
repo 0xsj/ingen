@@ -21,6 +21,7 @@ import (
 	paddockcomponentmap "ingen/paddock/internal/componentmap"
 	paddockexplain "ingen/paddock/internal/explain"
 	paddockgraph "ingen/paddock/internal/graph"
+	paddockgraphprovenance "ingen/paddock/internal/graphprovenance"
 	"ingen/paddock/internal/model"
 	paddockpolicy "ingen/paddock/internal/policy"
 	paddockpolicydiff "ingen/paddock/internal/policydiff"
@@ -30,6 +31,7 @@ import (
 	paddockrelease "ingen/paddock/internal/release"
 	"ingen/paddock/internal/report"
 	paddockscaffold "ingen/paddock/internal/scaffold"
+	"ingen/paddock/internal/sourceprovenance"
 	paddockversion "ingen/paddock/internal/version"
 )
 
@@ -887,7 +889,10 @@ func initCommand(args []string) error {
 		if err != nil {
 			return fmt.Errorf("validate generated policy: %w", err)
 		}
-		document := initDocumentForPolicy(root, outputPath, language, unit, template, loaded, generated)
+		document, err := initDocumentForPolicy(root, outputPath, language, unit, template, loaded, generated)
+		if err != nil {
+			return err
+		}
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(document)
@@ -899,21 +904,23 @@ func initCommand(args []string) error {
 const initSchema = "paddock.init/v1"
 
 type initDocument struct {
-	Schema                 string   `json:"schema"`
-	Root                   string   `json:"root"`
-	Output                 string   `json:"output"`
-	Language               string   `json:"language"`
-	SourceUnit             string   `json:"source_unit"`
-	Template               string   `json:"template"`
-	SourceUnitCount        int      `json:"source_unit_count"`
-	EdgeCount              int      `json:"edge_count"`
-	ComponentCount         int      `json:"component_count"`
-	UnclassifiedComponents []string `json:"unclassified_components"`
-	WarningRules           []string `json:"warning_rules"`
-	ReviewRequired         bool     `json:"review_required"`
+	Schema                 string        `json:"schema"`
+	Root                   string        `json:"root"`
+	Output                 string        `json:"output"`
+	Language               string        `json:"language"`
+	SourceUnit             string        `json:"source_unit"`
+	Template               string        `json:"template"`
+	SourceUnitCount        int           `json:"source_unit_count"`
+	EdgeCount              int           `json:"edge_count"`
+	SourceVCS              *ciresult.VCS `json:"source_vcs,omitempty"`
+	GraphSHA256            string        `json:"graph_sha256,omitempty"`
+	ComponentCount         int           `json:"component_count"`
+	UnclassifiedComponents []string      `json:"unclassified_components"`
+	WarningRules           []string      `json:"warning_rules"`
+	ReviewRequired         bool          `json:"review_required"`
 }
 
-func initDocumentForPolicy(root, outputPath, language, unit, template string, graph *model.Graph, generated paddockpolicy.Policy) initDocument {
+func initDocumentForPolicy(root, outputPath, language, unit, template string, graph *model.Graph, generated paddockpolicy.Policy) (initDocument, error) {
 	unclassified := make([]string, 0)
 	for name, component := range generated.Components {
 		role, _ := component.Labels["role"].(string)
@@ -929,6 +936,10 @@ func initDocumentForPolicy(root, outputPath, language, unit, template string, gr
 		}
 	}
 	sort.Strings(warningRules)
+	graphSHA256, err := paddockgraphprovenance.SHA256(language, unit, graph)
+	if err != nil {
+		return initDocument{}, err
+	}
 	return initDocument{
 		Schema:                 initSchema,
 		Root:                   root,
@@ -938,11 +949,13 @@ func initDocumentForPolicy(root, outputPath, language, unit, template string, gr
 		Template:               template,
 		SourceUnitCount:        len(graph.Packages),
 		EdgeCount:              len(graph.Edges),
+		SourceVCS:              sourceprovenance.Detect(root),
+		GraphSHA256:            graphSHA256,
 		ComponentCount:         len(generated.Components),
 		UnclassifiedComponents: unclassified,
 		WarningRules:           warningRules,
 		ReviewRequired:         true,
-	}
+	}, nil
 }
 
 func sourceUnit(language string) string {
@@ -2160,6 +2173,9 @@ func validateCIArtifact(args []string) error {
 		fmt.Fprintf(os.Stdout, "kind: %s\n", artifact.Kind)
 		fmt.Fprintf(os.Stdout, "status: %s\n", artifact.Status)
 		fmt.Fprintf(os.Stdout, "exit_code: %d\n", artifact.ExitCode)
+		if artifact.Error != "" {
+			fmt.Fprintf(os.Stdout, "error: %s\n", artifact.Error)
+		}
 		return nil
 	case "json":
 		encoder := json.NewEncoder(os.Stdout)
@@ -2576,12 +2592,13 @@ func saveAdapterTestCIResult(path string, document paddockadaptertest.Document) 
 		exitCode = 1
 	}
 	shared := ciresult.Artifact{
-		Schema:    ciresult.Schema,
-		Tool:      "paddock",
-		Kind:      "adapter-conformance",
-		Status:    status,
-		ExitCode:  exitCode,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Schema:      ciresult.Schema,
+		Tool:        "paddock",
+		ToolVersion: paddockversion.Version,
+		Kind:        "adapter-conformance",
+		Status:      status,
+		ExitCode:    exitCode,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339Nano),
 		Source: ciresult.Source{
 			Root: filepath.Dir(document.Manifest.Path),
 		},
@@ -2830,11 +2847,13 @@ func explanationProvenance(path string, artifact paddockartifact.Artifact) (*pad
 	}
 	provenance := &paddockexplain.Provenance{
 		ArtifactSchema:   artifact.Schema,
+		ToolVersion:      artifact.ToolVersion,
 		ArtifactPath:     path,
 		ArtifactSHA256:   artifactRef.SHA256,
 		ArtifactStatus:   artifact.Status,
 		ArtifactExitCode: artifact.ExitCode,
 		CreatedAt:        artifact.CreatedAt,
+		SourceVCS:        artifact.Source.VCS,
 		Policy: paddockexplain.FileReference{
 			Path:   artifact.Policy.Path,
 			SHA256: artifact.Policy.SHA256,

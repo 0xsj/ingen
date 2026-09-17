@@ -59,6 +59,20 @@ and passes `--require-plan-binding`. The static fixture provider remains a
 useful local demonstration, but it is intentionally not the production-style
 workflow input.
 
+## Conformance fixtures
+
+The checked-in provider conformance corpus exercises the handoff without
+starting a subject. It includes a valid unbound fixture, exact plan-byte drift,
+semantic-plan drift, an unsupported capability, partial preparation, and a
+malformed entry. The cases make the distinction visible between a provider
+that can be parsed, one that covers the plan, and one that is allowed to run.
+
+Run the focused acceptance command with:
+
+```sh
+make mutation-provider-conformance
+```
+
 ## Used in
 
 - [`sorna/internal/campaign`](../../sorna/internal/campaign/)

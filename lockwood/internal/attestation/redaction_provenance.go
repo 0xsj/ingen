@@ -46,38 +46,48 @@ type RedactionProvenanceEnvelope struct {
 	Signature string                    `json:"signature"`
 }
 
+func (target RedactionProvenanceTarget) Validate() error {
+	if target.Kind != RedactionProvenanceTargetKind {
+		return fmt.Errorf("unexpected redaction provenance target kind %q", target.Kind)
+	}
+	if !handlingCustodyIDPattern.MatchString(target.SourceCustodyID) {
+		return fmt.Errorf("invalid redaction provenance source custody id %q", target.SourceCustodyID)
+	}
+	if !handlingEventIDPattern.MatchString(target.EventID) {
+		return fmt.Errorf("invalid redaction provenance event id %q", target.EventID)
+	}
+	if !handlingCustodyIDPattern.MatchString(target.PromotedCustodyID) {
+		return fmt.Errorf("invalid redaction provenance promoted custody id %q", target.PromotedCustodyID)
+	}
+	if target.SourceCustodyID == target.PromotedCustodyID {
+		return fmt.Errorf("redaction provenance source and promoted custody IDs must differ")
+	}
+	for _, item := range []struct {
+		name   string
+		digest string
+	}{
+		{name: "source record", digest: target.SourceRecordDigest},
+		{name: "event", digest: target.EventDigest},
+		{name: "original", digest: target.OriginalDigest},
+		{name: "resulting", digest: target.ResultingDigest},
+		{name: "promoted record", digest: target.PromotedRecordDigest},
+	} {
+		if err := artifact.ValidateDigest(item.digest); err != nil {
+			return fmt.Errorf("invalid redaction provenance %s digest: %w", item.name, err)
+		}
+	}
+	if target.OriginalDigest == target.ResultingDigest {
+		return fmt.Errorf("redaction provenance original and resulting digests must differ")
+	}
+	return nil
+}
+
 func (envelope RedactionProvenanceEnvelope) Validate() error {
 	if envelope.Schema != RedactionProvenanceSchema {
 		return fmt.Errorf("unexpected redaction provenance schema %q", envelope.Schema)
 	}
-	if envelope.Target.Kind != RedactionProvenanceTargetKind {
-		return fmt.Errorf("unexpected redaction provenance target kind %q", envelope.Target.Kind)
-	}
-	if !handlingCustodyIDPattern.MatchString(envelope.Target.SourceCustodyID) {
-		return fmt.Errorf("invalid redaction provenance source custody id %q", envelope.Target.SourceCustodyID)
-	}
-	if !handlingEventIDPattern.MatchString(envelope.Target.EventID) {
-		return fmt.Errorf("invalid redaction provenance event id %q", envelope.Target.EventID)
-	}
-	if !handlingCustodyIDPattern.MatchString(envelope.Target.PromotedCustodyID) {
-		return fmt.Errorf("invalid redaction provenance promoted custody id %q", envelope.Target.PromotedCustodyID)
-	}
-	if envelope.Target.SourceCustodyID == envelope.Target.PromotedCustodyID {
-		return fmt.Errorf("redaction provenance source and promoted custody IDs must differ")
-	}
-	for name, digest := range map[string]string{
-		"source record":   envelope.Target.SourceRecordDigest,
-		"event":           envelope.Target.EventDigest,
-		"original":        envelope.Target.OriginalDigest,
-		"resulting":       envelope.Target.ResultingDigest,
-		"promoted record": envelope.Target.PromotedRecordDigest,
-	} {
-		if err := artifact.ValidateDigest(digest); err != nil {
-			return fmt.Errorf("invalid redaction provenance %s digest: %w", name, err)
-		}
-	}
-	if envelope.Target.OriginalDigest == envelope.Target.ResultingDigest {
-		return fmt.Errorf("redaction provenance original and resulting digests must differ")
+	if err := envelope.Target.Validate(); err != nil {
+		return err
 	}
 	if envelope.Algorithm != Algorithm {
 		return fmt.Errorf("unsupported redaction provenance algorithm %q", envelope.Algorithm)
@@ -96,6 +106,34 @@ func (envelope RedactionProvenanceEnvelope) Validate() error {
 		return fmt.Errorf("redaction provenance signature has size %d, want %d", len(signature), ed25519.SignatureSize)
 	}
 	return nil
+}
+
+type redactionProvenanceTargetDocument struct {
+	Schema string                    `json:"schema"`
+	Target RedactionProvenanceTarget `json:"target"`
+}
+
+// MarshalCanonicalRedactionProvenanceTarget returns the canonical,
+// domain-separated target representation used for authorization handoffs. It
+// excludes the signing key, signature, and detached envelope metadata.
+func MarshalCanonicalRedactionProvenanceTarget(target RedactionProvenanceTarget) ([]byte, error) {
+	if err := target.Validate(); err != nil {
+		return nil, err
+	}
+	return json.Marshal(redactionProvenanceTargetDocument{
+		Schema: RedactionProvenanceSchema,
+		Target: target,
+	})
+}
+
+// CanonicalRedactionProvenanceTargetDigest identifies the exact redaction
+// promotion relationship independently of its detached envelope and signer.
+func CanonicalRedactionProvenanceTargetDigest(target RedactionProvenanceTarget) (string, error) {
+	encoded, err := MarshalCanonicalRedactionProvenanceTarget(target)
+	if err != nil {
+		return "", err
+	}
+	return artifact.DigestBytes(encoded), nil
 }
 
 func SignRedactionProvenance(source custody.Record, event custody.HandlingEvent, promoted custody.Record, keyID string, privateKey ed25519.PrivateKey) (RedactionProvenanceEnvelope, error) {

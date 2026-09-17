@@ -70,6 +70,13 @@ func TestCLIEndToEnd(t *testing.T) {
 	if !strings.Contains(findOutput.String(), "lockwood-cli-0001") {
 		t.Fatalf("find output does not contain custody ID: %s", findOutput.String())
 	}
+	var emptyFindOutput bytes.Buffer
+	if code := run([]string{"find", "--root", root, "--producer", "does-not-exist"}, strings.NewReader(""), &emptyFindOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("empty find exit code = %d", code)
+	}
+	if emptyFindOutput.String() != "[]\n" {
+		t.Fatalf("empty find output = %q, want deterministic empty array", emptyFindOutput.String())
+	}
 
 	var getOutput bytes.Buffer
 	if code := run([]string{"get", "--root", root, digest}, strings.NewReader(""), &getOutput, &bytes.Buffer{}); code != 0 {
@@ -109,6 +116,102 @@ func TestCLIEndToEnd(t *testing.T) {
 	}
 	if len(report.Orphans) != 0 || len(report.DanglingReferences) != 0 || len(report.CorruptBlobs) != 0 {
 		t.Fatalf("reconcile report = %+v, want clean root", report)
+	}
+}
+
+func TestCLIFindRejectsInvalidQueryBeforeOpeningStore(t *testing.T) {
+	var stderr bytes.Buffer
+	if code := run([]string{"find", "--root", t.TempDir(), "--digest", "not-a-digest"}, strings.NewReader(""), &bytes.Buffer{}, &stderr); code != 2 {
+		t.Fatalf("invalid find exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "invalid query") || !strings.Contains(stderr.String(), "invalid artifact digest") {
+		t.Fatalf("invalid find stderr = %q", stderr.String())
+	}
+}
+
+func TestCLIVerifyReportContinuesAfterFailure(t *testing.T) {
+	root := t.TempDir()
+	goodPath := filepath.Join(t.TempDir(), "good.txt")
+	badPath := filepath.Join(t.TempDir(), "bad.txt")
+	if err := os.WriteFile(goodPath, []byte("good report bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(badPath, []byte("bad report bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const goodID = "lockwood-cli-verify-report-good"
+	const badID = "lockwood-cli-verify-report-bad"
+	missingSum := sha256.Sum256([]byte("missing verify-report parent"))
+	missingDigest := "sha256:" + hex.EncodeToString(missingSum[:])
+	put := func(id, path string, extra ...string) {
+		t.Helper()
+		args := []string{
+			"put",
+			"--root", root,
+			"--id", id,
+			"--media-type", "text/plain",
+			"--producer", "example",
+			"--kind", "verify-report-fixture",
+		}
+		args = append(args, extra...)
+		args = append(args, path)
+		if code := run(args, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+			t.Fatalf("put %s exit code = %d", id, code)
+		}
+	}
+	put(goodID, goodPath)
+	put(badID, badPath, "--parent", "references="+missingDigest)
+
+	var reportOutput, reportErr bytes.Buffer
+	if code := run([]string{
+		"verify-report",
+		"--root", root,
+		"--producer", "example",
+	}, strings.NewReader(""), &reportOutput, &reportErr); code != 1 {
+		t.Fatalf("verify-report exit code = %d, want 1", code)
+	}
+	if reportErr.Len() != 0 {
+		t.Fatalf("verify-report stderr = %q", reportErr.String())
+	}
+	var report custody.VerificationReport
+	if err := json.Unmarshal(reportOutput.Bytes(), &report); err != nil {
+		t.Fatalf("decode verify-report output: %v", err)
+	}
+	if report.Schema != custody.VerificationReportSchema || report.Checked != 2 || report.Verified != 1 || report.Failed != 1 || len(report.Results) != 2 {
+		t.Fatalf("verify-report = %+v", report)
+	}
+	if report.Results[0].CustodyID != badID || report.Results[0].Status != custody.VerificationFailed {
+		t.Fatalf("first verify-report result = %+v", report.Results[0])
+	}
+	if report.Results[1].CustodyID != goodID || report.Results[1].Status != custody.VerificationVerified {
+		t.Fatalf("second verify-report result = %+v", report.Results[1])
+	}
+	if !strings.Contains(report.Results[0].Error, "unresolved lineage parent") {
+		t.Fatalf("failed verify-report result = %+v", report.Results[0])
+	}
+
+	var filteredOutput bytes.Buffer
+	if code := run([]string{"verify-report", "--root", root, "--id", goodID}, strings.NewReader(""), &filteredOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("filtered verify-report exit code = %d", code)
+	}
+	var filtered custody.VerificationReport
+	if err := json.Unmarshal(filteredOutput.Bytes(), &filtered); err != nil {
+		t.Fatalf("decode filtered verify-report output: %v", err)
+	}
+	if filtered.Checked != 1 || filtered.Failed != 0 || len(filtered.Results) != 1 || filtered.Results[0].CustodyID != goodID {
+		t.Fatalf("filtered verify-report = %+v", filtered)
+	}
+
+	var inspected custody.Record
+	var inspectOutput bytes.Buffer
+	if code := run([]string{"inspect", "--root", root, badID}, strings.NewReader(""), &inspectOutput, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("inspect failed record exit code = %d", code)
+	}
+	if err := json.Unmarshal(inspectOutput.Bytes(), &inspected); err != nil {
+		t.Fatal(err)
+	}
+	if inspected.Status != custody.Accepted {
+		t.Fatalf("verify-report changed failed record status to %q", inspected.Status)
 	}
 }
 
@@ -875,6 +978,63 @@ func TestCLIReconcileClassifiesOldOrphansWithoutDeleting(t *testing.T) {
 	}
 	if err := artifacts.Verify(orphan.Digest); err != nil {
 		t.Fatalf("reconcile removed or damaged orphan: %v", err)
+	}
+}
+
+func TestCLICleanupPlanIsReadOnlyAndNeverAuthorizesDeletion(t *testing.T) {
+	root := t.TempDir()
+	artifacts, _, err := openStores(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldOrphan, err := artifacts.Put(strings.NewReader("old orphan"), store.PutOptions{MediaType: "text/plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recentOrphan, err := artifacts.Put(strings.NewReader("recent orphan"), store.PutOptions{MediaType: "text/plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTime, err := time.Parse(time.RFC3339, "2026-09-10T12:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldHex := strings.TrimPrefix(oldOrphan.Digest, "sha256:")
+	oldPath := filepath.Join(root, "blobs", "sha256", oldHex[:2], oldHex[2:4], oldHex)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if code := run([]string{
+		"cleanup-plan",
+		"--root", root,
+		"--orphan-grace", "24h",
+		"--as-of", "2026-09-16T12:00:00Z",
+	}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("cleanup-plan exit code = %d", code)
+	}
+	var plan custody.CleanupPlan
+	if err := json.Unmarshal(output.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Schema != custody.CleanupPlanSchema || plan.OrphanGrace != "24h0m0s" || len(plan.Entries) != 2 {
+		t.Fatalf("cleanup plan = %+v", plan)
+	}
+	entries := make(map[string]custody.CleanupPlanEntry, len(plan.Entries))
+	for _, entry := range plan.Entries {
+		entries[entry.Digest] = entry
+		if entry.ActionStatus != custody.CleanupNotAuthorized || len(entry.Blockers) == 0 {
+			t.Fatalf("cleanup entry authorizes deletion: %+v", entry)
+		}
+	}
+	if entries[oldOrphan.Digest].State != custody.CleanupCandidateState || entries[recentOrphan.Digest].State != custody.ReportedOrphanState {
+		t.Fatalf("cleanup states = %+v", entries)
+	}
+	if err := artifacts.Verify(oldOrphan.Digest); err != nil {
+		t.Fatalf("cleanup-plan damaged old orphan: %v", err)
+	}
+	if err := artifacts.Verify(recentOrphan.Digest); err != nil {
+		t.Fatalf("cleanup-plan damaged recent orphan: %v", err)
 	}
 }
 

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-plan-v1.schema.json",
+  "title": "Lockwood read-only cleanup plan v1",
+  "description": "A conservative cleanup classification that grants no deletion authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "as_of", "orphan_grace", "entries", "dangling_references", "corrupt_blobs"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-plan/v1"},
+    "as_of": {"type": "string", "format": "date-time"},
+    "orphan_grace": {"type": "string", "minLength": 1},
+    "entries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entry"}
+    },
+    "dangling_references": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/dangling-reference"}
+    },
+    "corrupt_blobs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/corrupt-blob"}
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "size_bytes", "modified_at", "state", "action_status", "blockers"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/digest"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "modified_at": {"type": "string", "format": "date-time"},
+        "state": {"enum": ["reported-orphan", "cleanup-candidate"]},
+        "action_status": {"const": "not-authorized"},
+        "blockers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "dangling-reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["custody_id", "digest", "error"],
+      "properties": {
+        "custody_id": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/digest"},
+        "error": {"type": "string", "minLength": 1}
+      }
+    },
+    "corrupt-blob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "error"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/digest"},
+        "error": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

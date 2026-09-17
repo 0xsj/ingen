@@ -1,0 +1,16 @@
+spec document_fixture v1 {
+  fixture "welcome-document" {
+    owner oracle
+    purpose "canonical document input bytes"
+    sha256 "637cecb53db658da5231f933fad366fce94f982501e59d7ddc7688cfaf81b825"
+  }
+
+  scenario submit_document {
+    given body {
+      name = "welcome.md"
+      content = "Read the contract."
+    }
+    when POST "/documents"
+    must response.status == 202
+  }
+}

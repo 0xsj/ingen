@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "work_id": "00000000-0000-4000-8000-000000000001",
+  "execution_id": "00000000-0000-4000-8000-000000000002",
+  "correlation_id": "correlation-before",
+  "origin": "local",
+  "depth": 0,
+  "attempt": 1,
+  "mode": {
+    "kind": "normal"
+  }
+}

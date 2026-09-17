@@ -266,6 +266,28 @@ func (provider HTTPMembershipProvider) FetchNormalized(ctx context.Context, norm
 	return snapshot, nil
 }
 
+// FetchNormalizedVerifierAt fetches and normalizes one provider response,
+// verifies its envelope, applies freshness policy, and returns a verifier for
+// timestamp-aware authorization.
+func (provider HTTPMembershipProvider) FetchNormalizedVerifierAt(ctx context.Context, normalizer MembershipResponseNormalizer, verifier AuthoritySignatureVerifier, now string, maxAge, maxFutureSkew time.Duration) (TimeScopedAuthority, error) {
+	snapshot, err := provider.FetchNormalized(ctx, normalizer, verifier)
+	if err != nil {
+		return TimeScopedAuthority{}, err
+	}
+	return snapshot.VerifierAt(now, maxAge, maxFutureSkew)
+}
+
+// FetchNormalizedVerifierAtWithProvenance fetches and normalizes one provider
+// response, applies freshness policy, and returns a verifier that exposes the
+// snapshot reference for decision-event provenance binding.
+func (provider HTTPMembershipProvider) FetchNormalizedVerifierAtWithProvenance(ctx context.Context, normalizer MembershipResponseNormalizer, verifier AuthoritySignatureVerifier, now string, maxAge, maxFutureSkew time.Duration) (MembershipVerifier, error) {
+	snapshot, err := provider.FetchNormalized(ctx, normalizer, verifier)
+	if err != nil {
+		return MembershipVerifier{}, err
+	}
+	return snapshot.VerifierAtWithProvenance(now, maxAge, maxFutureSkew)
+}
+
 func (provider HTTPMembershipProvider) fetchBytes(ctx context.Context) ([]byte, string, error) {
 	if err := provider.Validate(); err != nil {
 		return nil, "", err

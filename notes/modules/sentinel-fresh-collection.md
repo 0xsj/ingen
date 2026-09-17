@@ -22,6 +22,14 @@ The temporary workspace path, artifact root, and Nublar run store are printed
 when the target exits so the proof remains inspectable, even if the caller had
 configured a different artifact root in the source workspace.
 
+The companion `nublar-sentinel-run-collect-external-root-fresh` target keeps
+the caller in the repository while placing the project in a separate temporary
+root. It passes that root through bootstrap, the verifier adapter, CI-result
+audit, and Nublar collection, exercising the root namespace at the full
+workflow boundary.
+The companion failure target applies the same root boundary to the controlled
+duplicate-idempotency defect and requires the expected failed decision.
+
 ## Why
 
 The fresh target tests the actual bootstrap, oracle freeze, verifier handoff,
@@ -37,6 +45,16 @@ The latest host-enabled proof completed on 2026-09-16 in
 preserved Sentinel explanation reporting `audit_status: passed`. The temporary
 workspace remains available for inspection.
 
+The external-root proof completed on 2026-09-17 in
+`/private/tmp/ingen-sentinel-external-root.yEYtF5`. It also produced a passed
+`ingen.nublar-run/v1` result with four Sorna rules passing and a passed
+Sentinel audit while the caller remained outside the project root.
+
+The external-root expected-failure proof completed on 2026-09-17 in
+`/private/tmp/ingen-sentinel-external-failure-root.N1Y70w`. It produced three
+passing and one failing Sorna rule, then preserved the expected failed
+Sentinel decision through Nublar while the caller remained outside the root.
+
 ## Gotchas
 
 - The target requires the host-enabled Sorna path, including its macOS
@@ -50,7 +68,9 @@ workspace remains available for inspection.
 
 ## Used in
 
-- `Makefile` (`nublar-sentinel-run-collect-fresh`)
+- `Makefile` (`nublar-sentinel-run-collect-fresh`,
+  `nublar-sentinel-run-collect-external-root-fresh`,
+  `nublar-sentinel-run-collect-external-root-failure-fresh`)
 - `herdr-sentinel/README.md`
 - `notes/modules/nublar-sentinel-verifier-workflow.md`
 

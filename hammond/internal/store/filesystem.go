@@ -103,7 +103,7 @@ func (s *FileStore) appendEvent(identity governance.ContractIdentity, expectedRe
 		return governance.Record{}, fmt.Errorf("%s must use its coordinated store operation", event.Type)
 	}
 
-	updated, err := record.AppendEvent(event)
+	updated, err := appendEventWithStoredPolicy(record, event)
 	if err != nil {
 		return governance.Record{}, err
 	}
@@ -178,11 +178,15 @@ func (s *FileStore) supersede(identity governance.ContractIdentity, expectedRevi
 	if !predecessor.HasAmendmentLink(successor) {
 		return governance.Record{}, fmt.Errorf("predecessor has no amendment link to successor")
 	}
-	updated, err := predecessor.AppendEvent(event)
+	updated, err := appendEventWithStoredPolicy(predecessor, event)
 	if err != nil {
 		return governance.Record{}, err
 	}
-	if err := governance.ValidateLineage([]governance.Record{updated, storedSuccessor}); err != nil {
+	policy, err := governance.LoadReviewPolicy(predecessor.Policy)
+	if err != nil {
+		return governance.Record{}, fmt.Errorf("load stored Hammond review policy: %w", err)
+	}
+	if err := governance.ValidateLineageWithPolicy([]governance.Record{updated, storedSuccessor}, policy); err != nil {
 		return governance.Record{}, fmt.Errorf("validate supersession lineage: %w", err)
 	}
 	if err := s.write(updated); err != nil {
@@ -245,11 +249,15 @@ func (s *FileStore) createAmendment(identity governance.ContractIdentity, expect
 	if !event.Successor.Equal(successor.Contract.Identity()) {
 		return governance.Record{}, fmt.Errorf("amendment event successor does not match successor record")
 	}
-	updatedPredecessor, err := predecessor.AppendEvent(event)
+	updatedPredecessor, err := appendEventWithStoredPolicy(predecessor, event)
 	if err != nil {
 		return governance.Record{}, err
 	}
-	if err := governance.ValidateLineage([]governance.Record{updatedPredecessor, successor}); err != nil {
+	policy, err := governance.LoadReviewPolicy(predecessor.Policy)
+	if err != nil {
+		return governance.Record{}, fmt.Errorf("load stored Hammond review policy: %w", err)
+	}
+	if err := governance.ValidateLineageWithPolicy([]governance.Record{updatedPredecessor, successor}, policy); err != nil {
 		return governance.Record{}, fmt.Errorf("validate amendment lineage: %w", err)
 	}
 
@@ -466,4 +474,12 @@ func validateRegistration(record governance.Record) error {
 		return fmt.Errorf("Hammond registration must contain exactly one registered event")
 	}
 	return nil
+}
+
+func appendEventWithStoredPolicy(record governance.Record, event governance.Event) (governance.Record, error) {
+	policy, err := governance.LoadReviewPolicy(record.Policy)
+	if err != nil {
+		return governance.Record{}, fmt.Errorf("load stored Hammond review policy: %w", err)
+	}
+	return record.AppendEventWithPolicy(event, policy)
 }

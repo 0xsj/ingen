@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-comparison-v0.schema.json",
+  "title": "InGen Sattler comparison",
+  "description": "The compatibility-treated producer-neutral comparison envelope. Producer-owned report detail remains outside this contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-comparison/v0"},
+    "compatible": {"type": "boolean"},
+    "compatibility_reasons": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "before": {"$ref": "#/$defs/artifact-summary"},
+    "after": {"$ref": "#/$defs/artifact-summary"},
+    "transition": {"$ref": "#/$defs/transition"},
+    "change_id_filter": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "changes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/change"}
+    },
+    "change_summary": {"$ref": "#/$defs/change-summary"},
+    "warnings": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "mutation_campaign": {"type": "object"}
+  },
+  "$defs": {
+    "file-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+      }
+    },
+    "source-vcs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "revision", "dirty"],
+      "properties": {
+        "system": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "dirty": {"type": "boolean"},
+        "changes_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root"],
+      "properties": {
+        "root": {"type": "string", "minLength": 1},
+        "module_path": {"type": "string"},
+        "vcs": {"$ref": "#/$defs/source-vcs"}
+      }
+    },
+    "artifact-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "kind", "status", "exit_code", "created_at", "source"],
+      "properties": {
+        "path": {"type": "string"},
+        "tool": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "status": {"enum": ["passed", "failed", "error"]},
+        "exit_code": {"enum": [0, 1, 2]},
+        "created_at": {"type": "string", "format": "date-time"},
+        "source": {"$ref": "#/$defs/source"},
+        "policy": {"$ref": "#/$defs/file-ref"},
+        "policy_lock": {"$ref": "#/$defs/file-ref"},
+        "graph": {"$ref": "#/$defs/file-ref"},
+        "baseline": {"$ref": "#/$defs/file-ref"},
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/file-ref"}
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "before", "after", "classification"],
+      "properties": {
+        "field": {"type": "string", "minLength": 1},
+        "before": {"type": "string", "minLength": 1},
+        "after": {"type": "string", "minLength": 1},
+        "classification": {"enum": ["unchanged", "changed", "incompatible"]}
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "field", "before", "after"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "minLength": 1},
+        "field": {"type": "string", "minLength": 1},
+        "before": {},
+        "after": {},
+        "identity": {"enum": ["same-bytes", "replaced", "added", "removed", "unknown"]}
+      }
+    },
+    "change-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "by_category": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

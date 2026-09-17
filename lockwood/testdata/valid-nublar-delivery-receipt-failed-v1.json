@@ -1,0 +1,8 @@
+{
+  "schema": "ingen.nublar-delivery-receipt/v1",
+  "run_id": "nublar-cross-module-0001",
+  "transport": "webhook",
+  "status": "failed",
+  "attempted_at": "2026-09-15T12:07:00Z",
+  "error": "destination unavailable"
+}

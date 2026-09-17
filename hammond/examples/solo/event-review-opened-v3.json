@@ -1,0 +1,7 @@
+{
+  "id": "solo-v3-event-002",
+  "type": "review-opened",
+  "actor": "solo",
+  "at": "2026-09-17T00:01:00Z",
+  "review_cycle_id": "document-pipeline-v3-solo-review-1"
+}

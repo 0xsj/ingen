@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-authorization-request-v1.schema.json",
+  "title": "Lockwood cleanup authorization request v1",
+  "description": "A read-only cleanup target and external authorization handoff evaluated at one explicit time.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target", "policy", "hold", "handoff", "evaluated_at"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-authorization-request/v1"},
+    "target": {"$ref": "https://ingen.example/spec/lockwood.cleanup-authorization-target-v1.schema.json"},
+    "policy": {"$ref": "https://ingen.example/spec/lockwood.cleanup-policy-reference-v1.schema.json"},
+    "hold": {"$ref": "https://ingen.example/spec/lockwood.cleanup-hold-reference-v1.schema.json"},
+    "handoff": {"$ref": "#/$defs/handoff"},
+    "evaluated_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "target", "action", "principal", "authorization"],
+      "properties": {
+        "schema": {"const": "lockwood.authorization-handoff/v1"},
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "digest"],
+          "properties": {
+            "kind": {"const": "artifact-blob"},
+            "digest": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "action": {"const": "cleanup-delete"},
+        "principal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority", "reference"],
+          "properties": {
+            "authority": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"},
+            "reference": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+            "assertion_digest": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "authorization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority", "decision", "assertion_digest", "policy_digest", "issued_at", "not_before", "expires_at", "revocation_snapshot_digest"],
+          "properties": {
+            "authority": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"},
+            "decision": {"enum": ["authorized", "denied"]},
+            "assertion_digest": {"$ref": "#/$defs/digest"},
+            "policy_digest": {"$ref": "#/$defs/digest"},
+            "issued_at": {"type": "string", "format": "date-time"},
+            "not_before": {"type": "string", "format": "date-time"},
+            "expires_at": {"type": "string", "format": "date-time"},
+            "revocation_snapshot_digest": {"$ref": "#/$defs/digest"}
+          }
+        }
+      }
+    }
+  }
+}

@@ -67,7 +67,9 @@ verdict.
 
 ```sh
 make nublar-sentinel-run-collect-fresh
+make nublar-sentinel-run-collect-external-root-fresh
 make nublar-sentinel-run-collect-failure-fresh
+make nublar-sentinel-run-collect-external-root-failure-fresh
 GOCACHE=/private/tmp/ingen-sentinel-go-cache go test -race ./herdr-sentinel/... ./nublar/... ./core/...
 ```
 
@@ -76,15 +78,23 @@ defect and succeeds only when the final Nublar run is `failed/1`.
 The latest host-enabled positive and expected-failure runs were inspected in
 `/private/tmp/ingen-sentinel-workspace.ezgUfA` and
 `/private/tmp/ingen-sentinel-failure-workspace.n9eDRZ`.
+The external-root proof completed in
+`/private/tmp/ingen-sentinel-external-root.yEYtF5`.
+The external-root expected-failure proof completed in
+`/private/tmp/ingen-sentinel-external-failure-root.N1Y70w`.
 
 ## Verification caveat
 
-The focused Sentinel/Nublar/core race slice passes. The broader
-`make alpha-interface-check` currently reaches the Sentinel-adjacent Sorna
-packages but is not green because the existing macOS timing-sensitive sandbox
-test `sorna/internal/sandbox/TestAccessCaptureCanMissShortLivedTransitionBetweenSamples`
-does not consistently observe the expected short-lived process transition. No
-Sentinel package is the failing package in that checkpoint.
+The focused Sentinel/Nublar/core race slice passes, and the host-enabled
+`make alpha-interface-check` passes through the Darwin process-sampling tests,
+including `sorna/internal/sandbox/TestAccessCaptureCanMissShortLivedTransitionBetweenSamples`.
+The alpha target now includes Sentinel's packages in both its test and vet
+commands, so the named gate covers the complete local Sentinel/Sorna/Nublar
+boundary.
+When the suite runs in an unprivileged local sandbox, `/bin/ps` can return
+`Operation not permitted`, leaving process observations empty. That is an
+execution-permission limitation; the telemetry assertions remain enabled and
+must not be weakened to make the restricted environment appear green.
 
 ## Related
 

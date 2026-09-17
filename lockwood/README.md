@@ -1,6 +1,6 @@
 # Lockwood
 
-Lockwood is InGen's future evidence-custody and artifact-registry surface.
+Lockwood is InGen's local evidence-custody and artifact-registry vertical.
 
 It should preserve verification artifacts and their history so they can be
 located, re-verified, shared, and inspected later. Its scope may include:
@@ -17,14 +17,30 @@ and custody boundary rather than reimplementing verification semantics.
 
 ## Status
 
-Future vertical. It should grow when durable, cross-project evidence storage
-and artifact sharing become a real workflow need.
+Implemented local custody vertical. The current foundation preserves
+content-addressed artifacts, custody records, append-only handling history,
+lineage, redaction traceability, and detached verification evidence.
+
+Future work remains intentionally separate: hosted or remote object storage,
+cleanup and retention enforcement, provider-specific identity verification, and
+authorization enforcement are not silently included in the local boundary.
 
 The current planning proposal is recorded in
 [`PROPOSED-TREE.md`](PROPOSED-TREE.md).
 
+The implementation history and candidate next steps are recorded in
+[`roadmap.md`](roadmap.md).
+
 The first boundary draft is recorded in
 [`CUSTODY-SPEC.md`](CUSTODY-SPEC.md).
+
+The draft identity and authorization handoff boundary is recorded in
+[`AUTHORIZATION-HANDOFF.md`](AUTHORIZATION-HANDOFF.md).
+
+The handoff currently provides typed, read-only target construction, request
+validation, caller-owned verification, and transient receipt binding. It does
+not implement an identity provider, external policy engine, or live revocation
+lookup.
 
 The draft machine-readable contracts are in
 [`spec/`](spec/).
@@ -34,6 +50,40 @@ A representative accepted custody record is in
 
 Custody v2 can preserve credential-free remote source URI/version metadata;
 this records provenance only and does not fetch or attest remote objects.
+
+The provider-neutral remote/object-storage boundary is defined in
+[`REMOTE-OBJECT-SPEC.md`](REMOTE-OBJECT-SPEC.md). It keeps the local artifact
+digest authoritative and leaves credentials, provider authentication, retries,
+and remote retrieval to a caller-owned adapter. The local seam validates
+references and verifies fetched bytes, but does not publish remote custody.
+Its reference schema is [`spec/lockwood.remote-object-v1.schema.json`](spec/lockwood.remote-object-v1.schema.json).
+
+The cleanup and enforcement boundary is drafted in
+[`CLEANUP-ENFORCEMENT-SPEC.md`](CLEANUP-ENFORCEMENT-SPEC.md). Current
+reconciliation and legal-hold checks remain read-only; deletion and retention
+enforcement require a separate policy, authorization, and coordination
+contract.
+
+The proposed cleanup policy and authorization handoff is recorded in
+[`CLEANUP-AUTHORIZATION.md`](CLEANUP-AUTHORIZATION.md). It binds a future
+decision to one local artifact digest, a canonical cleanup plan, policy and
+legal-hold snapshots, and an explicit outcome. It is design-only: cleanup
+entries remain `not-authorized` and no deletion worker exists. The typed
+read-only target/request/result seam and versioned target, policy-reference,
+hold-reference, request, and result schemas validate this binding; they do not
+provide an external authority or perform deletion. The readiness projection
+stops at `ready-for-revalidation` with `action_status: not-authorized` until a
+future worker supplies fresh local checks and coordination.
+Typed revalidation, lease/fencing, and worker-preflight evidence are validated
+as caller/coordinator inputs; Lockwood still does not acquire coordination or
+perform deletion. The lifecycle receipt shape is validated in memory and is
+not persisted by Lockwood.
+
+The cross-module evidence handoff is defined in
+[`CROSS-MODULE-EVIDENCE-SPEC.md`](CROSS-MODULE-EVIDENCE-SPEC.md). It maps
+Sorna, Hammond, and Nublar artifacts through exact local digests without
+reinterpreting their producer-owned decisions. An offline deterministic
+fixture path covers the existing adapters and generic custody handoff.
 
 The initial local CLI exposes `put`, `import-sorna`, `import-ci-result`,
 `import-attestation`, `import-redaction-provenance`, `get`, `inspect`, `lineage-status`, `append-event`,
@@ -46,7 +96,8 @@ The initial local CLI exposes `put`, `import-sorna`, `import-ci-result`,
 `verify-handling-event-authorized`,
 `verify-redaction-provenance`, `verify-redaction-provenance-trusted`,
 `find-trusted-redaction-provenance`,
-`verify`, `find`, `recover`, and read-only `reconcile` reporting for
+`verify`, `verify-report`, `find`, `recover`, read-only `reconcile`, and
+read-only `cleanup-plan` reporting for
 orphaned or damaged storage. `recover` accepts a saved pending custody record,
 re-verifies its existing blob, and retries record publication. Intake commands
 accept `--max-bytes`; zero means unlimited and a positive value rejects
@@ -60,10 +111,22 @@ reproducible age cutoff. The CLI recognizes and protects valid published
 detached attestation and redaction-provenance artifacts from orphan
 classification; ordinary unreferenced blobs remain reportable.
 
+`cleanup-plan --orphan-grace <duration>` projects that reconciliation into a
+versioned report with explicit `reported-orphan` or `cleanup-candidate` state,
+blockers, and `action_status: not-authorized`. It is a planning report only;
+it does not evaluate external retention policy, authorize deletion, or mutate
+storage. Use `--as-of <RFC3339>` for a reproducible plan.
+
 `lineage-status --root <root> <custody-id>` provides a read-only projection of
 reachable lineage. It reports unresolved parents, cycles, and damaged
 reachable artifacts without changing the custody record's status; `verify`
 continues to fail closed when lineage is incomplete.
+
+`verify-report --root <root> [query flags]` verifies every matched custody
+record, returns deterministic per-record outcomes, continues after individual
+failures, and exits non-zero when any match fails. It is diagnostic only: a
+failed verification does not change the custody record status. Its versioned
+output contract is [`spec/lockwood.verification-report-v1.schema.json`](spec/lockwood.verification-report-v1.schema.json).
 
 The append-only `handling-event/v1` contract records redaction observations,
 retention classification, and legal-hold placement or release as separate

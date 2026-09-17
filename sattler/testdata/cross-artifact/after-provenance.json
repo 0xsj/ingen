@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "work_id": "00000000-0000-4000-8000-000000000001",
+  "execution_id": "00000000-0000-4000-8000-000000000004",
+  "correlation_id": "correlation-other",
+  "origin": "retry",
+  "depth": 0,
+  "attempt": 2,
+  "mode": {
+    "kind": "retry",
+    "of_execution_id": "00000000-0000-4000-8000-000000000002"
+  }
+}

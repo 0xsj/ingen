@@ -49,6 +49,7 @@
       "required": ["artifact_schema", "artifact_path", "artifact_sha256", "artifact_status", "artifact_exit_code", "created_at", "policy"],
       "properties": {
         "artifact_schema": {"const": "ingen.ci-result/v1"},
+        "tool_version": {"type": "string", "minLength": 1},
         "artifact_path": {"type": "string", "minLength": 1},
         "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "artifact_status": {"enum": ["passed", "failed", "error"]},
@@ -58,7 +59,19 @@
         "policy_lock": {"$ref": "#/$defs/file-reference"},
         "graph": {"$ref": "#/$defs/file-reference"},
         "baseline": {"$ref": "#/$defs/file-reference"},
-        "adapter": {"$ref": "#/$defs/adapter-reference"}
+        "adapter": {"$ref": "#/$defs/adapter-reference"},
+        "source_vcs": {"$ref": "#/$defs/vcs"}
+      }
+    },
+    "vcs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "revision", "dirty"],
+      "properties": {
+        "system": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "dirty": {"type": "boolean"},
+        "changes_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
       }
     },
     "adapter-reference": {

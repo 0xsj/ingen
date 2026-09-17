@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.verification-report-v1.schema.json",
+  "title": "Lockwood verification report v1",
+  "description": "A deterministic, read-only batch verification report.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "checked", "verified", "failed", "results"],
+  "properties": {
+    "schema": {"const": "lockwood.verification-report/v1"},
+    "checked": {"type": "integer", "minimum": 0},
+    "verified": {"type": "integer", "minimum": 0},
+    "failed": {"type": "integer", "minimum": 0},
+    "results": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/result"}
+    }
+  },
+  "$defs": {
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["custody_id", "artifact_digest", "custody_status", "status"],
+      "properties": {
+        "custody_id": {"type": "string", "minLength": 1},
+        "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "custody_status": {"enum": ["accepted", "quarantined", "rejected"]},
+        "status": {"enum": ["verified", "failed"]},
+        "error": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

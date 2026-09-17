@@ -39,6 +39,26 @@ type BundleCorrelation struct {
 	AmberCorrelationID  string                    `json:"amber_correlation_id,omitempty"`
 }
 
+func validateBundleCorrelation(correlation BundleCorrelation) error {
+	if correlation.Kind == "" || correlation.Side == "" || correlation.Relation == "" {
+		return fmt.Errorf("bundle correlation needs kind, side, and relation")
+	}
+	if correlation.Side != "before" && correlation.Side != "after" {
+		return fmt.Errorf("bundle correlation has unsupported side %q", correlation.Side)
+	}
+	switch correlation.Kind {
+	case BundleCorrelationKindNublarCustodySource, BundleCorrelationKindNublarAmber:
+	default:
+		return fmt.Errorf("bundle correlation has unsupported kind %q", correlation.Kind)
+	}
+	switch correlation.Relation {
+	case BundleCorrelationExactMatch, BundleCorrelationMismatch, BundleCorrelationUnknown:
+		return nil
+	default:
+		return fmt.Errorf("bundle correlation has unsupported relation %q", correlation.Relation)
+	}
+}
+
 // CorrelateBundle observes supported exact identifier relationships in a
 // bundle. Results are ordered by subsystem relationship and then side.
 func CorrelateBundle(report BundleComparison) []BundleCorrelation {

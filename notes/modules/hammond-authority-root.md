@@ -70,6 +70,9 @@ keeping operational trust decisions outside the governance record validator.
 - `hammond/internal/governance/governance_test.go`
 - `hammond/spec/ingen.hammond-authority-root-v1.schema.json`
 
+Operational delivery and recovery preparation is captured in
+[`hammond/ROOT-BOOTSTRAP-OPERATIONS.md`](../../hammond/ROOT-BOOTSTRAP-OPERATIONS.md).
+
 ## Related
 
 - [Policy requirements and actor authority should be separate artifacts](hammond-authority-artifact.md)

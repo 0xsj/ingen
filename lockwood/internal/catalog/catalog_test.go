@@ -63,6 +63,48 @@ func TestCatalogInspectAndFind(t *testing.T) {
 	if len(results) != 1 || results[0].CustodyID != second.CustodyID {
 		t.Fatalf("lineage results = %+v", results)
 	}
+
+	results, err = catalog.Find(Query{
+		ProducerTool:   "sorna",
+		ProducerKind:   "mutation-campaign",
+		ParentDigest:   first.Artifact.Digest,
+		ParentRelation: custody.References,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].CustodyID != second.CustodyID {
+		t.Fatalf("combined results = %+v", results)
+	}
+}
+
+func TestCatalogValidatesQueriesAndReturnsDeterministicEmptyResults(t *testing.T) {
+	catalog, err := New(custody.NewMemory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := catalog.Find(Query{ProducerTool: "missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results == nil || len(results) != 0 {
+		t.Fatalf("empty query results = %#v, want non-nil empty slice", results)
+	}
+	for _, test := range []struct {
+		name  string
+		query Query
+	}{
+		{name: "digest", query: Query{Digest: "not-a-digest"}},
+		{name: "parent digest", query: Query{ParentDigest: "not-a-digest"}},
+		{name: "status", query: Query{Status: custody.Status("unknown")}},
+		{name: "parent relation", query: Query{ParentRelation: custody.Relation("unknown")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := catalog.Find(test.query); err == nil {
+				t.Fatal("invalid query was accepted")
+			}
+		})
+	}
 }
 
 func TestCatalogFailsClosedOnCorruptRecord(t *testing.T) {

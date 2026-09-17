@@ -176,6 +176,18 @@ opaque provider locator such as an object version; it never replaces the
 artifact digest. V2 records preserve the remote claim but do not make Lockwood
 responsible for fetching, authenticating, or attesting the remote object.
 
+The provider-neutral retrieval and failure contract is defined separately in
+[`REMOTE-OBJECT-SPEC.md`](REMOTE-OBJECT-SPEC.md). Its local reference and
+caller-owned fetch verification seam does not publish remote bytes or create
+custody records; custody v2 remains provenance-only until a separate import
+contract is approved.
+
+Cleanup, retention, legal-hold enforcement, and deletion boundaries are drafted
+separately in [`CLEANUP-ENFORCEMENT-SPEC.md`](CLEANUP-ENFORCEMENT-SPEC.md).
+
+The cross-module artifact and receipt boundary is drafted separately in
+[`CROSS-MODULE-EVIDENCE-SPEC.md`](CROSS-MODULE-EVIDENCE-SPEC.md).
+
 ## 4. Artifact and record lifecycle
 
 The initial lifecycle is:
@@ -367,9 +379,11 @@ The first implementation should support these conceptual operations:
 | `verify-attestation` | Verify a published detached envelope with an explicit public key. |
 | `verify-attestation-trusted` | Verify a published detached envelope through an explicit trust-registry snapshot. |
 | `verify` | Recompute a blob digest, or verify a custody record's blob digest and declared size. |
+| `verify-report` | Verify every metadata-matched custody record, preserve per-record failures, and return a non-zero operator result if any match fails without changing custody status. |
 | `find` | Locate artifacts by metadata such as run, producer, media type, or logical name. |
 | `recover` | Re-verify a published blob and retry appending its pending custody record. |
 | `reconcile` | Report orphan blobs, dangling records, and corrupt blobs without mutating storage; protect recognized detached artifacts and optionally classify aged cleanup candidates. |
+| `cleanup-plan` | Project reconciliation into explicit orphan states and blockers with `not-authorized` action status; never deletes or grants deletion authority. |
 
 These operations may initially be exposed through a CLI and a filesystem
 backend. The artifact and custody-record contracts also have process-local
@@ -395,8 +409,20 @@ allowed, but they do not weaken these checks.
 For the first filesystem catalog, `find` scans custody records in deterministic
 ID order and returns only records that match exact metadata filters. A corrupt
 or unknown record causes the scan to fail rather than being silently omitted.
-The catalog does not interpret producer reports or derive new verification
-verdicts.
+`verify-report` reuses those filters and verifies each matched record in that
+order. Individual blob or lineage failures are retained as report entries and
+do not stop later matches; a storage/list failure prevents a complete report
+and is a command-level failure. Malformed artifact digests, statuses, and
+lineage relations are rejected before scanning. A no-match query returns a
+deterministic empty array. The catalog does not interpret producer reports or
+derive new verification verdicts.
+
+`cleanup-plan` is a separate read-only projection over reconciliation. It
+records the explicit evaluation time and grace period, sorts entries by digest,
+and distinguishes `reported-orphan` from `cleanup-candidate`. Neither state
+is eligible for deletion: every entry remains `not-authorized` until a future
+worker performs fresh exclusive checks and receives external policy and
+authorization evidence.
 
 ## 7. Initial lineage relations
 
@@ -551,8 +577,9 @@ working and its invariants are tested.
   trusted-key registry. Registry v1 defines exact key IDs, Ed25519 public keys,
   active/revoked status, validity windows, immediate revocation, and
   non-reused IDs as governance rules; it does not grant access.
-- Define remote retrieval, authentication, and attestation semantics if
-  Lockwood later becomes responsible for obtaining remote objects.
+- Integrate the caller-owned remote verification seam into a separate custody
+  import only after a provider-neutral publication and receipt contract is
+  approved; the current boundary does not fetch or publish remote objects.
 - Define orphan cleanup policy, including a grace period and race-safe
   coordination with recovery. The current implementation only reports orphans
   and optionally classifies age-based candidates; it never deletes them.

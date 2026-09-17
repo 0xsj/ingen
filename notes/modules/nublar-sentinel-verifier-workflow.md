@@ -79,6 +79,28 @@ enough to emit the shared envelope, then asserts that Nublar records the final
 `/private/tmp/ingen-sentinel-failure-workspace.n9eDRZ`, with one failed Sorna
 rule and a passing Sentinel integrity audit.
 
+The external-root positive proof is available with:
+
+```sh
+make nublar-sentinel-run-collect-external-root-fresh
+```
+
+It completed on 2026-09-17 in
+`/private/tmp/ingen-sentinel-external-root.yEYtF5`: the caller stayed outside
+the temporary project root while bootstrap, Sorna oracle/verifier handoff,
+Sentinel CI emission, and Nublar collection all completed successfully.
+
+The external-root expected-failure proof is available with:
+
+```sh
+make nublar-sentinel-run-collect-external-root-failure-fresh
+```
+
+It completed on 2026-09-17 in
+`/private/tmp/ingen-sentinel-external-failure-root.N1Y70w`: the controlled
+defect produced three passing and one failing Sorna rule, and Nublar preserved
+the expected failed decision while the caller stayed outside the project root.
+
 ## Limits
 
 The raw Sentinel receipt remains Sentinel-owned and is not reinterpreted by

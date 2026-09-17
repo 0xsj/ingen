@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-lease-v1.schema.json",
+  "title": "Lockwood cleanup lease evidence v1",
+  "description": "A caller-supplied coordinator lease and fencing result bound to one cleanup target and plan.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target_digest", "cleanup_plan_digest", "coordinator", "lease_id", "fencing_token", "acquired_at", "expires_at", "state", "blockers"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-lease/v1"},
+    "target_digest": {"$ref": "#/$defs/digest"},
+    "cleanup_plan_digest": {"$ref": "#/$defs/digest"},
+    "coordinator": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "lease_id": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "fencing_token": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "acquired_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "state": {"enum": ["valid", "expired", "lost", "indeterminate"]},
+    "blockers": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

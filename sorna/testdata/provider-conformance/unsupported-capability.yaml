@@ -1,0 +1,14 @@
+mutation_provider:
+  schema: ingen.mutation-provider/v1
+  id: conformance-unsupported-capability
+  version: 1
+  plan_schema: ingen.mutation-plan/v1
+  capabilities:
+    - plane: implementation
+      operator: response.status.replace
+      target: GET /documents
+  entries:
+    - mutation_id: status-200-create
+      command: subject-status
+    - mutation_id: remove-name-create
+      command: subject-field

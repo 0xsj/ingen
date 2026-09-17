@@ -86,8 +86,20 @@ Nublar currently acts as a thin coordinator and proof surface. It is intentional
 - The fresh expected-failure proof now tolerates Sentinel/Sorna producer exit codes long enough to emit and collect the envelope; the controlled webhook defect produced one failed rule, a valid Sentinel `failed/1` envelope, and a Nublar `failed/1` run.
 - Sentinel fresh proofs now pin their recursive artifact root to the temporary workspace, so an outer `ARTIFACT_ROOT` override cannot reintroduce stale inputs.
 - The Sentinel receipt, Herdr event, nested explanation, and shared-envelope invariants are now named in `ALPHA-INTERFACES.md`; native Herdr hook/session binding remains deliberately unfrozen.
-- The focused Sentinel/Nublar/core race slice passes; the broader alpha checkpoint is currently held by the existing macOS timing-sensitive Sorna sandbox telemetry test, documented in the Sentinel alpha checkpoint note.
+- `ALPHA-INTERFACES.md` now maps all 24 frozen invariants to primary executable test suites and records the native Herdr authentication, restart, and shutdown exclusions explicitly.
+- The focused Sentinel/Nublar/core race slice passes, and host-enabled `make alpha-interface-check` now includes Sentinel tests and vet while passing through the Darwin process-sampling tests; an unprivileged sandbox can still deny `/bin/ps`, which is an environment limitation rather than a timing failure.
+- The external-root Sentinel proof now exercises bootstrap, Sorna oracle/verifier handoff, CI emission, and Nublar collection while the caller remains outside the project root; it passed in `/private/tmp/ingen-sentinel-external-root.yEYtF5`.
+- The external-root expected-failure proof now carries the controlled duplicate-idempotency defect through the same boundary; it records three passing and one failing Sorna rule and a failed Nublar decision in `/private/tmp/ingen-sentinel-external-failure-root.N1Y70w`.
 - The native Herdr binding intake is now explicit: callback identity, delivery acknowledgement, persistence ownership, artifact handoff, callback provenance, and shutdown semantics must be supplied before implementation; the acceptance gate is documented in the host-binding note.
+- The installed `herdr 0.9.0` API is now version-pinned: its plugin/socket/event surface is available, and the compatibility probe captures raw events without mutating receipts; durable host event identity, timestamps, replay, acknowledgement, and recovery semantics remain unresolved.
+- The Herdr probe now has a machine-checkable fixture target, `make sentinel-herdr-probe-fixture`; it validates the raw envelope and reports probe-local observation time separately from the still-absent host event identity and timestamp.
+- The live Herdr probe recorded 52 successful `pane.agent_status_changed` callbacks in Herdr's plugin state; the latest raw envelope and invocation context validate successfully, while host identity and host event time remain absent. It was disabled after the controlled capture.
+- The host-contract batch now includes a sanitized live-envelope fixture, a structured `ingen.herdr-host-contract/v1` status snapshot, and `make sentinel-herdr-contract-status-check`; the strict adapter regression confirms a raw Herdr envelope is rejected before Sentinel normalization.
+- The raw Herdr boundary now has a dedicated Go loader and read-only CLI inspector, `sentinel adapter herdr-host-envelope`; its fixture check passes while the normalized event loader continues to reject raw host input before receipt mutation.
+- The host-contract review now distinguishes Herdr's asynchronous hook completion logs and persistent plugin-owned state paths from the still-missing Sentinel acknowledgement, retry, cursor, and crash-recovery contract.
+- The host-binding note now includes a concrete handoff template that distinguishes normative host behavior, observed behavior, and unsupported fields without adding a speculative Sentinel API.
+- The receipt durability decision is now explicit: local file receipts remain the alpha boundary, while a durable store is deferred until Herdr or a concrete consumer supplies a remote, distributed, replay, or stronger recovery requirement.
+- The local receipt reload regression now proves that a later writer preserves an earlier published event across file reload; the full focused Sentinel/Nublar/core race checkpoint passes, without claiming Herdr host restart recovery.
 - The provider-neutral Herdr adapter regression now rejects a callback bound to the wrong workspace as well as the wrong run, with no receipt mutation; the focused adapter/CLI/Nublar/core race checks pass.
 - The rooted Herdr adapter proof now also rejects a callback whose registered artifact has disappeared, preserving the receipt unchanged before publication.
 - Herdr event batches now have an explicit conflicting-ID atomicity regression: a later conflict rejects the entire batch, including an earlier otherwise-valid event.
@@ -152,7 +164,7 @@ The Go source-provider campaign can be run with `make mutation-go-campaign-run`;
   go test -race ./core/ciresult ./sorna/internal/campaign ./sorna/internal/evidence ./sorna/cmd/sorna ./nublar/internal/aggregate ./nublar/internal/workflow
   ```
 
-  A full `go test ./...` remains blocked by unrelated pre-existing Paddock compile errors (`loadGraphDocument` and `loadExternalGraphRequest`).
+  A permission-enabled repository-wide `go test ./...` reaches and passes Sentinel, Sorna, Hammond, Lockwood, and Nublar. It remains non-green only at the unrelated Paddock acceptance test `TestCLICleanJSONReportUsesEmptyFindingsArray`, which times out while building its CLI. The restricted environment also cannot run Hammond loopback tests or Darwin process inspection reliably.
 - On some local runs, macOS Seatbelt process inspection requires host permission; the same scoped runs succeed when executed with the required permission.
 
 ## Potential remaining avenues
@@ -220,6 +232,8 @@ The resulting boundary is recorded in
 be driven by a concrete consumer need and rerun that gate.
 The consumer brief can be captured with
 [nublar/CONSUMER-REQUEST-TEMPLATE.md](nublar/CONSUMER-REQUEST-TEMPLATE.md).
+The completed baseline and candidate future phases are tracked in
+[nublar/ROADMAP.md](nublar/ROADMAP.md).
 The local Nublar slice is frozen at this checkpoint. Any next Nublar work should
 be driven by a concrete consumer using this surface before any hosted
 implementation.

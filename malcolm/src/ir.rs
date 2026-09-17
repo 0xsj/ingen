@@ -1,4 +1,7 @@
-use crate::ast::{Literal, RequirementKind, Specification};
+use crate::ast::{
+    FixtureClause, FixtureOwner, IsolationClause, IsolationScope, Literal, MutationClause,
+    ProvenanceClause, ProvenanceField, ProvenanceRequirementKind, RequirementKind, Specification,
+};
 use crate::semantic::{validate, ValidationError};
 
 pub const IR_SCHEMA: &str = "malcolm.ir/v1";
@@ -16,6 +19,10 @@ pub struct SpecificationIr {
     pub version: Option<String>,
     pub subject: Option<String>,
     pub scenarios: Vec<ScenarioIr>,
+    pub fixtures: Vec<FixtureIr>,
+    pub mutations: Vec<MutationIr>,
+    pub provenance: Option<ProvenanceIr>,
+    pub isolation: Option<IsolationIr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +72,52 @@ pub struct WhenIr {
 pub struct RequirementIr {
     pub kind: String,
     pub expression: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MutationIr {
+    pub id: String,
+    pub scenario: String,
+    pub change: MutationChangeIr,
+    pub expected_rule: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MutationChangeIr {
+    pub field: String,
+    pub from: i64,
+    pub to: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvenanceIr {
+    pub requirements: Vec<ProvenanceRequirementIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvenanceRequirementIr {
+    pub kind: String,
+    pub field: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IsolationIr {
+    pub scope: String,
+    pub reset: ResetIr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResetIr {
+    pub method: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixtureIr {
+    pub id: String,
+    pub owner: String,
+    pub purpose: String,
+    pub sha256: String,
 }
 
 /// Validate a specification and compile it into Malcolm's first IR.
@@ -143,6 +196,18 @@ impl IntermediateRepresentation {
                 version: specification.version.clone(),
                 subject: specification.subject.clone(),
                 scenarios,
+                fixtures: specification
+                    .fixtures
+                    .iter()
+                    .map(fixture_from_ast)
+                    .collect(),
+                mutations: specification
+                    .mutations
+                    .iter()
+                    .map(mutation_from_ast)
+                    .collect(),
+                provenance: specification.provenance.as_ref().map(provenance_from_ast),
+                isolation: specification.isolation.as_ref().map(isolation_from_ast),
             },
         }
     }
@@ -175,9 +240,160 @@ impl IntermediateRepresentation {
             }
             write_scenario(&mut json, scenario);
         }
-        json.push_str("]}}");
+        json.push(']');
+        if !self.specification.fixtures.is_empty() {
+            json.push_str(",\"fixtures\":[");
+            for (index, fixture) in self.specification.fixtures.iter().enumerate() {
+                if index > 0 {
+                    json.push(',');
+                }
+                write_fixture(&mut json, fixture);
+            }
+            json.push(']');
+        }
+        if !self.specification.mutations.is_empty() {
+            json.push_str(",\"mutations\":[");
+            for (index, mutation) in self.specification.mutations.iter().enumerate() {
+                if index > 0 {
+                    json.push(',');
+                }
+                write_mutation(&mut json, mutation);
+            }
+            json.push(']');
+        }
+        if let Some(provenance) = &self.specification.provenance {
+            json.push_str(",\"provenance\":");
+            write_provenance(&mut json, provenance);
+        }
+        if let Some(isolation) = &self.specification.isolation {
+            json.push_str(",\"isolation\":");
+            write_isolation(&mut json, isolation);
+        }
+        json.push_str("}}");
         json
     }
+}
+
+fn mutation_from_ast(mutation: &MutationClause) -> MutationIr {
+    let change = mutation
+        .change
+        .as_ref()
+        .expect("validated mutation has a change");
+    MutationIr {
+        id: mutation.id.clone(),
+        scenario: mutation
+            .scenario
+            .clone()
+            .expect("validated mutation has a target scenario"),
+        change: MutationChangeIr {
+            field: change.field.clone(),
+            from: change.from,
+            to: change.to,
+        },
+        expected_rule: mutation
+            .expected_rule
+            .clone()
+            .expect("validated mutation has an expected rule"),
+    }
+}
+
+fn fixture_from_ast(fixture: &FixtureClause) -> FixtureIr {
+    FixtureIr {
+        id: fixture.id.clone(),
+        owner: match fixture.owner {
+            Some(FixtureOwner::Oracle) => "oracle".into(),
+            None => panic!("validated fixture has an owner"),
+        },
+        purpose: fixture
+            .purpose
+            .clone()
+            .expect("validated fixture has a purpose"),
+        sha256: fixture
+            .sha256
+            .clone()
+            .expect("validated fixture has a SHA-256 digest"),
+    }
+}
+
+fn write_mutation(json: &mut String, mutation: &MutationIr) {
+    json.push('{');
+    write_field_string(json, "id", &mutation.id, true);
+    write_field_string(json, "scenario", &mutation.scenario, true);
+    json.push_str("\"change\":{");
+    write_field_string(json, "field", &mutation.change.field, true);
+    json.push_str("\"from\":");
+    json.push_str(&mutation.change.from.to_string());
+    json.push_str(",\"to\":");
+    json.push_str(&mutation.change.to.to_string());
+    json.push('}');
+    json.push(',');
+    write_field_string(json, "expected_rule", &mutation.expected_rule, false);
+    json.push('}');
+}
+
+fn write_fixture(json: &mut String, fixture: &FixtureIr) {
+    json.push('{');
+    write_field_string(json, "id", &fixture.id, true);
+    write_field_string(json, "owner", &fixture.owner, true);
+    write_field_string(json, "purpose", &fixture.purpose, true);
+    write_field_string(json, "sha256", &fixture.sha256, false);
+    json.push('}');
+}
+
+fn provenance_from_ast(provenance: &ProvenanceClause) -> ProvenanceIr {
+    ProvenanceIr {
+        requirements: provenance
+            .requirements
+            .iter()
+            .map(|requirement| ProvenanceRequirementIr {
+                kind: match requirement.kind {
+                    ProvenanceRequirementKind::Create => "create".into(),
+                },
+                field: match requirement.field {
+                    ProvenanceField::ExecutionId => "execution_id".into(),
+                },
+            })
+            .collect(),
+    }
+}
+
+fn isolation_from_ast(isolation: &IsolationClause) -> IsolationIr {
+    let reset = isolation
+        .reset
+        .as_ref()
+        .expect("validated isolation has a reset request");
+    IsolationIr {
+        scope: match isolation.scope {
+            IsolationScope::Scenario => "scenario".into(),
+        },
+        reset: ResetIr {
+            method: reset.method.clone(),
+            path: reset.path.clone(),
+        },
+    }
+}
+
+fn write_provenance(json: &mut String, provenance: &ProvenanceIr) {
+    json.push_str("{\"requirements\":[");
+    for (index, requirement) in provenance.requirements.iter().enumerate() {
+        if index > 0 {
+            json.push(',');
+        }
+        json.push('{');
+        write_field_string(json, "kind", &requirement.kind, true);
+        write_field_string(json, "field", &requirement.field, false);
+        json.push('}');
+    }
+    json.push_str("]}");
+}
+
+fn write_isolation(json: &mut String, isolation: &IsolationIr) {
+    json.push('{');
+    write_field_string(json, "scope", &isolation.scope, true);
+    json.push_str("\"reset\":{");
+    write_field_string(json, "method", &isolation.reset.method, true);
+    write_field_string(json, "path", &isolation.reset.path, false);
+    json.push_str("}}");
 }
 
 fn request_from_ast(request: &crate::ast::RequestClause) -> RequestIr {
@@ -324,6 +540,13 @@ fn write_literal(json: &mut String, value: &Literal) {
                 write_literal(json, value);
             }
             json.push(']');
+        }
+        Literal::Repeat { value, count } => {
+            json.push_str("{\"generated\":{\"kind\":\"repeat\",\"value\":");
+            write_json_string(json, value);
+            json.push_str(",\"count\":");
+            json.push_str(&count.to_string());
+            json.push_str("}}");
         }
     }
 }
@@ -506,12 +729,213 @@ mod tests {
     }
 
     #[test]
+    fn emits_multiline_literals_and_decoded_string_escapes() {
+        let specification = parse(
+            r#"
+                spec document_api v1 {
+                  scenario create_document {
+                    given body {
+                      metadata = {
+                        "source": "import",
+                        "labels": [
+                          "docs",
+                          "contract"
+                        ]
+                      }
+                      message = "say \"hello\"\nnext"
+                    }
+                    when POST "/documents"
+                    must response.status == 202
+                  }
+                }
+            "#,
+        )
+        .expect("multiline request source should parse");
+
+        let json = compile(&specification)
+            .expect("multiline request source should validate")
+            .to_json();
+
+        assert!(json.contains(
+            r#""metadata":{"source":"import","labels":["docs","contract"]},"message":"say \"hello\"\nnext""#
+        ));
+    }
+
+    #[test]
+    fn emits_mutation_declarations_for_the_sorna_boundary() {
+        let specification = parse(
+            r#"
+                spec document_api v1 {
+                  scenario submit_document {
+                    when POST "/documents"
+                    must response.status == 202
+                  }
+                  mutation "return-200" {
+                    target submit_document
+                    change response.status from 202 to 200
+                    expect rule submit_document.requirement.1 to fail
+                  }
+                }
+            "#,
+        )
+        .expect("mutation source should parse");
+
+        let json = compile(&specification)
+            .expect("mutation source should validate")
+            .to_json();
+
+        assert!(json.contains(
+            r#""mutations":[{"id":"return-200","scenario":"submit_document","change":{"field":"response.status","from":202,"to":200},"expected_rule":"submit_document.requirement.1"}]"#
+        ));
+    }
+
+    #[test]
+    fn emits_execution_id_provenance_requirements_for_the_sorna_boundary() {
+        let specification = parse(
+            r#"
+                spec document_api v1 {
+                  provenance {
+                    must create execution_id
+                  }
+                  scenario submit_document {
+                    when POST "/documents"
+                    must response.status == 202
+                  }
+                }
+            "#,
+        )
+        .expect("provenance source should parse");
+
+        let json = compile(&specification)
+            .expect("provenance source should validate")
+            .to_json();
+
+        assert!(json.contains(
+            r#""provenance":{"requirements":[{"kind":"create","field":"execution_id"}]}"#
+        ));
+    }
+
+    #[test]
+    fn emits_per_scenario_isolation_reset_for_the_sorna_boundary() {
+        let specification = parse(
+            r#"
+                spec document_api v1 {
+                  isolation per scenario {
+                    reset POST "/__malcolm/reset"
+                  }
+                  scenario submit_document {
+                    when POST "/documents"
+                    must response.status == 202
+                  }
+                }
+            "#,
+        )
+        .expect("isolation source should parse");
+
+        let json = compile(&specification)
+            .expect("isolation source should validate")
+            .to_json();
+
+        assert!(json.contains(
+            r#""isolation":{"scope":"scenario","reset":{"method":"POST","path":"/__malcolm/reset"}}"#
+        ));
+    }
+
+    #[test]
+    fn emits_digest_pinned_fixture_for_the_sorna_boundary() {
+        let specification = parse(
+            r#"
+                spec document_api v1 {
+                  fixture "welcome-document" {
+                    owner oracle
+                    purpose "canonical document input"
+                    sha256 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                  }
+                  scenario submit_document {
+                    when POST "/documents"
+                    must response.status == 202
+                  }
+                }
+            "#,
+        )
+        .expect("fixture source should parse");
+
+        let json = compile(&specification)
+            .expect("fixture source should validate")
+            .to_json();
+
+        assert!(json.contains(
+            r#""fixtures":[{"id":"welcome-document","owner":"oracle","purpose":"canonical document input","sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}]"#
+        ));
+    }
+
+    #[test]
+    fn emits_nested_response_selectors_without_rewriting_the_path() {
+        let specification = parse(
+            r#"
+                spec document_api v1 {
+                  scenario inspect_document {
+                    setup create_document {
+                      given body {
+                        name = "welcome.md"
+                      }
+                      when POST "/documents"
+                      must response.body.metadata.owner.id exists
+                      capture owner_id = response.body.metadata.owner.id
+                    }
+                    when GET "/documents"
+                    must response.status == 200
+                  }
+                }
+            "#,
+        )
+        .expect("nested selector source should parse");
+
+        let json = compile(&specification)
+            .expect("nested selector source should validate")
+            .to_json();
+
+        assert!(json.contains(r#""expression":"response.body.metadata.owner.id exists""#));
+        assert!(json.contains(r#""selector":"body.metadata.owner.id""#));
+    }
+
+    #[test]
+    fn emits_repeat_generator_as_sorna_ir() {
+        let specification = parse(
+            r#"
+                spec document_boundary v1 {
+                  scenario reject_oversized_document {
+                    given body {
+                      content = repeat("a", 4097)
+                    }
+                    when POST "/documents"
+                    must response.status == 413
+                  }
+                }
+            "#,
+        )
+        .expect("repeat generator source should parse");
+
+        let json = compile(&specification)
+            .expect("repeat generator source should validate")
+            .to_json();
+
+        assert!(
+            json.contains(r#""content":{"generated":{"kind":"repeat","value":"a","count":4097}}"#)
+        );
+    }
+
+    #[test]
     fn compilation_stops_before_ir_for_invalid_models() {
         let specification = Specification {
             name: "invalid".into(),
             version: None,
             subject: None,
             scenarios: Vec::new(),
+            fixtures: Vec::new(),
+            mutations: Vec::new(),
+            provenance: None,
+            isolation: None,
         };
 
         let errors = compile(&specification).expect_err("invalid model should not compile");
@@ -541,6 +965,10 @@ mod tests {
                     expression: "response.ok == true\t".into(),
                 }],
             }],
+            fixtures: Vec::new(),
+            mutations: Vec::new(),
+            provenance: None,
+            isolation: None,
         };
 
         let json = compile(&specification)

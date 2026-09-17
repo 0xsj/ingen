@@ -23,6 +23,69 @@ Herdr SDK.
 The host may provide more than this, but it must not require Sentinel to infer
 identity from pane text, process exit alone, filenames, or an untrusted report.
 
+## Host contract handoff format
+
+The Herdr owner can close this intake by supplying the following answers from
+the real host implementation. An unknown or deferred field keeps the native
+binding blocked; Sentinel must not fill it with an assumed default.
+
+```text
+Host implementation and version:
+Hook name(s) and registration lifetime:
+Callback payload and event identity:
+Ordering, duplication, and delivery timing:
+Run/workspace/role/session identity across retries and restarts:
+Acknowledgement outcomes and retry/backoff policy:
+Durable owner for event IDs and receipt updates:
+Restart recovery and duplicate-delivery behavior:
+Artifact reference namespace and byte-availability timing:
+Artifact immutability and hash authority:
+Callback authentication or provenance mechanism:
+Cancellation, unload, and shutdown behavior:
+Host documentation or executable fixture:
+```
+
+The handoff should identify which answers are normative, which are observed
+behavior, and which remain unsupported. Once complete, it becomes the input to
+the thin binding review; it does not change the provider-neutral Sentinel event
+contract by itself.
+
+The installed Herdr 0.9.0 surface is now recorded in
+[`sentinel-herdr-v0-9-compatibility.md`](sentinel-herdr-v0-9-compatibility.md).
+It supplies a usable plugin and event-hook surface, but the event envelope does
+not supply the durable event identity, host timestamp, replay cursor, or
+delivery/retry contract required for production Sentinel translation.
+
+## Observed Herdr 0.9.0 probe evidence
+
+The compatibility probe was enabled for a controlled live session and received
+real `pane.agent_status_changed` callbacks. Herdr's plugin log recorded
+successful invocations, and the live state directory contained 52 valid
+captures at the time of review. The probe was disabled after capture so it does
+not continue writing background diagnostics.
+
+The latest raw envelope was structurally:
+
+```json
+{
+  "event": "pane_agent_status_changed",
+  "data": {
+    "type": "pane_agent_status_changed",
+    "pane_id": "wP:p6",
+    "workspace_id": "wP",
+    "agent_status": "blocked",
+    "agent": "codex"
+  }
+}
+```
+
+The invocation context supplied workspace and tab labels, current working
+directories, focused pane information, `invocation_source`, and
+`correlation_id`. It did not supply a durable event ID or host event timestamp.
+The probe's `captured_at` value remains local observation time and is not used
+as either field. Ordering, replay, acknowledgement, retry, durable ownership,
+authentication, artifact handoff, and shutdown behavior remain unanswered.
+
 ## Normalization boundary
 
 The native binding should be a thin translation layer:

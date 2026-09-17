@@ -1,0 +1,7 @@
+schema: ingen.nublar-workflow/v1
+id: typescript-provider-ci
+checks:
+  - id: mutation-provider-review
+    tool: sorna
+    result: provider-review-ci-result.json
+    required: true

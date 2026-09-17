@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.fixture-provider-v1.schema.json",
+  "title": "InGen oracle fixture provider",
+  "description": "A provider declaration for files supplied to oracle-owned contract fixtures.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fixture_provider"],
+  "properties": {
+    "fixture_provider": {"$ref": "#/$defs/fixture_provider"}
+  },
+  "$defs": {
+    "fixture_provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "id", "version", "fixtures"],
+      "properties": {
+        "schema": {"const": "ingen.fixture-provider/v1"},
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "fixtures": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/fixture"}
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

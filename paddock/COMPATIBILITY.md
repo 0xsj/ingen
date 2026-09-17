@@ -56,6 +56,25 @@ artifact contract. They follow the same versioning rules below.
 - The optional `adapter` field on `paddock.graph/v1` is additive. Paddock may
   populate external executable and argument-list digests when it invokes an
   adapter; existing graph consumers may ignore the field.
+- The optional `source.vcs` field on `ingen.ci-result/v1` is additive. It
+  identifies the source revision and whether the evaluated source root was
+  dirty. It may also carry a non-content-identifying hash of tracked and
+  untracked changes under that root; producers may omit the object when
+  version-control metadata is unavailable, and existing consumers may ignore
+  it.
+- The optional `tool_version` field on `ingen.ci-result/v1` is additive. It
+  identifies the producer build when available; existing producers and
+  consumers may omit or ignore it.
+- The optional `identity` field on `paddock.component-map/v1` components and
+  optional dependency identity fields are additive. Paddock uses them when a
+  policy component name resolves to multiple label sets, preserving the
+  existing base `name`, `from`, and `to` values for consumers that do not need
+  variant detail.
+- The optional `source_vcs` and `graph_sha256` fields on `paddock.init/v1` are
+  additive. `source_vcs` identifies the source root's Git revision and dirty
+  state when available; `graph_sha256` identifies the normalized graph and
+  source-unit configuration consumed to generate the draft. Existing summary
+  consumers may ignore both fields.
 - A changed meaning, field type, identifier, exit-code contract, or capability
   interpretation requires a new version.
 - Graph adapters own language analysis, not policy semantics. New edge kinds or

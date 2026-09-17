@@ -17,13 +17,19 @@ The `policy` field is optional for producers that do not use a policy file;
 {
   "schema": "ingen.ci-result/v1",
   "tool": "paddock",
+  "tool_version": "0.9.51",
   "kind": "architecture",
   "status": "passed",
   "exit_code": 0,
   "created_at": "2026-09-14T12:00:00Z",
   "source": {
     "root": "/workspace/service",
-    "module_path": "example.com/service"
+    "module_path": "example.com/service",
+    "vcs": {
+      "system": "git",
+      "revision": "0123456789abcdef",
+      "dirty": false
+    }
   },
   "policy": {
     "path": "paddock.yaml",
@@ -68,6 +74,19 @@ The mapping is shared by the Go implementation as
 states, but the envelope exposes only `passed`/`0`, `failed`/`1`, and
 `error`/`2`. An unknown status is invalid rather than silently becoming an
 infrastructure error.
+
+The optional `source.vcs` object identifies the source revision used for the
+run. `dirty` is scoped to the source root and tells consumers whether local
+changes were present. A dirty result may also include `changes_sha256`, a
+non-content-identifying digest of the tracked and untracked changes under the
+source root, so consumers can distinguish two dirty snapshots. Producers
+should omit the object when version-control metadata is unavailable. This is
+source identity context, not a content attestation.
+
+The optional `tool_version` identifies the producer build that emitted the
+envelope. Paddock populates it from its build metadata (`dev` for an
+unversioned development build); other producers may omit it. Existing
+consumers must continue to accept artifacts without this field.
 
 `sha256` values identify exact input files used for the run. They are integrity
 references, not an attestation by themselves. A producer may use the named

@@ -273,6 +273,13 @@ of the selected key over this relationship; it does not authenticate the human
 actor, grant action authorization, or prove the transformation's semantic
 correctness.
 
+For authorization handoffs, `CanonicalRedactionProvenanceTargetDigest` derives
+a separate stable relationship digest from the canonical JSON encoding of the
+schema and target only. It intentionally excludes the detached envelope's
+`key_id` and `signature`, allowing an external assertion to bind to the exact
+relationship without becoming coupled to one signer. This digest does not
+authenticate an actor or grant authorization.
+
 The read-only `find-redaction-provenance` command inventories persisted
 provenance envelopes by source custody ID, event ID, promoted custody ID, or
 key ID. It verifies the recognized artifact reference and canonical envelope

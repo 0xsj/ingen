@@ -76,8 +76,9 @@ strength `must_not`, an emitted event fails and an absent event passes.
   `-` separators by the Go adapter.
 - A subject that emits an event privately but does not expose the declared
   public signal has not satisfied this contract.
-- Setup event assertions are positive preconditions when placed in a setup
-  block; negative setup requirements remain rejected.
+- Setup event assertions are preconditions when placed in a setup block.
+  Positive requirements must match; negative requirements become independent
+  prohibited preconditions and are supported.
 
 ## Used in
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"ingen/core/ciresult"
 	"ingen/paddock/internal/explain"
 	"ingen/paddock/internal/model"
 )
@@ -60,6 +61,27 @@ func TestExplainIncludesEvidenceAndRemediation(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "SUMMARY 1 rules, 1 findings, 1 blocking") || !strings.Contains(output.String(), "Next:") {
 		t.Fatalf("text explanation missing remediation:\n%s", output.String())
+	}
+}
+
+func TestTextIncludesSourceVCSProvenance(t *testing.T) {
+	document := explain.Document{
+		Status: "PASS",
+		Root:   "/service",
+		Provenance: &explain.Provenance{
+			ArtifactPath: "/tmp/result.json",
+			ToolVersion:  "0.9.51",
+			SourceVCS:    &ciresult.VCS{System: "git", Revision: "0123456789abcdef", Dirty: true, ChangesSHA256: strings.Repeat("a", 64)},
+		},
+		Summary:  []explain.FindingSummary{},
+		Findings: []explain.FindingExplanation{},
+	}
+	var output bytes.Buffer
+	if err := explain.Text(&output, document); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "TOOL_VERSION 0.9.51") || !strings.Contains(output.String(), "SOURCE_VCS system=git revision=0123456789abcdef dirty=true changes_sha256="+strings.Repeat("a", 64)) {
+		t.Fatalf("text explanation omitted source VCS provenance:\n%s", output.String())
 	}
 }
 

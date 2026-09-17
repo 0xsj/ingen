@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,7 +138,16 @@ func LoadPreparationSummary(path string) (PreparationSummary, error) {
 // bytes and rejects non-canonical or structurally invalid input.
 func LoadPreparationBytes(path string, contents []byte) (PreparationSummary, error) {
 	var summary PreparationSummary
-	if err := json.Unmarshal(contents, &summary); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&summary); err != nil {
+		return PreparationSummary{}, fmt.Errorf("parse preparation summary %s: %w", path, err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return PreparationSummary{}, fmt.Errorf("parse preparation summary %s: multiple JSON values are not supported", path)
+		}
 		return PreparationSummary{}, fmt.Errorf("parse preparation summary %s: %w", path, err)
 	}
 	if problems := ValidatePreparationSummary(summary); len(problems) > 0 {

@@ -51,6 +51,9 @@ original `0`/`1` result.
   failing result into a pass.
 - When `explain` reads a CI artifact, use its `provenance` block to correlate a
   filtered explanation with the artifact hash and policy/lock/graph references.
+- When a CI artifact has `status: error`, run `paddock ci validate --input ...`
+  to confirm the envelope and read the recorded diagnostic. Do not interpret
+  an evaluation error as either an architecture pass or an architecture fail.
 
 When multiple rules report the same dependency edge, keep the findings
 separate but use `related_rules` to explain that they are duplicate signals,

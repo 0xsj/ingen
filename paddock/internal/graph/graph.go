@@ -574,17 +574,32 @@ func StableCopy(input *model.Graph) *model.Graph {
 		return output.Packages[i].ImportPath < output.Packages[j].ImportPath
 	})
 	sort.SliceStable(output.Edges, func(i, j int) bool {
-		left, right := output.Edges[i], output.Edges[j]
-		if left.FromPath != right.FromPath {
-			return left.FromPath < right.FromPath
-		}
-		if left.File != right.File {
-			return left.File < right.File
-		}
-		if left.Line != right.Line {
-			return left.Line < right.Line
-		}
-		return left.ToImportPath < right.ToImportPath
+		return edgeLess(output.Edges[i], output.Edges[j])
 	})
 	return output
+}
+
+func edgeLess(left, right *model.Edge) bool {
+	if left.FromPath != right.FromPath {
+		return left.FromPath < right.FromPath
+	}
+	if left.File != right.File {
+		return left.File < right.File
+	}
+	if left.Line != right.Line {
+		return left.Line < right.Line
+	}
+	if left.ToImportPath != right.ToImportPath {
+		return left.ToImportPath < right.ToImportPath
+	}
+	if left.ToPath != right.ToPath {
+		return left.ToPath < right.ToPath
+	}
+	if left.Kind != right.Kind {
+		return left.Kind < right.Kind
+	}
+	if left.TargetKind != right.TargetKind {
+		return left.TargetKind < right.TargetKind
+	}
+	return left.FromImportPath < right.FromImportPath
 }

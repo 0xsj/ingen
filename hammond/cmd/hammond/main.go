@@ -23,6 +23,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "register":
 		return registerCommand(args[1:])
+	case "validate":
+		return validateCommand(args[1:])
 	case "append-event":
 		return appendEventCommand(args[1:])
 	case "amend":
@@ -37,6 +39,8 @@ func run(args []string) int {
 		return listCommand(args[1:])
 	case "lineage":
 		return lineageCommand(args[1:])
+	case "membership-current":
+		return membershipCurrentCommand(args[1:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown Hammond command:", args[0])
 		usage()
@@ -68,6 +72,36 @@ func registerCommand(args []string) int {
 		return printError(err)
 	}
 	return writeJSON(record)
+}
+
+func validateCommand(args []string) int {
+	flags := flag.NewFlagSet("validate", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	recordPath := flags.String("record", "", "JSON file containing a Hammond record")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *recordPath == "" {
+		fmt.Fprintln(os.Stderr, "usage: hammond validate --record <path>")
+		return 2
+	}
+	record, err := loadRecord(*recordPath)
+	if err != nil {
+		return printError(err)
+	}
+	return writeJSON(struct {
+		Valid    bool                        `json:"valid"`
+		RecordID string                      `json:"record_id"`
+		Contract governance.ContractIdentity `json:"contract"`
+		Policy   governance.PolicyReference  `json:"policy"`
+		State    governance.State            `json:"state"`
+	}{
+		Valid:    true,
+		RecordID: record.RecordID,
+		Contract: record.Contract.Identity(),
+		Policy:   record.Policy,
+		State:    record.State,
+	})
 }
 
 func appendEventCommand(args []string) int {
@@ -143,7 +177,11 @@ func amendCommand(args []string) int {
 	if err != nil {
 		return printError(err)
 	}
-	event, err := governance.BuildAmendmentEvent(predecessor, successor, *eventID, *actor, *at, governance.AmendmentKind(*kind), *reason)
+	policy, err := governance.LoadReviewPolicy(predecessor.Policy)
+	if err != nil {
+		return printError(fmt.Errorf("load predecessor review policy: %w", err))
+	}
+	event, err := governance.BuildAmendmentEventWithPolicy(predecessor, successor, *eventID, *actor, *at, governance.AmendmentKind(*kind), *reason, policy)
 	if err != nil {
 		return printError(err)
 	}
@@ -199,7 +237,11 @@ func supersedeCommand(args []string) int {
 	if err != nil {
 		return printError(err)
 	}
-	event, err := governance.BuildSupersededEvent(predecessor, successor, *eventID, *actor, *at)
+	policy, err := governance.LoadReviewPolicy(predecessor.Policy)
+	if err != nil {
+		return printError(fmt.Errorf("load predecessor review policy: %w", err))
+	}
+	event, err := governance.BuildSupersededEventWithPolicy(predecessor, successor, *eventID, *actor, *at, policy)
 	if err != nil {
 		return printError(err)
 	}
@@ -316,11 +358,34 @@ func lineageCommand(args []string) int {
 	if err != nil {
 		return printError(err)
 	}
-	if err := governance.ValidateLineage(records); err != nil {
+	if err := governance.ValidateLineageWithPolicyResolver(records, governance.LoadReviewPolicy); err != nil {
 		return printError(err)
 	}
 	printLineage(records)
 	return 0
+}
+
+func membershipCurrentCommand(args []string) int {
+	flags := flag.NewFlagSet("membership-current", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("store", "", "directory for Hammond membership versions")
+	id := flags.String("id", "", "membership identity to inspect")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *root == "" || *id == "" {
+		fmt.Fprintln(os.Stderr, "usage: hammond membership-current --store <dir> --id <membership-id>")
+		return 2
+	}
+	versionStore, err := store.NewFileMembershipVersionStore(*root)
+	if err != nil {
+		return printError(err)
+	}
+	reference, err := versionStore.Current(*id)
+	if err != nil {
+		return printError(err)
+	}
+	return writeJSON(reference)
 }
 
 func loadRecord(path string) (governance.Record, error) {
@@ -388,6 +453,7 @@ func printError(err error) int {
 func usage() {
 	message := `usage:
   hammond register --store <dir> --record <path>
+  hammond validate --record <path>
   hammond append-event --store <dir> --record <path> --event <path> [--if-revision <revision>]
   hammond amend --store <dir> --record <path> --successor <path> --event-id <id> --actor <actor> --at <RFC3339 UTC> --kind <kind> --reason <text> [--if-revision <revision>]
   hammond supersede --store <dir> --record <path> --successor <path> --event-id <id> --actor <actor> --at <RFC3339 UTC> [--if-revision <revision>]

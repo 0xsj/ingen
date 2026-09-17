@@ -1,0 +1,56 @@
+{
+  "schema": "ingen.nublar-run/v1",
+  "run_id": "nublar-cross-module-0001",
+  "workflow": {
+    "id": "document-pipeline",
+    "file": {
+      "path": "workflow.yaml",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  },
+  "correlation": {
+    "system": "sorna",
+    "id": "sorna-run-0001",
+    "attempt": 1
+  },
+  "status": "failed",
+  "exit_code": 1,
+  "created_at": "2026-09-15T12:05:00Z",
+  "completed_at": "2026-09-15T12:06:00Z",
+  "checks": [
+    {
+      "id": "behavioral-verification",
+      "tool": "sorna",
+      "path": "artifacts/ci-result.json",
+      "required": true,
+      "status": "failed",
+      "result": {
+        "ref": {
+          "path": "artifacts/ci-result.json",
+          "sha256": "b5b4a51e354dca1fd58d00391ece8c98442c7a73a883c4953e8e4b0ecd1bc0ce"
+        },
+        "artifact": {
+          "schema": "ingen.ci-result/v1",
+          "tool": "sorna",
+          "kind": "behavioral-verification",
+          "status": "failed",
+          "exit_code": 1,
+          "created_at": "2026-09-15T12:00:00Z",
+          "source": {
+            "root": "/workspace/service"
+          },
+          "report": {},
+          "explanation": {}
+        }
+      }
+    }
+  ],
+  "errors": [
+    {
+      "check_id": "behavioral-verification",
+      "tool": "sorna",
+      "path": "artifacts/ci-result.json",
+      "reason": "behavioral verification failed"
+    }
+  ]
+}

@@ -1,3 +1,7 @@
 .cache/
 .artifacts/
+.hammond/
 /malcolm/target/
+
+# Local working notes for parallel agent sessions.
+**/AGENT-ALIGNMENT.md

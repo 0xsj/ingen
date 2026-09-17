@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-policy-reference-v1.schema.json",
+  "title": "Lockwood cleanup policy reference v1",
+  "description": "A target-specific reference to an externally owned cleanup policy snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target_digest", "policy_id", "policy_version", "snapshot_digest", "retention_rule", "source_timestamp", "expires_at", "evaluated_at", "status"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-policy-reference/v1"},
+    "target_digest": {"$ref": "#/$defs/digest"},
+    "policy_id": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "policy_version": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "snapshot_digest": {"$ref": "#/$defs/digest"},
+    "retention_rule": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^\\S+$"},
+    "source_timestamp": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["complete", "indeterminate"]}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

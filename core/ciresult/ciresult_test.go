@@ -10,13 +10,14 @@ import (
 
 func TestArtifactValidatesOpaqueProducerReport(t *testing.T) {
 	artifact := Artifact{
-		Schema:    Schema,
-		Tool:      "sorna",
-		Kind:      "behavioral-verification",
-		Status:    "passed",
-		ExitCode:  0,
-		CreatedAt: "2026-09-14T12:00:00Z",
-		Source:    Source{Root: ".artifacts/run", ModulePath: "document-pipeline"},
+		Schema:      Schema,
+		Tool:        "sorna",
+		ToolVersion: "1.4.0",
+		Kind:        "behavioral-verification",
+		Status:      "passed",
+		ExitCode:    0,
+		CreatedAt:   "2026-09-14T12:00:00Z",
+		Source:      Source{Root: ".artifacts/run", ModulePath: "document-pipeline"},
 		Inputs: map[string]FileRef{
 			"manifest": {Path: "manifest.json", SHA256: strings.Repeat("a", 64)},
 		},
@@ -28,8 +29,85 @@ func TestArtifactValidatesOpaqueProducerReport(t *testing.T) {
 	if err := WriteJSON(&output, artifact); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), `"schema": "ingen.ci-result/v1"`) {
+	if !strings.Contains(output.String(), `"schema": "ingen.ci-result/v1"`) || !strings.Contains(output.String(), `"tool_version": "1.4.0"`) {
 		t.Fatalf("output = %s, want shared schema", output.String())
+	}
+}
+
+func TestArtifactRejectsBlankToolVersion(t *testing.T) {
+	artifact := Artifact{
+		Schema:      Schema,
+		Tool:        "sorna",
+		ToolVersion: " ",
+		Kind:        "behavioral-verification",
+		Status:      "error",
+		ExitCode:    2,
+		CreatedAt:   "2026-09-14T12:00:00Z",
+		Source:      Source{Root: ".artifacts/run"},
+		Error:       "input unavailable",
+	}
+	if err := artifact.Validate(); err == nil || !strings.Contains(err.Error(), "tool_version") {
+		t.Fatalf("Validate() = %v, want blank tool_version error", err)
+	}
+}
+
+func TestArtifactAcceptsOptionalSourceVCS(t *testing.T) {
+	artifact := Artifact{
+		Schema:    Schema,
+		Tool:      "sorna",
+		Kind:      "behavioral-verification",
+		Status:    "error",
+		ExitCode:  2,
+		CreatedAt: "2026-09-14T12:00:00Z",
+		Source: Source{
+			Root:       ".artifacts/run",
+			ModulePath: "document-pipeline",
+			VCS:        &VCS{System: "git", Revision: "0123456789abcdef", Dirty: true},
+		},
+		Error: "input unavailable",
+	}
+	if err := artifact.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := WriteJSON(&output, artifact); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), `"vcs"`) || !strings.Contains(output.String(), `"dirty": true`) {
+		t.Fatalf("output omitted source VCS provenance: %s", output.String())
+	}
+}
+
+func TestArtifactRejectsIncompleteSourceVCS(t *testing.T) {
+	artifact := Artifact{
+		Schema:    Schema,
+		Tool:      "sorna",
+		Kind:      "behavioral-verification",
+		Status:    "error",
+		ExitCode:  2,
+		CreatedAt: "2026-09-14T12:00:00Z",
+		Source:    Source{Root: ".artifacts/run", VCS: &VCS{System: "git", Dirty: false}},
+		Error:     "input unavailable",
+	}
+	if err := artifact.Validate(); err == nil || !strings.Contains(err.Error(), "source.vcs.revision") {
+		t.Fatalf("Validate() = %v, want incomplete source VCS error", err)
+	}
+}
+
+func TestArtifactRejectsInvalidSourceVCSChangesHash(t *testing.T) {
+	artifact := Artifact{
+		Schema:    Schema,
+		Tool:      "sorna",
+		Kind:      "behavioral-verification",
+		Status:    "error",
+		ExitCode:  2,
+		CreatedAt: "2026-09-14T12:00:00Z",
+		Source:    Source{Root: ".artifacts/run", VCS: &VCS{System: "git", Revision: "0123456789abcdef", Dirty: true, ChangesSHA256: "not-a-hash"}},
+		Error:     "input unavailable",
+	}
+	if err := artifact.Validate(); err == nil || !strings.Contains(err.Error(), "changes_sha256") {
+		t.Fatalf("Validate() = %v, want invalid source VCS changes hash error", err)
 	}
 }
 
@@ -119,7 +197,7 @@ func TestSaveFileWritesValidatedEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tool != artifact.Tool || loaded.Status != artifact.Status {
+	if loaded.Tool != artifact.Tool || loaded.ToolVersion != artifact.ToolVersion || loaded.Status != artifact.Status {
 		t.Fatalf("loaded artifact = %+v, want %+v", loaded, artifact)
 	}
 }

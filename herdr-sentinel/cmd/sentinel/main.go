@@ -129,10 +129,33 @@ func adapterCommand(args []string) int {
 		return herdrEventAdapterCommand(args[1:])
 	case "herdr-events":
 		return herdrEventsAdapterCommand(args[1:])
+	case "herdr-host-envelope":
+		return herdrHostEnvelopeCommand(args[1:])
 	default:
 		usage()
 		return 2
 	}
+}
+
+func herdrHostEnvelopeCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel adapter herdr-host-envelope", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	eventPath := flags.String("event", "", "path to one raw Herdr host event envelope")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *eventPath == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	envelope, err := sentineladapter.LoadHerdrHostEnvelope(*eventPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("valid host envelope:", filepath.Clean(*eventPath))
+	fmt.Println("event:", envelope.Event)
+	return 0
 }
 
 func herdrEventAdapterCommand(args []string) int {
@@ -864,6 +887,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       sentinel adapter verifier --workspace <path> --oracle <path> --base-url <url> --subject-command <exe> [--subject-arg <arg> ...] [--root <dir>] [--subject-root <dir>] [--ready-path <path>] [--subject-variant <label>] [--output-dir <dir>] [--receipt <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-event --receipt <path> --event <path> [--root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-events --receipt <path> --events <path> [--root <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-host-envelope --event <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel run bootstrap --workspace <path> [--root <dir>] --output <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel run ci-result --receipt <path> [--source-root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel run audit --receipt <path> [--root <dir>] [--output <path>]")

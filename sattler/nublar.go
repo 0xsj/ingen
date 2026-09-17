@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"ingen/core/ciresult"
 )
@@ -67,6 +68,70 @@ type NublarRunComparison struct {
 
 const nublarRunComparisonSchema = "ingen.sattler-nublar-run-comparison/v0"
 
+// Validate checks the compatibility-treated Nublar comparison projection.
+// Nested producer results are intentionally not part of this contract.
+func (report NublarRunComparison) Validate() error {
+	if report.Schema != nublarRunComparisonSchema {
+		return fmt.Errorf("Nublar comparison schema must be %s, got %q", nublarRunComparisonSchema, report.Schema)
+	}
+	if err := validateNublarRunSummary("before", report.Before); err != nil {
+		return err
+	}
+	if err := validateNublarRunSummary("after", report.After); err != nil {
+		return err
+	}
+	if report.Transition.Field != "status" {
+		return fmt.Errorf("Nublar comparison transition field must be status, got %q", report.Transition.Field)
+	}
+	return validateBundleAdapterEnvelope("nublar_run", nublarRunComparisonSchema, report.Schema, report.Compatible, report.CompatibilityReasons, report.Transition, report.ChangeIDFilter, report.Changes, report.ChangeSummary, nil)
+}
+
+func validateNublarRunSummary(side string, summary NublarRunSummary) error {
+	if summary.Schema != NublarRunSchema {
+		return fmt.Errorf("Nublar %s schema must be %s, got %q", side, NublarRunSchema, summary.Schema)
+	}
+	if summary.Path != "" && strings.TrimSpace(summary.Path) == "" {
+		return fmt.Errorf("Nublar %s path cannot be empty when present", side)
+	}
+	if strings.TrimSpace(summary.RunID) == "" {
+		return fmt.Errorf("Nublar %s needs a run ID", side)
+	}
+	if strings.TrimSpace(summary.Workflow.ID) == "" {
+		return fmt.Errorf("Nublar %s needs a workflow ID", side)
+	}
+	if strings.TrimSpace(summary.Workflow.File.SHA256) == "" {
+		return fmt.Errorf("Nublar %s needs a workflow file sha256", side)
+	}
+	if err := ciresult.ValidateFileRef("Nublar "+side+" workflow file", &summary.Workflow.File); err != nil {
+		return err
+	}
+	if summary.Correlation != nil {
+		if strings.TrimSpace(summary.Correlation.System) == "" || strings.TrimSpace(summary.Correlation.ID) == "" || summary.Correlation.Attempt < 1 {
+			return fmt.Errorf("Nublar %s has an invalid correlation", side)
+		}
+	}
+	if strings.TrimSpace(summary.Status) == "" || summary.ExitCode < 0 {
+		return fmt.Errorf("Nublar %s needs a status and nonnegative exit code", side)
+	}
+	for name, timestamp := range map[string]string{"created_at": summary.CreatedAt, "completed_at": summary.CompletedAt} {
+		if timestamp == "" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil {
+			return fmt.Errorf("Nublar %s %s must be RFC3339: %w", side, name, err)
+		}
+	}
+	if len(summary.Checks) == 0 {
+		return fmt.Errorf("Nublar %s needs at least one check", side)
+	}
+	for checkID, check := range summary.Checks {
+		if strings.TrimSpace(checkID) == "" || strings.TrimSpace(check.Tool) == "" || strings.TrimSpace(check.Status) == "" {
+			return fmt.Errorf("Nublar %s contains an invalid check %q", side, checkID)
+		}
+	}
+	return nil
+}
+
 type nublarRunDocument struct {
 	Schema   string `json:"schema"`
 	RunID    string `json:"run_id"`
@@ -108,8 +173,12 @@ func CompareNublarRunFiles(beforePath, afterPath string) (NublarRunComparison, e
 	return report, nil
 }
 
-// WriteNublarJSON writes a provisional machine-readable Nublar comparison.
+// WriteNublarJSON writes the compatibility-treated machine-readable Nublar
+// comparison.
 func WriteNublarJSON(w io.Writer, report NublarRunComparison) error {
+	if err := report.Validate(); err != nil {
+		return err
+	}
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(report)

@@ -28,6 +28,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("sorna-malcolm", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	outputPath := flags.String("output", "", "write the Sorna contract to this path instead of stdout")
+	mutationsOutputPath := flags.String("mutations-output", "", "write Malcolm mutation declarations as a Sorna catalogue")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -42,6 +43,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if len(ir.Specification.Mutations) > 0 && *mutationsOutputPath == "" {
+		fmt.Fprintln(stderr, "Malcolm IR contains mutation declarations; use --mutations-output to preserve them")
+		return 1
+	}
+	if len(ir.Specification.Mutations) == 0 && *mutationsOutputPath != "" {
+		fmt.Fprintln(stderr, "--mutations-output requires at least one mutation declaration")
+		return 1
+	}
 	document, err := malcolmcontract.Translate(ir)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -54,20 +63,34 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintln(stdout, "wrote:", *outputPath)
-		return 0
 	}
 
-	encoder := json.NewEncoder(stdout)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(map[string]any{"contract": document.Contract}); err != nil {
-		fmt.Fprintln(stderr, "encode translated contract:", err)
-		return 1
+	if *outputPath == "" {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(map[string]any{"contract": document.Contract}); err != nil {
+			fmt.Fprintln(stderr, "encode translated contract:", err)
+			return 1
+		}
+	}
+
+	if *mutationsOutputPath != "" {
+		catalogue, err := malcolmcontract.TranslateMutationCatalogue(ir)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if err := malcolmcontract.WriteMutationCatalogue(*mutationsOutputPath, catalogue); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stderr, "wrote:", *mutationsOutputPath)
 	}
 	return 0
 }
 
 func printUsage(writer io.Writer) {
-	fmt.Fprintln(writer, "usage: sorna-malcolm <malcolm-ir.json> [--output <contract.json>]")
-	fmt.Fprintln(writer, "translate the supported Malcolm IR subset into a Sorna draft contract")
+	fmt.Fprintln(writer, "usage: sorna-malcolm <malcolm-ir.json> [--output <contract.json>] [--mutations-output <catalogue.json>]")
+	fmt.Fprintln(writer, "translate Malcolm IR into a Sorna draft contract and, when requested, a mutation catalogue")
 }

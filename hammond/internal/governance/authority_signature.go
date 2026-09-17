@@ -9,6 +9,33 @@ import (
 
 const AuthoritySignatureAlgorithmEd25519 = "ed25519"
 
+// AuthoritySignatureSigner creates an issuer signature over a canonical
+// authority or membership payload. Key custody and rotation remain caller-owned.
+type AuthoritySignatureSigner interface {
+	Sign(payload []byte) (AuthoritySignature, error)
+}
+
+// Ed25519AuthoritySignatureSigner is a small caller-owned signing adapter.
+// Hammond retains no copy of the private key beyond this value's lifetime.
+type Ed25519AuthoritySignatureSigner struct {
+	KeyID      string
+	PrivateKey ed25519.PrivateKey
+}
+
+func (signer Ed25519AuthoritySignatureSigner) Sign(payload []byte) (AuthoritySignature, error) {
+	if strings.TrimSpace(signer.KeyID) == "" {
+		return AuthoritySignature{}, fmt.Errorf("authority signing key_id is required")
+	}
+	if len(signer.PrivateKey) != ed25519.PrivateKeySize {
+		return AuthoritySignature{}, fmt.Errorf("authority signing private key has invalid length")
+	}
+	return AuthoritySignature{
+		Algorithm: AuthoritySignatureAlgorithmEd25519,
+		KeyID:     signer.KeyID,
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(signer.PrivateKey, payload)),
+	}, nil
+}
+
 // AuthoritySignatureVerifier verifies an authority artifact's issuer
 // signature against a caller-owned trust set.
 type AuthoritySignatureVerifier interface {

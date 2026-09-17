@@ -1,6 +1,6 @@
 # Paddock development decisions
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 This is a working decision log for Paddock development. It records product
 boundaries and unresolved design choices; it is not a replacement for the
@@ -64,6 +64,27 @@ versioned schemas, sealed policy locks, or CI verdicts.
   units, three edges, and two broad workspace components. These remain review
   prompts, not architecture verdicts. The counts are additive optional fields
   in `paddock.init/v1`, preserving compatibility for older summary consumers.
+- `init --format json` now carries optional source Git identity and a
+  normalized graph SHA-256. This keeps an agent's draft-review summary
+  correlated with the source revision and exact graph it consumed, while
+  keeping both fields additive for older summary consumers.
+- Two consecutive dirty-Overwatch backend init runs produced identical
+  normalized summaries after excluding only their destination paths. The
+  source revision, changes hash, graph hash, counts, and review prompts all
+  matched; no additional init provenance change is justified at this point.
+- A subsequent backend/UI handoff showed the intended stale-summary behavior:
+  the dirty UI changed from 451/1,776 source units/edges at init to 453/1,791
+  at handoff while retaining its Git revision and changing its worktree hash.
+  The backend stayed at 162/1,780, its filtered explanation remained
+  actionable, and the UI remained a passing zero-finding gate. Keep provenance
+  as correlation evidence, not as a verdict or automatic refresh mechanism.
+- A temporary Git-backed acceptance fixture confirms that changing source
+  content updates both the source changes hash and normalized graph hash while
+  preserving the committed revision. Treat this as sufficient regression
+  coverage for the current init provenance contract.
+- The same init acceptance path decodes the enriched JSON with the previous
+  summary shape, confirming older consumers can ignore the additive provenance
+  fields.
 - Replaying the authoring loop against Overwatch confirms that a conservative
   `init` draft is an inventory starting point, not an automatic migration: its
   comparison with the reviewed backend policy contains 106 semantic changes,
@@ -241,6 +262,38 @@ not need two authoring syntaxes yet.
 - Whether conservative `init` output is sufficiently actionable for real
   projects; the monorepo draft currently identifies broad workspace areas but
   leaves domain/application roles for human review by design.
+- A 2026-09-17 Overwatch handoff replay found no current usability defect. The
+  backend filtered explanation identified the concrete application-to-
+  infrastructure edge with rule, related signal, remediation direction, and
+  artifact/policy/lock provenance; the UI explanation clearly reported a
+  passing zero-finding result. Continue collecting real-agent feedback before
+  expanding the explanation contract.
+- The same compatibility pass reviewed the Overwatch UI draft against its
+  layered proposal: 22 normalized changes, three passing policy cases, and a
+  verified durable review artifact. Keep the broad `components/**` collapse as
+  an owner decision; Paddock should not infer or apply finer vocabulary.
+- A real-repository performance replay exposed a provenance gap: the dirty
+  Overwatch worktrees changed graph counts between runs, while CI artifacts
+  identified only the source root and module path. Paddock now emits optional
+  `source.vcs` identity in `ingen.ci-result/v1` and carries it into filtered
+  explanation provenance, including the full revision and source-root dirty
+  state. A changes-only hash now distinguishes separate dirty snapshots
+  without storing source contents. The field is additive and omitted when Git
+  metadata is unavailable.
+- Paddock-produced CI artifacts and filtered explanations also retain optional
+  producer version metadata. Other producers may omit the shared field, and
+  agents should treat it as identity context rather than a verdict signal.
+- An unusable Go toolchain cache was replayed as an adapter setup failure:
+  Paddock returned exit `2` and retained the underlying `go list` diagnostic in
+  a valid error CI artifact. Keep `GOCACHE` runner-owned for now; do not add a
+  Paddock-controlled cache option until documented setup proves insufficient.
+- Text-mode `ci validate` prints the recorded diagnostic for valid error
+  artifacts. This improves agent handoff context without changing the shared
+  exit-code contract or treating evaluation errors as architecture findings.
+- Component maps retain base component names for compatibility but now expose a
+  stable identity for each distinct label variant. This prevents templated
+  components such as `application` and `domain` from hiding bounded-context
+  boundaries in agent-facing summaries.
 
 ## Next development batch
 

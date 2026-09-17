@@ -157,6 +157,9 @@ segmentation. Configured HTTPS and endpoint policies are reapplied to redirect
 targets before the HTTP client follows them.
 When normalization is requested, its source context is the final endpoint that
 produced the response after allowed redirects, not merely the initial URL.
+The normalized-fetch verifier helpers apply freshness after envelope
+verification and can return a provenance-carrying verifier for decision-event
+binding.
 Membership rotation helpers preserve the snapshot ID and require a strictly
 increasing version, so a valid older provider snapshot cannot replace a newer
 one merely because it is still fresh.

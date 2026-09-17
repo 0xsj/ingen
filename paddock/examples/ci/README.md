@@ -194,6 +194,8 @@ paddock ci validate --input external-ci-result.json --format json
 This is an envelope-integrity check. It returns `0` for a valid passed or
 failed artifact and `2` for malformed or unreadable input; it does not turn a
 recorded `failed` status into a second analysis decision.
+For a valid `error` artifact, text mode also prints the producer's recorded
+diagnostic; use JSON mode when a consumer needs the complete envelope.
 
 The `seal` phase should not run automatically in ordinary CI. A policy edit
 must remain visible as a diff and require human approval before the replacement

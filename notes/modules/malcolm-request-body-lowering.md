@@ -40,9 +40,22 @@ given body {
 }
 ~~~
 
+Deterministic repeated strings can be used for bounded request-size cases:
+
+~~~text
+scenario reject_oversized_document {
+  given body {
+    name = "too-large.txt"
+    content = repeat("a", 4097)
+  }
+  when POST "/documents"
+  must response.status == 413
+}
+~~~
+
 The Rust AST represents object fields as ordered names plus a recursive
-`Literal` enum. Inline objects and arrays retain their typed tree through the
-IR. The Go adapter lowers the
+`Literal` enum. Inline objects, arrays, and repeat generators retain their
+typed meaning through the IR. The Go adapter lowers the
 scenario request to `given.body`, the setup sequence to `given.setup`, the
 state label to `given.state`, and capture selectors to Sorna's
 `body.FIELD` form. Setup requirements are merged into one executable setup
@@ -72,10 +85,17 @@ document.
 ## Gotchas
 
 - The current body grammar supports non-empty top-level fields whose values
-  are strings, signed 64-bit integers, booleans, inline objects, or arrays.
+  are strings, signed 64-bit integers, booleans, inline objects, arrays, or
+  `repeat("text", count)` generators.
 - Nested objects and arrays may contain the same scalar values recursively.
-  Generated values and capture interpolation in body values are not source
-  features yet.
+  Repeat generators may appear at any body value position. Their count must
+  be between 1 and 1,000,000, and the generator value must be a string.
+- The body field name `generated` is reserved because Sorna uses that marker
+  in the cross-language contract representation.
+- String body values may contain a capture placeholder such as
+  {document_name}. The Rust validator checks that the capture is available
+  from an earlier setup, and Sorna substitutes the captured text at request
+  time. Body substitution is not URL escaping or expression evaluation.
 - A `state` label requires at least one setup; otherwise it would be metadata
   with no executable way to establish the state.
 - Each setup needs a request, at least one lowerable requirement, and unique
@@ -86,6 +106,8 @@ document.
   case.
 - The generated contract is validated by the flow target; behavioral execution
   belongs to the separate flow-run target and its dedicated policies.
+- Sorna materializes repeat generators while freezing the oracle, so the
+  frozen oracle contains the concrete request value used for replay.
 
 ## Used in
 
@@ -95,11 +117,14 @@ document.
 - [`malcolm/src/ir.rs`](../../../malcolm/src/ir.rs)
 - [`sorna/internal/malcolm/adapter.go`](../../../sorna/internal/malcolm/adapter.go)
 - [`malcolm/examples/document_flow.malcolm`](../../../malcolm/examples/document_flow.malcolm)
+- [`malcolm/examples/document_boundary.malcolm`](../../../malcolm/examples/document_boundary.malcolm)
 - `Makefile` target `malcolm-sorna-flow-contract`
+- `Makefile` target `malcolm-sorna-boundary-run`
 
 ## Related
 
 - [Malcolm reaches Sorna through a rejecting IR adapter](malcolm-sorna-bridge.md)
+- [Malcolm substitutes earlier setup captures in later request bodies](malcolm-capture-interpolation.md)
 - [Malcolm's JSON IR is a transport boundary, not an evaluator](malcolm-json-ir.md)
 - [Rust enums make a small literal grammar explicit](../language/rust-enums-for-typed-literals.md)
 - [Notes protocol](../../../NOTES.md)

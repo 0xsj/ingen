@@ -1,6 +1,8 @@
 # Paddock status
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
+
+The forward-looking development plan is in [roadmap.md](roadmap.md).
 
 ## Where we left off
 
@@ -16,12 +18,13 @@ false positives, adapter gaps, and CI ergonomics before adding more core
 surface area.
 
 The portable gate has now been dogfooded against the sibling Overwatch
-project without changing Overwatch or publishing anything:
+project without changing Overwatch or publishing anything. The documented
+baseline replay recorded:
 
-- the locked UI proposal passed with 437 packages, 1,680 edges, and zero
+- the locked UI proposal passed with 444 source units, 1,728 edges, and zero
   findings;
-- the locked backend review policy returned the expected exit `1` with 40
-  findings: 38 `domain-is-pure`, one `application-not-infrastructure`, and one
+- the locked backend review policy returned the expected exit `1` with 43
+  findings: 41 `domain-is-pure`, one `application-not-infrastructure`, and one
   `layers-point-inward` finding;
 - the Go adapter now keeps `go list` diagnostics on stderr instead of allowing
   cache warnings to corrupt its machine-readable JSON stream. The managed
@@ -31,13 +34,59 @@ project without changing Overwatch or publishing anything:
   `examples/overwatch/overwatch-backend-triage.md`; no policy or lock change
   has been made pending architecture-owner decisions.
 - A fresh locked Overwatch report now exercises the agent-facing explanation
-  path: 40 findings are grouped into three rules, triage is `remediate`, and
+  path: 43 findings are grouped into three rules, triage is `remediate`, and
   deny/allow remediation suggestions include the concrete boundary targets.
   The explanation remains advisory and does not alter the locked verdict.
 - The full handoff loop is now replayed: a filtered explanation isolates the
   application/infrastructure edge, and the unsealed shared-kernel proposal
   produces exactly two policy changes with a passing expected-review case and
   three remaining findings. Paddock still does not approve or apply it.
+- A 2026-09-17 compatibility replay verified both sealed Overwatch locks and
+  both generated CI artifacts independently. The current shared-kernel review
+  still produces two policy changes, passes its expected-failure case, and
+  measures three remaining findings. No v1 contract issue was observed.
+- A subsequent agent handoff replay against the same sealed locks returned the
+  expected backend exit `1` and UI exit `0`. The filtered backend explanation
+  remained actionable, and both results carried Paddock version plus dirty
+  source revision/changes-hash provenance. Graph and finding-count drift was
+  attributed to the already-dirty sibling worktrees, not to a Paddock defect.
+- A discovery replay exposed and fixed a component-map aggregation gap: the
+  backend's templated role components were previously collapsed across bounded
+  contexts. Component maps now preserve label variants with stable identities
+  and identify those variants in summarized dependencies.
+- A follow-up init replay exposed the same dirty-worktree problem in draft
+  summaries: counts alone could not prove which source or graph an agent had
+  reviewed. `init --format json` now carries optional source Git identity and a
+  normalized graph SHA-256, without changing the generated draft policy.
+- Two consecutive dirty-Overwatch backend init runs now produce identical
+  normalized summaries after excluding only their destination paths, including
+  matching source revision, changes hash, graph hash, counts, and review
+  prompts. No additional provenance defect was observed.
+- A fresh backend/UI handoff then demonstrated why the provenance is needed:
+  the backend remained at 162 source units and 1,780 edges with 45 expected
+  findings, while the dirty UI changed from the earlier 451/1,776 init replay
+  to 453/1,791 at handoff. Its Git revision stayed the same but its changes
+  hash changed, so the earlier UI summary is correctly identifiable as stale.
+  The current backend explanation remains actionable and the UI remains a
+  passing zero-finding gate.
+- An end-to-end acceptance fixture now proves that a clean temporary Git
+  source becoming dirty changes both its source changes hash and normalized
+  graph hash while preserving the committed revision. This protects the
+  stale-summary detection path without changing draft generation.
+- The init acceptance path also decodes the enriched summary with a legacy
+  consumer shape, confirming the new provenance fields remain additive for
+  existing agent tooling.
+- A negative Go-adapter replay with an unusable `GOCACHE` returned exit `2` and
+  preserved a valid error CI artifact containing the `go list` diagnostic.
+  Runner-owned cache configuration is sufficient for the current workflow, so
+  a Paddock-controlled cache option remains deferred.
+- Text-mode `ci validate` now surfaces that recorded evaluation diagnostic,
+  giving an agent a useful error path without requiring JSON parsing or a
+  second source evaluation.
+- The current Overwatch UI draft-to-proposal review reports 22 normalized
+  changes, passes all three policy cases, and verifies as a durable `PASS`
+  artifact. The broad `components/**` vocabulary remains an explicit owner
+  decision rather than an automatic Paddock change.
 - An unsealed shared-kernel policy candidate now measures the effect of
   allowing `pkg/id` and `pkg/events`; the current review policy and lock remain
   authoritative. The candidate passed its policy review and reduced the
@@ -169,7 +218,8 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 
 - `check`, `graph`, `init`, `baseline`, `ci`, and `explain` commands.
 - `init --format json` summaries for agent-facing draft review feedback,
-  including source-unit and edge counts.
+  including source-unit and edge counts, source VCS identity when available,
+  and a normalized graph SHA-256.
 - Policy tests with expected pass/fail/error cases and required rule IDs.
 - Machine-readable policy-test evidence with deterministic finding rule IDs.
 - Standalone JSON Schema for `paddock.policy-test-result/v1`.
@@ -239,6 +289,15 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
   and baseline provenance so filtered agent handoffs can be correlated with
   their authoritative evidence; acceptance tests independently recompute the
   artifact hash and compare the lock reference.
+- CI artifacts now also retain optional source VCS identity: the VCS system,
+  full source revision, dirty state scoped to the evaluated source root, and a
+  changes-only hash for dirty snapshots. Filtered explanations carry the same
+  identity in their provenance. This is additive and omitted for non-Git or
+  unavailable worktrees.
+- Paddock-produced CI artifacts and filtered explanations now also retain the
+  optional producer version, allowing agents to distinguish results emitted by
+  different Paddock builds while keeping the shared envelope compatible with
+  older or external producers.
 - External graph evidence now records non-secret adapter invocation metadata,
   and CI-derived explanations surface it when the retained graph is available;
   raw adapter arguments remain excluded from artifacts.
@@ -295,7 +354,8 @@ failure. Its policy is not yet an approved compliance gate for that codebase.
 - Draft-to-review authoring-loop coverage proving conservative drafts fail
   policy cases until their architectural boundaries are explicitly reviewed.
 - Initialization summaries expose graph scale, unclassified components, and
-  warning rules without changing the draft policy itself.
+  warning rules without changing the draft policy itself. They also carry
+  optional source/graph provenance so an agent can detect stale summaries.
 - Layered-direction and non-compiling cyclic Go policy tests.
 - GitHub Actions release example and active tag-triggered workflow.
 

@@ -9,6 +9,7 @@
   "properties": {
     "schema": {"const": "ingen.ci-result/v1"},
     "tool": {"type": "string", "minLength": 1},
+    "tool_version": {"type": "string", "minLength": 1},
     "kind": {"type": "string", "minLength": 1},
     "status": {"enum": ["passed", "failed", "error"]},
     "exit_code": {"enum": [0, 1, 2]},
@@ -65,7 +66,19 @@
       "required": ["root"],
       "properties": {
         "root": {"type": "string", "minLength": 1},
-        "module_path": {"type": "string"}
+        "module_path": {"type": "string"},
+        "vcs": {"$ref": "#/$defs/vcs"}
+      }
+    },
+    "vcs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "revision", "dirty"],
+      "properties": {
+        "system": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "dirty": {"type": "boolean"},
+        "changes_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       }
     }
   }

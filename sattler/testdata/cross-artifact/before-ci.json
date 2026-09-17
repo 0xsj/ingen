@@ -1,0 +1,35 @@
+{
+  "schema": "ingen.ci-result/v1",
+  "tool": "sorna",
+  "kind": "mutation-campaign",
+  "status": "passed",
+  "exit_code": 0,
+  "created_at": "2026-09-17T10:00:00Z",
+  "source": {
+    "root": "/workspace/document-pipeline",
+    "module_path": "example/document-pipeline"
+  },
+  "inputs": {
+    "contract": {
+      "path": "contract.yaml",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "report": {
+    "schema": "ingen.mutation-campaign-result/v1",
+    "status": "passed",
+    "summary": {
+      "total": 2,
+      "killed": 2,
+      "survived": 0,
+      "inconclusive": 0,
+      "other": 0,
+      "errors": 0
+    },
+    "entries": []
+  },
+  "explanation": {
+    "schema": "sorna.mutation-campaign-explanation/v1",
+    "status": "passed"
+  }
+}

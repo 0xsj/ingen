@@ -1,11 +1,13 @@
 package sattler
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 )
 
 // LockwoodCustodySchema is the custody record schema understood by this
@@ -42,6 +44,68 @@ type LockwoodCustodyComparison struct {
 }
 
 const lockwoodCustodyComparisonSchema = "ingen.sattler-lockwood-custody-comparison/v0"
+
+// Validate checks the compatibility-treated Lockwood custody comparison
+// projection. Artifact storage and integrity verification remain Lockwood
+// responsibilities; Sattler validates only the comparison boundary.
+func (report LockwoodCustodyComparison) Validate() error {
+	if report.Schema != lockwoodCustodyComparisonSchema {
+		return fmt.Errorf("Lockwood custody comparison schema must be %s, got %q", lockwoodCustodyComparisonSchema, report.Schema)
+	}
+	if err := validateLockwoodCustodySummary("before", report.Before); err != nil {
+		return err
+	}
+	if err := validateLockwoodCustodySummary("after", report.After); err != nil {
+		return err
+	}
+	if report.Transition.Field != "status" {
+		return fmt.Errorf("Lockwood custody comparison transition field must be status, got %q", report.Transition.Field)
+	}
+	return validateBundleAdapterEnvelope("custody", lockwoodCustodyComparisonSchema, report.Schema, report.Compatible, report.CompatibilityReasons, report.Transition, report.ChangeIDFilter, report.Changes, report.ChangeSummary, nil)
+}
+
+func validateLockwoodCustodySummary(side string, summary LockwoodCustodySummary) error {
+	if summary.Schema != LockwoodCustodySchema {
+		return fmt.Errorf("Lockwood custody %s schema must be %s, got %q", side, LockwoodCustodySchema, summary.Schema)
+	}
+	if summary.Path != "" && strings.TrimSpace(summary.Path) == "" {
+		return fmt.Errorf("Lockwood custody %s path cannot be empty when present", side)
+	}
+	if strings.TrimSpace(summary.CustodyID) == "" || strings.TrimSpace(summary.Status) == "" {
+		return fmt.Errorf("Lockwood custody %s needs custody ID and status", side)
+	}
+	if strings.TrimSpace(summary.ReceivedAt) == "" {
+		return fmt.Errorf("Lockwood custody %s needs a received_at timestamp", side)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, summary.ReceivedAt); err != nil {
+		return fmt.Errorf("Lockwood custody %s received_at must be RFC3339: %w", side, err)
+	}
+	if err := validateLockwoodCustodyDigest(side, summary.ArtifactDigest); err != nil {
+		return err
+	}
+	if strings.TrimSpace(summary.ProducerTool) == "" || strings.TrimSpace(summary.ProducerKind) == "" {
+		return fmt.Errorf("Lockwood custody %s needs producer tool and kind", side)
+	}
+	if strings.TrimSpace(summary.SourceRunID) == "" && summary.SourceRunID != "" {
+		return fmt.Errorf("Lockwood custody %s source run ID cannot be empty when present", side)
+	}
+	if strings.TrimSpace(summary.IntegrityStatus) == "" {
+		return fmt.Errorf("Lockwood custody %s needs integrity status", side)
+	}
+	return nil
+}
+
+func validateLockwoodCustodyDigest(side, digest string) error {
+	const prefix = "sha256:"
+	encoded := strings.TrimPrefix(digest, prefix)
+	if encoded == digest || len(encoded) != 64 {
+		return fmt.Errorf("Lockwood custody %s artifact digest must be sha256 followed by 64 hexadecimal characters", side)
+	}
+	if _, err := hex.DecodeString(encoded); err != nil {
+		return fmt.Errorf("Lockwood custody %s artifact digest must be sha256 followed by 64 hexadecimal characters: %w", side, err)
+	}
+	return nil
+}
 
 type lockwoodCustodyDocument struct {
 	Schema     string `json:"schema"`
@@ -81,8 +145,12 @@ func CompareLockwoodCustodyFiles(beforePath, afterPath string) (LockwoodCustodyC
 	return report, nil
 }
 
-// WriteLockwoodJSON writes a provisional machine-readable custody comparison.
+// WriteLockwoodJSON writes the compatibility-treated machine-readable
+// Lockwood custody comparison.
 func WriteLockwoodJSON(w io.Writer, report LockwoodCustodyComparison) error {
+	if err := report.Validate(); err != nil {
+		return err
+	}
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(report)
@@ -156,6 +224,15 @@ func loadLockwoodCustody(path string) (lockwoodCustodyDocument, error) {
 	}
 	if strings.TrimSpace(document.Integrity.Status) == "" {
 		return lockwoodCustodyDocument{}, fmt.Errorf("Lockwood custody record %s needs integrity status", path)
+	}
+	if strings.TrimSpace(document.ReceivedAt) == "" {
+		return lockwoodCustodyDocument{}, fmt.Errorf("Lockwood custody record %s needs received_at", path)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, document.ReceivedAt); err != nil {
+		return lockwoodCustodyDocument{}, fmt.Errorf("Lockwood custody record %s received_at must be RFC3339: %w", path, err)
+	}
+	if err := validateLockwoodCustodyDigest(path, document.Artifact.Digest); err != nil {
+		return lockwoodCustodyDocument{}, err
 	}
 	return document, nil
 }

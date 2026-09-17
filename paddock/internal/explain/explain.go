@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"ingen/core/ciresult"
 	"ingen/paddock/internal/model"
 )
 
@@ -35,6 +36,7 @@ type Document struct {
 // have an enclosing artifact to reference.
 type Provenance struct {
 	ArtifactSchema   string            `json:"artifact_schema"`
+	ToolVersion      string            `json:"tool_version,omitempty"`
 	ArtifactPath     string            `json:"artifact_path"`
 	ArtifactSHA256   string            `json:"artifact_sha256"`
 	ArtifactStatus   string            `json:"artifact_status"`
@@ -45,6 +47,7 @@ type Provenance struct {
 	Graph            *FileReference    `json:"graph,omitempty"`
 	Baseline         *FileReference    `json:"baseline,omitempty"`
 	Adapter          *AdapterReference `json:"adapter,omitempty"`
+	SourceVCS        *ciresult.VCS     `json:"source_vcs,omitempty"`
 }
 
 type FileReference struct {
@@ -146,6 +149,20 @@ func Text(w io.Writer, document Document) error {
 	if document.Provenance != nil {
 		if _, err := fmt.Fprintf(w, "PROVENANCE artifact=%s sha256=%s status=%s exit=%d\n", document.Provenance.ArtifactPath, document.Provenance.ArtifactSHA256, document.Provenance.ArtifactStatus, document.Provenance.ArtifactExitCode); err != nil {
 			return err
+		}
+		if document.Provenance.ToolVersion != "" {
+			if _, err := fmt.Fprintf(w, "TOOL_VERSION %s\n", document.Provenance.ToolVersion); err != nil {
+				return err
+			}
+		}
+		if document.Provenance.SourceVCS != nil {
+			changes := ""
+			if document.Provenance.SourceVCS.ChangesSHA256 != "" {
+				changes = fmt.Sprintf(" changes_sha256=%s", document.Provenance.SourceVCS.ChangesSHA256)
+			}
+			if _, err := fmt.Fprintf(w, "SOURCE_VCS system=%s revision=%s dirty=%t%s\n", document.Provenance.SourceVCS.System, document.Provenance.SourceVCS.Revision, document.Provenance.SourceVCS.Dirty, changes); err != nil {
+				return err
+			}
 		}
 		if document.Provenance.Adapter != nil {
 			profile := ""

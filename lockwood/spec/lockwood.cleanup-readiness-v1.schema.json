@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/lockwood.cleanup-readiness-v1.schema.json",
+  "title": "Lockwood cleanup readiness report v1",
+  "description": "A read-only evidence gate that remains not-authorized until fresh local revalidation and coordination occur.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target_digest", "cleanup_plan_digest", "state", "action_status", "blockers"],
+  "properties": {
+    "schema": {"const": "lockwood.cleanup-readiness/v1"},
+    "target_digest": {"$ref": "#/$defs/digest"},
+    "cleanup_plan_digest": {"$ref": "#/$defs/digest"},
+    "state": {"enum": ["blocked", "ready-for-revalidation"]},
+    "action_status": {"const": "not-authorized"},
+    "blockers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

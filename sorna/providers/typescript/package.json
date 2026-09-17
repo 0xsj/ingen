@@ -1,0 +1,10 @@
+{
+  "name": "@ingen/sorna-typescript-provider",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Experimental TypeScript manifest adapter for the Sorna provider handoff",
+  "type": "module",
+  "scripts": {
+    "test": "bun test test/provider.test.mjs"
+  }
+}

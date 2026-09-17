@@ -1,0 +1,190 @@
+name: Sorna release checkpoint
+
+on:
+  push:
+    tags:
+      - "sorna-v*"
+  pull_request:
+    paths:
+      - ".github/workflows/sorna-release.yml"
+      - "Makefile"
+      - "core/**"
+      - "examples/**"
+      - "go.mod"
+      - "go.sum"
+      - "nublar/**"
+      - "sorna/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checkpoint:
+    name: Run Sorna release checkpoint
+    if: github.event_name != 'push'
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Run release checkpoint
+        env:
+          GO_CACHE: ${{ runner.temp }}/ingen-go-build
+          GO_MOD_CACHE: ${{ runner.temp }}/ingen-go-mod
+          SORNA_RELEASE_WORKSPACE: ${{ runner.temp }}/ingen-sorna-release-check
+          TYPESCRIPT_CMD: bun
+        run: make sorna-release-check
+
+      - name: Build standalone Sorna CLI
+        env:
+          GO_CACHE: ${{ runner.temp }}/ingen-go-build
+          GO_MOD_CACHE: ${{ runner.temp }}/ingen-go-mod
+        run: |
+          make sorna-build \
+            SORNA_VERSION=ci \
+            SORNA_COMMIT="$GITHUB_SHA" \
+            SORNA_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          .artifacts/sorna/sorna version --format json | \
+            jq -e --arg commit "$GITHUB_SHA" \
+              '.name == "sorna" and .version == "ci" and .commit == $commit and (.build_date | length) > 0'
+
+      - name: Publish checkpoint artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorna-release-checkpoint-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .artifacts/sorna
+            ${{ runner.temp }}/ingen-sorna-release-check
+          if-no-files-found: warn
+          retention-days: 14
+
+  release-bundle:
+    name: Build and verify tagged Sorna bundle
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/sorna-v')
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          case "$GITHUB_REF_NAME" in
+            sorna-v*) ;;
+            *)
+              echo "unsupported Sorna release tag: $GITHUB_REF_NAME" >&2
+              exit 2
+              ;;
+          esac
+
+          version="${GITHUB_REF_NAME#sorna-v}"
+          case "$version" in
+            ""|*[!A-Za-z0-9._-]*)
+              echo "release version contains unsupported characters: $version" >&2
+              exit 2
+              ;;
+          esac
+
+          case "$version" in
+            *.*.*) ;;
+            *)
+              echo "Sorna release tags must contain a three-part version: $GITHUB_REF_NAME" >&2
+              exit 2
+              ;;
+          esac
+
+          build_date="${HEAD_COMMIT_TIMESTAMP:-}"
+          if test -z "$build_date"; then
+            build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          fi
+
+          release_dir="$RUNNER_TEMP/ingen-sorna-release/$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release_dir=$release_dir" >> "$GITHUB_OUTPUT"
+          echo "build_date=$build_date" >> "$GITHUB_OUTPUT"
+        env:
+          HEAD_COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp || '' }}
+
+      - name: Build tagged release bundle
+        env:
+          GO_CACHE: ${{ runner.temp }}/ingen-go-build
+          GO_MOD_CACHE: ${{ runner.temp }}/ingen-go-mod
+          SORNA_VERSION: ${{ steps.release.outputs.version }}
+          SORNA_COMMIT: ${{ github.sha }}
+          SORNA_BUILD_DATE: ${{ steps.release.outputs.build_date }}
+          SORNA_RELEASE_DIR: ${{ steps.release.outputs.release_dir }}
+          TYPESCRIPT_CMD: bun
+        run: make sorna-release-artifacts
+
+      - name: Verify and describe tagged release
+        env:
+          GO_CACHE: ${{ runner.temp }}/ingen-go-build
+          GO_MOD_CACHE: ${{ runner.temp }}/ingen-go-mod
+          SORNA_VERSION: ${{ steps.release.outputs.version }}
+          SORNA_COMMIT: ${{ github.sha }}
+          SORNA_BUILD_DATE: ${{ steps.release.outputs.build_date }}
+          SORNA_RELEASE_DIR: ${{ steps.release.outputs.release_dir }}
+          SORNA_RELEASE_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
+          SORNA_RELEASE_REF: ${{ github.ref }}
+          SORNA_RELEASE_TAG: ${{ github.ref_name }}
+          SORNA_RELEASE_WORKFLOW: ${{ github.workflow }}
+          SORNA_RELEASE_RUN_ID: ${{ github.run_id }}
+          SORNA_RELEASE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          SORNA_RELEASE_RUNNER: ${{ runner.os }}
+        run: |
+          make -s sorna-release-provenance
+          jq -e \
+            --arg version "$SORNA_VERSION" \
+            '.schema == "sorna.release-verification/v1" and .status == "passed" and .version == $version' \
+            "$SORNA_RELEASE_DIR/release-verification.json"
+          jq -e \
+            --arg version "$SORNA_VERSION" \
+            --arg commit "$SORNA_COMMIT" \
+            '.schema == "sorna.release-provenance/v1" and .name == "sorna" and .version == $version and .source.commit == $commit and .verification.status == "passed"' \
+            "$SORNA_RELEASE_DIR/release-provenance.json"
+          .artifacts/sorna/sorna release provenance verify \
+            --provenance "$SORNA_RELEASE_DIR/release-provenance.json" \
+            --manifest "$SORNA_RELEASE_DIR/release-manifest.json" \
+            --verification "$SORNA_RELEASE_DIR/release-verification.json"
+
+      - name: Upload verified release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorna-${{ github.ref_name }}
+          path: |
+            ${{ steps.release.outputs.release_dir }}/*.tar.gz
+            ${{ steps.release.outputs.release_dir }}/SHA256SUMS
+            ${{ steps.release.outputs.release_dir }}/release-manifest.json
+            ${{ steps.release.outputs.release_dir }}/release-verification.json
+            ${{ steps.release.outputs.release_dir }}/release-provenance.json
+          if-no-files-found: error
+          retention-days: 90

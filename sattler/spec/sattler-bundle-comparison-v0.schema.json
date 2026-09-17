@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-bundle-comparison-v0.schema.json",
+  "title": "InGen Sattler bundle comparison",
+  "description": "The compatibility-treated full bundle projection with strict bundle metadata and opaque adapter-owned detail.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "summary"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-bundle-comparison/v0"},
+    "manifest": {"type": "string", "minLength": 1},
+    "summary": {"$ref": "https://ingen.example/spec/sattler-bundle-summary-v0.schema.json#/$defs/bundle-summary"},
+    "correlations": {
+      "type": "array",
+      "items": {"$ref": "https://ingen.example/spec/sattler-bundle-summary-v0.schema.json#/$defs/correlation"}
+    },
+    "change_id_filter": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "ci_result": {"$ref": "#/$defs/ci-result"},
+    "sorna_run": {"$ref": "#/$defs/sorna-run"},
+    "nublar_run": {"$ref": "#/$defs/nublar-run"},
+    "custody": {"$ref": "#/$defs/custody"},
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "$defs": {
+    "change-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "by_category": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "before", "after", "classification"],
+      "properties": {
+        "field": {"type": "string", "minLength": 1},
+        "before": {"type": "string", "minLength": 1},
+        "after": {"type": "string", "minLength": 1},
+        "classification": {"enum": ["unchanged", "changed", "incompatible"]}
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "field", "before", "after"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "minLength": 1},
+        "field": {"type": "string", "minLength": 1},
+        "before": {},
+        "after": {},
+        "identity": {"enum": ["same-bytes", "replaced", "added", "removed", "unknown"]}
+      }
+    },
+    "adapter-comparison": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schema", "compatible", "before", "after", "transition", "change_summary"],
+      "properties": {
+        "schema": {"type": "string", "minLength": 1},
+        "compatible": {"type": "boolean"},
+        "compatibility_reasons": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "before": {"type": "object"},
+        "after": {"type": "object"},
+        "transition": {"$ref": "#/$defs/transition"},
+        "change_id_filter": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "changes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/change"}
+        },
+        "change_summary": {"$ref": "#/$defs/change-summary"},
+        "warnings": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "ci-result": {
+      "allOf": [
+        {"$ref": "#/$defs/adapter-comparison"},
+        {"properties": {"schema": {"const": "ingen.sattler-comparison/v0"}}}
+      ]
+    },
+    "sorna-run": {
+      "allOf": [
+        {"$ref": "#/$defs/adapter-comparison"},
+        {"properties": {"schema": {"const": "ingen.sattler-sorna-run-comparison/v0"}}}
+      ]
+    },
+    "nublar-run": {
+      "allOf": [
+        {"$ref": "#/$defs/adapter-comparison"},
+        {"properties": {"schema": {"const": "ingen.sattler-nublar-run-comparison/v0"}}}
+      ]
+    },
+    "custody": {
+      "allOf": [
+        {"$ref": "#/$defs/adapter-comparison"},
+        {"properties": {"schema": {"const": "ingen.sattler-lockwood-custody-comparison/v0"}}}
+      ]
+    },
+    "provenance": {
+      "allOf": [
+        {"$ref": "#/$defs/adapter-comparison"},
+        {"properties": {"schema": {"const": "ingen.sattler-amber-provenance-comparison/v0"}}}
+      ]
+    }
+  }
+}

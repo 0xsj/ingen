@@ -24,6 +24,7 @@ import (
 	"ingen/paddock/internal/policylock"
 	"ingen/paddock/internal/policyreview"
 	"ingen/paddock/internal/policytest"
+	paddockversion "ingen/paddock/internal/version"
 )
 
 func TestCLIEndToEnd(t *testing.T) {
@@ -660,6 +661,40 @@ func TestCLIComponentMapCommand(t *testing.T) {
 	if !foundBoundary {
 		t.Fatalf("component map omitted service-to-presentation boundary: %#v", document.Dependencies)
 	}
+
+	backend := filepath.Join(repoRoot, "..", "overwatch", "overwatch-backend")
+	backendPolicyLock := filepath.Join(repoRoot, "paddock", "examples", "overwatch", "overwatch-backend-review.lock.json")
+	output, exitCode = runCLI(t, cli, repoRoot,
+		"map", backend, "--policy-lock", backendPolicyLock, "--format", "json",
+	)
+	if exitCode != 0 {
+		t.Fatalf("Overwatch backend map exit code = %d; output:\n%s", exitCode, output)
+	}
+	if err := json.Unmarshal([]byte(output), &document); err != nil {
+		t.Fatalf("decode Overwatch backend component map: %v\n%s", err, output)
+	}
+	applicationContexts := map[string]bool{}
+	for _, component := range document.Components {
+		if component.Name == "application" {
+			applicationContexts[component.Labels["context"]] = true
+			if component.Identity == "" {
+				t.Fatalf("Overwatch application component lacks variant identity: %#v", component)
+			}
+		}
+	}
+	if len(applicationContexts) < 2 {
+		t.Fatalf("Overwatch component map collapsed application contexts: %#v", document.Components)
+	}
+	identityDependency := false
+	for _, dependency := range document.Dependencies {
+		if dependency.From == "application" && dependency.FromIdentity != "" {
+			identityDependency = true
+			break
+		}
+	}
+	if !identityDependency {
+		t.Fatalf("Overwatch component map omitted dependency variant identity: %#v", document.Dependencies)
+	}
 }
 
 func TestCLIExternalGraphAdapter(t *testing.T) {
@@ -1208,18 +1243,20 @@ func TestCLIInitCreatesReviewableDraft(t *testing.T) {
 		t.Fatalf("JSON init failed: exit=%d output:\n%s", exitCode, output)
 	}
 	var summary struct {
-		Schema                 string   `json:"schema"`
-		Root                   string   `json:"root"`
-		Output                 string   `json:"output"`
-		Language               string   `json:"language"`
-		SourceUnit             string   `json:"source_unit"`
-		Template               string   `json:"template"`
-		SourceUnitCount        int      `json:"source_unit_count"`
-		EdgeCount              int      `json:"edge_count"`
-		ComponentCount         int      `json:"component_count"`
-		UnclassifiedComponents []string `json:"unclassified_components"`
-		WarningRules           []string `json:"warning_rules"`
-		ReviewRequired         bool     `json:"review_required"`
+		Schema                 string        `json:"schema"`
+		Root                   string        `json:"root"`
+		Output                 string        `json:"output"`
+		Language               string        `json:"language"`
+		SourceUnit             string        `json:"source_unit"`
+		Template               string        `json:"template"`
+		SourceUnitCount        int           `json:"source_unit_count"`
+		EdgeCount              int           `json:"edge_count"`
+		SourceVCS              *ciresult.VCS `json:"source_vcs"`
+		GraphSHA256            string        `json:"graph_sha256"`
+		ComponentCount         int           `json:"component_count"`
+		UnclassifiedComponents []string      `json:"unclassified_components"`
+		WarningRules           []string      `json:"warning_rules"`
+		ReviewRequired         bool          `json:"review_required"`
 	}
 	if err := json.Unmarshal([]byte(output), &summary); err != nil {
 		t.Fatalf("decode JSON init summary: %v\n%s", err, output)
@@ -1227,8 +1264,29 @@ func TestCLIInitCreatesReviewableDraft(t *testing.T) {
 	if summary.Schema != "paddock.init/v1" || summary.Root == "" || summary.Output != jsonOutputPath ||
 		summary.Language != "go" || summary.SourceUnit != "package" || summary.Template != "layered" ||
 		summary.SourceUnitCount == 0 || summary.EdgeCount < 0 || summary.ComponentCount == 0 ||
-		summary.WarningRules == nil || !summary.ReviewRequired {
+		summary.WarningRules == nil || summary.SourceVCS == nil || summary.SourceVCS.System != "git" || summary.SourceVCS.Revision == "" ||
+		len(summary.GraphSHA256) != 64 || !summary.ReviewRequired {
 		t.Fatalf("unexpected JSON init summary: %#v", summary)
+	}
+	var legacySummary struct {
+		Schema                 string   `json:"schema"`
+		Root                   string   `json:"root"`
+		Output                 string   `json:"output"`
+		Language               string   `json:"language"`
+		SourceUnit             string   `json:"source_unit"`
+		Template               string   `json:"template"`
+		ComponentCount         int      `json:"component_count"`
+		UnclassifiedComponents []string `json:"unclassified_components"`
+		WarningRules           []string `json:"warning_rules"`
+		ReviewRequired         bool     `json:"review_required"`
+	}
+	if err := json.Unmarshal([]byte(output), &legacySummary); err != nil {
+		t.Fatalf("legacy init consumer rejected additive fields: %v", err)
+	}
+	if legacySummary.Schema != summary.Schema || legacySummary.Root != summary.Root || legacySummary.Output != summary.Output ||
+		legacySummary.Language != summary.Language || legacySummary.SourceUnit != summary.SourceUnit || legacySummary.Template != summary.Template ||
+		legacySummary.ComponentCount != summary.ComponentCount || legacySummary.UnclassifiedComponents == nil || legacySummary.WarningRules == nil || !legacySummary.ReviewRequired {
+		t.Fatalf("legacy init consumer lost the v1 summary: %#v", legacySummary)
 	}
 	if _, err := policy.Load(jsonOutputPath); err != nil {
 		t.Fatalf("JSON init did not write a valid draft: %v", err)
@@ -1250,6 +1308,71 @@ func TestCLIInitCreatesReviewableDraft(t *testing.T) {
 	)
 	if exitCode != 2 || !strings.Contains(output, "already exists") {
 		t.Fatalf("init overwrite protection failed: exit=%d output:\n%s", exitCode, output)
+	}
+}
+
+func TestCLIInitProvenanceChangesWithSourceSnapshot(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "go.mod"), []byte("module example.com/provenance\n\ngo 1.27\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGitCommand(t, source, "init", "--quiet")
+	runGitCommand(t, source, "config", "user.email", "paddock-test@example.invalid")
+	runGitCommand(t, source, "config", "user.name", "Paddock Test")
+	runGitCommand(t, source, "add", "go.mod", "main.go")
+	runGitCommand(t, source, "commit", "--quiet", "-m", "initial")
+	outputDirectory := t.TempDir()
+
+	firstOutput, firstExit := runCLIWithEnv(t, cli, repoRoot, toolchainEnv(t),
+		"init", source, "--template", "layered", "--output", filepath.Join(outputDirectory, "draft-a.yaml"), "--format", "json",
+	)
+	if firstExit != 0 {
+		t.Fatalf("initial provenance init failed: exit=%d output:\n%s", firstExit, firstOutput)
+	}
+	var first struct {
+		GraphSHA256 string        `json:"graph_sha256"`
+		SourceVCS   *ciresult.VCS `json:"source_vcs"`
+	}
+	if err := json.Unmarshal([]byte(firstOutput), &first); err != nil {
+		t.Fatalf("decode initial provenance summary: %v\n%s", err, firstOutput)
+	}
+	if first.SourceVCS == nil || first.SourceVCS.Revision == "" || first.SourceVCS.Dirty || first.SourceVCS.ChangesSHA256 != "" || len(first.GraphSHA256) != 64 {
+		t.Fatalf("unexpected clean source provenance: %#v", first)
+	}
+
+	if err := os.MkdirAll(filepath.Join(source, "internal", "feature"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "internal", "feature", "feature.go"), []byte("package feature\n\nfunc Run() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "main.go"), []byte("package main\n\nimport \"example.com/provenance/internal/feature\"\n\nfunc main() { feature.Run() }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	secondOutput, secondExit := runCLIWithEnv(t, cli, repoRoot, toolchainEnv(t),
+		"init", source, "--template", "layered", "--output", filepath.Join(outputDirectory, "draft-b.yaml"), "--format", "json",
+	)
+	if secondExit != 0 {
+		t.Fatalf("changed provenance init failed: exit=%d output:\n%s", secondExit, secondOutput)
+	}
+	var second struct {
+		GraphSHA256 string        `json:"graph_sha256"`
+		SourceVCS   *ciresult.VCS `json:"source_vcs"`
+	}
+	if err := json.Unmarshal([]byte(secondOutput), &second); err != nil {
+		t.Fatalf("decode changed provenance summary: %v\n%s", err, secondOutput)
+	}
+	if second.SourceVCS == nil || second.SourceVCS.Revision != first.SourceVCS.Revision || !second.SourceVCS.Dirty || len(second.SourceVCS.ChangesSHA256) != 64 || len(second.GraphSHA256) != 64 {
+		t.Fatalf("unexpected dirty source provenance: %#v", second)
+	}
+	if second.SourceVCS.ChangesSHA256 == first.SourceVCS.ChangesSHA256 || second.GraphSHA256 == first.GraphSHA256 {
+		t.Fatalf("source snapshot change did not change provenance: first=%#v second=%#v", first, second)
 	}
 }
 
@@ -1416,7 +1539,7 @@ cases:
 	if err != nil {
 		t.Fatalf("adapter conformance CI result is invalid: %v", err)
 	}
-	if sharedResult.Tool != "paddock" || sharedResult.Kind != "adapter-conformance" || sharedResult.Status != "passed" || len(sharedResult.Report) == 0 || len(sharedResult.Explanation) == 0 {
+	if sharedResult.Tool != "paddock" || sharedResult.ToolVersion != paddockversion.Version || sharedResult.Kind != "adapter-conformance" || sharedResult.Status != "passed" || len(sharedResult.Report) == 0 || len(sharedResult.Explanation) == 0 {
 		t.Fatalf("adapter conformance CI result is incomplete: %+v", sharedResult)
 	}
 	output, exitCode = runCLI(t, cli, repoRoot, "ci", "validate", "--input", ciResultPath)
@@ -3127,7 +3250,7 @@ func TestCLICIArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failedArtifact.Status != "failed" || failedArtifact.Report == nil || failedArtifact.Explanation == nil {
+	if failedArtifact.Status != "failed" || failedArtifact.ToolVersion != paddockversion.Version || failedArtifact.Report == nil || failedArtifact.Explanation == nil || failedArtifact.Source.VCS == nil || failedArtifact.Source.VCS.System != "git" || failedArtifact.Source.VCS.Revision == "" {
 		t.Fatalf("failed CI artifact is incomplete: %#v", failedArtifact)
 	}
 	if failedArtifact.Policy.SHA256 == "" || !strings.Contains(output, "CI-RESULT") {
@@ -3137,7 +3260,7 @@ func TestCLICIArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("shared loader rejected Paddock failed artifact: %v", err)
 	}
-	if sharedFailed.Tool != "paddock" || sharedFailed.Status != "failed" || len(sharedFailed.Report) == 0 || len(sharedFailed.Explanation) == 0 {
+	if sharedFailed.Tool != "paddock" || sharedFailed.ToolVersion != paddockversion.Version || sharedFailed.Status != "failed" || len(sharedFailed.Report) == 0 || len(sharedFailed.Explanation) == 0 {
 		t.Fatalf("shared Paddock failed artifact is incomplete: %+v", sharedFailed)
 	}
 
@@ -3152,7 +3275,7 @@ func TestCLICIArtifact(t *testing.T) {
 	if ciExplanation.Schema != "paddock.explanation/v1" || len(ciExplanation.Findings) == 0 || len(ciExplanation.Summary) == 0 {
 		t.Fatalf("CI artifact explanation is incomplete: %#v", ciExplanation)
 	}
-	if ciExplanation.Provenance == nil || ciExplanation.Provenance.ArtifactPath != failedPath || ciExplanation.Provenance.ArtifactSHA256 != failedArtifactRef.SHA256 || ciExplanation.Provenance.ArtifactStatus != "failed" || ciExplanation.Provenance.ArtifactExitCode != 1 || ciExplanation.Provenance.Policy.Path != failedArtifact.Policy.Path || ciExplanation.Provenance.Policy.SHA256 != failedArtifact.Policy.SHA256 {
+	if ciExplanation.Provenance == nil || ciExplanation.Provenance.ToolVersion != failedArtifact.ToolVersion || ciExplanation.Provenance.ArtifactPath != failedPath || ciExplanation.Provenance.ArtifactSHA256 != failedArtifactRef.SHA256 || ciExplanation.Provenance.ArtifactStatus != "failed" || ciExplanation.Provenance.ArtifactExitCode != 1 || ciExplanation.Provenance.Policy.Path != failedArtifact.Policy.Path || ciExplanation.Provenance.Policy.SHA256 != failedArtifact.Policy.SHA256 || ciExplanation.Provenance.SourceVCS == nil || ciExplanation.Provenance.SourceVCS.Revision != failedArtifact.Source.VCS.Revision {
 		t.Fatalf("CI artifact explanation omitted or mismatched provenance: %#v", ciExplanation.Provenance)
 	}
 
@@ -3176,6 +3299,49 @@ func TestCLICIArtifact(t *testing.T) {
 	}
 	if sharedPassed.Status != "passed" || sharedPassed.ExitCode != 0 {
 		t.Fatalf("shared Paddock passed artifact has incorrect verdict: %+v", sharedPassed)
+	}
+}
+
+func TestCLICIArtifactPreservesGoToolchainEvaluationError(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	cli := buildCLI(t, repoRoot)
+	cacheFile := filepath.Join(t.TempDir(), "cache-file")
+	if err := os.WriteFile(cacheFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(t.TempDir(), "cache-error.json")
+	cmd := exec.Command(cli,
+		"ci",
+		filepath.Join(repoRoot, "paddock", "examples", "services", "hexagonal-go", "good"),
+		"--policy", filepath.Join(repoRoot, "paddock", "examples", "hexagonal.yaml"),
+		"--output", resultPath,
+	)
+	cmd.Dir = repoRoot
+	cmd.Env = environmentWithValue("GOCACHE", cacheFile)
+	data, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("cache failure returned success; output:\n%s", data)
+	}
+	exitError, ok := err.(*exec.ExitError)
+	if !ok || exitError.ExitCode() != 2 {
+		t.Fatalf("cache failure exit = %v; want exit 2; output:\n%s", err, data)
+	}
+	if !strings.Contains(string(data), "CI-RESULT") || !strings.Contains(string(data), "(error)") {
+		t.Fatalf("cache failure did not announce an error artifact:\n%s", data)
+	}
+	failed, err := artifact.Load(resultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != "error" || failed.ExitCode != 2 || failed.ToolVersion != paddockversion.Version || failed.Source.VCS == nil || !strings.Contains(failed.Error, "go list:") {
+		t.Fatalf("cache failure artifact lost evaluation context: %#v", failed)
+	}
+	if _, err := ciresult.LoadFile(resultPath); err != nil {
+		t.Fatalf("shared loader rejected cache failure artifact: %v", err)
+	}
+	validationOutput, validationExit := runCLI(t, cli, repoRoot, "ci", "validate", "--input", resultPath)
+	if validationExit != 0 || !strings.Contains(validationOutput, "failed to initialize build cache") {
+		t.Fatalf("text validation omitted the evaluation diagnostic: exit=%d output:\n%s", validationExit, validationOutput)
 	}
 }
 
@@ -3225,9 +3391,16 @@ func buildCLI(t *testing.T, repoRoot string) string {
 }
 
 func runCLI(t *testing.T, cli, repoRoot string, args ...string) (string, int) {
+	return runCLIWithEnv(t, cli, repoRoot, nil, args...)
+}
+
+func runCLIWithEnv(t *testing.T, cli, repoRoot string, env []string, args ...string) (string, int) {
 	t.Helper()
 	cmd := exec.Command(cli, args...)
 	cmd.Dir = repoRoot
+	if env != nil {
+		cmd.Env = env
+	}
 	data, err := cmd.CombinedOutput()
 	if err == nil {
 		return string(data), 0
@@ -3237,6 +3410,15 @@ func runCLI(t *testing.T, cli, repoRoot string, args ...string) (string, int) {
 	}
 	t.Fatalf("run paddock: %v\n%s", err, data)
 	return "", -1
+}
+
+func runGitCommand(t *testing.T, root string, args ...string) {
+	t.Helper()
+	commandArgs := append([]string{"-C", root}, args...)
+	cmd := exec.Command("git", commandArgs...)
+	if data, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, data)
+	}
 }
 
 func runWorkflow(t *testing.T, workflow, repoRoot string, values []string, command string) (string, int) {
@@ -3259,8 +3441,18 @@ func runWorkflow(t *testing.T, workflow, repoRoot string, values []string, comma
 
 func toolchainEnv(t *testing.T) []string {
 	t.Helper()
-	env := append([]string{}, os.Environ()...)
-	return append(env, "GOCACHE="+filepath.Join(t.TempDir(), "go-build"))
+	return environmentWithValue("GOCACHE", filepath.Join(t.TempDir(), "go-build"))
+}
+
+func environmentWithValue(key, value string) []string {
+	prefix := key + "="
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, prefix) {
+			env = append(env, entry)
+		}
+	}
+	return append(env, prefix+value)
 }
 
 func repositoryRoot(t *testing.T) string {

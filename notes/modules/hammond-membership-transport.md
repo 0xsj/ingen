@@ -21,6 +21,11 @@ hands raw bytes to a caller-owned normalizer before applying the same checks.
 `FetchVerifierAt` additionally applies the caller's freshness policy before the
 result can enter policy evaluation. `FetchVerifierAtWithProvenance` also binds
 the returned verifier to the snapshot reference carried by decision events.
+The corresponding `FetchNormalizedVerifierAt` and
+`FetchNormalizedVerifierAtWithProvenance` helpers provide the same handoff for
+provider-native responses that require normalization first.
+The focused acceptance path also exercises the resulting provenance-carrying
+verifier through policy authorization and a matching decision event.
 
 When `RequireHTTPS` or `EndpointPolicy` is configured, Hammond reapplies the
 same endpoint checks to redirect targets before the injected client follows

@@ -11,12 +11,13 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"ingen/core/ciresult"
 )
 
-// Schema identifies the deliberately provisional machine-readable comparison
-// report. It is a working surface until Sattler has more producer examples.
+// Schema identifies the compatibility-treated producer-neutral comparison
+// envelope. Nested producer-owned detail remains intentionally flexible.
 const Schema = "ingen.sattler-comparison/v0"
 
 // Change is one observable difference between two valid CI result envelopes.
@@ -63,6 +64,92 @@ type Comparison struct {
 	ChangeSummary        ChangeSummary               `json:"change_summary"`
 	Warnings             []string                    `json:"warnings,omitempty"`
 	MutationCampaign     *MutationCampaignComparison `json:"mutation_campaign,omitempty"`
+}
+
+// Validate checks the compatibility-treated comparison envelope without
+// interpreting producer-owned report payloads.
+func (report Comparison) Validate() error {
+	if report.Schema != Schema {
+		return fmt.Errorf("comparison schema must be %s, got %q", Schema, report.Schema)
+	}
+	for _, item := range []struct {
+		side    string
+		summary ArtifactSummary
+	}{
+		{side: "before", summary: report.Before},
+		{side: "after", summary: report.After},
+	} {
+		side := item.side
+		summary := item.summary
+		if strings.TrimSpace(summary.Tool) == "" || strings.TrimSpace(summary.Kind) == "" || strings.TrimSpace(summary.Status) == "" {
+			return fmt.Errorf("comparison %s needs tool, kind, and status", side)
+		}
+		if _, err := ciresult.ExitCodeForStatus(summary.Status); err != nil {
+			return fmt.Errorf("comparison %s: %w", side, err)
+		}
+		if strings.TrimSpace(summary.CreatedAt) == "" {
+			return fmt.Errorf("comparison %s created_at is required", side)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, summary.CreatedAt); err != nil {
+			return fmt.Errorf("comparison %s created_at must be RFC3339: %w", side, err)
+		}
+		if strings.TrimSpace(summary.Source.Root) == "" {
+			return fmt.Errorf("comparison %s source.root is required", side)
+		}
+		for _, item := range []struct {
+			name string
+			ref  *ciresult.FileRef
+		}{
+			{name: "policy", ref: summary.Policy},
+			{name: "policy_lock", ref: summary.PolicyLock},
+			{name: "graph", ref: summary.Graph},
+			{name: "baseline", ref: summary.Baseline},
+		} {
+			if err := ciresult.ValidateFileRef("comparison "+side+" "+item.name, item.ref); err != nil {
+				return err
+			}
+		}
+		for _, name := range unionInputNames(summary.Inputs, nil) {
+			ref := summary.Inputs[name]
+			if strings.TrimSpace(name) == "" {
+				return fmt.Errorf("comparison %s input name must not be empty", side)
+			}
+			if err := ciresult.ValidateFileRef("comparison "+side+" inputs."+name, &ref); err != nil {
+				return err
+			}
+		}
+	}
+	if err := report.Transition.Validate(); err != nil {
+		return fmt.Errorf("comparison transition: %w", err)
+	}
+	if !report.Compatible && len(report.CompatibilityReasons) == 0 {
+		return fmt.Errorf("incompatible comparison needs a compatibility reason")
+	}
+	if report.Compatible && len(report.CompatibilityReasons) > 0 {
+		return fmt.Errorf("compatible comparison cannot have compatibility reasons")
+	}
+	if err := report.ChangeSummary.Validate(); err != nil {
+		return fmt.Errorf("comparison change summary: %w", err)
+	}
+	if report.ChangeSummary.Total != len(report.Changes) {
+		return fmt.Errorf("comparison change_summary.total must equal the change count")
+	}
+	calculated := SummarizeChanges(report.Changes)
+	if !valuesEqual(report.ChangeSummary, calculated) {
+		return fmt.Errorf("comparison change_summary does not match the changes")
+	}
+	for index, change := range report.Changes {
+		if strings.TrimSpace(change.Category) == "" || strings.TrimSpace(change.Field) == "" {
+			return fmt.Errorf("comparison changes[%d] needs a category and field", index)
+		}
+		if strings.TrimSpace(change.ID) == "" {
+			return fmt.Errorf("comparison changes[%d] needs a stable ID", index)
+		}
+		if change.StableID() != StableChangeID(change.Category, change.Field) {
+			return fmt.Errorf("comparison changes[%d] has an invalid stable ID %q", index, change.ID)
+		}
+	}
+	return nil
 }
 
 // Compare compares two already validated CI result envelopes.
@@ -152,8 +239,12 @@ func CompareFiles(beforePath, afterPath string) (Comparison, error) {
 	return report, nil
 }
 
-// WriteJSON writes the provisional machine-readable comparison report.
+// WriteJSON writes the compatibility-treated machine-readable comparison
+// report.
 func WriteJSON(w io.Writer, report Comparison) error {
+	if err := report.Validate(); err != nil {
+		return err
+	}
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(report)

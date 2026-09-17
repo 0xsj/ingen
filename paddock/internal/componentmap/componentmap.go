@@ -26,22 +26,26 @@ type Document struct {
 
 type Component struct {
 	Name         string            `json:"name"`
+	Identity     string            `json:"identity,omitempty"`
 	Labels       map[string]string `json:"labels,omitempty"`
 	PackageCount int               `json:"package_count"`
 	Packages     []string          `json:"packages"`
 }
 
 type Dependency struct {
-	From  string `json:"from"`
-	To    string `json:"to"`
-	Edges int    `json:"edges"`
+	From         string `json:"from"`
+	To           string `json:"to"`
+	Edges        int    `json:"edges"`
+	FromIdentity string `json:"from_identity,omitempty"`
+	ToIdentity   string `json:"to_identity,omitempty"`
 }
 
 type ExternalDependency struct {
-	From       string `json:"from"`
-	Target     string `json:"target"`
-	TargetKind string `json:"target_kind"`
-	Edges      int    `json:"edges"`
+	From         string `json:"from"`
+	Target       string `json:"target"`
+	TargetKind   string `json:"target_kind"`
+	Edges        int    `json:"edges"`
+	FromIdentity string `json:"from_identity,omitempty"`
 }
 
 func Build(root, language, unit string, dependencyGraph *model.Graph, classificationFindings []*model.Finding) (Document, error) {
@@ -54,41 +58,53 @@ func Build(root, language, unit string, dependencyGraph *model.Graph, classifica
 
 	byImport := make(map[string]*model.Package, len(dependencyGraph.Packages))
 	components := make(map[string]*Component)
+	variants := componentLabelVariants(dependencyGraph.Packages)
 	for _, pkg := range dependencyGraph.Packages {
 		if pkg == nil || pkg.ImportPath == "" {
 			continue
 		}
 		byImport[pkg.ImportPath] = pkg
 		name := componentName(pkg)
-		component := components[name]
+		identity := componentIdentity(pkg, variants)
+		component := components[identity]
 		if component == nil {
 			labels := copyLabels(pkg.Labels)
 			if name == "unclassified" && labels == nil {
 				labels = map[string]string{"role": "unclassified"}
 			}
 			component = &Component{Name: name, Labels: labels, Packages: []string{}}
-			components[name] = component
+			if identity != name {
+				component.Identity = identity
+			}
+			components[identity] = component
 		}
 		component.Packages = append(component.Packages, pkg.RelPath)
 		component.PackageCount++
 	}
 
-	dependencyCounts := make(map[[2]string]int)
-	externalCounts := make(map[[3]string]int)
+	dependencyCounts := make(map[dependencyKey]int)
+	externalCounts := make(map[externalDependencyKey]int)
 	for _, edge := range dependencyGraph.Edges {
 		from := byImport[edge.FromImportPath]
 		if from == nil {
 			continue
 		}
 		fromComponent := componentName(from)
+		fromIdentity := componentIdentity(from, variants)
 		if edge.TargetKind == "internal" {
 			to := byImport[edge.ToImportPath]
 			if to == nil {
 				continue
 			}
 			toComponent := componentName(to)
-			if fromComponent != toComponent {
-				dependencyCounts[[2]string{fromComponent, toComponent}]++
+			toIdentity := componentIdentity(to, variants)
+			if fromIdentity != toIdentity {
+				dependencyCounts[dependencyKey{
+					From:         fromComponent,
+					To:           toComponent,
+					FromIdentity: optionalIdentity(fromIdentity, fromComponent),
+					ToIdentity:   optionalIdentity(toIdentity, toComponent),
+				}]++
 			}
 			continue
 		}
@@ -96,7 +112,12 @@ func Build(root, language, unit string, dependencyGraph *model.Graph, classifica
 		if target == "" {
 			target = edge.ToImportPath
 		}
-		externalCounts[[3]string{fromComponent, target, edge.TargetKind}]++
+		externalCounts[externalDependencyKey{
+			From:         fromComponent,
+			Target:       target,
+			TargetKind:   edge.TargetKind,
+			FromIdentity: optionalIdentity(fromIdentity, fromComponent),
+		}]++
 	}
 
 	result := Document{
@@ -118,24 +139,48 @@ func Build(root, language, unit string, dependencyGraph *model.Graph, classifica
 		result.Components = append(result.Components, *component)
 	}
 	sort.Slice(result.Components, func(i, j int) bool {
-		return result.Components[i].Name < result.Components[j].Name
+		if result.Components[i].Name != result.Components[j].Name {
+			return result.Components[i].Name < result.Components[j].Name
+		}
+		return result.Components[i].Identity < result.Components[j].Identity
 	})
 	for key, edges := range dependencyCounts {
-		result.Dependencies = append(result.Dependencies, Dependency{From: key[0], To: key[1], Edges: edges})
+		result.Dependencies = append(result.Dependencies, Dependency{
+			From:         key.From,
+			To:           key.To,
+			Edges:        edges,
+			FromIdentity: key.FromIdentity,
+			ToIdentity:   key.ToIdentity,
+		})
 	}
 	sort.Slice(result.Dependencies, func(i, j int) bool {
 		if result.Dependencies[i].From != result.Dependencies[j].From {
 			return result.Dependencies[i].From < result.Dependencies[j].From
 		}
-		return result.Dependencies[i].To < result.Dependencies[j].To
+		if result.Dependencies[i].To != result.Dependencies[j].To {
+			return result.Dependencies[i].To < result.Dependencies[j].To
+		}
+		if result.Dependencies[i].FromIdentity != result.Dependencies[j].FromIdentity {
+			return result.Dependencies[i].FromIdentity < result.Dependencies[j].FromIdentity
+		}
+		return result.Dependencies[i].ToIdentity < result.Dependencies[j].ToIdentity
 	})
 	for key, edges := range externalCounts {
-		result.ExternalDependencies = append(result.ExternalDependencies, ExternalDependency{From: key[0], Target: key[1], TargetKind: key[2], Edges: edges})
+		result.ExternalDependencies = append(result.ExternalDependencies, ExternalDependency{
+			From:         key.From,
+			Target:       key.Target,
+			TargetKind:   key.TargetKind,
+			Edges:        edges,
+			FromIdentity: key.FromIdentity,
+		})
 	}
 	sort.Slice(result.ExternalDependencies, func(i, j int) bool {
 		a, b := result.ExternalDependencies[i], result.ExternalDependencies[j]
 		if a.From != b.From {
 			return a.From < b.From
+		}
+		if a.FromIdentity != b.FromIdentity {
+			return a.FromIdentity < b.FromIdentity
 		}
 		if a.TargetKind != b.TargetKind {
 			return a.TargetKind < b.TargetKind
@@ -150,6 +195,66 @@ func componentName(pkg *model.Package) string {
 		return "unclassified"
 	}
 	return pkg.Component
+}
+
+type dependencyKey struct {
+	From         string
+	To           string
+	FromIdentity string
+	ToIdentity   string
+}
+
+type externalDependencyKey struct {
+	From         string
+	Target       string
+	TargetKind   string
+	FromIdentity string
+}
+
+func componentLabelVariants(packages []*model.Package) map[string]map[string]struct{} {
+	variants := make(map[string]map[string]struct{})
+	for _, pkg := range packages {
+		if pkg == nil || pkg.ImportPath == "" {
+			continue
+		}
+		name := componentName(pkg)
+		if variants[name] == nil {
+			variants[name] = make(map[string]struct{})
+		}
+		variants[name][labelSignature(pkg.Labels)] = struct{}{}
+	}
+	return variants
+}
+
+func componentIdentity(pkg *model.Package, variants map[string]map[string]struct{}) string {
+	name := componentName(pkg)
+	if len(variants[name]) <= 1 {
+		return name
+	}
+	return name + "[" + labelSignature(pkg.Labels) + "]"
+}
+
+func optionalIdentity(identity, name string) string {
+	if identity == name {
+		return ""
+	}
+	return identity
+}
+
+func labelSignature(labels map[string]string) string {
+	if len(labels) == 0 {
+		return "unlabeled"
+	}
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+labels[key])
+	}
+	return strings.Join(parts, ",")
 }
 
 func copyLabels(labels map[string]string) map[string]string {
@@ -171,16 +276,32 @@ func Text(document Document) string {
 	}
 	fmt.Fprintln(&builder, "COMPONENTS")
 	for _, component := range document.Components {
-		fmt.Fprintf(&builder, "  %s (%d packages)\n", component.Name, component.PackageCount)
+		name := component.Name
+		if component.Identity != "" {
+			name = component.Identity
+		}
+		fmt.Fprintf(&builder, "  %s (%d packages)\n", name, component.PackageCount)
 	}
 	fmt.Fprintln(&builder, "DEPENDENCIES")
 	for _, dependency := range document.Dependencies {
-		fmt.Fprintf(&builder, "  %s -> %s (%d edges)\n", dependency.From, dependency.To, dependency.Edges)
+		from := dependency.From
+		if dependency.FromIdentity != "" {
+			from = dependency.FromIdentity
+		}
+		to := dependency.To
+		if dependency.ToIdentity != "" {
+			to = dependency.ToIdentity
+		}
+		fmt.Fprintf(&builder, "  %s -> %s (%d edges)\n", from, to, dependency.Edges)
 	}
 	if len(document.ExternalDependencies) > 0 {
 		fmt.Fprintln(&builder, "EXTERNAL DEPENDENCIES")
 		for _, dependency := range document.ExternalDependencies {
-			fmt.Fprintf(&builder, "  %s -> %s [%s] (%d edges)\n", dependency.From, dependency.Target, dependency.TargetKind, dependency.Edges)
+			from := dependency.From
+			if dependency.FromIdentity != "" {
+				from = dependency.FromIdentity
+			}
+			fmt.Fprintf(&builder, "  %s -> %s [%s] (%d edges)\n", from, dependency.Target, dependency.TargetKind, dependency.Edges)
 		}
 	}
 	if len(document.ClassificationFindings) > 0 {

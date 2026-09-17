@@ -429,6 +429,43 @@ func TestLoadHerdrEventStreamLoadsNonEmptyLines(t *testing.T) {
 	}
 }
 
+func TestLoadHerdrEventRejectsRawHostEnvelope(t *testing.T) {
+	t.Chdir(t.TempDir())
+	rawHostEvent := []byte(`{"event":"pane_agent_status_changed","data":{"type":"pane_agent_status_changed","workspace_id":"workspace-fixture","pane_id":"workspace-fixture:pane-fixture","agent_status":"blocked"}}`)
+	if err := os.WriteFile("raw-event.json", rawHostEvent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := LoadHerdrHostEnvelope("raw-event.json")
+	if err != nil {
+		t.Fatalf("LoadHerdrHostEnvelope() = %v, want raw envelope accepted for evidence", err)
+	}
+	if envelope.Event != "pane_agent_status_changed" || len(envelope.Data) == 0 || len(envelope.Raw) == 0 {
+		t.Fatalf("host envelope = %+v, want event, data, and raw bytes preserved", envelope)
+	}
+	if _, err := LoadHerdrEvent("raw-event.json"); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("LoadHerdrEvent() = %v, want raw host envelope rejected before normalization", err)
+	}
+}
+
+func TestLoadHerdrHostEnvelopeRejectsMissingOrNonObjectData(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cases := map[string]string{
+		"missing-data": `{"event":"pane_agent_status_changed"}`,
+		"array-data":   `{"event":"pane_agent_status_changed","data":[]}`,
+	}
+	for name, contents := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := name + ".json"
+			if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadHerdrHostEnvelope(path); err == nil {
+				t.Fatal("LoadHerdrHostEnvelope() succeeded, want rejection")
+			}
+		})
+	}
+}
+
 func sentinelReceipt(t *testing.T) sentinelrun.Receipt {
 	t.Helper()
 	timestamp := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC).Format(time.RFC3339Nano)

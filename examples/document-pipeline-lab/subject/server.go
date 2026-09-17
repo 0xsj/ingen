@@ -71,6 +71,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	case r.URL.Path == "/__malcolm/reset":
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		h.resetStore(w)
 	case r.URL.Path == "/documents":
 		if r.Method != http.MethodPost {
 			methodNotAllowed(w, http.MethodPost)
@@ -82,6 +88,17 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusNotFound, "route_not_found")
 	}
+}
+
+// resetStore is a subject-owned fixture hook. It is intentionally outside the
+// document API and exists only so Sorna can establish a fresh state boundary
+// between independently executable cases.
+func (h *handler) resetStore(w http.ResponseWriter) {
+	h.store.mu.Lock()
+	h.store.docs = make(map[string]*document)
+	h.store.nextID = 0
+	h.store.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) createDocument(w http.ResponseWriter, r *http.Request) {

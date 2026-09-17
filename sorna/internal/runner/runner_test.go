@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -40,8 +41,8 @@ func TestExecuteDocumentPipelineContractAgainstCleanSubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Summary.Passed != 7 || record.Summary.Failed != 0 || record.Summary.Errors != 0 || record.Summary.Inconclusive != 0 {
-		t.Fatalf("summary = %+v, rules = %+v; want all seven rules to pass", record.Summary, record.Rules)
+	if record.Summary.Passed != 8 || record.Summary.Failed != 0 || record.Summary.Errors != 0 || record.Summary.Inconclusive != 0 {
+		t.Fatalf("summary = %+v, rules = %+v; want all eight rules to pass", record.Summary, record.Rules)
 	}
 	if record.Verdict.Status != "pass" {
 		t.Fatalf("contract verdict = %+v, want pass", record.Verdict)
@@ -107,7 +108,7 @@ func TestExecuteOracleUsesFrozenCasesAndRecordsOracleLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Summary.Passed != 7 || record.Verdict.Status != "pass" {
+	if record.Summary.Passed != 8 || record.Verdict.Status != "pass" {
 		t.Fatalf("summary = %+v, verdict = %+v; want all frozen cases to pass", record.Summary, record.Verdict)
 	}
 	if record.Oracle == nil || record.Oracle.Schema != oracle.Schema || record.Oracle.SHA256 != oracleHash {
@@ -284,6 +285,169 @@ func TestExecuteSendsNestedRequestBodyValues(t *testing.T) {
 	}
 	if record.Summary.Passed != 1 || record.Rules[0].Status != "pass" {
 		t.Fatalf("record = %+v, want one passing nested-body rule", record)
+	}
+}
+
+func TestEvaluateChecksNestedResponseProperties(t *testing.T) {
+	assertions, err := evaluate(map[string]any{
+		"body": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"metadata": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"owner": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"id": map[string]any{"equals": "owner-1"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}, Observation{
+		Status: 200,
+		Body:   json.RawMessage(`{"metadata":{"owner":{"id":"owner-1"}}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, assertion := range assertions {
+		if assertion.Status != "pass" {
+			t.Fatalf("nested assertion = %+v, want pass", assertion)
+		}
+	}
+	if len(assertions) != 4 {
+		t.Fatalf("nested assertions = %#v, want type checks and leaf equality", assertions)
+	}
+}
+
+func TestNestedSelectorDistinguishesMissingFromExplicitNull(t *testing.T) {
+	observation := Observation{
+		Body: json.RawMessage(`{"metadata":{"nullable":null}}`),
+	}
+	value, err := selectBodyValue(observation, "body.metadata.nullable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != nil {
+		t.Fatalf("selected explicit null = %#v, want nil value", value)
+	}
+	if _, err := selectBodyValue(observation, "body.metadata.missing"); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("missing selector error = %v, want missing-field error", err)
+	}
+
+	assertions := evaluateShape("body", map[string]any{
+		"metadata": map[string]any{"nullable": nil},
+	}, map[string]any{
+		"properties": map[string]any{
+			"metadata": map[string]any{
+				"required": []any{"nullable"},
+			},
+		},
+	})
+	if len(assertions) != 1 || assertions[0].Status != "pass" {
+		t.Fatalf("explicit-null existence assertion = %#v, want one pass", assertions)
+	}
+}
+
+func TestExecuteResolvesCapturedValueInRequestBodyWithoutPathEscaping(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		switch body["content"] {
+		case "seed":
+			if body["name"] != "seed copy.txt" {
+				t.Fatalf("setup body = %#v, want source name", body)
+			}
+			return responseFor(r, 202, `{"name":"seed copy.txt","status":"queued"}`), nil
+		case "copied":
+			if body["name"] != "seed copy.txt" {
+				t.Fatalf("target body = %#v, want raw captured name", body)
+			}
+			return responseFor(r, 202, `{"name":"seed copy.txt","status":"queued"}`), nil
+		default:
+			t.Fatalf("request body = %#v, want setup or target content", body)
+			return nil, nil
+		}
+	})}
+
+	sealed := sealForTest(t, []any{map[string]any{
+		"id":       "document.create.from-capture",
+		"strength": "must",
+		"subject":  "POST /documents",
+		"given": map[string]any{
+			"body": map[string]any{
+				"name":    "{document_name}",
+				"content": "copied",
+			},
+			"setup": []any{map[string]any{
+				"id": "create-seed",
+				"request": map[string]any{
+					"method": "POST",
+					"path":   "/documents",
+					"body": map[string]any{
+						"name":    "seed copy.txt",
+						"content": "seed",
+					},
+				},
+				"expect": map[string]any{"status": int64(202)},
+				"capture": map[string]any{
+					"document_name": "body.name",
+				},
+			}},
+		},
+		"expect": map[string]any{
+			"status": int64(202),
+			"body": map[string]any{
+				"properties": map[string]any{
+					"name": map[string]any{"equals": "seed copy.txt"},
+				},
+			},
+		},
+	}})
+	record, err := Execute(context.Background(), sealed, Config{
+		BaseURL: "http://subject.invalid",
+		Client:  client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Summary.Passed != 1 || record.Rules[0].Status != "pass" {
+		t.Fatalf("record = %+v, want one passing interpolated-body rule", record)
+	}
+}
+
+func TestResolveBodyTemplatesRejectsMissingOrNonStringCaptures(t *testing.T) {
+	tests := []struct {
+		name     string
+		captures map[string]any
+		want     string
+	}{
+		{
+			name:     "missing capture",
+			captures: map[string]any{},
+			want:     `capture "document_name" is not available`,
+		},
+		{
+			name:     "non-string capture",
+			captures: map[string]any{"document_name": int64(1)},
+			want:     `capture "document_name" is not a string`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := resolveTemplatesValue(map[string]any{
+				"name": "{document_name}",
+			}, test.captures)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want text containing %q", err, test.want)
+			}
+		})
 	}
 }
 
@@ -492,6 +656,60 @@ func TestResponseEventsNormalizesMultipleHeaderValues(t *testing.T) {
 	}
 }
 
+func TestExecuteChecksDeclaredAmberExecutionID(t *testing.T) {
+	header := base64.RawURLEncoding.EncodeToString([]byte("{\"execution_id\":\"exec-1\"}"))
+	tests := []struct {
+		name           string
+		withHeader     bool
+		wantRuleStatus string
+	}{
+		{name: "present", withHeader: true, wantRuleStatus: "pass"},
+		{name: "missing", withHeader: false, wantRuleStatus: "fail"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sealed := sealForTest(t, []any{map[string]any{
+				"id":       "document.provenance",
+				"strength": "must",
+				"subject":  "POST /documents",
+				"expect": map[string]any{
+					"provenance": map[string]any{
+						"required": []any{"execution_id"},
+					},
+				},
+			}})
+			record, err := Execute(context.Background(), sealed, Config{
+				BaseURL: "http://subject.invalid",
+				Client: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					response := responseFor(request, 202, "{\"status\":\"queued\"}")
+					if test.withHeader {
+						response.Header.Set(amberProvenanceHeader, header)
+					}
+					return response, nil
+				})},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rule := record.Rules[0]
+			if rule.Status != test.wantRuleStatus {
+				t.Fatalf("rule = %+v, want status %s", rule, test.wantRuleStatus)
+			}
+			if len(rule.Assertions) != 1 || rule.Assertions[0].Path != "provenance.execution_id" {
+				t.Fatalf("provenance assertions = %#v, want one execution_id assertion", rule.Assertions)
+			}
+			if test.withHeader {
+				if rule.Observation.Provenance == nil || !rule.Observation.Provenance.ShapeValid || rule.Observation.Provenance.ExecutionID != "exec-1" {
+					t.Fatalf("provenance observation = %#v, want valid exec-1", rule.Observation.Provenance)
+				}
+			} else if rule.Observation.Provenance != nil {
+				t.Fatalf("missing header produced provenance observation = %#v", rule.Observation.Provenance)
+			}
+		})
+	}
+}
+
 func TestEvaluateChecksMultipleRequiredEvents(t *testing.T) {
 	assertions, err := evaluate(map[string]any{
 		"events": map[string]any{
@@ -597,6 +815,94 @@ func TestExecuteMaterializesRepeatGeneratorAndReportsFailedAssertions(t *testing
 	}
 	if len(record.Rules[0].Assertions) != 2 || record.Rules[0].Assertions[0].Status != "fail" {
 		t.Fatalf("assertions = %+v, want status mismatch and error mismatch", record.Rules[0].Assertions)
+	}
+}
+
+func TestExecuteResetsSubjectStateBeforeEachIsolatedCase(t *testing.T) {
+	resetCalls := 0
+	created := false
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/__malcolm/reset":
+			resetCalls++
+			created = false
+			return responseFor(r, http.StatusNoContent, ""), nil
+		case r.Method == http.MethodPost && r.URL.Path == "/documents":
+			if created {
+				return responseFor(r, http.StatusConflict, `{"error":"state leaked"}`), nil
+			}
+			created = true
+			return responseFor(r, http.StatusAccepted, `{"id":"doc-1"}`), nil
+		default:
+			t.Fatalf("request = %s %s, want reset or create", r.Method, r.URL.Path)
+			return nil, nil
+		}
+	})}
+
+	isolation := map[string]any{
+		"scope": "scenario",
+		"reset": map[string]any{
+			"method": "POST",
+			"path":   "/__malcolm/reset",
+		},
+	}
+	rules := []any{
+		isolatedStatusRule("first", isolation),
+		isolatedStatusRule("second", isolation),
+	}
+	record, err := Execute(context.Background(), sealForTest(t, rules), Config{
+		BaseURL: "http://subject.invalid",
+		Client:  client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resetCalls != 2 {
+		t.Fatalf("reset calls = %d, want one reset per case", resetCalls)
+	}
+	if record.Summary.Passed != 2 || record.Verdict.Status != "pass" {
+		t.Fatalf("summary = %+v, verdict = %+v, want two passing isolated cases", record.Summary, record.Verdict)
+	}
+	for index, rule := range record.Rules {
+		if rule.Isolation == nil || rule.Isolation.Status != "pass" || rule.Isolation.Observation.Status != http.StatusNoContent {
+			t.Fatalf("rule %d isolation = %+v, want successful 204 reset evidence", index, rule.Isolation)
+		}
+		if rule.Isolation.ObservationSHA256 == "" {
+			t.Fatalf("rule %d isolation evidence has no observation hash", index)
+		}
+	}
+}
+
+func TestExecuteMakesResetFailureInconclusive(t *testing.T) {
+	targetCalls := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method == http.MethodPost && r.URL.Path == "/__malcolm/reset" {
+			return responseFor(r, http.StatusServiceUnavailable, `{"error":"reset unavailable"}`), nil
+		}
+		targetCalls++
+		return responseFor(r, http.StatusAccepted, `{"id":"doc-1"}`), nil
+	})}
+
+	record, err := Execute(context.Background(), sealForTest(t, []any{
+		isolatedStatusRule("reset-fails", map[string]any{
+			"scope": "scenario",
+			"reset": map[string]any{
+				"method": "POST",
+				"path":   "/__malcolm/reset",
+			},
+		}),
+	}), Config{BaseURL: "http://subject.invalid", Client: client})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targetCalls != 0 {
+		t.Fatalf("target calls = %d, want no target request after reset failure", targetCalls)
+	}
+	if record.Summary.Inconclusive != 1 || record.Rules[0].Status != "inconclusive" {
+		t.Fatalf("record = %+v, want one inconclusive rule", record)
+	}
+	if record.Rules[0].Isolation == nil || record.Rules[0].Isolation.Status != "inconclusive" {
+		t.Fatalf("isolation = %+v, want inconclusive reset evidence", record.Rules[0].Isolation)
 	}
 }
 
@@ -774,6 +1080,18 @@ func validCreateRule() map[string]any {
 				},
 			},
 		},
+	}
+}
+
+func isolatedStatusRule(id string, isolation map[string]any) map[string]any {
+	return map[string]any{
+		"id":       id,
+		"strength": "must",
+		"subject":  "POST /documents",
+		"given": map[string]any{
+			"isolation": isolation,
+		},
+		"expect": map[string]any{"status": int64(http.StatusAccepted)},
 	}
 }
 

@@ -1,0 +1,15 @@
+{
+  "schema": "ingen.hammond-review-policy/v1",
+  "id": "solo-approval",
+  "version": 1,
+  "minimum_approvals": 1,
+  "authority": {
+    "id": "solo-reviewer",
+    "version": 1,
+    "schema": "ingen.hammond-authority/v1",
+    "artifact": {
+      "uri": "hammond/examples/solo/review-authority-v1.json",
+      "sha256": "fd0fe4b6909717438fad7bb1f1449d3bab8e1c06ffd6a179a3c1eb122671e418"
+    }
+  }
+}

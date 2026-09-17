@@ -1,41 +1,63 @@
-# WORKING — Hammond's organization provider remains intentionally unselected
+# DEFERRED — GitHub team membership is an optional future provider
 
-A provider-specific membership adapter cannot be implemented safely until its
-credential protocol, endpoint ownership, and role-mapping semantics are known.
+Hammond's current active workflow is solo and local. It uses a local authority
+artifact, so no GitHub organization or external membership provider is needed.
+The GitHub team adapter is retained as an isolated future option for the point
+when Hammond needs shared reviewers across projects.
 
 ## Origin
 
-Hammond now has bounded HTTP transport, caller-owned authentication, exact
+Hammond already has bounded HTTP transport, caller-owned authentication, exact
 endpoint policy, redirect checks, signed normalized snapshots, freshness rules,
-and provenance binding. The remaining integration boundary is organization
-specific, but no directory provider has been selected for Hammond.
+and provenance binding. Those seams are prepared, but the solo workflow does
+not activate them.
 
 ## What
 
-The current `HTTPMembershipProvider` is the stable provider-neutral seam. A
-future adapter must supply the provider's credential implementation, endpoint
-and TLS configuration, response normalization, completeness rules, issuer
-trust configuration, and membership-to-role mapping. It should return the
-existing signed `MembershipSnapshot` rather than introduce provider semantics
-into governance validation.
+The future GitHub adapter uses `GET /orgs/{org}/teams/{team_slug}/members`
+with `per_page=100`, explicit page numbers, and `role=all`. GitHub may include
+child-team members; the adapter ignores entries marked `inherited=true` and
+maps direct members to one caller-selected Hammond role. It uses the stable
+numeric GitHub user ID as `github:user:<id>`.
+
+If activated later, the caller supplies the API base URL, token authenticator,
+issuer signer, issuer trust set, snapshot identity/version, and freshness
+metadata. Hammond does not read `gh` credentials, store tokens, manage
+refresh, or infer roles.
+
+The adapter returns the existing signed `MembershipSnapshot` rather than
+introducing GitHub semantics into governance validation.
+
+The future-provider acceptance worksheet is kept in
+[`hammond/PROVIDER-INTEGRATION-CHECKLIST.md`](../../hammond/PROVIDER-INTEGRATION-CHECKLIST.md).
+The implementation is covered by deterministic HTTP fixtures; no live GitHub
+credential is required by the test suite.
 
 ## Why
 
-Choosing a provider by inference would make credential scope, token refresh,
-redirect behavior, pagination, group nesting, revocation, and role mapping
-look generic when they are not. The losing alternative is a guessed adapter
-that could authorize the wrong people or leak credentials while appearing to
-be a reusable Hammond feature.
+GitHub is a useful future option because the repository already uses GitHub
+Actions as a concrete integration environment. It is not the current source
+of authority: for a solo operator, a local authority artifact is simpler,
+deterministic, and avoids making an organization boundary part of the active
+workflow.
 
 ## Required choice
 
-Before implementation, select the organization provider and confirm:
+If a shared organization workflow is activated later, its boundary is:
 
-- the membership API and authentication protocol;
-- the credential source, scope, refresh, and redaction rules;
-- the approved endpoint, TLS, redirect, and deployment network policy;
-- the provider's completeness and pagination semantics; and
-- the mapping from provider identities/groups to Hammond actors and roles.
+- membership API: GitHub REST team-members endpoint;
+- authentication: caller-owned bearer-token authenticator, using the minimum
+  GitHub organization Members read permission;
+- endpoint: HTTPS GitHub API base URL, exact caller allowlist, and redirect
+  validation;
+- completeness: page until a response contains fewer than `per_page` members,
+  with a configurable maximum page count; exhausting the cap fails closed;
+- membership semantics: direct members only; inherited child-team members are
+  excluded; duplicate user IDs fail closed;
+- actor mapping: stable numeric user ID to `github:user:<id>`;
+- role mapping: every direct member receives the configured Hammond role; and
+- issuer trust: caller-owned Ed25519 signer and verifier for the normalized
+  snapshot.
 
 ## Gotchas
 
@@ -46,6 +68,10 @@ Before implementation, select the organization provider and confirm:
   membership artifacts.
 - The selected adapter must preserve the membership reference and source
   provenance used by the decision event.
+- GitHub's `role` field describes the member's GitHub team role; it is not
+  copied into Hammond's role vocabulary.
+- `gh login` is a local operator convenience and is not an adapter credential
+  contract.
 
 ## Used in
 
@@ -53,6 +79,11 @@ Before implementation, select the organization provider and confirm:
 - `hammond/internal/governance/membership.go`
 - `hammond/status.md`
 - `hammond/GOVERNANCE-SPEC.md`
+
+## Official provider reference
+
+- [GitHub REST team-members endpoints](https://docs.github.com/en/rest/teams/members)
+- [GitHub permissions required for fine-grained tokens](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
 
 ## Related
 

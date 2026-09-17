@@ -1,0 +1,10 @@
+{
+  "event": "pane_agent_status_changed",
+  "data": {
+    "type": "pane_agent_status_changed",
+    "pane_id": "workspace-fixture:pane-fixture",
+    "workspace_id": "workspace-fixture",
+    "agent_status": "blocked",
+    "agent": "codex"
+  }
+}

@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,12 +22,15 @@ import (
 	"ingen/sorna/internal/campaign"
 	"ingen/sorna/internal/contract"
 	"ingen/sorna/internal/evidence"
+	"ingen/sorna/internal/fixture"
 	"ingen/sorna/internal/lifecycle"
 	"ingen/sorna/internal/mutation"
 	"ingen/sorna/internal/oracle"
 	"ingen/sorna/internal/policy"
+	sornarelease "ingen/sorna/internal/release"
 	"ingen/sorna/internal/runner"
 	"ingen/sorna/internal/sandbox"
+	sornaversion "ingen/sorna/internal/version"
 )
 
 func main() {
@@ -39,8 +44,14 @@ func run(args []string) int {
 	}
 
 	switch args[0] {
+	case "version":
+		return versionCommand(args[1:])
+	case "release":
+		return releaseCommand(args[1:])
 	case "contract":
 		return contractCommand(args[1:])
+	case "fixture":
+		return fixtureCommand(args[1:])
 	case "evidence":
 		return evidenceCommand(args[1:])
 	case "gate":
@@ -58,6 +69,217 @@ func run(args []string) int {
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command:", args[0])
 		usage()
+		return 2
+	}
+}
+
+func versionCommand(args []string) int {
+	format := "text"
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "version: --format requires text or json")
+				return 2
+			}
+			index++
+			format = args[index]
+		default:
+			fmt.Fprintf(os.Stderr, "version: unknown option %q\n", args[index])
+			return 2
+		}
+	}
+
+	info := struct {
+		Name      string `json:"name"`
+		Version   string `json:"version"`
+		Commit    string `json:"commit"`
+		BuildDate string `json:"build_date"`
+	}{
+		Name:      "sorna",
+		Version:   sornaversion.Version,
+		Commit:    sornaversion.Commit,
+		BuildDate: sornaversion.BuildDate,
+	}
+
+	switch format {
+	case "text":
+		if _, err := fmt.Fprintf(os.Stdout, "%s %s\ncommit %s\nbuilt %s\n", info.Name, info.Version, info.Commit, info.BuildDate); err != nil {
+			fmt.Fprintln(os.Stderr, "version:", err)
+			return 1
+		}
+		return 0
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(info); err != nil {
+			fmt.Fprintln(os.Stderr, "version:", err)
+			return 1
+		}
+		return 0
+	default:
+		fmt.Fprintf(os.Stderr, "version: unsupported format %q; use text or json\n", format)
+		return 2
+	}
+}
+
+func releaseCommand(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna release verify --manifest <release-manifest.json> [--directory <dir>] [--format text|json]")
+		fmt.Fprintln(os.Stderr, "       sorna release provenance create --manifest <release-manifest.json> --verification <release-verification.json> --repository <url> --ref <ref> --tag <tag> --commit <commit> --workflow <name> --run-id <id> --run-attempt <attempt> --runner <runner> --build-date <timestamp> [--output <path>]")
+		fmt.Fprintln(os.Stderr, "       sorna release provenance verify --provenance <release-provenance.json> --manifest <release-manifest.json> --verification <release-verification.json>")
+		return 2
+	}
+	if args[0] == "provenance" {
+		return releaseProvenanceCommand(args[1:])
+	}
+	if args[0] != "verify" {
+		fmt.Fprintln(os.Stderr, "usage: sorna release verify --manifest <release-manifest.json> [--directory <dir>] [--format text|json]")
+		return 2
+	}
+
+	manifestPath := ""
+	directory := ""
+	format := "text"
+	for index := 1; index < len(args); index++ {
+		switch args[index] {
+		case "--manifest", "-m":
+			if index+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "release verify: --manifest requires a path")
+				return 2
+			}
+			index++
+			manifestPath = args[index]
+		case "--directory", "-d":
+			if index+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "release verify: --directory requires a path")
+				return 2
+			}
+			index++
+			directory = args[index]
+		case "--format", "-f":
+			if index+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "release verify: --format requires text or json")
+				return 2
+			}
+			index++
+			format = args[index]
+		default:
+			fmt.Fprintf(os.Stderr, "release verify: unknown option %q\n", args[index])
+			return 2
+		}
+	}
+	if manifestPath == "" {
+		fmt.Fprintln(os.Stderr, "release verify: --manifest requires a path")
+		return 2
+	}
+
+	result, err := sornarelease.Verify(manifestPath, directory)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "release verify:", err)
+		return 2
+	}
+	switch format {
+	case "text":
+		if _, err := fmt.Fprint(os.Stdout, sornarelease.Text(result)); err != nil {
+			fmt.Fprintln(os.Stderr, "release verify:", err)
+			return 1
+		}
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(result); err != nil {
+			fmt.Fprintln(os.Stderr, "release verify:", err)
+			return 1
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "release verify: unsupported format %q; use text or json\n", format)
+		return 2
+	}
+	if result.Status != "passed" {
+		return 1
+	}
+	return 0
+}
+
+func releaseProvenanceCommand(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna release provenance create|verify ...")
+		return 2
+	}
+	switch args[0] {
+	case "create":
+		flags := flag.NewFlagSet("release provenance create", flag.ContinueOnError)
+		flags.SetOutput(os.Stderr)
+		manifestPath := flags.String("manifest", "", "path to the release manifest")
+		verificationPath := flags.String("verification", "", "path to the release verification JSON")
+		repository := flags.String("repository", "", "source repository URL")
+		ref := flags.String("ref", "", "source ref")
+		tag := flags.String("tag", "", "release tag")
+		commit := flags.String("commit", "", "source commit")
+		workflow := flags.String("workflow", "", "workflow name")
+		runID := flags.String("run-id", "", "workflow run ID")
+		runAttempt := flags.String("run-attempt", "", "workflow run attempt")
+		runner := flags.String("runner", "", "runner identity")
+		buildDate := flags.String("build-date", "", "release build timestamp")
+		outputPath := flags.String("output", "", "optional provenance output path")
+		if err := flags.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if len(flags.Args()) != 0 || *manifestPath == "" || *verificationPath == "" || *repository == "" || *ref == "" || *tag == "" || *commit == "" || *workflow == "" || *runID == "" || *runAttempt == "" || *runner == "" || *buildDate == "" {
+			fmt.Fprintln(os.Stderr, "usage: sorna release provenance create --manifest <release-manifest.json> --verification <release-verification.json> --repository <url> --ref <ref> --tag <tag> --commit <commit> --workflow <name> --run-id <id> --run-attempt <attempt> --runner <runner> --build-date <timestamp> [--output <path>]")
+			return 2
+		}
+		provenance, err := sornarelease.CreateProvenance(*manifestPath, *verificationPath, sornarelease.ProvenanceInput{
+			Repository: *repository,
+			Ref:        *ref,
+			Tag:        *tag,
+			Commit:     *commit,
+			Workflow:   *workflow,
+			RunID:      *runID,
+			RunAttempt: *runAttempt,
+			Runner:     *runner,
+			BuildDate:  *buildDate,
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "release provenance create:", err)
+			return 1
+		}
+		if *outputPath != "" {
+			if err := sornarelease.WriteProvenance(*outputPath, provenance); err != nil {
+				fmt.Fprintln(os.Stderr, "release provenance create:", err)
+				return 1
+			}
+			return 0
+		}
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(provenance); err != nil {
+			fmt.Fprintln(os.Stderr, "release provenance create:", err)
+			return 1
+		}
+		return 0
+	case "verify":
+		flags := flag.NewFlagSet("release provenance verify", flag.ContinueOnError)
+		flags.SetOutput(os.Stderr)
+		provenancePath := flags.String("provenance", "", "path to the release provenance JSON")
+		manifestPath := flags.String("manifest", "", "path to the release manifest")
+		verificationPath := flags.String("verification", "", "path to the release verification JSON")
+		if err := flags.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if len(flags.Args()) != 0 || *provenancePath == "" || *manifestPath == "" || *verificationPath == "" {
+			fmt.Fprintln(os.Stderr, "usage: sorna release provenance verify --provenance <release-provenance.json> --manifest <release-manifest.json> --verification <release-verification.json>")
+			return 2
+		}
+		if err := sornarelease.VerifyProvenance(*provenancePath, *manifestPath, *verificationPath); err != nil {
+			fmt.Fprintln(os.Stderr, "release provenance verify: FAILED:", err)
+			return 1
+		}
+		fmt.Fprintln(os.Stdout, "RELEASE-PROVENANCE-VERIFY PASSED")
+		return 0
+	default:
+		fmt.Fprintln(os.Stderr, "usage: sorna release provenance create|verify ...")
 		return 2
 	}
 }
@@ -900,6 +1122,82 @@ func seal(args []string) int {
 		return 1
 	}
 	fmt.Println("sealed:", sealed.SHA256)
+	return 0
+}
+
+func fixtureCommand(args []string) int {
+	if len(args) < 1 {
+		usage()
+		return 2
+	}
+	switch args[0] {
+	case "bind":
+		return bindFixture(args[1:])
+	default:
+		fmt.Fprintln(os.Stderr, "unknown fixture command:", args[0])
+		usage()
+		return 2
+	}
+}
+
+func bindFixture(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna fixture bind <sealed-contract> --provider <manifest> --output <path> [--root <dir>]")
+		return 2
+	}
+	flags := flag.NewFlagSet("fixture bind", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	providerPath := flags.String("provider", "", "fixture provider manifest")
+	root := flags.String("root", "", "provider root for relative fixture paths")
+	output := flags.String("output", "", "fixture handoff output path")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "usage: sorna fixture bind <sealed-contract> --provider <manifest> --output <path> [--root <dir>]")
+		return 2
+	}
+	if *providerPath == "" {
+		fmt.Fprintln(os.Stderr, "fixture bind: --provider is required")
+		return 2
+	}
+	if *output == "" {
+		fmt.Fprintln(os.Stderr, "fixture bind: --output is required")
+		return 2
+	}
+
+	contractDocument, err := contract.LoadFile(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	provider, err := fixture.LoadProviderFile(*providerPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	canonicalContract, err := contract.CanonicalJSON(contractDocument)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	contractDigest := sha256.Sum256(canonicalContract)
+	contractSHA256 := hex.EncodeToString(contractDigest[:])
+	providerRoot := *root
+	if providerRoot == "" {
+		providerRoot = filepath.Dir(*providerPath)
+	}
+	handoff, err := fixture.Bind(contractDocument, contractSHA256, provider, providerRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	handoffSHA256, err := fixture.WriteFile(*output, handoff)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("bound:", handoffSHA256)
 	return 0
 }
 
@@ -2351,8 +2649,12 @@ func integerValue(value any) (int64, bool) {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
+	fmt.Fprintln(os.Stderr, "  sorna version [--format text|json]")
+	fmt.Fprintln(os.Stderr, "  sorna release verify --manifest <release-manifest.json> [--directory <dir>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "  sorna release provenance create|verify ...")
 	fmt.Fprintln(os.Stderr, "  sorna contract validate <path>")
 	fmt.Fprintln(os.Stderr, "  sorna contract seal <path> --output-dir <dir>")
+	fmt.Fprintln(os.Stderr, "  sorna fixture bind <sealed-contract> --provider <manifest> --output <path> [--root <dir>]")
 	fmt.Fprintln(os.Stderr, "  sorna policy validate <path>")
 	fmt.Fprintln(os.Stderr, "  sorna policy seal <path> --output-dir <dir>")
 	fmt.Fprintln(os.Stderr, "  sorna sandbox exec --policy <path> [--root <dir>] -- <command> [args...]")

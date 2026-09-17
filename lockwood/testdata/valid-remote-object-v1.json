@@ -1,0 +1,8 @@
+{
+  "schema": "lockwood.remote-object/v1",
+  "uri": "https://objects.example/runs/run-0001/result.json",
+  "version": "provider-version-0001",
+  "etag": "\"strong-validator\"",
+  "expected_digest": "sha256:ef5b05d59f845d9ff61cb77aed339c6e8ccb9fe6381c7d9684e4e9c1118ae49f",
+  "expected_size_bytes": 12
+}

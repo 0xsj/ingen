@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/sattler-bundle-summary-v0.schema.json",
+  "title": "InGen Sattler bundle summary",
+  "description": "The compatibility-treated navigation projection for independent Sattler subsystem comparisons.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "summary"],
+  "properties": {
+    "schema": {"const": "ingen.sattler-bundle-summary/v0"},
+    "manifest": {"type": "string"},
+    "summary": {"$ref": "#/$defs/bundle-summary"},
+    "correlations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/correlation"}
+    },
+    "change_id_filter": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "$defs": {
+    "change-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "by_category": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "before", "after", "classification"],
+      "properties": {
+        "field": {"type": "string", "minLength": 1},
+        "before": {"type": "string", "minLength": 1},
+        "after": {"type": "string", "minLength": 1},
+        "classification": {"enum": ["unchanged", "changed", "incompatible"]}
+      }
+    },
+    "subsystem-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatible", "transition", "change_summary"],
+      "properties": {
+        "compatible": {"type": "boolean"},
+        "transition": {"$ref": "#/$defs/transition"},
+        "change_summary": {"$ref": "#/$defs/change-summary"}
+      }
+    },
+    "bundle-summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatible", "change_summary", "subsystems"],
+      "properties": {
+        "compatible": {"type": "boolean"},
+        "compatibility_reasons": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "change_summary": {"$ref": "#/$defs/change-summary"},
+        "warnings": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "subsystems": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "ci_result": {"$ref": "#/$defs/subsystem-summary"},
+            "sorna_run": {"$ref": "#/$defs/subsystem-summary"},
+            "nublar_run": {"$ref": "#/$defs/subsystem-summary"},
+            "custody": {"$ref": "#/$defs/subsystem-summary"},
+            "provenance": {"$ref": "#/$defs/subsystem-summary"}
+          }
+        }
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "side", "relation"],
+      "properties": {
+        "kind": {"enum": ["nublar-run-to-custody-source", "nublar-correlation-to-amber"]},
+        "side": {"enum": ["before", "after"]},
+        "relation": {"enum": ["exact-match", "mismatch", "unknown"]},
+        "nublar_run_id": {"type": "string"},
+        "custody_source_run_id": {"type": "string"},
+        "nublar_correlation_id": {"type": "string"},
+        "amber_correlation_id": {"type": "string"}
+      }
+    }
+  }
+}

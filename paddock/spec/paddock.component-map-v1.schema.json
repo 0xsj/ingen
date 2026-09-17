@@ -30,6 +30,7 @@
         "required": ["name", "package_count", "packages"],
         "properties": {
           "name": {"type": "string", "minLength": 1},
+          "identity": {"type": "string", "minLength": 1},
           "labels": {"type": "object", "additionalProperties": {"type": "string"}},
           "package_count": {"type": "integer", "minimum": 0},
           "packages": {"type": "array", "items": {"type": "string"}}
@@ -45,7 +46,9 @@
         "properties": {
           "from": {"type": "string", "minLength": 1},
           "to": {"type": "string", "minLength": 1},
-          "edges": {"type": "integer", "minimum": 1}
+          "edges": {"type": "integer", "minimum": 1},
+          "from_identity": {"type": "string", "minLength": 1},
+          "to_identity": {"type": "string", "minLength": 1}
         }
       }
     },
@@ -57,6 +60,7 @@
         "required": ["from", "target", "target_kind", "edges"],
         "properties": {
           "from": {"type": "string", "minLength": 1},
+          "from_identity": {"type": "string", "minLength": 1},
           "target": {"type": "string", "minLength": 1},
           "target_kind": {"type": "string", "minLength": 1},
           "edges": {"type": "integer", "minimum": 1}
