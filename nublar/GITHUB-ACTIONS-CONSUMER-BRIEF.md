@@ -1,6 +1,6 @@
 # GitHub Actions consumer brief
 
-Status: externally validated with fixture-backed workflow, 2026-09-17
+Status: externally validated with live producer handoff, 2026-09-17
 
 This brief treats one GitHub Actions job as Nublar's first concrete consumer
 candidate. It is intentionally limited to a CI gate that collects producer
@@ -28,6 +28,17 @@ The uploaded artifacts were downloaded and verified to contain:
 This proves the GitHub Actions consumer mechanics with the checked-in producer
 fixture. The workflow now also contains a separate producer job and Nublar
 consumer job for live handoff validation.
+
+The corrected live workflow was dispatched from `dev` at commit `3dd7c42` in
+[GitHub Actions run 35200478467](https://github.com/0xsj/ingen/actions/runs/35200478467).
+The macOS producer job published all four declared Sorna envelopes; the Ubuntu
+Nublar job downloaded them and completed collection, correlation verification,
+artifact upload, and decision propagation successfully.
+
+The downloaded artifacts were verified to contain four passed
+`ingen.ci-result/v1` producer envelopes and a passed `ingen.nublar-run/v1` plus
+`ingen.nublar-decision/v1` with `exit_code=0` and the matching GitHub run
+correlation.
 
 ## Consumer identity
 
@@ -78,7 +89,7 @@ The existing surface provides:
 - `github-actions`, run ID, and run-attempt correlation;
 - process exit codes `0` for passed, `1` for failed, and `2` for collection
   or export errors;
-- immutable local history for the duration of the runner workspace.
+- immutable local history for the duration of the runner workspace;
 - uploaded run and decision artifacts with an initial 14-day retention period.
 
 ## Required behavior
@@ -143,12 +154,11 @@ The frozen Nublar commands and schemas are sufficient for this first
 GitHub-Actions-shaped consumer. No contract or schema change is proposed by
 this brief.
 
-The executable workflow now provides the selected producer-to-consumer
-boundary. The next validation step is to dispatch it in GitHub Actions and
-confirm that the real producer envelopes survive the job boundary and are
-collected by Nublar. A GitHub-specific status, annotation, API client, hosted
-receipt store, or provider retry queue would be a separate consumer
-requirement behind the provider-neutral decision projection.
+The executable workflow now provides an externally validated
+producer-to-consumer boundary. No contract or schema change was required. A
+GitHub-specific status, annotation, API client, hosted receipt store, or
+provider retry queue would be a separate consumer requirement behind the
+provider-neutral decision projection.
 
 ## Non-goals
 

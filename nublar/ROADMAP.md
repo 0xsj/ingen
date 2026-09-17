@@ -69,6 +69,8 @@ the practical command flow is documented in
   and retry-shaped behavior.
 - Usage guide, consumer handoff, contract checkpoint, freeze record, and
   consumer-request template.
+- GitHub Actions fixture and live-handoff proofs with separate producer and
+  Nublar consumer jobs, cross-job envelope transfer, and artifact inspection.
 - Single `make nublar-freeze-check` gate covering tests, vet, schemas, consumer
   scenarios, and diff-whitespace validation.
 
@@ -112,9 +114,11 @@ and decision propagation using a checked-in producer fixture. A live producer
 handoff is now represented by a separate producer and Nublar consumer job in
 the same workflow. The first live attempt identified the expected platform
 boundary—Sorna requires its macOS host-enforcement backend—so the producer job
-now runs on `macos-latest` while Nublar remains a separate POSIX consumer.
-Dispatching the corrected path is the next validation gate before adding
-destination-specific behavior.
+now runs on `macos-latest` while Nublar remains a separate POSIX consumer. The
+corrected live handoff passed in
+[run 35200478467](https://github.com/0xsj/ingen/actions/runs/35200478467),
+including all four producer envelopes, cross-job transfer, and the final
+passed/0 Nublar decision.
 
 Entry criteria:
 
