@@ -135,7 +135,7 @@ func (p *Publisher) Publish(ctx context.Context, decision delivery.Decision) (de
 		receipt.Error = err.Error()
 		return receipt, err
 	}
-	path := p.checkRunsPath()
+	path := p.createCheckRunPath()
 	method := http.MethodPost
 	if found {
 		method = http.MethodPatch
@@ -289,6 +289,10 @@ func (p *Publisher) findExisting(ctx context.Context, runID string) (int64, bool
 
 func (p *Publisher) checkRunsPath() string {
 	return fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs", url.PathEscape(p.owner), url.PathEscape(p.repo), url.PathEscape(p.headSHA))
+}
+
+func (p *Publisher) createCheckRunPath() string {
+	return fmt.Sprintf("/repos/%s/%s/check-runs", url.PathEscape(p.owner), url.PathEscape(p.repo))
 }
 
 func (p *Publisher) checkRunPath(id int64) string {

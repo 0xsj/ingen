@@ -23,7 +23,7 @@ func TestPublishCreatesCompletedSuccessCheck(t *testing.T) {
 			writeJSON(w, http.StatusOK, checkRunList{})
 			return
 		}
-		if r.Method != http.MethodPost || r.URL.Path != "/repos/acme/ingen/commits/abc123/check-runs" {
+		if r.Method != http.MethodPost || r.URL.Path != "/repos/acme/ingen/check-runs" {
 			t.Fatalf("create request = %s %s", r.Method, r.URL.Path)
 		}
 		if r.Header.Get("Authorization") != "Bearer token" || r.Header.Get("X-GitHub-Api-Version") == "" {
