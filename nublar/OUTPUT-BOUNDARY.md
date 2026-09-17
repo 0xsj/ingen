@@ -17,7 +17,7 @@ the run's decision code. `run show` returns the stored run's decision code.
 JSON list was written successfully, regardless of the statuses of listed
 runs. `run decision` likewise returns `0` when its provider-neutral projection
 is successfully written; the projected run status remains in the JSON.
-`run deliver` returns `0` only when the webhook accepts the projection and
+`run deliver` returns `0` only when the selected delivery transport accepts the projection and
 `2` for delivery failures. With `--receipt`, it atomically exports the
 independent delivery-attempt outcome, including failed attempts when the
 publisher was reached. Storage, validation, serialization, and delivery
@@ -35,13 +35,13 @@ directories before invoking Nublar.
 Stdout remains a stream for callers that do not provide `--output`. Nublar
 does not contact a network endpoint unless `run deliver` is explicitly
 invoked, and `--receipt` is also an atomic JSON export rather than a second
-run record. Nublar does not emit provider-specific delivery formats in this
-slice.
+run record. The generic webhook and GitHub Checks transports publish only the
+provider-neutral decision projection.
 
 ## Deliberately deferred
 
-Hosted pull-request statuses, annotations, authentication, retries, output
-signing, and provider-specific remote delivery belong behind the
-provider-neutral projection documented in [`DELIVERY-BOUNDARY.md`](DELIVERY-BOUNDARY.md)
-and future concrete adapters. The generic webhook transport is the limited
-reference publisher for this slice.
+Hosted pull-request comments, annotations, approvals, durable retry queues,
+and additional provider-specific delivery belong behind the provider-neutral
+projection documented in [`DELIVERY-BOUNDARY.md`](DELIVERY-BOUNDARY.md). The
+generic webhook and GitHub Checks transports are the current concrete
+publishers.

@@ -189,12 +189,19 @@ Entry criteria:
 - Required lifecycle and failure semantics.
 - Isolation and cleanup contract.
 
-### 5. Compatibility migration and SDKs
+### 5. Compatibility migration and SDKs — evaluated and deferred
 
 After a concrete consumer uses the run path, decide whether the compatibility
 `aggregate` command should be deprecated or retained. Add SDKs or language
 bindings only when a consumer has a stable need and the Go contract has proven
 the required semantics.
+
+The decision is recorded in
+[`COMPATIBILITY-EVALUATION.md`](COMPATIBILITY-EVALUATION.md): retain
+`aggregate` for existing Make targets and one-shot consumers, direct new work
+to `run collect`, and defer SDKs because no consumer requires a library
+boundary. Deprecation requires an explicit migration window and replacement
+proof.
 
 Entry criteria:
 
