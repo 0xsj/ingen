@@ -129,6 +129,8 @@ The template for proposing the next concrete consumer requirement is
 [`CONSUMER-REQUEST-TEMPLATE.md`](CONSUMER-REQUEST-TEMPLATE.md).
 The prepared GitHub Actions consumer brief is
 [`GITHUB-ACTIONS-CONSUMER-BRIEF.md`](GITHUB-ACTIONS-CONSUMER-BRIEF.md).
+The proposed GitHub Checks delivery requirements are documented in
+[`GITHUB-CHECKS-ADAPTER-REQUIREMENTS.md`](GITHUB-CHECKS-ADAPTER-REQUIREMENTS.md).
 The provider-neutral CI gate example is documented in
 [`examples/consumer/README.md`](examples/consumer/README.md).
 The first Sentinel verifier handoff into Nublar is documented in
