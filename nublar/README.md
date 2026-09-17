@@ -109,6 +109,8 @@ older prototype; the run path is the first persisted collection record.
 
 The first filesystem persistence boundary is documented in
 [`STORAGE.md`](STORAGE.md).
+The current storage scale and retention evaluation is documented in
+[`STORAGE-EVALUATION.md`](STORAGE-EVALUATION.md).
 The initial read contract is documented in
 [`RUN-QUERY.md`](RUN-QUERY.md).
 The CI-facing output and exit-code contract is documented in

@@ -157,12 +157,18 @@ Entry criteria:
 - Defined idempotency and retry behavior.
 - Evidence that producer-owned reports remain opaque to the adapter.
 
-### 3. Durable or hosted storage
+### 3. Durable or hosted storage — evaluated and deferred
 
 Only if the consumer needs multi-process, multi-machine, or long-lived history,
 evaluate a hosted API, embedded database, remote store, or stronger filesystem
 coordination. Retention, pagination, locking, migrations, and access control
 belong to this phase.
+
+The validated GitHub Actions consumer has now been evaluated in
+[`STORAGE-EVALUATION.md`](STORAGE-EVALUATION.md). Its one-run-per-ephemeral-job
+shape, 14-day artifact retention, small record sizes, and same-job query needs
+do not meet this phase's entry criteria. No storage implementation work is
+opened.
 
 Entry criteria:
 

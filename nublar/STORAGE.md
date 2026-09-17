@@ -2,6 +2,11 @@
 
 ## First storage boundary
 
+The current GitHub Actions storage need is evaluated in
+[`STORAGE-EVALUATION.md`](STORAGE-EVALUATION.md); the result is to retain this
+local boundary until a consumer demonstrates multi-process, multi-machine, or
+long-lived history requirements.
+
 The first durable storage contract is intentionally small:
 
 ```text
