@@ -8,7 +8,8 @@ defined in [`RUN-IDENTITY.md`](RUN-IDENTITY.md). Execution ownership is
 defined in [`EXECUTION-BOUNDARY.md`](EXECUTION-BOUNDARY.md).
 The current execution ownership evaluation is documented in
 [`EXECUTION-EVALUATION.md`](EXECUTION-EVALUATION.md).
-For the practical command flow, see [`USAGE-GUIDE.md`](USAGE-GUIDE.md).
+For the step-by-step start-here guide, see [`USAGE.md`](USAGE.md). The detailed
+command and contract guide is [`USAGE-GUIDE.md`](USAGE-GUIDE.md).
 The completed baseline and candidate future phases are tracked in
 [`ROADMAP.md`](ROADMAP.md).
 The current implementation status and reopen conditions are summarized in

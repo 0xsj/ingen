@@ -1,5 +1,9 @@
 # Nublar usage guide
 
+For a concise start-to-finish walkthrough, begin with
+[`USAGE.md`](USAGE.md). This document contains the detailed command and
+contract reference.
+
 Nublar consumes producer-written `ingen.ci-result/v1` envelopes, records one
 immutable collection attempt, and exposes a provider-neutral decision for CI
 or delivery systems. It does not launch Sorna, Paddock, or another producer.
