@@ -176,12 +176,18 @@ Entry criteria:
 - Recovery and concurrency expectations.
 - Defined query and authorization contract.
 
-### 4. Producer execution and scheduling
+### 4. Producer execution and scheduling — evaluated and deferred
 
 If a consumer requires Nublar to launch producers, define orchestration
 ownership, workspace isolation, cancellation, timeouts, scheduling, and
 producer lifecycle reporting. The current boundary intentionally assumes that
 producer workflows already ran.
+
+The current GitHub Actions handoff has been evaluated in
+[`EXECUTION-EVALUATION.md`](EXECUTION-EVALUATION.md). External workflows own
+producer execution and reruns, while Nublar consumes complete envelopes in a
+separate job. No ownership-transfer requirement is established, so no
+execution or scheduling implementation work is opened.
 
 Entry criteria:
 
