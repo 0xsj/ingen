@@ -65,7 +65,7 @@ fact that a process was restarted.
 - [`sorna/internal/malcolm/adapter.go`](../../../sorna/internal/malcolm/adapter.go)
 - [`sorna/internal/runner/runner.go`](../../../sorna/internal/runner/runner.go)
 - [`document-pipeline fixture`](../../../examples/document-pipeline-lab/subject/server.go)
-- [`malcolm/examples/document_flow.malcolm`](../../../malcolm/examples/document_flow.malcolm)
+- [`malcolm/examples/document_flow.malc`](../../../malcolm/examples/document_flow.malc)
 
 ## Related
 

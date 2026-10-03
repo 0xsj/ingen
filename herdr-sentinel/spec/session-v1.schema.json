@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.sentinel-session-v1.schema.json",
+  "title": "InGen Sentinel local session record v1",
+  "description": "A declaration-only record for one local role process and its captured output.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "session_id", "run_id", "workspace_id", "role_id", "role_kind",
+    "workspace", "command", "status", "enforcement", "assurance", "created_at",
+    "stdout", "stderr"
+  ],
+  "properties": {
+    "schema": {"const": "ingen.sentinel-session/v1"},
+    "session_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "workspace_id": {"type": "string", "minLength": 1},
+    "role_id": {"type": "string", "minLength": 1},
+    "role_kind": {"type": "string", "minLength": 1},
+    "workspace": {"type": "string", "minLength": 1},
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "status": {"enum": ["pending", "running", "completed", "failed"]},
+    "enforcement": {"const": "declaration-only"},
+    "assurance": {"const": "unverified"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"type": "string", "format": "date-time"},
+    "exit_code": {"type": "integer"},
+    "stdout": {"type": "string", "minLength": 1},
+    "stderr": {"type": "string", "minLength": 1},
+    "error": {"type": "string", "minLength": 1}
+  }
+}

@@ -66,7 +66,7 @@ containing error makes the prohibited expectation match and fails the rule.
 - [sorna/internal/runner/runner.go](../../../sorna/internal/runner/runner.go)
 - [sorna/internal/runner/runner_test.go](../../../sorna/internal/runner/runner_test.go)
 - [sorna/internal/malcolm/adapter.go](../../../sorna/internal/malcolm/adapter.go)
-- [malcolm/examples/document_flow.malcolm](../../../malcolm/examples/document_flow.malcolm)
+- [malcolm/examples/document_flow.malc](../../../malcolm/examples/document_flow.malc)
 - Makefile target malcolm-sorna-flow-run
 
 ## Related

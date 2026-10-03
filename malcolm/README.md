@@ -1,6 +1,8 @@
 # Malcolm
 
 Malcolm is an experimental executable specification language and adversarial verification tool for AI-generated software.
+Malcolm source files use the `.malc` extension.
+See [ADR-0001](../docs/adr/0001-malcolm-source-extension.md) for the naming decision.
 
 The project is named for Ian Malcolm: its purpose is to challenge systems that appear correct, expose shared assumptions, and make verification boundaries visible.
 
@@ -102,7 +104,7 @@ language-neutral JSON intermediate representation:
 
 ```sh
 cargo run --manifest-path malcolm/Cargo.toml -- \
-  malcolm/examples/document_api.malcolm
+  malcolm/examples/document_api.malc
 ```
 
 Write the JSON to a file with `-o` or `--output`; use `-` as the input path to
@@ -278,7 +280,7 @@ killed/survived evidence. Use the checked-in example with:
 
 ~~~sh
 cargo run --manifest-path malcolm/Cargo.toml -- \
-  malcolm/examples/document_mutation.malcolm \
+  malcolm/examples/document_mutation.malc \
   --output .artifacts/document-mutation.ir.json
 go run ./sorna/cmd/sorna-malcolm \
   .artifacts/document-mutation.ir.json \

@@ -23,7 +23,7 @@ SORNA_RELEASE_WORKFLOW ?= local
 SORNA_RELEASE_RUN_ID ?= local
 SORNA_RELEASE_RUN_ATTEMPT ?= 1
 SORNA_RELEASE_RUNNER ?= local
-MALCOLM_EXAMPLE ?= malcolm/examples/healthz.malcolm
+MALCOLM_EXAMPLE ?= malcolm/examples/healthz.malc
 MALCOLM_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-healthz.ir.json
 MALCOLM_SORNA_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-healthz-contract.json
 MALCOLM_ORACLE_POLICY ?= malcolm/examples/healthz/oracle-policy.yaml
@@ -31,7 +31,7 @@ MALCOLM_SUBJECT_POLICY ?= malcolm/examples/healthz/subject-policy.yaml
 MALCOLM_SORNA_SEALED_DIR ?= $(ARTIFACT_ROOT)/malcolm-healthz-contract-sealed
 MALCOLM_SORNA_ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-healthz-oracle
 MALCOLM_SORNA_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-healthz-run
-MALCOLM_FLOW_EXAMPLE ?= malcolm/examples/document_flow.malcolm
+MALCOLM_FLOW_EXAMPLE ?= malcolm/examples/document_flow.malc
 MALCOLM_FLOW_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-flow.ir.json
 MALCOLM_FLOW_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-flow-contract.json
 MALCOLM_FLOW_ORACLE_POLICY ?= malcolm/examples/document_flow/oracle-policy.yaml
@@ -43,7 +43,7 @@ MALCOLM_FLOW_EVENT_DEFECT_BINARY ?= $(ARTIFACT_ROOT)/document-pipeline-subject/m
 MALCOLM_FLOW_EVENT_DEFECT_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-flow-event-defect-run
 MALCOLM_FLOW_EVENT_DEFECT_ADDR ?= $(SUBJECT_ADDR)
 MALCOLM_FLOW_EVENT_DEFECT_URL ?= $(SUBJECT_URL)
-MALCOLM_BOUNDARY_EXAMPLE ?= malcolm/examples/document_boundary.malcolm
+MALCOLM_BOUNDARY_EXAMPLE ?= malcolm/examples/document_boundary.malc
 MALCOLM_BOUNDARY_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-boundary.ir.json
 MALCOLM_BOUNDARY_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-boundary-contract.json
 MALCOLM_BOUNDARY_ORACLE_POLICY ?= malcolm/examples/document_boundary/oracle-policy.yaml
@@ -51,7 +51,7 @@ MALCOLM_BOUNDARY_SUBJECT_POLICY ?= malcolm/examples/document_boundary/subject-po
 MALCOLM_BOUNDARY_SEALED_DIR ?= $(ARTIFACT_ROOT)/malcolm-boundary-contract-sealed
 MALCOLM_BOUNDARY_ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-boundary-oracle
 MALCOLM_BOUNDARY_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-boundary-run
-MALCOLM_INTERPOLATION_EXAMPLE ?= malcolm/examples/document_interpolation.malcolm
+MALCOLM_INTERPOLATION_EXAMPLE ?= malcolm/examples/document_interpolation.malc
 MALCOLM_INTERPOLATION_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-interpolation.ir.json
 MALCOLM_INTERPOLATION_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-interpolation-contract.json
 MALCOLM_INTERPOLATION_ORACLE_POLICY ?= malcolm/examples/document_interpolation/oracle-policy.yaml
@@ -59,14 +59,14 @@ MALCOLM_INTERPOLATION_SUBJECT_POLICY ?= malcolm/examples/document_interpolation/
 MALCOLM_INTERPOLATION_SEALED_DIR ?= $(ARTIFACT_ROOT)/malcolm-interpolation-contract-sealed
 MALCOLM_INTERPOLATION_ORACLE_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-interpolation-oracle
 MALCOLM_INTERPOLATION_RUN_OUTPUT_DIR ?= $(ARTIFACT_ROOT)/malcolm-interpolation-run
-MALCOLM_MUTATION_EXAMPLE ?= malcolm/examples/document_mutation.malcolm
+MALCOLM_MUTATION_EXAMPLE ?= malcolm/examples/document_mutation.malc
 MALCOLM_MUTATION_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-mutation.ir.json
 MALCOLM_MUTATION_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-mutation-contract.json
 MALCOLM_MUTATION_CATALOGUE_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-mutation-catalogue.json
-MALCOLM_PROVENANCE_EXAMPLE ?= malcolm/examples/document_provenance.malcolm
+MALCOLM_PROVENANCE_EXAMPLE ?= malcolm/examples/document_provenance.malc
 MALCOLM_PROVENANCE_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-provenance.ir.json
 MALCOLM_PROVENANCE_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-provenance-contract.json
-MALCOLM_FIXTURE_EXAMPLE ?= malcolm/examples/document_fixture.malcolm
+MALCOLM_FIXTURE_EXAMPLE ?= malcolm/examples/document_fixture.malc
 MALCOLM_FIXTURE_IR_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-fixture.ir.json
 MALCOLM_FIXTURE_CONTRACT_OUTPUT ?= $(ARTIFACT_ROOT)/malcolm-fixture-contract.json
 MALCOLM_FIXTURE_SEALED_DIR ?= $(ARTIFACT_ROOT)/malcolm-fixture-contract-sealed
@@ -135,6 +135,27 @@ WEBHOOK_NUBLAR_RESULT_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-nublar-resul
 WEBHOOK_NUBLAR_RUN_OUTPUT ?= $(ARTIFACT_ROOT)/webhook-validation-nublar-run.json
 WEBHOOK_NUBLAR_RUN_STORE ?= $(ARTIFACT_ROOT)/webhook-validation-nublar-runs
 SENTINEL_WORKSPACE ?= herdr-sentinel/workspaces/webhook-validation.yaml
+SENTINEL_PROJECT_ROOT ?= .
+SENTINEL_PROJECT_WORKSPACE ?= .ingen/workspace.yaml
+SENTINEL_PROJECT_SPEC ?= .ingen/contract/spec.malc
+SENTINEL_PROJECT_IR_OUTPUT ?= .ingen/contract/spec.ir.json
+SENTINEL_PROJECT_CONTRACT_OUTPUT ?= .ingen/contract/contract.json
+SENTINEL_PROJECT_ORACLE_POLICY ?= .ingen/policy/oracle.yaml
+SENTINEL_PROJECT_SUBJECT_POLICY ?= .ingen/policy/subject.yaml
+SENTINEL_PROJECT_CONTRACT_SEALED_DIR ?= .ingen/contract
+SENTINEL_PROJECT_ORACLE_OUTPUT_DIR ?= .ingen/artifacts/oracle
+SENTINEL_PROJECT_ORACLE_OUTPUT ?= $(SENTINEL_PROJECT_ORACLE_OUTPUT_DIR)/oracle.json
+SENTINEL_PROJECT_EVIDENCE_OUTPUT_DIR ?= .ingen/artifacts/evidence
+SENTINEL_PROJECT_EVIDENCE_CI_RESULT_OUTPUT ?= .ingen/artifacts/evidence-ci-result.json
+SENTINEL_PROJECT_NUBLAR_WORKFLOW ?= .ingen/nublar/workflow.yaml
+SENTINEL_PROJECT_NUBLAR_RESULT_OUTPUT ?= .ingen/artifacts/nublar-result.json
+SENTINEL_PROJECT_NUBLAR_RUN_STORE ?= .ingen/artifacts/nublar-runs
+SENTINEL_PROJECT_NUBLAR_RUN_OUTPUT ?= .ingen/artifacts/nublar-run.json
+SENTINEL_PROJECT_SUBJECT_COMMAND ?=
+SENTINEL_PROJECT_SUBJECT_ARGS ?=
+SENTINEL_PROJECT_SUBJECT_URL ?= http://127.0.0.1:8080
+SENTINEL_PROJECT_READY_PATH ?= /healthz
+SENTINEL_PROJECT_VARIANT ?= fresh-project
 SENTINEL_RUN_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-run.json
 SENTINEL_CAPABILITY_OUTPUT ?= $(ARTIFACT_ROOT)/sentinel-webhook-capability-plan.json
 SENTINEL_ORACLE_PROBE ?= examples/webhook-validation-lab/contract/contract.yaml
@@ -217,7 +238,7 @@ SORNA_RELEASE_WORKSPACE ?=
 	sorna-external-run evidence-verify sorna-replay sorna-replay-ci-result sorna-replay-fresh sorna-replay-defect-fresh sorna-replay-stateful-defect-fresh sorna-replay-process-defect-fresh sorna-replay-persistence-defect-fresh sorna-replay-remove-name-defect-fresh sorna-replay-accepts-png-defect-fresh sorna-replay-regression sorna-replay-matrix-ci-result sorna-replay-matrix-verify sorna-replay-matrix-ci-result-fresh sorna-alpha-check sorna-release-check oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
 	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-conformance mutation-typescript-provider-conformance mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-campaign-ci-result-fresh mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap sentinel-capability-plan sentinel-adapter-oracle-probe sentinel-adapter-verifier-probe sentinel-ci-result nublar-sentinel-aggregate nublar-sentinel-run-collect nublar-sentinel-run-collect-fresh nublar-sentinel-run-collect-external-root-fresh sentinel-adapter-verifier-failure-probe sentinel-ci-result-failure nublar-sentinel-run-collect-failure nublar-sentinel-run-collect-failure-fresh
 
-.PHONY: nublar-sentinel-run-collect-external-root-failure-fresh sentinel-herdr-probe-fixture sentinel-herdr-contract-status-check sentinel-herdr-host-envelope-check
+.PHONY: nublar-sentinel-run-collect-external-root-failure-fresh sentinel-project-check sentinel-project-contract-create sentinel-project-contract-seal sentinel-project-oracle-freeze sentinel-project-verify sentinel-project-evidence-verify sentinel-project-evidence-gate sentinel-project-nublar-aggregate sentinel-project-nublar-run-collect sentinel-herdr-probe-fixture sentinel-herdr-contract-status-check sentinel-herdr-host-envelope-check
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)
@@ -498,6 +519,34 @@ nublar-webhook-aggregate-fresh: ## Run the complete webhook workflow in a fresh 
 
 sentinel-workspace-validate: ## Validate the Sentinel webhook contract workspace manifest
 	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel workspace validate "$(SENTINEL_WORKSPACE)"
+
+sentinel-project-check: ## Preflight a fresh InGen project (set SENTINEL_PROJECT_ROOT)
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel project check --root "$(SENTINEL_PROJECT_ROOT)" --workspace "$(SENTINEL_PROJECT_WORKSPACE)"
+
+sentinel-project-contract-create: ## Create a Malcolm-to-Sorna contract in a fresh project
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel contract create --root "$(SENTINEL_PROJECT_ROOT)" --spec "$(SENTINEL_PROJECT_SPEC)" --ir-output "$(SENTINEL_PROJECT_IR_OUTPUT)" --output "$(SENTINEL_PROJECT_CONTRACT_OUTPUT)" --ingen-root "$(CURDIR)"
+
+sentinel-project-contract-seal: ## Seal the exact contract snapshot in a fresh project
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel contract seal "$(SENTINEL_PROJECT_CONTRACT_OUTPUT)" --root "$(SENTINEL_PROJECT_ROOT)" --output-dir "$(SENTINEL_PROJECT_CONTRACT_SEALED_DIR)"
+
+sentinel-project-oracle-freeze: ## Freeze the independent Sorna oracle for a fresh project
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel oracle freeze --root "$(SENTINEL_PROJECT_ROOT)" --contract "$(SENTINEL_PROJECT_CONTRACT_OUTPUT)" --policy "$(SENTINEL_PROJECT_ORACLE_POLICY)" --output-dir "$(SENTINEL_PROJECT_ORACLE_OUTPUT_DIR)" --ingen-root "$(CURDIR)"
+
+sentinel-project-verify: ## Run a fresh project's subject through Sorna's black-box verifier
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel verify --root "$(SENTINEL_PROJECT_ROOT)" --ingen-root "$(CURDIR)" --oracle "$(SENTINEL_PROJECT_ORACLE_OUTPUT)" --policy "$(SENTINEL_PROJECT_ORACLE_POLICY)" --subject-policy "$(SENTINEL_PROJECT_SUBJECT_POLICY)" --base-url "$(SENTINEL_PROJECT_SUBJECT_URL)" --ready-path "$(SENTINEL_PROJECT_READY_PATH)" --subject-variant "$(SENTINEL_PROJECT_VARIANT)" --subject-command "$(SENTINEL_PROJECT_SUBJECT_COMMAND)" --output-dir "$(SENTINEL_PROJECT_EVIDENCE_OUTPUT_DIR)" $(SENTINEL_PROJECT_SUBJECT_ARGS)
+
+sentinel-project-evidence-verify: ## Verify the evidence bundle produced by a fresh project's Sorna run
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel evidence verify --root "$(SENTINEL_PROJECT_ROOT)" --ingen-root "$(CURDIR)" "$(SENTINEL_PROJECT_EVIDENCE_OUTPUT_DIR)"
+
+sentinel-project-evidence-gate: ## Write a shared Sorna CI result for a fresh project's evidence
+	$(GO_CMD) run ./herdr-sentinel/cmd/sentinel evidence gate --root "$(SENTINEL_PROJECT_ROOT)" --ingen-root "$(CURDIR)" --output "$(SENTINEL_PROJECT_EVIDENCE_CI_RESULT_OUTPUT)" "$(SENTINEL_PROJECT_EVIDENCE_OUTPUT_DIR)"
+
+sentinel-project-nublar-aggregate: ## Aggregate a fresh project's producer results through Nublar
+	$(GO_CMD) run ./nublar/cmd/nublar aggregate --workflow "$(abspath $(SENTINEL_PROJECT_ROOT)/$(SENTINEL_PROJECT_NUBLAR_WORKFLOW))" --root "$(abspath $(SENTINEL_PROJECT_ROOT))" --output "$(abspath $(SENTINEL_PROJECT_ROOT)/$(SENTINEL_PROJECT_NUBLAR_RESULT_OUTPUT))"
+
+sentinel-project-nublar-run-collect: ## Persist a fresh project's Nublar delivery run
+	mkdir -p "$(abspath $(SENTINEL_PROJECT_ROOT)/$(SENTINEL_PROJECT_NUBLAR_RUN_STORE))"
+	$(GO_CMD) run ./nublar/cmd/nublar run collect --workflow "$(abspath $(SENTINEL_PROJECT_ROOT)/$(SENTINEL_PROJECT_NUBLAR_WORKFLOW))" --root "$(abspath $(SENTINEL_PROJECT_ROOT))" --store "$(abspath $(SENTINEL_PROJECT_ROOT)/$(SENTINEL_PROJECT_NUBLAR_RUN_STORE))" --output "$(abspath $(SENTINEL_PROJECT_ROOT)/$(SENTINEL_PROJECT_NUBLAR_RUN_OUTPUT))"
 
 sentinel-run-bootstrap: ## Create a Sentinel lifecycle receipt for the webhook workspace
 	mkdir -p "$(dir $(SENTINEL_RUN_OUTPUT))"

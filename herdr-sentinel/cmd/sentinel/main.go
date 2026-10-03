@@ -1,21 +1,28 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"ingen/core/ciresult"
 	sentineladapter "ingen/herdr-sentinel/internal/adapter"
 	sentinelaudit "ingen/herdr-sentinel/internal/audit"
 	"ingen/herdr-sentinel/internal/capability"
+	sentinelpreflight "ingen/herdr-sentinel/internal/preflight"
+	sentinelproject "ingen/herdr-sentinel/internal/project"
 	sentinelreport "ingen/herdr-sentinel/internal/report"
 	sentinelrun "ingen/herdr-sentinel/internal/run"
+	sentinelsession "ingen/herdr-sentinel/internal/session"
 	"ingen/herdr-sentinel/internal/workspace"
+	sornacontract "ingen/sorna/contract"
 )
 
 func main() {
@@ -28,16 +35,818 @@ func run(args []string) int {
 		return 2
 	}
 	switch args[0] {
+	case "project":
+		return projectCommand(args[1:])
 	case "workspace":
 		return workspaceCommand(args[1:])
 	case "adapter":
 		return adapterCommand(args[1:])
 	case "run":
 		return runCommand(args[1:])
+	case "session":
+		return sessionCommand(args[1:])
+	case "contract":
+		return contractCommand(args[1:])
+	case "oracle":
+		return oracleCommand(args[1:])
+	case "verify":
+		return verifyCommand(args[1:])
+	case "evidence":
+		return evidenceCommand(args[1:])
 	default:
 		usage()
 		return 2
 	}
+}
+
+func sessionCommand(args []string) int {
+	if len(args) == 0 {
+		usage()
+		return 2
+	}
+	switch args[0] {
+	case "spawn":
+		return spawnSessionCommand(args[1:])
+	case "status":
+		return sessionStatusCommand(args[1:])
+	case "list":
+		return sessionListCommand(args[1:])
+	default:
+		usage()
+		return 2
+	}
+}
+
+func spawnSessionCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel session spawn", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	workspacePath := flags.String("workspace", "", "Sentinel workspace manifest relative to the project root")
+	receiptPath := flags.String("receipt", "", "Sentinel lifecycle receipt relative to the project root")
+	roleID := flags.String("role", "", "role ID to launch")
+	root := flags.String("root", ".", "project root containing the workspace and receipt")
+	outputPath := flags.String("output", "", "session record path relative to the project root")
+	stdoutPath := flags.String("stdout", "", "captured stdout path relative to the project root")
+	stderrPath := flags.String("stderr", "", "captured stderr path relative to the project root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *workspacePath == "" || *receiptPath == "" || *roleID == "" || len(flags.Args()) == 0 {
+		usage()
+		return 2
+	}
+	record, err := sentinelsession.Spawn(sentinelsession.Request{
+		Root:          *root,
+		WorkspacePath: *workspacePath,
+		ReceiptPath:   *receiptPath,
+		RoleID:        *roleID,
+		OutputPath:    *outputPath,
+		StdoutPath:    *stdoutPath,
+		StderrPath:    *stderrPath,
+		Command:       flags.Args(),
+	})
+	if record.SessionID != "" {
+		fmt.Println("session:", record.SessionID)
+		fmt.Println("status:", record.Status)
+	}
+	if err == nil {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, err)
+	var exitErr *osexec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return 1
+}
+
+func sessionStatusCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel session status", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "project root containing the session record")
+	path := flags.String("path", "", "session record path relative to the project root")
+	format := flags.String("format", "text", "output format: text or json")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *path == "" || len(flags.Args()) != 0 || (*format != "text" && *format != "json") {
+		usage()
+		return 2
+	}
+	recordPath, err := sentinelrun.ResolveFileRefUnderRoot(*root, ciresult.FileRef{Path: *path})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	record, err := sentinelsession.LoadFile(recordPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *format == "json" {
+		if err := sentinelsession.WriteJSON(os.Stdout, record); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+	fmt.Printf("session: %s\nrun: %s\nrole: %s (%s)\nstatus: %s\nenforcement: %s\nworkspace: %s\n", record.SessionID, record.RunID, record.RoleID, record.RoleKind, record.Status, record.Enforcement, record.Workspace)
+	return 0
+}
+
+func sessionListCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel session list", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "project root containing session records")
+	directory := flags.String("dir", ".ingen/artifacts/sessions", "session record directory relative to the project root")
+	format := flags.String("format", "text", "output format: text or json")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 || (*format != "text" && *format != "json") {
+		usage()
+		return 2
+	}
+	directoryPath, err := sentinelrun.ResolveDirectoryUnderRoot(*root, *directory)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	entries, err := os.ReadDir(directoryPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	records := make([]sentinelsession.Record, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		record, loadErr := sentinelsession.LoadFile(filepath.Join(directoryPath, entry.Name()))
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "load session %s: %v\n", entry.Name(), loadErr)
+			return 1
+		}
+		records = append(records, record)
+	}
+	sort.Slice(records, func(left, right int) bool {
+		return records[left].CreatedAt < records[right].CreatedAt
+	})
+	if *format == "json" {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(records); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+	for _, record := range records {
+		fmt.Printf("%s\t%s\t%s\t%s\n", record.SessionID, record.RoleID, record.Status, record.CreatedAt)
+	}
+	return 0
+}
+
+func contractCommand(args []string) int {
+	if len(args) == 0 {
+		usage()
+		return 2
+	}
+	switch args[0] {
+	case "create":
+		return createContractCommand(args[1:])
+	case "validate":
+		return validateContractCommand(args[1:])
+	case "seal":
+		return sealContractCommand(args[1:])
+	default:
+		usage()
+		return 2
+	}
+}
+
+func createContractCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel contract create", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	specPath := flags.String("spec", ".ingen/contract/spec.malc", "Malcolm specification path relative to the project root")
+	root := flags.String("root", ".", "fresh project root")
+	irPath := flags.String("ir-output", ".ingen/contract/spec.ir.json", "Malcolm IR output path relative to the project root")
+	contractPath := flags.String("output", ".ingen/contract/contract.json", "Sorna contract output path relative to the project root")
+	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing malcolm/ and sorna/")
+	malcolmManifest := flags.String("malcolm-manifest", "malcolm/Cargo.toml", "Malcolm Cargo manifest relative to the InGen checkout")
+	force := flags.Bool("force", false, "replace existing IR and contract outputs")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	projectRoot, err := absoluteDirectory(*root, "project")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	spec, err := rootedExistingFile(projectRoot, *specPath, "Malcolm specification")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	irOutput, err := rootedOutputFile(projectRoot, *irPath, "Malcolm IR output")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	contractOutput, err := rootedOutputFile(projectRoot, *contractPath, "Sorna contract output")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if !*force {
+		for name, path := range map[string]string{"Malcolm IR output": irOutput, "Sorna contract output": contractOutput} {
+			if _, statErr := os.Stat(path); statErr == nil {
+				fmt.Fprintf(os.Stderr, "%s %s already exists; pass --force to replace it\n", name, path)
+				return 1
+			} else if !os.IsNotExist(statErr) {
+				fmt.Fprintf(os.Stderr, "check %s %s: %v\n", name, path, statErr)
+				return 1
+			}
+		}
+	}
+	if filepath.IsAbs(*malcolmManifest) {
+		fmt.Fprintln(os.Stderr, "Malcolm manifest must be relative to the InGen checkout")
+		return 1
+	}
+	manifestPath, err := sentinelrun.ResolveFileRefUnderRoot(toolRoot, ciresult.FileRef{Path: *malcolmManifest})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resolve Malcolm manifest: %v\n", err)
+		return 1
+	}
+	if err := os.MkdirAll(filepath.Dir(irOutput), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := os.MkdirAll(filepath.Dir(contractOutput), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+
+	malcolm := osexec.Command("cargo", "run", "--manifest-path", manifestPath, "--", spec, "--output", irOutput)
+	malcolm.Dir = toolRoot
+	malcolm.Stdout = os.Stdout
+	malcolm.Stderr = os.Stderr
+	if err := malcolm.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Malcolm failed: %v\n", err)
+		return commandExitCode(err)
+	}
+
+	bridge := osexec.Command("go", "run", "./sorna/cmd/sorna-malcolm", irOutput, "--output", contractOutput)
+	bridge.Dir = toolRoot
+	bridge.Stdout = os.Stdout
+	bridge.Stderr = os.Stderr
+	if err := bridge.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Sorna Malcolm bridge failed: %v\n", err)
+		return commandExitCode(err)
+	}
+	if _, err := sornacontract.LoadFile(contractOutput); err != nil {
+		fmt.Fprintf(os.Stderr, "generated contract failed validation: %v\n", err)
+		return 1
+	}
+	fmt.Println("created IR:", filepath.Clean(*irPath))
+	fmt.Println("created contract:", filepath.Clean(*contractPath))
+	return 0
+}
+
+func oracleCommand(args []string) int {
+	if len(args) == 0 || args[0] != "freeze" {
+		usage()
+		return 2
+	}
+	return freezeOracleCommand(args[1:])
+}
+
+func freezeOracleCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel oracle freeze", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "fresh project root")
+	contractPath := flags.String("contract", ".ingen/contract/contract.json", "Sorna contract path relative to the project root")
+	policyPath := flags.String("policy", ".ingen/policy/oracle.yaml", "Sorna oracle policy path relative to the project root")
+	outputDir := flags.String("output-dir", ".ingen/artifacts/oracle", "frozen oracle output directory relative to the project root")
+	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing Sorna")
+	force := flags.Bool("force", false, "replace an existing frozen oracle bundle")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	projectRoot, err := absoluteDirectory(*root, "project")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	contractFile, err := rootedExistingFile(projectRoot, *contractPath, "Sorna contract")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	policyFile, err := rootedExistingFile(projectRoot, *policyPath, "Sorna oracle policy")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	oracleDir, err := rootedOutputDirectory(projectRoot, *outputDir, "frozen oracle output")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if !*force {
+		oracleFile := filepath.Join(oracleDir, "oracle.json")
+		if _, statErr := os.Stat(oracleFile); statErr == nil {
+			fmt.Fprintf(os.Stderr, "frozen oracle %s already exists; pass --force to replace it\n", oracleFile)
+			return 1
+		} else if !os.IsNotExist(statErr) {
+			fmt.Fprintf(os.Stderr, "check frozen oracle %s: %v\n", oracleFile, statErr)
+			return 1
+		}
+	}
+
+	return runSornaCommand(toolRoot, "oracle", "freeze",
+		"--contract", contractFile,
+		"--policy", policyFile,
+		"--root", projectRoot,
+		"--output-dir", oracleDir,
+	)
+}
+
+func verifyCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel verify", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "fresh project root")
+	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing Sorna")
+	oraclePath := flags.String("oracle", ".ingen/artifacts/oracle/oracle.json", "frozen oracle path relative to the project root")
+	policyPath := flags.String("policy", ".ingen/policy/oracle.yaml", "Sorna oracle policy path relative to the project root")
+	subjectPolicyPath := flags.String("subject-policy", ".ingen/policy/subject.yaml", "managed-subject policy path relative to the project root")
+	subjectRoot := flags.String("subject-root", ".", "subject policy root relative to the project root")
+	subjectDir := flags.String("subject-dir", ".", "managed subject working directory relative to the project root")
+	baseURL := flags.String("base-url", "http://127.0.0.1:8080", "absolute URL of the running or managed subject")
+	readyPath := flags.String("ready-path", "/healthz", "HTTP path that must return 2xx before verification")
+	variant := flags.String("subject-variant", "fresh-project", "label for the subject variant")
+	subjectCommand := flags.String("subject-command", "", "executable for Sorna to manage")
+	outputDir := flags.String("output-dir", ".ingen/artifacts/evidence", "evidence output directory relative to the project root")
+	force := flags.Bool("force", false, "allow writing a new run into an output directory containing run.json")
+	startupTimeout := flags.Duration("startup-timeout", 10*time.Second, "maximum time to wait for subject readiness")
+	shutdownTimeout := flags.Duration("shutdown-timeout", 5*time.Second, "maximum time to wait for graceful subject shutdown")
+	var subjectArgs repeatedString
+	flags.Var(&subjectArgs, "subject-arg", "argument for the managed subject; may be repeated")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 || strings.TrimSpace(*subjectCommand) == "" {
+		usage()
+		return 2
+	}
+	projectRoot, err := absoluteDirectory(*root, "project")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	oracleFile, err := rootedExistingFile(projectRoot, *oraclePath, "frozen oracle")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	policyFile, err := rootedExistingFile(projectRoot, *policyPath, "Sorna oracle policy")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	subjectPolicyFile, err := rootedExistingFile(projectRoot, *subjectPolicyPath, "managed-subject policy")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	subjectRootDir, err := rootedExistingDirectory(projectRoot, *subjectRoot, "subject policy")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	subjectWorkingDir, err := rootedExistingDirectory(projectRoot, *subjectDir, "subject working")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	evidenceDir, err := rootedOutputDirectory(projectRoot, *outputDir, "evidence output")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if !*force {
+		runFile := filepath.Join(evidenceDir, "run.json")
+		if _, statErr := os.Stat(runFile); statErr == nil {
+			fmt.Fprintf(os.Stderr, "evidence run %s already exists; choose a new --output-dir or pass --force\n", runFile)
+			return 1
+		} else if !os.IsNotExist(statErr) {
+			fmt.Fprintf(os.Stderr, "check evidence run %s: %v\n", runFile, statErr)
+			return 1
+		}
+	}
+
+	commandArgs := []string{
+		"run", "--oracle", oracleFile,
+		"--policy", policyFile,
+		"--subject-policy", subjectPolicyFile,
+		"--subject-root", subjectRootDir,
+		"--subject-dir", subjectWorkingDir,
+		"--base-url", *baseURL,
+		"--ready-path", *readyPath,
+		"--subject-variant", *variant,
+		"--subject-command", *subjectCommand,
+		"--output-dir", evidenceDir,
+		"--startup-timeout", startupTimeout.String(),
+		"--shutdown-timeout", shutdownTimeout.String(),
+	}
+	for _, subjectArg := range subjectArgs {
+		commandArgs = append(commandArgs, "--subject-arg", subjectArg)
+	}
+	return runSornaCommand(toolRoot, commandArgs...)
+}
+
+func runSornaCommand(toolRoot string, args ...string) int {
+	commandArgs := append([]string{"run", "./sorna/cmd/sorna"}, args...)
+	command := osexec.Command("go", commandArgs...)
+	command.Dir = toolRoot
+	command.Stdin = os.Stdin
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	if err := command.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Sorna command failed: %v\n", err)
+		return commandExitCode(err)
+	}
+	return 0
+}
+
+func evidenceCommand(args []string) int {
+	if len(args) == 0 {
+		usage()
+		return 2
+	}
+	switch args[0] {
+	case "verify":
+		return verifyEvidenceCommand(args[1:])
+	case "gate":
+		return gateEvidenceCommand(args[1:])
+	default:
+		usage()
+		return 2
+	}
+}
+
+func verifyEvidenceCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel evidence verify", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "fresh project root")
+	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing Sorna")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 1 {
+		usage()
+		return 2
+	}
+	projectRoot, err := absoluteDirectory(*root, "project")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	evidenceDir, err := rootedExistingDirectory(projectRoot, flags.Args()[0], "evidence")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return runSornaCommand(toolRoot, "evidence", "verify", evidenceDir)
+}
+
+func gateEvidenceCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel evidence gate", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "fresh project root")
+	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing Sorna")
+	outputPath := flags.String("output", ".ingen/artifacts/evidence-ci-result.json", "shared CI result output path relative to the project root")
+	minimumCoverage := flags.String("minimum-observation-coverage", "", "minimum observation coverage required to pass")
+	force := flags.Bool("force", false, "replace an existing CI result")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 1 {
+		usage()
+		return 2
+	}
+	projectRoot, err := absoluteDirectory(*root, "project")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	evidenceDir, err := rootedExistingDirectory(projectRoot, flags.Args()[0], "evidence")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	resultFile, err := rootedOutputFile(projectRoot, *outputPath, "evidence CI result")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if !*force {
+		if _, statErr := os.Stat(resultFile); statErr == nil {
+			fmt.Fprintf(os.Stderr, "evidence CI result %s already exists; pass --force to replace it\n", resultFile)
+			return 1
+		} else if !os.IsNotExist(statErr) {
+			fmt.Fprintf(os.Stderr, "check evidence CI result %s: %v\n", resultFile, statErr)
+			return 1
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(resultFile), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	resultOutput, err := os.OpenFile(resultFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "create evidence CI result: %v\n", err)
+		return 1
+	}
+	commandArgs := []string{"run", "./sorna/cmd/sorna", "gate", "--format", "ci-result"}
+	if strings.TrimSpace(*minimumCoverage) != "" {
+		commandArgs = append(commandArgs, "--minimum-observation-coverage", *minimumCoverage)
+	}
+	commandArgs = append(commandArgs, evidenceDir)
+	command := osexec.Command("go", commandArgs...)
+	command.Dir = toolRoot
+	command.Stdin = os.Stdin
+	command.Stdout = resultOutput
+	command.Stderr = os.Stderr
+	runErr := command.Run()
+	closeErr := resultOutput.Close()
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "Sorna gate failed: %v\n", runErr)
+		return commandExitCode(runErr)
+	}
+	if closeErr != nil {
+		fmt.Fprintf(os.Stderr, "close evidence CI result: %v\n", closeErr)
+		return 1
+	}
+	fmt.Println("created evidence CI result:", filepath.Clean(*outputPath))
+	return 0
+}
+
+func absoluteDirectory(raw, name string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		raw = "."
+	}
+	path, err := filepath.Abs(raw)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s root: %w", name, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s root %s: %w", name, path, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s root %s is not a directory", name, path)
+	}
+	return path, nil
+}
+
+func rootedExistingFile(root, raw, name string) (string, error) {
+	if filepath.IsAbs(raw) {
+		return "", fmt.Errorf("%s path must be relative to the project root: %q", name, raw)
+	}
+	path, err := sentinelrun.ResolveFileRefUnderRoot(root, ciresult.FileRef{Path: raw})
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", name, err)
+	}
+	return path, nil
+}
+
+func rootedExistingDirectory(root, raw, name string) (string, error) {
+	if filepath.IsAbs(raw) {
+		return "", fmt.Errorf("%s path must be relative to the project root: %q", name, raw)
+	}
+	if err := sentinelrun.ValidatePathUnderRoot(root, raw); err != nil {
+		return "", fmt.Errorf("validate %s: %w", name, err)
+	}
+	path := filepath.Join(root, filepath.Clean(raw))
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s directory %s: %w", name, path, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s path %s is not a directory", name, path)
+	}
+	return path, nil
+}
+
+func rootedOutputDirectory(root, raw, name string) (string, error) {
+	if filepath.IsAbs(raw) {
+		return "", fmt.Errorf("%s path must be relative to the project root: %q", name, raw)
+	}
+	if err := sentinelrun.ValidatePathUnderRoot(root, raw); err != nil {
+		return "", fmt.Errorf("validate %s: %w", name, err)
+	}
+	return filepath.Join(root, filepath.Clean(raw)), nil
+}
+
+func rootedOutputFile(root, raw, name string) (string, error) {
+	if filepath.IsAbs(raw) {
+		return "", fmt.Errorf("%s path must be relative to the project root: %q", name, raw)
+	}
+	if err := sentinelrun.ValidatePathUnderRoot(root, raw); err != nil {
+		return "", fmt.Errorf("validate %s: %w", name, err)
+	}
+	return filepath.Join(root, filepath.Clean(raw)), nil
+}
+
+func commandExitCode(err error) int {
+	var exitErr *osexec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() >= 0 {
+		return exitErr.ExitCode()
+	}
+	return 1
+}
+
+func validateContractCommand(args []string) int {
+	if len(args) == 0 {
+		usage()
+		return 2
+	}
+	contractPath := args[0]
+	flags := flag.NewFlagSet("sentinel contract validate", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "project root containing the contract")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	resolvedPath, err := sentinelrun.ResolveFileRefUnderRoot(*root, ciresult.FileRef{Path: contractPath})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if _, err := sornacontract.LoadFile(resolvedPath); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("valid:", filepath.Clean(args[0]))
+	return 0
+}
+
+func sealContractCommand(args []string) int {
+	if len(args) == 0 {
+		usage()
+		return 2
+	}
+	contractPath := args[0]
+	flags := flag.NewFlagSet("sentinel contract seal", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "project root containing the contract")
+	outputDir := flags.String("output-dir", "", "directory for sealed contract artifacts")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if *outputDir == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	resolvedContractPath, err := sentinelrun.ResolveFileRefUnderRoot(*root, ciresult.FileRef{Path: contractPath})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if filepath.IsAbs(*outputDir) {
+		fmt.Fprintln(os.Stderr, "contract seal output directory must be relative to the project root")
+		return 1
+	}
+	if err := sentinelrun.ValidateDirectoryPathUnderRoot(*root, *outputDir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	rootPath, err := filepath.Abs(*root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	sealed, err := sornacontract.SealFile(resolvedContractPath, filepath.Join(rootPath, filepath.Clean(*outputDir)))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Println("sealed:", sealed.SHA256)
+	return 0
+}
+
+func projectCommand(args []string) int {
+	if len(args) == 0 {
+		usage()
+		return 2
+	}
+	switch args[0] {
+	case "init":
+		return initProjectCommand(args[1:])
+	case "check":
+		return checkProjectCommand(args[1:])
+	default:
+		usage()
+		return 2
+	}
+}
+
+func checkProjectCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel project check", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "project root containing the Sentinel workspace")
+	workspacePath := flags.String("workspace", ".ingen/workspace.yaml", "Sentinel workspace manifest relative to the project root")
+	format := flags.String("format", "text", "output format: text or json")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if len(flags.Args()) != 0 || (*format != "text" && *format != "json") {
+		usage()
+		return 2
+	}
+	result, err := sentinelpreflight.Run(*root, *workspacePath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *format == "json" {
+		if err := result.WriteJSON(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	} else if err := result.WriteText(os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return result.ExitCode()
+}
+
+func initProjectCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel project init", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "new project root")
+	id := flags.String("id", "", "stable project and contract namespace")
+	implementationRoot := flags.String("implementation-root", "src", "relative implementation root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *id == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	result, err := sentinelproject.Initialize(sentinelproject.Options{
+		Root:               *root,
+		ID:                 *id,
+		ImplementationRoot: *implementationRoot,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	sort.Strings(result.Files)
+	fmt.Println("initialized:", result.Root)
+	fmt.Println("workspace:", filepath.Join(result.Root, result.Workspace))
+	for _, path := range result.Files {
+		fmt.Println("created:", path)
+	}
+	return 0
 }
 
 func workspaceCommand(args []string) int {
@@ -621,6 +1430,8 @@ func runCommand(args []string) int {
 	switch args[0] {
 	case "bootstrap":
 		return bootstrapRunCommand(args[1:])
+	case "status":
+		return runStatusCommand(args[1:])
 	case "ci-result":
 		return ciResultCommand(args[1:])
 	case "audit":
@@ -633,6 +1444,46 @@ func runCommand(args []string) int {
 		usage()
 		return 2
 	}
+}
+
+func runStatusCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel run status", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	receiptPath := flags.String("receipt", "", "Sentinel lifecycle receipt relative to the project root")
+	root := flags.String("root", ".", "project root containing the receipt")
+	status := flags.String("status", "", "new receipt status")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *receiptPath == "" || *status == "" || len(flags.Args()) != 0 {
+		usage()
+		return 2
+	}
+	resolvedReceipt, err := sentinelrun.ResolveFileRefUnderRoot(*root, ciresult.FileRef{Path: *receiptPath})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := sentinelrun.ValidateStatus(*status); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	changed, err := sentinelrun.UpdateFile(resolvedReceipt, func(receipt *sentinelrun.Receipt) (bool, error) {
+		if err := receipt.SetStatus(*status, time.Now().UTC()); err != nil {
+			return false, err
+		}
+		return true, nil
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if changed {
+		fmt.Printf("status: %s\n", *status)
+	} else {
+		fmt.Printf("unchanged: %s\n", *status)
+	}
+	return 0
 }
 
 func auditRunCommand(args []string) int {
@@ -881,14 +1732,27 @@ func auditFailureSummary(report sentinelaudit.Report) string {
 }
 
 func usage() {
+	fmt.Fprintln(os.Stderr, "usage: sentinel project init --root <dir> --id <id> [--implementation-root <dir>]")
+	fmt.Fprintln(os.Stderr, "       sentinel project check [--root <dir>] [--workspace <path>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "usage: sentinel workspace validate <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel workspace capabilities --workspace <path> [--root <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel session spawn --workspace <path> --receipt <path> --role <id> [--root <dir>] [--output <path>] [--stdout <path>] [--stderr <path>] -- <command> [args...]")
+	fmt.Fprintln(os.Stderr, "       sentinel session status --path <path> [--root <dir>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       sentinel session list [--root <dir>] [--dir <path>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       sentinel contract create [--root <dir>] [--spec <path>] [--ir-output <path>] [--output <path>] [--ingen-root <dir>] [--force]")
+	fmt.Fprintln(os.Stderr, "       sentinel contract validate <path> [--root <dir>]")
+	fmt.Fprintln(os.Stderr, "       sentinel contract seal <path> --output-dir <dir> [--root <dir>]")
+	fmt.Fprintln(os.Stderr, "       sentinel oracle freeze [--root <dir>] [--contract <path>] [--policy <path>] [--output-dir <dir>] [--ingen-root <dir>] [--force]")
+	fmt.Fprintln(os.Stderr, "       sentinel verify --subject-command <exe> [--subject-arg <arg> ...] [--root <dir>] [--ingen-root <dir>] [--oracle <path>] [--policy <path>] [--subject-policy <path>] [--base-url <url>] [--ready-path <path>] [--subject-variant <label>] [--output-dir <dir>] [--force]")
+	fmt.Fprintln(os.Stderr, "       sentinel evidence verify <directory> [--root <dir>] [--ingen-root <dir>]")
+	fmt.Fprintln(os.Stderr, "       sentinel evidence gate <directory> [--root <dir>] [--ingen-root <dir>] [--output <path>] [--minimum-observation-coverage <state>] [--force]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter oracle --workspace <path> [--root <dir>] [--receipt <path>] -- <command> [args...]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter verifier --workspace <path> --oracle <path> --base-url <url> --subject-command <exe> [--subject-arg <arg> ...] [--root <dir>] [--subject-root <dir>] [--ready-path <path>] [--subject-variant <label>] [--output-dir <dir>] [--receipt <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-event --receipt <path> --event <path> [--root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-events --receipt <path> --events <path> [--root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-host-envelope --event <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel run bootstrap --workspace <path> [--root <dir>] --output <path>")
+	fmt.Fprintln(os.Stderr, "       sentinel run status --receipt <path> --status <status> [--root <dir>]")
 	fmt.Fprintln(os.Stderr, "       sentinel run ci-result --receipt <path> [--source-root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel run audit --receipt <path> [--root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel run artifact --receipt <path> [--root <dir>] --id <id> --role <role> --kind <kind> --path <path> [--output <path>]")

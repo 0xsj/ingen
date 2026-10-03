@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn parses_input_and_output_options() {
         let options = parse_args([
-            "contract.malcolm".into(),
+            "contract.malc".into(),
             "--output".into(),
             "contract.json".into(),
         ])
@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(
             options,
             Options {
-                input: PathBuf::from("contract.malcolm"),
+                input: PathBuf::from("contract.malc"),
                 output: Some(PathBuf::from("contract.json")),
             }
         );
@@ -227,7 +227,7 @@ mod tests {
             .expect("system clock should be after the Unix epoch")
             .as_nanos();
         env::temp_dir().join(format!(
-            "malcolm-cli-{label}-{}-{nonce}.malcolm",
+            "malcolm-cli-{label}-{}-{nonce}.malc",
             std::process::id()
         ))
     }

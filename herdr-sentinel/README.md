@@ -9,6 +9,47 @@ The contract workspace belongs here as a user experience. Sorna consumes the
 sealed, canonical contract snapshot and remains the authority for verification
 semantics and evidence production.
 
+For a new project, Sentinel can create the initial local namespace with:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel project init --root /path/to/project --id my-project
+```
+
+After bootstrapping a receipt, the local process provider can launch one role:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel session spawn \
+  --workspace .ingen/workspace.yaml \
+  --receipt .ingen/artifacts/sentinel-run.json \
+  --root /path/to/project --role contract-author -- your-agent-command
+```
+
+This captures session identity and output but reports `declaration-only`
+enforcement. It is a local workflow provider, not yet a sandbox or native
+Herdr session binding.
+
+Before launching roles, run the project preflight:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel project check \
+  --root /path/to/project
+```
+
+It checks the workspace, capability plan, Sorna policies, Nublar workflow, and
+contract state. A fresh scaffold reports `incomplete` until a contract exists
+and the host enforcement boundary is wired. Structural errors report
+`blocked`; use `--format json` for an agent-readable result.
+
+From the InGen checkout, the same preflight and contract creation paths are
+available through Make:
+
+```sh
+make sentinel-project-check SENTINEL_PROJECT_ROOT=/path/to/project
+make sentinel-project-contract-create SENTINEL_PROJECT_ROOT=/path/to/project
+make sentinel-project-contract-seal SENTINEL_PROJECT_ROOT=/path/to/project
+make sentinel-project-oracle-freeze SENTINEL_PROJECT_ROOT=/path/to/project
+```
+
 The first concrete artifact is a versioned workspace manifest under
 [`workspaces/`](workspaces/). It describes role roots, capability paths, the
 Sorna policy inputs, and the Nublar workflow reference. It is deliberately not
@@ -57,6 +98,41 @@ This checks that allowed and denied roots do not overlap and that the oracle
 writer denies every declared implementation root. It is ready for a future
 host adapter, but it is not itself an enforcement mechanism.
 
+The Sentinel contract commands are thin entry points over Sorna's public
+contract package, so the contract rules and hashes have one owner:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel contract create \
+  --root /path/to/project --ingen-root /path/to/ingen
+go run ./herdr-sentinel/cmd/sentinel contract validate \
+  .ingen/contract/contract.json --root /path/to/project
+go run ./herdr-sentinel/cmd/sentinel contract seal \
+  .ingen/contract/contract.json --root /path/to/project \
+  --output-dir .ingen/contract
+```
+
+The independent oracle and black-box verification path is also available from
+Sentinel without a native Herdr session:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel oracle freeze \
+  --root /path/to/project --ingen-root /path/to/ingen
+go run ./herdr-sentinel/cmd/sentinel verify \
+  --root /path/to/project --ingen-root /path/to/ingen \
+  --subject-command /path/to/project/bin/subject \
+  --subject-arg=-addr --subject-arg 127.0.0.1:8080
+go run ./sorna/cmd/sorna evidence verify \
+  /path/to/project/.ingen/artifacts/evidence
+go run ./sorna/cmd/sorna gate \
+  /path/to/project/.ingen/artifacts/evidence
+```
+
+`oracle freeze` must run before implementation work. `verify` starts the
+subject under Sorna's managed-subject policy and evaluates it through the
+public boundary; it does not ask the subject to read the contract or oracle.
+The generated project policy binds the project ID to the Malcolm contract ID,
+so those IDs must match.
+
 When the project is outside the caller's working directory, load the manifest
 and its policy references from that project root explicitly:
 
@@ -100,6 +176,11 @@ go run ./herdr-sentinel/cmd/sentinel run ci-result \
 ```
 
 The matching Nublar proof is `make nublar-sentinel-run-collect`.
+
+For the first manual fresh-project integration path, see
+[`FRESH-PROJECT-GUIDE.md`](FRESH-PROJECT-GUIDE.md). The reusable starting
+workspace declaration is
+[`workspaces/fresh-project.yaml`](workspaces/fresh-project.yaml).
 
 For a clean artifact-root proof that excludes stale outputs, use
 `make nublar-sentinel-run-collect-fresh`.
@@ -211,3 +292,24 @@ and [`plugin/fixtures/`](plugin/fixtures/).
 The raw callback inspection seam is available with
 `sentinel adapter herdr-host-envelope --event <path>`; it is evidence-only and
 does not update a Sentinel receipt.
+
+Inspect recorded local role sessions without opening artifact files directly:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel session list \
+  --root /path/to/project
+go run ./herdr-sentinel/cmd/sentinel session status \
+  --root /path/to/project --path .ingen/artifacts/sessions/<session-id>.json
+```
+
+After the required roles and producer artifacts are present, close the
+receipt before auditing and handing it to Nublar:
+
+```sh
+go run ./herdr-sentinel/cmd/sentinel run status \
+  --receipt .ingen/artifacts/sentinel-run.json \
+  --root /path/to/project --status completed
+```
+
+The same command can move a terminal receipt to `cleaned` after its artifacts
+are no longer needed locally.

@@ -23,7 +23,6 @@ jobs:
 
       - name: Run producer workflows
         id: producers
-        continue-on-error: true
         env:
           GOCACHE: ${{ runner.temp }}/ingen-go-build
           GOMODCACHE: ${{ runner.temp }}/ingen-go-mod
@@ -50,6 +49,7 @@ jobs:
             .artifacts/document-pipeline-go-campaign-ci-result.json
           if-no-files-found: warn
           retention-days: 14
+          include-hidden-files: true
 
   nublar-consumer:
     name: Collect with Nublar
@@ -141,6 +141,7 @@ jobs:
             .artifacts/nublar-receipts
           if-no-files-found: warn
           retention-days: 14
+          include-hidden-files: true
 
       - name: Propagate Nublar decision
         if: always()

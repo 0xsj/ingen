@@ -64,7 +64,7 @@ Its `run.json` records the mutation outcome and the missing event assertion.
 - [`examples/document-pipeline-lab/defects/omit-accepted-event/`](../../../examples/document-pipeline-lab/defects/omit-accepted-event/)
 - [`sorna/internal/runner/runner.go`](../../../sorna/internal/runner/runner.go)
 - Makefile target `malcolm-sorna-flow-event-defect-run`
-- [`malcolm/examples/document_flow.malcolm`](../../../malcolm/examples/document_flow.malcolm)
+- [`malcolm/examples/document_flow.malc`](../../../malcolm/examples/document_flow.malc)
 
 ## Related
 

@@ -1,0 +1,86 @@
+sentinel_workspace:
+  schema: ingen.sentinel-workspace/v1
+  id: replace-with-project-id
+  version: 1
+  project_root: .
+  contract:
+    path: .ingen/contract/contract.json
+  implementation_roots:
+    - src
+  sorna:
+    oracle_policy: .ingen/policy/oracle.yaml
+    subject_policy: .ingen/policy/subject.yaml
+  delivery:
+    workflow: .ingen/nublar/workflow.yaml
+  roles:
+    - id: contract-author
+      kind: contract-author
+      workspace: .ingen/sessions/contract-author
+      read_roots:
+        - .ingen/brief.md
+        - docs
+      write_roots:
+		- .ingen/contract/spec.malc
+      deny_roots:
+        - src
+        - .git
+    - id: governance-reviewer
+      # Governance is intentionally represented as a contract-author-shaped
+      # handoff until Sentinel has a dedicated reviewer role kind.
+      kind: contract-author
+      workspace: .ingen/sessions/governance-reviewer
+      read_roots:
+        - .ingen/contract
+      write_roots:
+        - .ingen/governance
+      deny_roots:
+        - src
+        - .ingen/artifacts/oracle
+        - .git
+    - id: oracle-writer
+      kind: oracle-writer
+      workspace: .ingen/sessions/oracle-writer
+      read_roots:
+        - .ingen/contract/contract.json
+        - .ingen/fixtures
+      write_roots:
+        - .ingen/artifacts/oracle
+      deny_roots:
+        - src
+        - .ingen/sessions/implementation
+        - .ingen/artifacts/evidence
+        - .git
+    - id: implementation
+      kind: implementation
+      workspace: .ingen/sessions/implementation
+      read_roots:
+        - .ingen/contract/contract.json
+        - docs
+      write_roots:
+        - src
+      deny_roots:
+        - .ingen/artifacts/oracle
+        - .ingen/artifacts/evidence
+        - .git
+    - id: verifier
+      kind: verifier
+      workspace: .ingen/sessions/verifier
+      read_roots:
+        - .ingen/contract/contract.json
+        - .ingen/artifacts/oracle
+        - src
+      write_roots:
+        - .ingen/artifacts/evidence
+      deny_roots:
+        - .git
+    - id: mutation-runner
+      kind: mutation-runner
+      workspace: .ingen/sessions/mutation-runner
+      read_roots:
+        - .ingen/contract/contract.json
+        - .ingen/artifacts/oracle
+        - .ingen/artifacts/evidence
+      write_roots:
+        - .ingen/artifacts/mutations
+      deny_roots:
+        - .git

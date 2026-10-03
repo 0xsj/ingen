@@ -90,7 +90,7 @@ equality/presence, captures of top-level response fields, and explicit
 make malcolm-sorna-contract
 ~~~
 
-This compiles malcolm/examples/healthz.malcolm, translates the resulting
+This compiles malcolm/examples/healthz.malc, translates the resulting
 malcolm.ir/v1 artifact into a draft ingen.contract/v1 document, and asks
 Sorna's own contract validator to accept the result. It does not execute the
 subject yet.
@@ -101,7 +101,7 @@ The request-body and stateful lowering proof is:
 make malcolm-sorna-flow-contract
 ~~~
 
-It compiles malcolm/examples/document_flow.malcolm and validates the generated
+It compiles malcolm/examples/document_flow.malc and validates the generated
 contract, including executable `given.body`, `given.setup`, `given.state`, and
 capture data.
 
@@ -136,6 +136,8 @@ evidence bundle. Its generated run bundle is written under
 
 Package areas:
 
+- `contract`: public contract validation and sealing facade for coordinating
+  verticals; Sorna remains the semantic owner;
 - `internal/contract`: validation, canonicalization, sealing, and lineage;
 - `internal/campaign`: deterministic mutation campaign planning;
 - `internal/oracle`: deterministic case generation and freezing;
@@ -145,6 +147,8 @@ Package areas:
 - `internal/evidence`: manifests, lifecycle JSONL, checksums, and verification;
 - `internal/policy`: capability policy validation, sealing, and references;
 - `internal/sandbox`: process, filesystem, network, and resource policy;
+- `policy`: public policy validation and sealing facade for coordinating
+  verticals; Sorna remains the semantic owner;
 - `cmd/sorna`: the headless CLI.
 
 Provider preparation can be exposed before mutation execution with

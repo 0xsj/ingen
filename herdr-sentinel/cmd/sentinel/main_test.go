@@ -114,6 +114,106 @@ func TestHerdrHostEnvelopeCommandInspectsRawEnvelope(t *testing.T) {
 	}
 }
 
+func TestContractCommandsStayInsideProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".ingen", "contract"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	contractPath := filepath.Join(root, ".ingen", "contract", "contract.json")
+	contract := `{"contract":{"schema":"ingen.contract/v1","id":"contract-cli-test","version":1,"status":"draft","interface":{"kind":"http-json"},"rules":[],"unspecified":[]}}`
+	if err := os.WriteFile(contractPath, []byte(contract), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := run([]string{"contract", "validate", ".ingen/contract/contract.json", "--root", root}); code != 0 {
+		t.Fatalf("contract validate exit code = %d, want 0", code)
+	}
+	if code := run([]string{"contract", "seal", ".ingen/contract/contract.json", "--root", root, "--output-dir", ".ingen/contract/sealed"}); code != 0 {
+		t.Fatalf("contract seal exit code = %d, want 0", code)
+	}
+	for _, path := range []string{"canonical.json", "hash.txt"} {
+		if _, err := os.Stat(filepath.Join(root, ".ingen", "contract", "sealed", path)); err != nil {
+			t.Fatalf("sealed artifact %s: %v", path, err)
+		}
+	}
+
+	outside := filepath.Join(t.TempDir(), "contract.json")
+	if err := os.WriteFile(outside, []byte(contract), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"contract", "validate", outside, "--root", root}); code == 0 {
+		t.Fatal("contract validate accepted a path outside the project root")
+	}
+}
+
+func TestCoreWorkflowCommandsStayInsideProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".ingen", "artifacts", "oracle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".ingen", "artifacts", "evidence"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".ingen", "contract.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "oracle.json")
+	if err := os.WriteFile(outside, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"verify", "--root", root, "--oracle", outside, "--subject-command", "/bin/true"}); code == 0 {
+		t.Fatal("verify accepted an oracle path outside the project root")
+	}
+	if code := run([]string{"oracle", "freeze", "--root", root, "--contract", outside}); code == 0 {
+		t.Fatal("oracle freeze accepted a contract path outside the project root")
+	}
+}
+
+func TestVerifyCommandRequiresManagedSubject(t *testing.T) {
+	if code := run([]string{"verify", "--root", t.TempDir()}); code != 2 {
+		t.Fatalf("verify without a subject command exit code = %d, want 2", code)
+	}
+}
+
+func TestRunStatusCommandClosesAndCleansReceipt(t *testing.T) {
+	root := t.TempDir()
+	receiptPath := filepath.Join(root, ".ingen", "artifacts", "receipt.json")
+	if err := os.MkdirAll(filepath.Dir(receiptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	receipt := sentinelrun.Receipt{
+		Schema: sentinelrun.Schema,
+		RunID:  "run-status-cli-test",
+		Workspace: sentinelrun.WorkspaceRef{
+			ID:      "status-project",
+			Version: 1,
+			File:    ciresult.FileRef{Path: "workspace.yaml", SHA256: strings.Repeat("a", 64)},
+		},
+		Status:    "created",
+		CreatedAt: "2026-01-02T03:04:05Z",
+		UpdatedAt: "2026-01-02T03:04:05Z",
+		Events:    []sentinelrun.Event{{Sequence: 1, Type: "workspace-created", At: "2026-01-02T03:04:05Z"}},
+	}
+	if err := sentinelrun.SaveFile(receiptPath, receipt); err != nil {
+		t.Fatal(err)
+	}
+	relativeReceipt := ".ingen/artifacts/receipt.json"
+	if code := run([]string{"run", "status", "--receipt", relativeReceipt, "--root", root, "--status", "completed"}); code != 0 {
+		t.Fatalf("run status completed exit code = %d, want 0", code)
+	}
+	if code := run([]string{"run", "status", "--receipt", relativeReceipt, "--root", root, "--status", "cleaned"}); code != 0 {
+		t.Fatalf("run status cleaned exit code = %d, want 0", code)
+	}
+	loaded, err := sentinelrun.LoadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Status != "cleaned" {
+		t.Fatalf("receipt status = %q, want cleaned", loaded.Status)
+	}
+}
+
 func TestArtifactCommandRegistersHashedArtifact(t *testing.T) {
 	t.Chdir(t.TempDir())
 	receiptPath := filepath.Join(".artifacts", "receipt.json")

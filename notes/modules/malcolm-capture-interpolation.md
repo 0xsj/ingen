@@ -72,7 +72,7 @@ make malcolm-sorna-interpolation-run
 - [malcolm/src/semantic.rs](../../malcolm/src/semantic.rs)
 - [sorna/internal/malcolm/adapter.go](../../sorna/internal/malcolm/adapter.go)
 - [sorna/internal/runner/runner.go](../../sorna/internal/runner/runner.go)
-- [malcolm/examples/document_interpolation.malcolm](../../malcolm/examples/document_interpolation.malcolm)
+- [malcolm/examples/document_interpolation.malc](../../malcolm/examples/document_interpolation.malc)
 - Makefile target malcolm-sorna-interpolation-run
 
 ## Related

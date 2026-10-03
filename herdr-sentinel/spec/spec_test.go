@@ -94,6 +94,90 @@ func TestSentinelCIExplanationSchemaContract(t *testing.T) {
 	}
 }
 
+func TestSentinelSessionSchemaContract(t *testing.T) {
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() did not return source path")
+	}
+	contents, err := os.ReadFile(filepath.Join(filepath.Dir(sourcePath), "session-v1.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		ID                   string                     `json:"$id"`
+		Draft                string                     `json:"$schema"`
+		Type                 string                     `json:"type"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+		Required             []string                   `json:"required"`
+		Properties           map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(contents, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.ID == "" || schema.Draft == "" || schema.Type != "object" || schema.AdditionalProperties {
+		t.Fatalf("incomplete or open Sentinel session schema: %+v", schema)
+	}
+	for _, field := range []string{"schema", "session_id", "run_id", "role_id", "status", "enforcement", "assurance"} {
+		if !contains(schema.Required, field) {
+			t.Fatalf("Sentinel session schema is missing required field %q", field)
+		}
+		if _, ok := schema.Properties[field]; !ok {
+			t.Fatalf("Sentinel session schema is missing property %q", field)
+		}
+	}
+	var discriminator struct {
+		Const string `json:"const"`
+	}
+	if err := json.Unmarshal(schema.Properties["schema"], &discriminator); err != nil {
+		t.Fatal(err)
+	}
+	if discriminator.Const != "ingen.sentinel-session/v1" {
+		t.Fatalf("Sentinel session discriminator = %q, want ingen.sentinel-session/v1", discriminator.Const)
+	}
+}
+
+func TestSentinelPreflightSchemaContract(t *testing.T) {
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() did not return source path")
+	}
+	contents, err := os.ReadFile(filepath.Join(filepath.Dir(sourcePath), "preflight-v1.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		ID                   string                     `json:"$id"`
+		Draft                string                     `json:"$schema"`
+		Type                 string                     `json:"type"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+		Required             []string                   `json:"required"`
+		Properties           map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(contents, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.ID == "" || schema.Draft == "" || schema.Type != "object" || schema.AdditionalProperties {
+		t.Fatalf("incomplete or open Sentinel preflight schema: %+v", schema)
+	}
+	for _, field := range []string{"schema", "workspace_id", "workspace", "status", "assurance", "checks"} {
+		if !contains(schema.Required, field) {
+			t.Fatalf("Sentinel preflight schema is missing required field %q", field)
+		}
+		if _, ok := schema.Properties[field]; !ok {
+			t.Fatalf("Sentinel preflight schema is missing property %q", field)
+		}
+	}
+	var discriminator struct {
+		Const string `json:"const"`
+	}
+	if err := json.Unmarshal(schema.Properties["schema"], &discriminator); err != nil {
+		t.Fatal(err)
+	}
+	if discriminator.Const != "ingen.sentinel-preflight/v1" {
+		t.Fatalf("Sentinel preflight discriminator = %q, want ingen.sentinel-preflight/v1", discriminator.Const)
+	}
+}
+
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

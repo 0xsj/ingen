@@ -72,8 +72,10 @@ becomes useful.
 
 ## Current status
 
-The current local checkpoint is the v0.9.2 development release. The repository
-now contains working slices across the full verification chain:
+The current local checkpoint is an alpha implementation of the InGen ecosystem.
+The full release is tracked in the
+[ecosystem completion plan](docs/finish-line-plan.md). The repository now
+contains working slices across the full verification chain:
 
 - Sorna runs sealed contracts, isolated subjects, mutation campaigns, evidence
   replay, replay matrices, and CI-facing results.
@@ -86,8 +88,10 @@ now contains working slices across the full verification chain:
   trust-root, approval, amendment, and lineage boundaries.
 - Lockwood provides local content-addressed custody, integrity checks, handling
   events, artifact lineage, and detached attestation workflows.
-- Sentinel provides workspace/capability orchestration, Herdr event ingress,
-  receipt locking, artifact registration, audit, reporting, and Nublar handoff.
+- Sentinel provides workspace/capability orchestration, fresh-project
+  scaffolding, preflight diagnostics, contract/session lifecycle commands, a
+  declaration-only local session provider, Herdr event ingress, receipt
+  locking, artifact registration, audit, reporting, and Nublar handoff.
 - Nublar aggregates producer results, stores and queries run receipts, projects
   delivery decisions, and has a provider-neutral consumer gate.
 - Amber provides Go and TypeScript provenance SDKs, adapters, storage seams,
@@ -105,6 +109,19 @@ each area.
 
 See [roadmap.md](roadmap.md) for the overall InGen checkpoint, completed
 surfaces, explicit non-claims, and candidate next phases.
+
+See [AGENT-GUIDE.md](AGENT-GUIDE.md) for the role boundaries and fresh-project
+workflow used to exercise the ecosystem with an agent.
+
+For a fresh project, the executable core path is:
+
+```text
+Malcolm spec -> Sorna contract -> sealed snapshot -> frozen oracle
+  -> public-boundary subject run -> evidence verify/gate
+```
+
+Sentinel exposes the project handoffs with `contract create`, `oracle freeze`,
+and `verify`; Herdr is optional coordination around that path.
 
 The current cross-tool alpha boundary is recorded in
 [ALPHA-INTERFACES.md](ALPHA-INTERFACES.md). The focused verification command

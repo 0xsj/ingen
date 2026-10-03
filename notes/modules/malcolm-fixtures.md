@@ -84,7 +84,7 @@ verification boundary.
 - [`sorna/internal/fixture/fixture.go`](../../../sorna/internal/fixture/fixture.go)
 - [`sorna/spec/ingen.fixture-provider-v1.schema.json`](../../../sorna/spec/ingen.fixture-provider-v1.schema.json)
 - [`sorna/spec/ingen.fixture-handoff-v1.schema.json`](../../../sorna/spec/ingen.fixture-handoff-v1.schema.json)
-- [`malcolm/examples/document_fixture.malcolm`](../../../malcolm/examples/document_fixture.malcolm)
+- [`malcolm/examples/document_fixture.malc`](../../../malcolm/examples/document_fixture.malc)
 - [`malcolm/examples/document_fixture_provider/provider.yaml`](../../../malcolm/examples/document_fixture_provider/provider.yaml)
 - `Makefile` targets `malcolm-sorna-fixture-contract` and `malcolm-sorna-fixture-handoff`
 

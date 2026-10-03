@@ -87,7 +87,7 @@ propagation, and durable storage.
 - [`malcolm/src/ir.rs`](../../../malcolm/src/ir.rs)
 - [`sorna/internal/malcolm/adapter.go`](../../../sorna/internal/malcolm/adapter.go)
 - [`sorna/internal/runner/runner.go`](../../../sorna/internal/runner/runner.go)
-- [`malcolm/examples/document_provenance.malcolm`](../../../malcolm/examples/document_provenance.malcolm)
+- [`malcolm/examples/document_provenance.malc`](../../../malcolm/examples/document_provenance.malc)
 
 ## Related
 

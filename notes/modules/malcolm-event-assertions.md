@@ -85,7 +85,7 @@ strength `must_not`, an emitted event fails and an absent event passes.
 - [`sorna/internal/malcolm/adapter.go`](../../../sorna/internal/malcolm/adapter.go)
 - [`sorna/internal/runner/runner.go`](../../../sorna/internal/runner/runner.go)
 - [`examples/document-pipeline-lab/subject/server.go`](../../../examples/document-pipeline-lab/subject/server.go)
-- [`malcolm/examples/document_flow.malcolm`](../../../malcolm/examples/document_flow.malcolm)
+- [`malcolm/examples/document_flow.malc`](../../../malcolm/examples/document_flow.malc)
 - Makefile target `malcolm-sorna-flow-run`
 
 ## Related

@@ -78,7 +78,7 @@ contract.
 make malcolm-sorna-flow-contract
 ~~~
 
-The target compiles `malcolm/examples/document_flow.malcolm`, translates it,
+The target compiles `malcolm/examples/document_flow.malc`, translates it,
 and asks Sorna's validator to accept the resulting `ingen.contract/v1`
 document.
 
@@ -116,8 +116,8 @@ document.
 - [`malcolm/src/semantic.rs`](../../../malcolm/src/semantic.rs)
 - [`malcolm/src/ir.rs`](../../../malcolm/src/ir.rs)
 - [`sorna/internal/malcolm/adapter.go`](../../../sorna/internal/malcolm/adapter.go)
-- [`malcolm/examples/document_flow.malcolm`](../../../malcolm/examples/document_flow.malcolm)
-- [`malcolm/examples/document_boundary.malcolm`](../../../malcolm/examples/document_boundary.malcolm)
+- [`malcolm/examples/document_flow.malc`](../../../malcolm/examples/document_flow.malc)
+- [`malcolm/examples/document_boundary.malc`](../../../malcolm/examples/document_boundary.malc)
 - `Makefile` target `malcolm-sorna-flow-contract`
 - `Makefile` target `malcolm-sorna-boundary-run`
 

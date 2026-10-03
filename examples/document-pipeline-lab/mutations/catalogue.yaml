@@ -3,7 +3,7 @@ mutation_catalogue:
   id: document-pipeline-mutations
   version: 1
   contract_id: document-pipeline
-  contract_version: 2
+  contract_version: 3
 
   mutations:
     - id: status-200-create

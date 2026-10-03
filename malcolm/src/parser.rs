@@ -823,7 +823,7 @@ struct LiteralParser<'a> {
     line_number: usize,
 }
 
-impl<'a> LiteralParser<'a> {
+impl LiteralParser<'_> {
     fn parse_value(&mut self) -> Result<Literal, ParseError> {
         self.skip_whitespace();
         match self.peek() {
@@ -1139,8 +1139,8 @@ fn decode_quoted_content(
     Ok(decoded)
 }
 
-fn require_expression<'a>(
-    expression: &'a str,
+fn require_expression(
+    expression: &str,
     line_number: usize,
     clause: &str,
 ) -> Result<String, ParseError> {

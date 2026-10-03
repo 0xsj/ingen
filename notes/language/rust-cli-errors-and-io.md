@@ -59,7 +59,7 @@ still provide phase-specific diagnostics.
 ## Used in
 
 - [malcolm/src/main.rs](../../malcolm/src/main.rs)
-- cargo run --manifest-path malcolm/Cargo.toml -- malcolm/examples/document_api.malcolm
+- cargo run --manifest-path malcolm/Cargo.toml -- malcolm/examples/document_api.malc
 
 ## Related
 

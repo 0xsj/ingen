@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.local/schemas/ingen.sentinel-preflight-v1.schema.json",
+  "title": "InGen Sentinel preflight result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "workspace_id", "workspace", "status", "assurance", "checks"],
+  "properties": {
+    "schema": {"const": "ingen.sentinel-preflight/v1"},
+    "workspace_id": {"type": "string", "minLength": 1},
+    "workspace": {"type": "string", "minLength": 1},
+    "status": {"enum": ["ready", "incomplete", "blocked"]},
+    "assurance": {"enum": ["unverified"]},
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "owner", "status", "detail"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "owner": {"type": "string", "minLength": 1},
+          "status": {"enum": ["pass", "pending", "fail"]},
+          "path": {"type": "string"},
+          "detail": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

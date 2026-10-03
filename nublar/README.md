@@ -72,6 +72,9 @@ aggregate records the workflow path and SHA-256 so the collection policy is
 part of the result provenance. Each consumed CI-result file is also recorded
 with its own SHA-256.
 
+Coordinators in other verticals can use the public `nublar/workflow` package to
+validate the same declaration without copying Nublar's workflow semantics.
+
 The document-pipeline workflow collects Sorna's strict Go-provider preflight,
 behavioral-verification, and strict Go mutation-campaign envelopes. Nublar
 preserves all complete producer results and only composes their statuses;

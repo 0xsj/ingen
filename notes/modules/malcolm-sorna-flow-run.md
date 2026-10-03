@@ -14,7 +14,7 @@ already implements the POST and GET flow needed for that proof.
 
 The `malcolm-sorna-flow-run` target:
 
-1. compiles `malcolm/examples/document_flow.malcolm`;
+1. compiles `malcolm/examples/document_flow.malc`;
 2. translates and validates `malcolm.ir/v1` as an `ingen.contract/v1` draft;
 3. seals the generated contract;
 4. freezes its oracle under the dedicated flow oracle policy;

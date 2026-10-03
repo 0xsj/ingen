@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  root-go-and-document-workflow:
+    name: Root Go and fresh document workflow (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Reuse Go caches in Makefile gates
+        run: |
+          echo "GO_CACHE=$(go env GOCACHE)" >> "$GITHUB_ENV"
+          echo "GO_MOD_CACHE=$(go env GOMODCACHE)" >> "$GITHUB_ENV"
+
+      - name: Build all Go packages
+        run: make build
+
+      - name: Vet all Go packages
+        run: make vet
+
+      - name: Test all Go packages
+        run: make test
+
+      - name: Validate JSON Schema files
+        run: find . -path './.git' -prune -o -name '*.schema.json' -print0 | xargs -0 -n 1 jq empty
+
+      - name: Run the document workflow in a fresh workspace
+        run: make nublar-run-collect-fresh
+
+      - name: Upload fresh document workflow evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: document-workflow-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-oracle/
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-run/
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-go-campaign/
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-go-provider/preparation.json
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-go-provider/provider.yaml
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-ci-result.json
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-go-provider-ci-result.json
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-go-preparation-ci-result.json
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-go-campaign-ci-result.json
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/document-pipeline-mutation-plan.json
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/nublar-result.json
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/nublar-run.json
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/nublar-run.decision.json
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/nublar-runs/
+            /private/tmp/ingen-nublar-workspace.*/.artifacts/nublar-receipts/
+            !/private/tmp/ingen-nublar-workspace.*/.artifacts/**/source/**
+            !/private/tmp/ingen-nublar-workspace.*/.artifacts/**/target/**
+            !/private/tmp/ingen-nublar-workspace.*/.artifacts/**/node_modules/**
+            !/private/tmp/ingen-nublar-workspace.*/.artifacts/**/.cache/**
+            !/private/tmp/ingen-nublar-workspace.*/.artifacts/**/.git/**
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  portable-sdk-and-rust:
+    name: Amber SDK and Malcolm Rust (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Amber Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: amber/go/go.mod
+          cache-dependency-path: amber/go/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: amber/typescript/package-lock.json
+
+      - name: Install Amber TypeScript dependencies
+        working-directory: amber/typescript
+        run: npm ci
+
+      - name: Run Amber Go and TypeScript gates
+        working-directory: amber
+        run: make check
+
+      - name: Install Rust stable with lint components
+        run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
+
+      - name: Cache Rust build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            malcolm/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('malcolm/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check Malcolm formatting
+        run: cargo +stable fmt --manifest-path malcolm/Cargo.toml --all -- --check
+
+      - name: Lint Malcolm
+        run: cargo +stable clippy --locked --manifest-path malcolm/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test Malcolm
+        run: cargo +stable test --locked --manifest-path malcolm/Cargo.toml

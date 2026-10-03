@@ -1,5 +1,10 @@
 # InGen roadmap
 
+The current owner-requested completion target is the full nine-module ecosystem
+with native Herdr integration. See the [ecosystem completion plan](docs/finish-line-plan.md)
+for the release scope, milestone order, and acceptance criteria established on
+2026-10-03. The checkpoint below records the earlier September development state.
+
 Updated: 2026-09-17
 
 ## Current position

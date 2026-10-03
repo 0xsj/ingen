@@ -103,8 +103,8 @@ The intermediate files default to .artifacts/malcolm-healthz.ir.json and
 
 - sorna/internal/malcolm
 - sorna/cmd/sorna-malcolm
-- malcolm/examples/healthz.malcolm
-- malcolm/examples/document_flow.malcolm
+- malcolm/examples/healthz.malc
+- malcolm/examples/document_flow.malc
 - Makefile target malcolm-sorna-contract
 - Makefile target malcolm-sorna-flow-contract
 - sorna/README.md

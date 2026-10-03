@@ -46,7 +46,7 @@ interpretation.
 - [`malcolm/src/lib.rs`](../../malcolm/src/lib.rs)
 - [`malcolm/src/parser.rs`](../../malcolm/src/parser.rs)
 - [`malcolm/src/ir.rs`](../../malcolm/src/ir.rs)
-- [`malcolm/examples/document_flow.malcolm`](../../malcolm/examples/document_flow.malcolm)
+- [`malcolm/examples/document_flow.malc`](../../malcolm/examples/document_flow.malc)
 
 ## Related
 

@@ -31,7 +31,7 @@ or incomplete contract therefore cannot be mistaken for a usable IR artifact.
 
 ~~~sh
 cargo run --manifest-path malcolm/Cargo.toml -- \
-  malcolm/examples/document_api.malcolm \
+  malcolm/examples/document_api.malc \
   --output .artifacts/document-api.ir.json
 ~~~
 
@@ -53,7 +53,7 @@ accepted by this first CLI slice yet.
 ## Used in
 
 - [malcolm/src/main.rs](../../../malcolm/src/main.rs)
-- [malcolm/examples/document_api.malcolm](../../../malcolm/examples/document_api.malcolm)
+- [malcolm/examples/document_api.malc](../../../malcolm/examples/document_api.malc)
 - [malcolm/README.md](../../../malcolm/README.md)
 
 ## Related

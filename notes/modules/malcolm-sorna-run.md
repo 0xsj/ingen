@@ -70,7 +70,7 @@ make malcolm-sorna-run
 - [malcolm/examples/healthz/oracle-policy.yaml](../../../malcolm/examples/healthz/oracle-policy.yaml)
 - [malcolm/examples/healthz/subject-policy.yaml](../../../malcolm/examples/healthz/subject-policy.yaml)
 - Makefile target malcolm-sorna-run
-- [malcolm/examples/healthz.malcolm](../../../malcolm/examples/healthz.malcolm)
+- [malcolm/examples/healthz.malc](../../../malcolm/examples/healthz.malc)
 - [sorna/cmd/sorna](../../../sorna/cmd/sorna/main.go)
 
 ## Related

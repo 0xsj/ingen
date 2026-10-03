@@ -90,7 +90,7 @@ instead of silently dropping valid source intent.
 - [`malcolm/src/semantic.rs`](../../../malcolm/src/semantic.rs)
 - [`malcolm/src/ir.rs`](../../../malcolm/src/ir.rs)
 - [`sorna/internal/malcolm/adapter.go`](../../../sorna/internal/malcolm/adapter.go)
-- [`malcolm/examples/document_mutation.malcolm`](../../../malcolm/examples/document_mutation.malcolm)
+- [`malcolm/examples/document_mutation.malc`](../../../malcolm/examples/document_mutation.malc)
 
 ## Related
 
