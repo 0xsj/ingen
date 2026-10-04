@@ -40,13 +40,20 @@ func seatbeltProfile(commandPath string, readPaths, writePaths, denyPaths []stri
 	writeRule(&builder, "file-read-metadata", "literal", commandPath)
 	writeRule(&builder, "file-read*", "literal", commandPath)
 	commandDir := filepath.Dir(commandPath)
+	// The executable directory is traversable, but sibling file contents are
+	// not implicitly readable. Additional runtime data must come from the
+	// explicit Darwin runtime roots below or the policy's read roots.
 	writeAncestorTraversalRules(&builder, commandDir)
-	writeRule(&builder, "file-read*", "subpath", commandDir)
 	// The wrapper may start the requested command, and forked descendants may
 	// only exec the command or an explicitly declared tool. This is the host
 	// enforcement of the process/tool portion of the policy.
 	writeRule(&builder, "process-exec", "literal", commandPath)
 	for _, toolPath := range allowedTools {
+		// A declared tool needs its exact executable bytes readable for exec;
+		// this grants no neighboring files or directory-wide data access.
+		writeAncestorTraversalRules(&builder, filepath.Dir(toolPath))
+		writeRule(&builder, "file-read-metadata", "literal", toolPath)
+		writeRule(&builder, "file-read*", "literal", toolPath)
 		writeRule(&builder, "process-exec", "literal", toolPath)
 	}
 	for _, path := range []string{

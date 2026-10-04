@@ -101,6 +101,16 @@ func LoadFile(path string) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
+	return LoadBytes(path, contents)
+}
+
+// LoadBytes parses and validates an already-read JSON-compatible YAML policy.
+// path supplies the format extension and diagnostic name.
+func LoadBytes(path string, contents []byte) (Document, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+		return Document{}, fmt.Errorf("policy file must use .json, .yaml, or .yml")
+	}
 	value, err := decode(contents)
 	if err != nil {
 		return Document{}, fmt.Errorf("parse %s: %w", path, err)

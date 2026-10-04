@@ -62,6 +62,10 @@ func TestWriteAndLoadPreserveCanonicalOracleBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	loadedFromBytes, err := LoadBytes(path, contents)
+	if err != nil || loadedFromBytes.Contract.SHA256 != loaded.Contract.SHA256 {
+		t.Fatalf("LoadBytes() contract hash = %q, err %v; want same parsed artifact", loadedFromBytes.Contract.SHA256, err)
+	}
 	canonical, err := CanonicalJSON(loaded)
 	if err != nil {
 		t.Fatal(err)

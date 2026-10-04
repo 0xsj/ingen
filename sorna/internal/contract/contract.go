@@ -57,14 +57,19 @@ func (e *ValidationError) Error() string {
 // LoadFile loads a JSON-compatible YAML document from a .yaml, .yml, or .json
 // file and validates its structural contract shape.
 func LoadFile(path string) (Document, error) {
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext != ".yaml" && ext != ".yml" && ext != ".json" {
-		return Document{}, fmt.Errorf("contract file must use .json, .yaml, or .yml")
-	}
-
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return Document{}, err
+	}
+	return LoadBytes(path, contents)
+}
+
+// LoadBytes parses and validates an already-read JSON-compatible YAML
+// contract. path supplies the format extension and diagnostic name.
+func LoadBytes(path string, contents []byte) (Document, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+		return Document{}, fmt.Errorf("contract file must use .json, .yaml, or .yml")
 	}
 	value, err := decodeYAMLSubset(contents)
 	if err != nil {
@@ -248,14 +253,24 @@ func CanonicalJSON(document Document) ([]byte, error) {
 // Seal changes only a draft document's status and returns the canonical bytes
 // and digest. The input document is not mutated.
 func Seal(document Document) (Sealed, error) {
-	return seal(document, "")
+	return seal(document, "", nil)
 }
 
 // SealAt seals a contract while resolving relative fixture paths from baseDir.
 // It is useful to an isolated child process that receives a contract path but
 // must not write the ordinary local sealing artifacts.
 func SealAt(document Document, baseDir string) (Sealed, error) {
-	return seal(document, baseDir)
+	return seal(document, baseDir, nil)
+}
+
+// SealWithFixtureReader seals a contract while reading referenced fixture
+// bytes through readFixture. The callback receives each declared fixture path
+// as stored in the contract and can enforce a caller-owned root boundary.
+func SealWithFixtureReader(document Document, readFixture func(path string) ([]byte, error)) (Sealed, error) {
+	if readFixture == nil {
+		return Sealed{}, fmt.Errorf("fixture reader is required")
+	}
+	return seal(document, "", readFixture)
 }
 
 // SealFile loads a draft contract, attaches hashes for local fixtures, and
@@ -265,7 +280,7 @@ func SealFile(path, outputDir string) (Sealed, error) {
 	if err != nil {
 		return Sealed{}, err
 	}
-	sealed, err := seal(document, filepath.Dir(path))
+	sealed, err := seal(document, filepath.Dir(path), nil)
 	if err != nil {
 		return Sealed{}, err
 	}
@@ -281,7 +296,7 @@ func SealFile(path, outputDir string) (Sealed, error) {
 	return sealed, nil
 }
 
-func seal(document Document, baseDir string) (Sealed, error) {
+func seal(document Document, baseDir string, readFixture func(string) ([]byte, error)) (Sealed, error) {
 	if problems := Validate(document); len(problems) > 0 {
 		return Sealed{}, &ValidationError{Problems: problems}
 	}
@@ -295,7 +310,7 @@ func seal(document Document, baseDir string) (Sealed, error) {
 		return Sealed{}, err
 	}
 	copyDocument.Contract["status"] = "sealed"
-	if err := attachFixtureHashes(copyDocument, baseDir); err != nil {
+	if err := attachFixtureHashes(copyDocument, baseDir, readFixture); err != nil {
 		return Sealed{}, err
 	}
 	canonical, err := CanonicalJSON(copyDocument)
@@ -310,7 +325,7 @@ func seal(document Document, baseDir string) (Sealed, error) {
 	}, nil
 }
 
-func attachFixtureHashes(document Document, baseDir string) error {
+func attachFixtureHashes(document Document, baseDir string, readFixture func(string) ([]byte, error)) error {
 	value, present := document.Contract["fixtures"]
 	if !present {
 		return nil
@@ -320,6 +335,12 @@ func attachFixtureHashes(document Document, baseDir string) error {
 		return &ValidationError{Problems: []string{"contract.fixtures must be a list"}}
 	}
 	problems := make([]string, 0)
+	read := func(path string) ([]byte, error) {
+		if readFixture != nil {
+			return readFixture(path)
+		}
+		return os.ReadFile(filepath.Join(baseDir, path))
+	}
 	for index, value := range fixtures {
 		fixture, ok := value.(map[string]any)
 		if !ok {
@@ -328,23 +349,27 @@ func attachFixtureHashes(document Document, baseDir string) error {
 		path, hasPath := fixture["path"].(string)
 		existing, hasDigest := fixture["sha256"].(string)
 		if !hasDigest {
-			if baseDir == "" || !hasPath || strings.TrimSpace(path) == "" {
+			if (baseDir == "" && readFixture == nil) || !hasPath || strings.TrimSpace(path) == "" {
 				problems = append(problems, fmt.Sprintf("contract.fixtures[%d].sha256 is required before sealing", index))
 				continue
 			}
-			pathDigest, err := fileSHA256(filepath.Join(baseDir, path))
+			contents, err := read(path)
 			if err != nil {
 				problems = append(problems, fmt.Sprintf("contract.fixtures[%d]: %v", index, err))
 				continue
 			}
-			fixture["sha256"] = pathDigest
+			digest := sha256.Sum256(contents)
+			fixture["sha256"] = hex.EncodeToString(digest[:])
 			continue
 		}
-		if hasPath && baseDir != "" {
-			pathDigest, err := fileSHA256(filepath.Join(baseDir, path))
+		if hasPath && (baseDir != "" || readFixture != nil) {
+			contents, err := read(path)
 			if err != nil {
 				problems = append(problems, fmt.Sprintf("contract.fixtures[%d]: %v", index, err))
-			} else if pathDigest != existing {
+				continue
+			}
+			digest := sha256.Sum256(contents)
+			if hex.EncodeToString(digest[:]) != existing {
 				problems = append(problems, fmt.Sprintf("contract.fixtures[%d].sha256 does not match %s", index, path))
 			}
 		}
@@ -353,15 +378,6 @@ func attachFixtureHashes(document Document, baseDir string) error {
 		return &ValidationError{Problems: problems}
 	}
 	return nil
-}
-
-func fileSHA256(path string) (string, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read fixture %s: %w", path, err)
-	}
-	digest := sha256.Sum256(contents)
-	return hex.EncodeToString(digest[:]), nil
 }
 
 func clone(document Document) (Document, error) {

@@ -11,7 +11,10 @@ import (
 	"testing"
 
 	"ingen/core/ciresult"
+	"ingen/herdr-sentinel/internal/roleexec"
 	sentinelrun "ingen/herdr-sentinel/internal/run"
+	"ingen/herdr-sentinel/internal/workflowgate"
+	"ingen/sorna/policy"
 )
 
 func TestHerdrEventAdapterCommandAppendsAndReplays(t *testing.T) {
@@ -173,6 +176,52 @@ func TestCoreWorkflowCommandsStayInsideProjectRoot(t *testing.T) {
 func TestVerifyCommandRequiresManagedSubject(t *testing.T) {
 	if code := run([]string{"verify", "--root", t.TempDir()}); code != 2 {
 		t.Fatalf("verify without a subject command exit code = %d, want 2", code)
+	}
+}
+
+func TestSessionSpawnProviderFlagsKeepLocalDefaultAndRejectUnsupportedHerdrOutputs(t *testing.T) {
+	if code := run([]string{"session", "spawn", "--workspace", "workspace.yaml", "--receipt", "receipt.json", "--role", "role", "--provider", "unknown", "--", "/bin/true"}); code != 2 {
+		t.Fatalf("unsupported provider exit code = %d, want 2", code)
+	}
+	if code := run([]string{"session", "spawn", "--workspace", "workspace.yaml", "--receipt", "receipt.json", "--role", "role", "--provider", "herdr", "--stdout", "custom.log", "--", "/bin/true"}); code != 2 {
+		t.Fatalf("Herdr custom stdout path exit code = %d, want 2", code)
+	}
+	t.Setenv("HERDR_ENV", "")
+	if code := run([]string{"session", "spawn", "--workspace", "workspace.yaml", "--receipt", "receipt.json", "--role", "role", "--provider", "herdr", "--socket", "/tmp/herdr.sock", "--", "/bin/true"}); code != 1 {
+		t.Fatalf("Herdr spawn outside supported environment exit code = %d, want 1", code)
+	}
+	if code := run([]string{"session", "execute-native", "--root", t.TempDir(), "--path", ".ingen/artifacts/native-sessions/test.json"}); code != 1 {
+		t.Fatalf("native wrapper outside supported environment exit code = %d, want 1", code)
+	}
+}
+
+func TestContainedAndGovernedCLIFlagsAreNeverSilentlyIgnored(t *testing.T) {
+	if code := run([]string{"session", "spawn", "--workspace", "workspace.yaml", "--receipt", "receipt.json", "--role", "implementation", "--governed", "--", "/bin/true"}); code != 2 {
+		t.Fatalf("governed non-isolated spawn exit code = %d, want 2", code)
+	}
+	if code := run([]string{"session", "spawn", "--workspace", "workspace.yaml", "--receipt", "receipt.json", "--role", "implementation", "--isolate", "--oracle", "other/oracle.json", "--", "/bin/true"}); code != 2 {
+		t.Fatalf("ungoverned explicit oracle path exit code = %d, want 2", code)
+	}
+	if code := run([]string{"role", "execute", "--expected-oracle-sha256", strings.Repeat("a", 64)}); code != 2 {
+		t.Fatalf("ungoverned role execute with governance digest exit code = %d, want 2", code)
+	}
+	if code := run([]string{"oracle", "freeze", "--workspace", "workspace.yaml"}); code != 2 {
+		t.Fatalf("ungoverned oracle freeze with an unused workspace flag exit code = %d, want 2", code)
+	}
+}
+
+func TestRoleExecuteArgsStartsWithPersistentSentinelExecutable(t *testing.T) {
+	const executable = "/opt/sentinel/bin/sentinel"
+	args := roleExecuteArgs(executable, "/project", ".ingen/workspace.yaml", ".ingen/receipt.json", "implementation", "exec-123", ".ingen/artifacts/role-executions/exec-123.policy.json", roleexec.Prepared{
+		ManifestSHA256:   strings.Repeat("a", 64),
+		Policy:           policy.Sealed{SHA256: strings.Repeat("b", 64)},
+		ExecutableSHA256: strings.Repeat("c", 64),
+	}, nil, nil, nil, false, "", "", "", workflowgate.Result{}, []string{"/bin/echo", "contained"})
+	if len(args) < 4 || args[0] != executable || args[1] != "role" || args[2] != "execute" {
+		t.Fatalf("role execution wrapper argv prefix = %q, want [%q role execute ...]", args[:min(3, len(args))], executable)
+	}
+	if args[len(args)-3] != "--" || args[len(args)-2] != "/bin/echo" || args[len(args)-1] != "contained" {
+		t.Fatalf("role execution wrapper command suffix = %q", args[len(args)-3:])
 	}
 }
 

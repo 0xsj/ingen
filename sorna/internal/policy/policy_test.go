@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,14 @@ func TestLoadAndSealDocumentPipelinePolicy(t *testing.T) {
 	document, err := LoadFile(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromBytes, err := LoadBytes(path, contents)
+	if err != nil || fromBytes.Policy["id"] != document.Policy["id"] {
+		t.Fatalf("LoadBytes() policy ID = %v, err %v; want same parsed snapshot", fromBytes.Policy["id"], err)
 	}
 	sealed, err := Seal(document)
 	if err != nil {

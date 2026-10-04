@@ -638,9 +638,9 @@ func TestCLIComponentMapCommand(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	cli := buildCLI(t, repoRoot)
 	source := filepath.Join(repoRoot, "paddock", "examples", "services", "ui-boundary-ts", "violating")
-	policy := filepath.Join(repoRoot, "paddock", "examples", "overwatch", "overwatch-ui-layered-proposal.yaml")
+	policyLock := filepath.Join(repoRoot, "paddock", "examples", "overwatch", "overwatch-ui-layered-proposal.lock.json")
 	output, exitCode := runCLI(t, cli, repoRoot,
-		"map", source, "--policy", policy, "--format", "json",
+		"map", source, "--policy-lock", policyLock, "--format", "json",
 	)
 	if exitCode != 0 {
 		t.Fatalf("map exit code = %d, want 0; output:\n%s", exitCode, output)
@@ -662,38 +662,38 @@ func TestCLIComponentMapCommand(t *testing.T) {
 		t.Fatalf("component map omitted service-to-presentation boundary: %#v", document.Dependencies)
 	}
 
-	backend := filepath.Join(repoRoot, "..", "overwatch", "overwatch-backend")
-	backendPolicyLock := filepath.Join(repoRoot, "paddock", "examples", "overwatch", "overwatch-backend-review.lock.json")
+	backend := filepath.Join(repoRoot, "paddock", "examples", "services", "modular-monolith-go", "good")
+	backendPolicy := filepath.Join(repoRoot, "paddock", "examples", "modular-monolith.yaml")
 	output, exitCode = runCLI(t, cli, repoRoot,
-		"map", backend, "--policy-lock", backendPolicyLock, "--format", "json",
+		"map", backend, "--policy", backendPolicy, "--format", "json",
 	)
 	if exitCode != 0 {
-		t.Fatalf("Overwatch backend map exit code = %d; output:\n%s", exitCode, output)
+		t.Fatalf("modular monolith backend map exit code = %d; output:\n%s", exitCode, output)
 	}
 	if err := json.Unmarshal([]byte(output), &document); err != nil {
-		t.Fatalf("decode Overwatch backend component map: %v\n%s", err, output)
+		t.Fatalf("decode modular monolith backend component map: %v\n%s", err, output)
 	}
-	applicationContexts := map[string]bool{}
+	publicContexts := map[string]bool{}
 	for _, component := range document.Components {
-		if component.Name == "application" {
-			applicationContexts[component.Labels["context"]] = true
+		if component.Name == "context-public" {
+			publicContexts[component.Labels["context"]] = true
 			if component.Identity == "" {
-				t.Fatalf("Overwatch application component lacks variant identity: %#v", component)
+				t.Fatalf("modular monolith public context lacks variant identity: %#v", component)
 			}
 		}
 	}
-	if len(applicationContexts) < 2 {
-		t.Fatalf("Overwatch component map collapsed application contexts: %#v", document.Components)
+	if !publicContexts["orders"] || !publicContexts["billing"] {
+		t.Fatalf("modular monolith component map omitted orders or billing context variants: %#v", document.Components)
 	}
 	identityDependency := false
 	for _, dependency := range document.Dependencies {
-		if dependency.From == "application" && dependency.FromIdentity != "" {
+		if dependency.From == "context-public" && dependency.FromIdentity != "" {
 			identityDependency = true
 			break
 		}
 	}
 	if !identityDependency {
-		t.Fatalf("Overwatch component map omitted dependency variant identity: %#v", document.Dependencies)
+		t.Fatalf("modular monolith component map omitted dependency FromIdentity: %#v", document.Dependencies)
 	}
 }
 

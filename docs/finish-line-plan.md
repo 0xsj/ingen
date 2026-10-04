@@ -155,6 +155,75 @@ Three Luna agents implemented separate changes, with parent review and follow-up
 
 The aggregate workflow artifacts are in `/private/tmp/ingen-workspace.tS16fi/.artifacts`; its command log is `/private/tmp/ingen-first-batch-document.log`. The exact CI workflow artifacts are in `/private/tmp/ingen-nublar-workspace.R2rNs1/.artifacts`, with log `/private/tmp/ingen-first-batch-ci-workflow.log`. These are local temporary evidence, not release distribution artifacts. Existing uncommitted work remains preserved and no commit or publication has been made. Milestone 1 still requires a clean-checkout/hosted-CI checkpoint before it is marked complete.
 
+### Hosted baseline follow-up on 2026-10-04
+
+The owner committed the reviewed batch as `fab65dc` (v1.0.2). [Hosted CI run 37113746224](https://github.com/0xsj/ingen/actions/runs/37113746224) passed the Linux Amber/Malcolm job but failed the macOS root Go job in `TestCLIComponentMapCommand`: the acceptance test required `../overwatch/overwatch-backend`, which is absent on a clean runner. The fresh document workflow was not reached. Local success with a sibling checkout had concealed this dependency.
+
+The repair uses the checked-in modular-monolith Go fixture to exercise context variant identities and retains checked-in TypeScript coverage for lock-backed mapping. Hosted green status remains pending until the repaired revision runs in CI. The downloaded failing job log is `/private/tmp/ingen-hosted-ci-job.log`.
+
+### Reviewed native lifecycle batch on 2026-10-04
+
+Three Luna agents implemented the journal, socket client, and provider/CLI in separate owned files. Parent and sibling review produced follow-up fixes for dispatch/claim/start races, terminal journal immutability, receipt and manifest revalidation, collection digest races, cancellation settlement, and truthful child exit/capture outcomes. No source commit or publication was made in this batch.
+
+The opt-in `session spawn --provider herdr` path now launches noninteractive commands in new background workspaces through Herdr 0.9.3/protocol 22. A persistent Sentinel binary dispatches a wrapper; the original child argv remains in the journal rather than shell text. New `native-status`, `native-collect`, `native-cancel`, and `native-recover` commands operate on the exact recorded identities. The default local provider remains available. Operator instructions are in the [fresh-project guide](../herdr-sentinel/FRESH-PROJECT-GUIDE.md#native-herdr-session-operations).
+
+| Responsibility | Current owner and limit |
+| --- | --- |
+| Host workspace/pane/terminal identities | Herdr response/snapshot; exact IDs are stored and checked before interruption. Host responses remain observations, not independent attestation. |
+| Launch intent and event IDs/times | Sentinel-owned `ingen.sentinel-native-session/v1`; immutable intent, rooted files, advisory locking, atomic publication, file/directory sync, strict decoding and replay. Times are Sentinel's monotonic journal chronology, not host event times. |
+| Child launch | Separate claim and start CAS gates permit at most one launch. A crash can leave an unexecuted claim; recovery never redispatches it automatically. |
+| Cancellation | Durable intent blocks an unclaimed launch; a no-claim journal can settle without process evidence. A running wrapper monitors the intent and forwards signals to its own child process group. Failed/uncertain host interruption remains explicit. |
+| Process outcome and artifact attachment | Wrapper records actual child exit and synced output hashes; capture failure leaves an indeterminate outcome. Collection verifies identity and exact bytes and replays without changing the receipt. |
+| Role access and workflow prerequisites | Still declaration-only/unverified. No enforced filesystem/tool/network boundaries, interactive agent terminal capture, approval/oracle-freeze gates, authenticated callbacks, or host-restart proof are claimed. |
+
+| Verification | Result and evidence |
+| --- | --- |
+| Paddock map acceptance without a sibling checkout | Passed in `/private/tmp/ingen-paddock-isolated.xAHlMb`; targeted `TestCLIComponentMapCommand` |
+| Full root Go suite and vet in an isolated source snapshot | Passed in `/private/tmp/ingen-native-clean-go.o6d72P`, using `git archive fab65dc` plus current Sentinel/Paddock overlays and Git metadata copied from the checkout for provenance tests. Commands: `go test -timeout 10m ./...`, `go vet ./...`. Logs: `/private/tmp/ingen-native-clean-go.log`, `/private/tmp/ingen-native-clean-vet.log`. |
+| Final Sentinel source after cancellation refinements | `go test -race -timeout 2m ./herdr-sentinel/...`, `go vet ./herdr-sentinel/...`, and CLI build passed with workspace caches and required local socket/process permissions. |
+| Fake-host and durable journal failure cases | Passed: conflicting/duplicate events, strict JSON/replay, path escapes, claim/start cancellation races, late acknowledgement byte stability, missing executable, manifest tamper, output tamper, unknown host delivery, recovery without redispatch, and wrong terminal identity. |
+| Live final-binary success | `native-e6755eda807a367fd8d2629c37c384eb`: `/bin/echo final-reviewed-success`, completed with exit 0 |
+| Live final-binary failure | `native-826ecb9770626824338148aeb6ba13b4`: `/bin/sh -c 'exit 7'`, failed with exit 7 |
+| Live final-binary cancellation | `native-c45a586d8ca50cc75f0444edb9583d68`: `/bin/sleep 120`, canceled through Sentinel, actual signal exit -1 and interruption reason preserved |
+| Collection/replay and duplicate launch | All three live sessions collected twice successfully, including replay into failed receipts. Duplicate completed-wrapper execution was rejected with exit 1. |
+| Host cleanup | Only owned test workspaces were closed. Before/after snapshots retained the original eight workspace IDs and focused pane `w23:p1`; no server stop/restart was performed. |
+
+Final live artifacts and receipts are under `/private/tmp/ingen-native-proof.Qa5bqN/.ingen/artifacts/`; journals are in `native-sessions/` and the three final receipts are `rc-success.json`, `rc-failure.json`, and `rc-cancel.json`. The tested binary is `/private/tmp/ingen-native-sentinel-rc`, SHA-256 `b01bd59620ee3533e866621c740db4bfc98cdbad11ca5e2800e6637b7585c90e`. Earlier pilot records in the same root are separate from these final proofs. Temporary artifacts are local review evidence, not release packages.
+
+Milestone 1 still awaits green hosted CI on the repaired revision. Milestones 2–3 have a pinned host surface and reviewed launch mechanics, but their complete host/capability/restart/authentication criteria remain open. Next work is enforced role isolation and approval/freeze transitions, followed by the live nine-module workflow; this batch does not mark the ecosystem release complete.
+
+### Governed and contained execution batch on 2026-10-04
+
+Three Luna agents implemented the public Sorna boundary, rooted Hammond/workflow gates, and contained Sentinel executor; the parent reviewed interfaces, protection rules, actual outcomes, and live integration. All changes remain uncommitted on top of `fab65dc`, including the previous native lifecycle and Paddock repair. No publication or real operator approval was created.
+
+New behavior:
+
+- Hammond exposes a read-only approved-contract verifier that reuses its existing policy and lifecycle replay. Contract, active/referenced policy, and nested authority bytes are hash-bound and read beneath an explicit project root. Missing, rejected, superseded, wrong-identity, stale-policy, and escaped/tampered artifacts fail.
+- Sentinel's workflow gate seals draft source using rooted fixture bytes or canonicalizes an already sealed source. Implementation, verifier, and mutation roles additionally require a frozen oracle matching the approved contract and current oracle policy. Selected artifacts are checked again by the role wrapper before launch.
+- `session spawn --isolate` selects a noninteractive macOS Seatbelt child boundary with exact manifest grants, fresh private scratch, sanitized environment, disabled networking, and prelaunch executable/tool hashes. Write grants remain independent of read grants. Protected control paths and in-project symlink aliases cannot be exposed by role capabilities. Reports and policy publication use rooted files, exclusive execution claims, and atomic report publication.
+- `--governed --approval <path> --review-policy <path>` enables the prerequisite checks for contained sessions and oracle freeze. Bootstrap authoring remains separate. Sorna freeze/generate receive expected canonical hashes to refuse contract drift before generation.
+- Sorna no longer grants blanket reads beside command executables. Explicit tool binaries get literal execution/read grants. Unsupported platform enforcement still fails closed.
+
+The separate `ingen.sentinel-role-execution/v1` report records the contained command's policy, exact inputs, captures, actual exit, and enforcement limits. The unchanged native journal records the Sentinel wrapper's outcome and remains declaration-only/unverified. Role reports also remain unverified: these filesystem/tool/network restrictions do not isolate the process namespace or prior context, do not attest loaded images or every tool invocation, and do not establish independent host attestation. The local authority snapshot gate does not perform organization authentication or signature trust-store verification. Direct development commands without `--governed` retain their existing behavior.
+
+| Verification | Result and evidence |
+| --- | --- |
+| Full root Go suite and vet | `go test -timeout 10m ./...` and `go vet ./...` passed with workspace caches and required host permissions, including the final project-root grant rejection. Final logs: `/private/tmp/ingen-governed-final-tests.log`, `/private/tmp/ingen-governed-final-vet.log`; earlier checkpoint logs are preserved separately. Environment: Darwin/arm64. |
+| Race checks | Sentinel packages, Hammond governance, and Sorna sandbox passed; final roleexec/CLI/schema race suite passed after the native argv repair. |
+| Actual Seatbelt probes | Allowed write and selected tool succeeded; unlisted source/sibling reads, outside writes, unlisted tools, and TCP were denied. Role tests also verified a synthetic parent token was absent from the child environment. |
+| Governed test fixtures | Exact-pinned launch passed; contract/approval/authority/oracle drift, missing oracle pins, and write access to selected custom governance paths failed before child launch. Test fixtures are not operator approval. |
+| Execution and cleanup regressions | Duplicate execution claims, project-root read/write grants, escaping/in-project symlink aliases, and executable/tool deny-root overlap were rejected. Cancellation retained graceful exit 0 as canceled; a signal-ignoring child was killed after the grace period, and same-group descendants stopped while a separate test-owned group remained running. |
+| Fresh document workflow | `make nublar-run-collect-fresh` passed; all four required checks passed; six mutations killed, zero survivors/errors. Run `run-4c1aa15d01084f3989dd0c3701a5bd6f`, artifacts/store in `/private/tmp/ingen-nublar-workspace.Bwd2Hs/.artifacts`; log `/private/tmp/ingen-governed-fresh-workflow.log`. |
+| Native contained success | `native-3e97e18d04a47fbcec75c4dcdc28ce4f`, role execution `648dcefac573d534c0c930c256b14400`: `/bin/echo contained-native-success`; command and wrapper exited 0. |
+| Native contained failure | `native-127dcf60ac87916ae5332b39b7e82a54`, role execution `93902d38daf841ea79cad633914ac5a8`: `/bin/bash -c 'exit 7'`; command exit 7 and wrapper exit 1 preserved separately. |
+| Native contained cancellation | `native-5fd37fa81964842f5025661ad7e712c1`, role execution `c156c7c23b53851e1c520983f0152fd3`: canceled running `/bin/sleep 600`; role report canceled with actual signal exit -1, native wrapper canceled with exit 1 and interruption reason. |
+| Final binary confirmation | `native-bec8a0488054bfd717299fa806898f07`: `/bin/echo release-contained-success` completed with exit 0 after the project-root grant fix; collected twice. |
+| Replay and host cleanup | Success/failure/cancellation journals collected twice. Only owned settled workspaces `w2B`–`w2G` were closed; the eight original workspace IDs remained. Initial lifecycle cleanup preserved focus `w23:p1`; after final confirmation the observed focus was `w1X:p1`. No focus commands or server restart were issued; the cause of that focus change was not established. |
+
+Native artifacts are under `/private/tmp/ingen-contained-proof.NwrOd4/.ingen/artifacts/`, with lifecycle receipts `final-success.json`, `final-failure.json`, and `rc-canceled.json`. Those three proofs used `/private/tmp/ingen-contained-sentinel-final`, SHA-256 `9e682d3c3f581fcfbf383d382b81d8aabf8664921c5ba7f7718c773ee6fa23e0`. The final grant refinement was confirmed using `/private/tmp/ingen-contained-sentinel-release`, SHA-256 `2023411027c02ffd68225c0067eaf5a586ce0fd5f4b19377090a7788cf15a2e7`, with receipt `release-success.json`. A first pilot caught a missing Sentinel executable in the contained argv; it recorded a setup failure without child evidence, was collected, and prompted the repair and argv regression. Its binary and journal are preserved separately. A separate 120-second sleep completed normally before cancellation was requested; it is not the cancellation proof above.
+
+The next release batch is the live nine-module workflow and required producer/custody intake for these new reports. Complete native agent context isolation, Linux enforcement, host restart/authentication proofs, packaging, and hosted CI on the repaired revision remain open. This batch does not mark the full ecosystem release complete.
+
 ### Current Herdr assessment
 
 The installed Herdr 0.9.3 bundled schema still reports protocol 22/schema version 1. Both event envelopes require only `event` and `data`; the agent-status event has workspace/pane identity and status, with no host event ID or event timestamp. Subscription parameters expose subscriptions without a durable cursor.

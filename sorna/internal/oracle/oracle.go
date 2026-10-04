@@ -209,6 +209,11 @@ func LoadFile(path string) (Artifact, error) {
 	if err != nil {
 		return Artifact{}, err
 	}
+	return LoadBytes(path, contents)
+}
+
+// LoadBytes parses and validates an already-read canonical frozen oracle.
+func LoadBytes(path string, contents []byte) (Artifact, error) {
 	decoder := json.NewDecoder(bytes.NewReader(contents))
 	decoder.UseNumber()
 	var artifact Artifact

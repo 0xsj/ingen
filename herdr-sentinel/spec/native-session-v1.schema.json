@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.example/spec/ingen.sentinel-native-session-v1.schema.json",
+  "title": "InGen Sentinel native session journal v1",
+  "description": "Sentinel-owned immutable launch intent and replayable session events. Host bindings are observations, not verified host event identities.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "origin", "enforcement", "assurance", "intent", "state", "events"],
+  "properties": {
+    "schema": {"const": "ingen.sentinel-native-session/v1"},
+    "origin": {"const": "sentinel-launch-journal"},
+    "enforcement": {"const": "declaration-only"},
+    "assurance": {"const": "unverified"},
+    "intent": {"$ref": "#/$defs/intent"},
+    "state": {"$ref": "#/$defs/state"},
+    "events": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/event"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "state": {
+      "enum": ["prepared", "dispatching", "submitted", "running", "cancel-requested", "completed", "failed", "canceled", "indeterminate"]
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "run_id", "workspace_id", "workspace_version", "workspace_manifest_sha256", "role_id", "role_kind", "workdir", "receipt_path", "argv", "stdout_path", "stderr_path", "herdr_socket", "sentinel_executable", "sentinel_executable_sha256"],
+      "properties": {
+        "session_id": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "minLength": 1},
+        "workspace_id": {"type": "string", "minLength": 1},
+        "workspace_version": {"type": "integer", "minimum": 1},
+        "workspace_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "role_id": {"type": "string", "minLength": 1},
+        "role_kind": {"type": "string", "minLength": 1},
+        "workdir": {"type": "string", "minLength": 1},
+        "receipt_path": {"type": "string", "minLength": 1},
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "stdout_path": {"type": "string", "minLength": 1},
+        "stderr_path": {"type": "string", "minLength": 1},
+        "herdr_socket": {"type": "string", "minLength": 1},
+        "sentinel_executable": {"type": "string", "minLength": 1},
+        "sentinel_executable_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspace_id", "sentinel_workspace_id"],
+      "properties": {
+        "workspace_id": {"type": "string", "minLength": 1},
+        "sentinel_workspace_id": {"type": "string", "minLength": 1},
+        "pane_id": {"type": "string", "minLength": 1},
+        "terminal_id": {"type": "string", "minLength": 1}
+      },
+      "anyOf": [
+        {"required": ["pane_id"]},
+        {"required": ["terminal_id"]}
+      ]
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "at", "state"],
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "wrapper-terminal"}}, "required": ["kind"]},
+          "then": {
+            "required": ["exit_code", "stdout_sha256", "stderr_sha256"],
+            "properties": {"state": {"enum": ["completed", "failed", "canceled"]}}
+          }
+        }
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "kind": {"type": "string", "minLength": 1},
+        "at": {"type": "string", "format": "date-time"},
+        "state": {"$ref": "#/$defs/state"},
+        "host": {"$ref": "#/$defs/host"},
+        "reason": {"type": "string"},
+        "exit_code": {"type": "integer"},
+        "stdout_sha256": {"$ref": "#/$defs/sha256"},
+        "stderr_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

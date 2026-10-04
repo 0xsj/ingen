@@ -94,6 +94,26 @@ func DecodeReviewPolicyWithTrustStore(data []byte, reference PolicyReference, tr
 }
 
 func decodeReviewPolicy(data []byte, reference PolicyReference, verifier AuthoritySignatureVerifier) (ReviewPolicy, error) {
+	return decodeReviewPolicyWithAuthorityResolver(data, reference, verifier, func(authorityReference AuthorityReference) (ReviewAuthority, error) {
+		if verifier == nil {
+			return LoadReviewAuthority(authorityReference)
+		}
+		return LoadReviewAuthorityWithSignatureVerifier(authorityReference, verifier)
+	})
+}
+
+// DecodeReviewPolicyWithAuthorityResolver strictly decodes a policy and uses
+// the supplied resolver for any referenced authority snapshot. The resolver
+// keeps nested artifact loading in the caller's trust and path boundary while
+// Hammond retains policy decoding and lifecycle semantics.
+func DecodeReviewPolicyWithAuthorityResolver(data []byte, reference PolicyReference, resolver func(AuthorityReference) (ReviewAuthority, error)) (ReviewPolicy, error) {
+	if resolver == nil {
+		return ReviewPolicy{}, fmt.Errorf("review policy authority resolver is required")
+	}
+	return decodeReviewPolicyWithAuthorityResolver(data, reference, nil, resolver)
+}
+
+func decodeReviewPolicyWithAuthorityResolver(data []byte, reference PolicyReference, verifier AuthoritySignatureVerifier, resolveAuthority func(AuthorityReference) (ReviewAuthority, error)) (ReviewPolicy, error) {
 	var document reviewPolicyDocument
 	if err := decodeStrict(data, &document); err != nil {
 		return ReviewPolicy{}, fmt.Errorf("decode Hammond review policy: %w", err)
@@ -116,13 +136,7 @@ func decodeReviewPolicy(data []byte, reference PolicyReference, verifier Authori
 		Authority:              document.Authority,
 	}
 	if !isEmptyAuthorityReference(document.Authority) {
-		var authority ReviewAuthority
-		var err error
-		if verifier == nil {
-			authority, err = LoadReviewAuthority(document.Authority)
-		} else {
-			authority, err = LoadReviewAuthorityWithSignatureVerifier(document.Authority, verifier)
-		}
+		authority, err := resolveAuthority(document.Authority)
 		if err != nil {
 			return ReviewPolicy{}, fmt.Errorf("load review policy authority: %w", err)
 		}

@@ -13,6 +13,7 @@ type ValidationError = internal.ValidationError
 
 var (
 	LoadFile      = internal.LoadFile
+	LoadBytes     = internal.LoadBytes
 	Validate      = internal.Validate
 	CanonicalJSON = internal.CanonicalJSON
 	Seal          = internal.Seal

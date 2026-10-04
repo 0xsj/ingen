@@ -10,7 +10,8 @@ import (
 )
 
 func TestLoadAndValidateDocumentPipelineContract(t *testing.T) {
-	document, err := LoadFile(filepath.Join("..", "..", "..", "examples", "document-pipeline-lab", "contract", "contract.yaml"))
+	path := filepath.Join("..", "..", "..", "examples", "document-pipeline-lab", "contract", "contract.yaml")
+	document, err := LoadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,6 +20,14 @@ func TestLoadAndValidateDocumentPipelineContract(t *testing.T) {
 	}
 	if got := document.Contract["id"]; got != "document-pipeline" {
 		t.Fatalf("contract id = %v, want document-pipeline", got)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromBytes, err := LoadBytes(path, contents)
+	if err != nil || fromBytes.Contract["id"] != document.Contract["id"] {
+		t.Fatalf("LoadBytes() contract ID = %v, err %v; want same parsed snapshot", fromBytes.Contract["id"], err)
 	}
 }
 
@@ -110,6 +119,34 @@ func TestSealAttachesAndVerifiesFixtureHash(t *testing.T) {
 	}
 }
 
+func TestSealWithFixtureReaderHashesTheExactSuppliedBytes(t *testing.T) {
+	document := minimalDocument()
+	document.Contract["fixtures"] = []any{map[string]any{
+		"path":    "public/input.json",
+		"purpose": "snapshot-bound oracle input",
+	}}
+	fixtureBytes := []byte("approved snapshot bytes\n")
+	var requestedPath string
+	sealed, err := SealWithFixtureReader(document, func(path string) ([]byte, error) {
+		requestedPath = path
+		return append([]byte(nil), fixtureBytes...), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestedPath != "public/input.json" {
+		t.Fatalf("fixture reader path = %q, want declared relative path", requestedPath)
+	}
+	digest := sha256.Sum256(fixtureBytes)
+	fixture := sealed.Document.Contract["fixtures"].([]any)[0].(map[string]any)
+	if fixture["sha256"] != hex.EncodeToString(digest[:]) {
+		t.Fatalf("fixture digest = %v, want hash of exact callback bytes", fixture["sha256"])
+	}
+	if _, exists := document.Contract["fixtures"].([]any)[0].(map[string]any)["sha256"]; exists {
+		t.Fatal("fixture reader sealing mutated the input document")
+	}
+}
+
 func TestValidationRejectsDuplicateRulesAndUnboundedGenerator(t *testing.T) {
 	document := minimalDocument()
 	document.Contract["rules"] = []any{
@@ -156,9 +193,9 @@ func TestValidationRequiresSetupForStatefulRule(t *testing.T) {
 func TestValidationChecksPerScenarioIsolationReset(t *testing.T) {
 	document := minimalDocument()
 	document.Contract["rules"] = []any{map[string]any{
-		"id":      "isolated-rule",
+		"id":       "isolated-rule",
 		"strength": "must",
-		"subject": "POST /documents",
+		"subject":  "POST /documents",
 		"given": map[string]any{
 			"isolation": map[string]any{
 				"scope": "scenario",

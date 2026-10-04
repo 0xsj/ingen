@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,9 +65,61 @@ func TestPrepareRestrictsProcessExecToCommandAndAllowedTools(t *testing.T) {
 	if !strings.Contains(profile, `(allow process-exec (literal "/bin/echo"))`) || !strings.Contains(profile, `(allow process-exec (literal "/bin/cat"))`) {
 		t.Fatalf("Seatbelt profile = %s, want command and declared tool exec rules", profile)
 	}
+	if !strings.Contains(profile, `(allow file-read* (literal "/bin/cat"))`) {
+		t.Fatalf("Seatbelt profile = %s, want exact declared tool binary read rule", profile)
+	}
 	if strings.Contains(profile, "(allow process-exec)\n") || prepared.CanInvokeSubject {
 		t.Fatalf("prepared = %+v; want restricted process execution and no subject invocation", prepared)
 	}
+}
+
+func TestSandboxAllowsDeclaredToolExecutable(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("host enforcement probe is macOS-specific")
+	}
+	root := t.TempDir()
+	inputDir := filepath.Join(root, "contract")
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inputPath := filepath.Join(inputDir, "input.txt")
+	if err := os.WriteFile(inputPath, []byte("declared tool output"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	document := testPolicy()
+	document.Policy["process"] = map[string]any{
+		"subject_id":         "sandbox-test",
+		"can_invoke_subject": false,
+		"allowed_tools":      []any{map[string]any{"name": "cat", "purpose": "declared tool execution probe"}},
+	}
+	sealed, err := policy.Seal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := Prepare([]string{os.Args[0], "-test.run=TestSandboxDeclaredToolHelper"}, root, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(prepared.Command[0], prepared.Command[1:]...)
+	command.Dir = root
+	command.Env = append(os.Environ(), "INGEN_SANDBOX_DECLARED_TOOL=1", "INGEN_SANDBOX_DECLARED_TOOL_INPUT="+inputPath)
+	output, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "declared tool output") {
+		t.Fatalf("declared tool probe = %v; output=%s; want allowed tool to read declared input", err, output)
+	}
+}
+
+func TestSandboxDeclaredToolHelper(t *testing.T) {
+	if os.Getenv("INGEN_SANDBOX_DECLARED_TOOL") != "1" {
+		return
+	}
+	inputPath := os.Getenv("INGEN_SANDBOX_DECLARED_TOOL_INPUT")
+	output, err := exec.Command("cat", inputPath).CombinedOutput()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "declared tool execution failed: %v; output=%s", err, output)
+		os.Exit(1)
+	}
+	fmt.Print(string(output))
 }
 
 func TestSandboxDeniesUnlistedExecHelperProcess(t *testing.T) {
@@ -194,6 +247,136 @@ func TestSandboxEnforcesFilesystemProbe(t *testing.T) {
 	deniedOutput, err := deniedCommand.CombinedOutput()
 	if err == nil || (!strings.Contains(string(deniedOutput), "Operation not permitted") && !strings.Contains(string(deniedOutput), "Permission denied")) {
 		t.Fatalf("denied sandbox read = %v; output=%s, want OS denial", err, deniedOutput)
+	}
+}
+
+func TestSandboxAllowsDeclaredWriteAndDeniesWriteOutsideRoots(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("host enforcement probe is macOS-specific")
+	}
+	root := t.TempDir()
+	outputDir := filepath.Join(root, "output")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	allowedPath := filepath.Join(outputDir, "declared.txt")
+	deniedPath := filepath.Join(root, "undeclared.txt")
+	sealed, err := policy.Seal(testPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := Prepare([]string{os.Args[0], "-test.run=TestSandboxFilesystemWriteHelper"}, root, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(prepared.Command[0], prepared.Command[1:]...)
+	command.Dir = root
+	command.Env = append(os.Environ(), "INGEN_SANDBOX_WRITE_PROBE=1", "INGEN_SANDBOX_ALLOWED_WRITE="+allowedPath, "INGEN_SANDBOX_DENIED_WRITE="+deniedPath)
+	output, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "outside-write-denied") {
+		t.Fatalf("sandbox write probe = %v; output=%s; want allowed write and denied outside write", err, output)
+	}
+	if contents, err := os.ReadFile(allowedPath); err != nil || string(contents) != "allowed" {
+		t.Fatalf("declared output = %q, err %v; want allowed", contents, err)
+	}
+	if _, err := os.Stat(deniedPath); !os.IsNotExist(err) {
+		t.Fatalf("outside output stat = %v; want write denied", err)
+	}
+}
+
+func TestSandboxFilesystemWriteHelper(t *testing.T) {
+	if os.Getenv("INGEN_SANDBOX_WRITE_PROBE") != "1" {
+		return
+	}
+	allowedPath := os.Getenv("INGEN_SANDBOX_ALLOWED_WRITE")
+	if err := os.WriteFile(allowedPath, []byte("allowed"), 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "declared write failed: %v", err)
+		os.Exit(1)
+	}
+	deniedPath := os.Getenv("INGEN_SANDBOX_DENIED_WRITE")
+	if err := os.WriteFile(deniedPath, []byte("denied"), 0o600); err == nil {
+		fmt.Fprintln(os.Stderr, "outside write unexpectedly succeeded")
+		os.Exit(1)
+	}
+	fmt.Println("outside-write-denied")
+}
+
+func TestSandboxDeniesAdjacentPrivateRead(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("host enforcement probe is macOS-specific")
+	}
+	root := t.TempDir()
+	binDir := t.TempDir()
+	executable := filepath.Join(binDir, "sandbox-probe")
+	privatePath := filepath.Join(binDir, "sibling-private.txt")
+	binary, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(executable, binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(privatePath, []byte("private sibling"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := policy.Seal(testPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := Prepare([]string{executable, "-test.run=TestSandboxAdjacentPrivateReadHelper"}, root, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(prepared.Command[0], prepared.Command[1:]...)
+	command.Dir = root
+	command.Env = append(os.Environ(), "INGEN_SANDBOX_ADJACENT_READ=1", "INGEN_SANDBOX_ADJACENT_PRIVATE_PATH="+privatePath)
+	output, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "adjacent private read denied") {
+		t.Fatalf("adjacent read probe = %v; output=%s; want sibling file contents denied", err, output)
+	}
+}
+
+func TestSandboxAdjacentPrivateReadHelper(t *testing.T) {
+	if os.Getenv("INGEN_SANDBOX_ADJACENT_READ") != "1" {
+		return
+	}
+	if contents, err := os.ReadFile(os.Getenv("INGEN_SANDBOX_ADJACENT_PRIVATE_PATH")); err == nil {
+		fmt.Fprintf(os.Stderr, "adjacent private read unexpectedly succeeded: %s", contents)
+		os.Exit(1)
+	}
+	fmt.Println("adjacent private read denied")
+}
+
+func TestSandboxDisabledTCPHelper(t *testing.T) {
+	if os.Getenv("INGEN_SANDBOX_DISABLED_TCP") != "1" {
+		return
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err == nil {
+		_ = listener.Close()
+		fmt.Fprintln(os.Stderr, "disabled TCP listen unexpectedly succeeded")
+		os.Exit(1)
+	}
+	fmt.Println("disabled TCP listen denied")
+}
+
+func TestSandboxDeniesTCPWhenNetworkDisabled(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("host enforcement probe is macOS-specific")
+	}
+	sealed, err := policy.Seal(testPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := Prepare([]string{os.Args[0], "-test.run=TestSandboxDisabledTCPHelper"}, t.TempDir(), sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(prepared.Command[0], prepared.Command[1:]...)
+	command.Env = append(os.Environ(), "INGEN_SANDBOX_DISABLED_TCP=1")
+	output, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "disabled TCP listen denied") {
+		t.Fatalf("disabled TCP probe = %v; output=%s; want TCP denied", err, output)
 	}
 }
 

@@ -337,7 +337,7 @@ func sandboxCommand(args []string) int {
 
 func oracleCommand(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: sorna oracle freeze --contract <path> --policy <path> [--root <dir>] [--output-dir <dir>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna oracle freeze --contract <path> --policy <path> [--expected-contract-sha256 <hash>] [--expected-policy-sha256 <hash>] [--root <dir>] [--output-dir <dir>]")
 		return 2
 	}
 	switch args[0] {
@@ -347,7 +347,7 @@ func oracleCommand(args []string) int {
 		return generateOracle(args[1:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown oracle command:", args[0])
-		fmt.Fprintln(os.Stderr, "usage: sorna oracle freeze --contract <path> --policy <path> [--root <dir>] [--output-dir <dir>]")
+		fmt.Fprintln(os.Stderr, "usage: sorna oracle freeze --contract <path> --policy <path> [--expected-contract-sha256 <hash>] [--expected-policy-sha256 <hash>] [--root <dir>] [--output-dir <dir>]")
 		return 2
 	}
 }
@@ -359,6 +359,8 @@ func freezeOracle(args []string) int {
 	policyPath := flags.String("policy", "", "path to the isolation policy, resolved from root")
 	rootDir := flags.String("root", ".", "root used to resolve relative paths")
 	outputDir := flags.String("output-dir", ".artifacts/document-pipeline-oracle", "directory for frozen oracle evidence")
+	expectedContractSHA256 := flags.String("expected-contract-sha256", "", "expected sealed contract SHA-256")
+	expectedPolicySHA256 := flags.String("expected-policy-sha256", "", "expected sealed policy SHA-256")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -375,10 +377,6 @@ func freezeOracle(args []string) int {
 	resolvedContractPath := pathFromRoot(rootAbs, *contractPath)
 	resolvedPolicyPath := pathFromRoot(rootAbs, *policyPath)
 	resolvedOutputDir := pathFromRoot(rootAbs, *outputDir)
-	if err := os.MkdirAll(resolvedOutputDir, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "create oracle output directory:", err)
-		return 1
-	}
 
 	contractDocument, err := contract.LoadFile(resolvedContractPath)
 	if err != nil {
@@ -387,6 +385,10 @@ func freezeOracle(args []string) int {
 	}
 	sealedContract, err := contract.SealAt(contractDocument, filepath.Dir(resolvedContractPath))
 	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := verifyExpectedSHA256("contract", *expectedContractSHA256, sealedContract.SHA256); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -400,6 +402,10 @@ func freezeOracle(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	if err := verifyExpectedSHA256("policy", *expectedPolicySHA256, sealedPolicy.SHA256); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	contractID, _ := sealedContract.Document.Contract["id"].(string)
 	policySubjectID, err := policy.SubjectID(sealedPolicy.Document)
 	if err != nil {
@@ -410,9 +416,13 @@ func freezeOracle(args []string) int {
 		fmt.Fprintf(os.Stderr, "oracle policy subject ID %q does not match contract ID %q\n", policySubjectID, contractID)
 		return 1
 	}
+	if err := os.MkdirAll(resolvedOutputDir, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "create oracle output directory:", err)
+		return 1
+	}
 
 	oraclePath := filepath.Join(resolvedOutputDir, "oracle.json")
-	childCommand := []string{os.Args[0], "oracle", "generate", "--contract", resolvedContractPath, "--policy-sha256", sealedPolicy.SHA256, "--output", oraclePath, "--start-gate-fd", "3"}
+	childCommand := []string{os.Args[0], "oracle", "generate", "--contract", resolvedContractPath, "--expected-contract-sha256", sealedContract.SHA256, "--policy-sha256", sealedPolicy.SHA256, "--output", oraclePath, "--start-gate-fd", "3"}
 	prepared, err := sandbox.Prepare(childCommand, *rootDir, sealedPolicy)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -610,13 +620,19 @@ func generateOracle(args []string) int {
 	flags.SetOutput(os.Stderr)
 	contractPath := flags.String("contract", "", "path to the contract")
 	policyHash := flags.String("policy-sha256", "", "sealed policy SHA-256 hash")
+	expectedContractSHA256 := flags.String("expected-contract-sha256", "", "expected sealed contract SHA-256")
 	outputPath := flags.String("output", "", "path for the frozen oracle")
 	startGateFD := flags.Int("start-gate-fd", -1, "internal startup gate file descriptor")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if *contractPath == "" || *policyHash == "" || *outputPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: sorna oracle generate --contract <path> --policy-sha256 <hash> --output <path>")
+		fmt.Fprintln(os.Stderr, "usage: sorna oracle generate --contract <path> [--expected-contract-sha256 <hash>] --policy-sha256 <hash> --output <path>")
+		return 2
+	}
+	if err := validateExpectedSHA256("contract", *expectedContractSHA256); err != nil {
+		// Validate expected hash shape before waiting on the parent start gate.
+		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
 	if *startGateFD >= 0 {
@@ -642,6 +658,10 @@ func generateOracle(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	if err := verifyExpectedSHA256("contract", *expectedContractSHA256, sealed.SHA256); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	artifact, err := oracle.Generate(sealed, *policyHash)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -660,6 +680,27 @@ func pathFromRoot(root, path string) string {
 		return filepath.Clean(path)
 	}
 	return filepath.Clean(filepath.Join(root, path))
+}
+
+func validateExpectedSHA256(label, expected string) error {
+	if expected == "" {
+		return nil
+	}
+	decoded, err := hex.DecodeString(expected)
+	if err != nil || len(decoded) != sha256.Size || strings.ToLower(expected) != expected {
+		return fmt.Errorf("expected %s SHA-256 must be 64 lowercase hexadecimal characters", label)
+	}
+	return nil
+}
+
+func verifyExpectedSHA256(label, expected, actual string) error {
+	if err := validateExpectedSHA256(label, expected); err != nil {
+		return err
+	}
+	if expected != "" && expected != actual {
+		return fmt.Errorf("sealed %s SHA-256 mismatch: expected %s, got %s", label, expected, actual)
+	}
+	return nil
 }
 
 func makeOracleAccessEvents(executionID string, events []sandbox.AccessEvent) []evidence.OracleAccessEvent {

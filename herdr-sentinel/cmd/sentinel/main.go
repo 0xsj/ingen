@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,11 +19,16 @@ import (
 	sentineladapter "ingen/herdr-sentinel/internal/adapter"
 	sentinelaudit "ingen/herdr-sentinel/internal/audit"
 	"ingen/herdr-sentinel/internal/capability"
+	"ingen/herdr-sentinel/internal/herdrclient"
+	"ingen/herdr-sentinel/internal/nativejournal"
+	"ingen/herdr-sentinel/internal/nativesession"
 	sentinelpreflight "ingen/herdr-sentinel/internal/preflight"
 	sentinelproject "ingen/herdr-sentinel/internal/project"
 	sentinelreport "ingen/herdr-sentinel/internal/report"
+	"ingen/herdr-sentinel/internal/roleexec"
 	sentinelrun "ingen/herdr-sentinel/internal/run"
 	sentinelsession "ingen/herdr-sentinel/internal/session"
+	"ingen/herdr-sentinel/internal/workflowgate"
 	"ingen/herdr-sentinel/internal/workspace"
 	sornacontract "ingen/sorna/contract"
 )
@@ -45,6 +53,8 @@ func run(args []string) int {
 		return runCommand(args[1:])
 	case "session":
 		return sessionCommand(args[1:])
+	case "role":
+		return roleCommand(args[1:])
 	case "contract":
 		return contractCommand(args[1:])
 	case "oracle":
@@ -67,6 +77,16 @@ func sessionCommand(args []string) int {
 	switch args[0] {
 	case "spawn":
 		return spawnSessionCommand(args[1:])
+	case "execute-native":
+		return executeNativeSessionCommand(args[1:])
+	case "native-status":
+		return nativeSessionStatusCommand(args[1:])
+	case "native-collect":
+		return nativeSessionCollectCommand(args[1:])
+	case "native-cancel":
+		return nativeSessionCancelCommand(args[1:])
+	case "native-recover":
+		return nativeSessionRecoverCommand(args[1:])
 	case "status":
 		return sessionStatusCommand(args[1:])
 	case "list":
@@ -75,6 +95,76 @@ func sessionCommand(args []string) int {
 		usage()
 		return 2
 	}
+}
+
+func roleCommand(args []string) int {
+	if len(args) == 0 || args[0] != "execute" {
+		usage()
+		return 2
+	}
+	flags := flag.NewFlagSet("sentinel role execute", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", "", "absolute project root")
+	workspacePath := flags.String("workspace", "", "workspace manifest path relative to project root")
+	receiptPath := flags.String("receipt", "", "Sentinel receipt path relative to project root")
+	roleID := flags.String("role", "", "role ID")
+	executionID := flags.String("execution-id", "", "immutable role execution ID")
+	policyPath := flags.String("policy-path", "", "sealed role policy path relative to project root")
+	manifestHash := flags.String("expected-manifest-sha256", "", "expected raw workspace manifest SHA-256")
+	policyHash := flags.String("expected-policy-sha256", "", "expected sealed role policy SHA-256")
+	executableHash := flags.String("expected-executable-sha256", "", "expected child executable SHA-256")
+	governed := flags.Bool("governed", false, "recheck existing Hammond approval and workflow artifacts")
+	approvalPath := flags.String("approval", "", "Hammond approval record path")
+	reviewPolicyPath := flags.String("review-policy", "", "active Hammond review policy path")
+	oraclePath := flags.String("oracle", ".ingen/artifacts/oracle/oracle.json", "frozen oracle path")
+	approvalHash := flags.String("expected-approval-sha256", "", "expected approval artifact SHA-256")
+	reviewHash := flags.String("expected-review-policy-sha256", "", "expected active review policy SHA-256")
+	contractHash := flags.String("expected-contract-sha256", "", "expected approved sealed contract SHA-256")
+	oraclePolicyHash := flags.String("expected-oracle-policy-sha256", "", "expected sealed oracle policy SHA-256")
+	contractSourceHash := flags.String("expected-contract-source-sha256", "", "expected raw contract source SHA-256")
+	oraclePolicyFileHash := flags.String("expected-oracle-policy-file-sha256", "", "expected raw oracle policy file SHA-256")
+	oracleHash := flags.String("expected-oracle-sha256", "", "expected frozen oracle SHA-256")
+	var tools, toolHashes repeatedString
+	flags.Var(&tools, "allow-tool", "explicit child executable path")
+	flags.Var(&toolHashes, "allow-tool-sha256", "SHA-256 pin paired with --allow-tool")
+	var protectedPaths repeatedString
+	flags.Var(&protectedPaths, "protect-path", "project-relative input path the role may not modify")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if *root == "" || !filepath.IsAbs(*root) || *workspacePath == "" || *receiptPath == "" || *roleID == "" || *executionID == "" || *policyPath == "" || *manifestHash == "" || *policyHash == "" || *executableHash == "" || len(flags.Args()) == 0 {
+		fmt.Fprintln(os.Stderr, "role execute requires bound root/workspace/receipt/role/execution/policy hashes and a command after --")
+		return 2
+	}
+	if *governed && (*approvalPath == "" || *reviewPolicyPath == "" || *approvalHash == "" || *reviewHash == "" || *contractHash == "" || *oraclePolicyHash == "") {
+		fmt.Fprintln(os.Stderr, "governed role execute requires approval/review paths and expected approval, review policy, contract, and oracle policy digests")
+		return 2
+	}
+	if !*governed {
+		for _, name := range []string{"approval", "review-policy", "expected-approval-sha256", "expected-review-policy-sha256", "expected-contract-sha256", "expected-contract-source-sha256", "expected-oracle-policy-sha256", "expected-oracle-policy-file-sha256", "expected-oracle-sha256", "oracle"} {
+			if flagWasSet(flags, name) {
+				fmt.Fprintf(os.Stderr, "--%s requires --governed\n", name)
+				return 2
+			}
+		}
+	}
+	if len(tools) != len(toolHashes) {
+		fmt.Fprintln(os.Stderr, "every --allow-tool needs a paired --allow-tool-sha256")
+		return 2
+	}
+	request := roleexec.Request{Root: *root, WorkspacePath: *workspacePath, RoleID: *roleID, ExecutionID: *executionID, ReceiptPath: *receiptPath, PolicyPath: *policyPath, Command: flags.Args(), AllowedTools: tools, ExpectedToolSHA256: toolHashes, ProtectedPaths: protectedPaths, ExpectedManifestSHA256: *manifestHash, ExpectedPolicySHA256: *policyHash, ExpectedExecutableSHA256: *executableHash, Governed: *governed, ApprovalPath: *approvalPath, ReviewPolicyPath: *reviewPolicyPath, OraclePath: *oraclePath, ExpectedApprovalSHA256: *approvalHash, ExpectedReviewPolicySHA256: *reviewHash, ExpectedContractSHA256: *contractHash, ExpectedOraclePolicySHA256: *oraclePolicyHash, ExpectedContractSourceSHA256: *contractSourceHash, ExpectedOraclePolicyFileSHA256: *oraclePolicyFileHash, ExpectedOracleSHA256: *oracleHash}
+	report, path, err := roleexec.Execute(context.Background(), request)
+	if path != "" {
+		fmt.Printf("role-execution: %s\nreport: %s\nstatus: %s\n", *executionID, path, report.Status)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		if code := report.ExitCode; code != nil && *code >= 0 && *code <= 125 {
+			return *code
+		}
+		return 1
+	}
+	return 0
 }
 
 func spawnSessionCommand(args []string) int {
@@ -87,11 +177,153 @@ func spawnSessionCommand(args []string) int {
 	outputPath := flags.String("output", "", "session record path relative to the project root")
 	stdoutPath := flags.String("stdout", "", "captured stdout path relative to the project root")
 	stderrPath := flags.String("stderr", "", "captured stderr path relative to the project root")
+	provider := flags.String("provider", "local", "session provider: local or herdr")
+	socket := flags.String("socket", "", "explicit Herdr UNIX socket path (required for herdr provider)")
+	isolate := flags.Bool("isolate", false, "run the role command in a Sorna contained noninteractive execution")
+	governed := flags.Bool("governed", false, "require an existing approved contract and workflow gate")
+	approvalPath := flags.String("approval", "", "Hammond approval record path relative to project root (required with --governed)")
+	reviewPolicyPath := flags.String("review-policy", "", "active Hammond review policy path relative to project root (required with --governed)")
+	oraclePath := flags.String("oracle", ".ingen/artifacts/oracle/oracle.json", "frozen Sorna oracle path for governed implementation or verification")
+	var allowedTools repeatedString
+	flags.Var(&allowedTools, "allow-tool", "explicit absolute executable available to role descendants; may be repeated")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if *workspacePath == "" || *receiptPath == "" || *roleID == "" || len(flags.Args()) == 0 {
 		usage()
+		return 2
+	}
+	if *provider != "local" && *provider != "herdr" {
+		fmt.Fprintf(os.Stderr, "unsupported session provider %q; choose local or herdr\n", *provider)
+		return 2
+	}
+	if *provider == "herdr" {
+		if *outputPath != "" || *stdoutPath != "" || *stderrPath != "" {
+			fmt.Fprintln(os.Stderr, "--output, --stdout, and --stderr are not supported with --provider herdr")
+			return 2
+		}
+		if os.Getenv("HERDR_ENV") != "1" {
+			fmt.Fprintln(os.Stderr, "native Herdr sessions require HERDR_ENV=1; run Sentinel inside the supported Herdr environment")
+			return 1
+		}
+		if *socket == "" {
+			fmt.Fprintln(os.Stderr, "native Herdr sessions require an explicit --socket path")
+			return 2
+		}
+	}
+	if *governed && !*isolate {
+		fmt.Fprintln(os.Stderr, "--governed requires --isolate so the gate is rechecked immediately before role launch")
+		return 2
+	}
+	if !*governed && flagWasSet(flags, "oracle") {
+		fmt.Fprintln(os.Stderr, "--oracle requires --governed for session spawn")
+		return 2
+	}
+	if (*approvalPath != "" || *reviewPolicyPath != "") && !*governed {
+		fmt.Fprintln(os.Stderr, "--approval and --review-policy require --governed")
+		return 2
+	}
+	if *governed && (*approvalPath == "" || *reviewPolicyPath == "") {
+		fmt.Fprintln(os.Stderr, "--governed requires --approval and --review-policy")
+		return 2
+	}
+	if len(allowedTools) > 0 && !*isolate {
+		fmt.Fprintln(os.Stderr, "--allow-tool requires --isolate")
+		return 2
+	}
+	var sentinelExecutable string
+	if *isolate || *provider == "herdr" {
+		var executableErr error
+		sentinelExecutable, executableErr = resolveSentinelExecutable()
+		if executableErr != nil {
+			fmt.Fprintf(os.Stderr, "resolve persistent Sentinel executable: %v\n", executableErr)
+			return 1
+		}
+	}
+	childArgs := flags.Args()
+	var gateResult workflowgate.Result
+	var preparedRole roleexec.Prepared
+	var executionID, policyPath string
+	var toolHashes []string
+	if *isolate {
+		projectRoot, rootErr := absoluteDirectory(*root, "project")
+		if rootErr != nil {
+			fmt.Fprintln(os.Stderr, rootErr)
+			return 1
+		}
+		projectRoot, rootErr = filepath.EvalSymlinks(projectRoot)
+		if rootErr != nil {
+			fmt.Fprintln(os.Stderr, rootErr)
+			return 1
+		}
+		if *governed {
+			gateResult, rootErr = checkGovernedRole(projectRoot, *workspacePath, *roleID, *approvalPath, *reviewPolicyPath, *oraclePath)
+			if rootErr != nil {
+				fmt.Fprintln(os.Stderr, rootErr)
+				return 1
+			}
+		}
+		executionID, rootErr = newExecutionID()
+		if rootErr != nil {
+			fmt.Fprintln(os.Stderr, rootErr)
+			return 1
+		}
+		canonicalTools := make([]string, 0, len(allowedTools))
+		for _, raw := range allowedTools {
+			path, digest, toolErr := roleexec.ToolIdentity(raw)
+			if toolErr != nil {
+				fmt.Fprintln(os.Stderr, toolErr)
+				return 2
+			}
+			canonicalTools = append(canonicalTools, path)
+			toolHashes = append(toolHashes, digest)
+		}
+		plan, planErr := capability.FromFileUnderRoot(projectRoot, *workspacePath)
+		if planErr != nil {
+			fmt.Fprintln(os.Stderr, planErr)
+			return 1
+		}
+		protected := []string{*receiptPath}
+		if *governed {
+			for _, artifact := range gateResult.ApprovalArtifacts {
+				protected = append(protected, artifact.Path)
+			}
+		}
+		preparedRole, rootErr = roleexec.Prepare(roleexec.Request{Root: projectRoot, WorkspacePath: *workspacePath, RoleID: *roleID, ExecutionID: executionID, ReceiptPath: *receiptPath, Command: childArgs, AllowedTools: canonicalTools, ExpectedToolSHA256: toolHashes, ProtectedPaths: protected, ExpectedManifestSHA256: plan.Workspace.Manifest.SHA256, Governed: *governed, ApprovalPath: *approvalPath, ReviewPolicyPath: *reviewPolicyPath, OraclePath: *oraclePath})
+		if rootErr != nil {
+			fmt.Fprintln(os.Stderr, rootErr)
+			return 1
+		}
+		policyPath = filepath.ToSlash(filepath.Join(".ingen", "artifacts", "role-executions", executionID+".policy.json"))
+		if err := roleexec.PersistPolicy(projectRoot, policyPath, preparedRole.Policy); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		childArgs = roleExecuteArgs(sentinelExecutable, projectRoot, *workspacePath, *receiptPath, *roleID, executionID, policyPath, preparedRole, canonicalTools, toolHashes, protected, *governed, *approvalPath, *reviewPolicyPath, *oraclePath, gateResult, flags.Args())
+	}
+	if *provider == "herdr" {
+		record, recordPath, err := nativesession.Spawn(context.Background(), nativesession.Request{
+			Root:               *root,
+			WorkspacePath:      *workspacePath,
+			ReceiptPath:        *receiptPath,
+			RoleID:             *roleID,
+			SocketPath:         *socket,
+			SentinelExecutable: sentinelExecutable,
+			Command:            childArgs,
+		}, &herdrclient.Client{SocketPath: *socket})
+		if recordPath != "" {
+			fmt.Println("native-session:", record.Intent.SessionID)
+			fmt.Println("journal:", recordPath)
+			fmt.Println("state:", record.State)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+	if *socket != "" {
+		fmt.Fprintln(os.Stderr, "--socket is only valid with --provider herdr")
 		return 2
 	}
 	record, err := sentinelsession.Spawn(sentinelsession.Request{
@@ -102,7 +334,7 @@ func spawnSessionCommand(args []string) int {
 		OutputPath:    *outputPath,
 		StdoutPath:    *stdoutPath,
 		StderrPath:    *stderrPath,
-		Command:       flags.Args(),
+		Command:       childArgs,
 	})
 	if record.SessionID != "" {
 		fmt.Println("session:", record.SessionID)
@@ -117,6 +349,86 @@ func spawnSessionCommand(args []string) int {
 		return exitErr.ExitCode()
 	}
 	return 1
+}
+
+func checkGovernedRole(root, workspacePath, roleID, approvalPath, reviewPolicyPath, oraclePath string) (workflowgate.Result, error) {
+	plan, err := capability.FromFileUnderRoot(root, workspacePath)
+	if err != nil {
+		return workflowgate.Result{}, err
+	}
+	var kind string
+	for _, role := range plan.Roles {
+		if role.ID == roleID {
+			kind = role.Kind
+			break
+		}
+	}
+	var stage workflowgate.Stage
+	switch kind {
+	case "oracle-writer":
+		stage = workflowgate.StageOracle
+	case "implementation":
+		stage = workflowgate.StageImplementation
+	case "verifier", "mutation-runner":
+		stage = workflowgate.StageVerification
+	default:
+		return workflowgate.Result{}, fmt.Errorf("--governed is unsupported for bootstrap or unknown role kind %q", kind)
+	}
+	return workflowgate.Check(workflowgate.Request{Root: root, WorkspacePath: workspacePath, ApprovalPath: approvalPath, ReviewPolicyPath: reviewPolicyPath, Stage: stage, OraclePath: oraclePath})
+}
+
+func newExecutionID() (string, error) {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(random[:]), nil
+}
+
+func roleExecuteArgs(executable, root, workspacePath, receiptPath, roleID, executionID, policyPath string, prepared roleexec.Prepared, tools, toolHashes, protected []string, governed bool, approvalPath, reviewPolicyPath, oraclePath string, gate workflowgate.Result, command []string) []string {
+	args := []string{executable, "role", "execute", "--root", root, "--workspace", workspacePath, "--receipt", receiptPath, "--role", roleID, "--execution-id", executionID, "--policy-path", policyPath, "--expected-manifest-sha256", prepared.ManifestSHA256, "--expected-policy-sha256", prepared.Policy.SHA256, "--expected-executable-sha256", prepared.ExecutableSHA256}
+	for index, tool := range tools {
+		args = append(args, "--allow-tool", tool, "--allow-tool-sha256", toolHashes[index])
+	}
+	for _, protectedPath := range protected {
+		if protectedPath != "" {
+			args = append(args, "--protect-path", protectedPath)
+		}
+	}
+	if governed {
+		args = append(args, "--governed", "--approval", approvalPath, "--review-policy", reviewPolicyPath, "--oracle", oraclePath,
+			"--expected-approval-sha256", gate.ApprovalSHA256, "--expected-review-policy-sha256", gate.ReviewPolicySHA256,
+			"--expected-contract-sha256", gate.ContractSHA256, "--expected-contract-source-sha256", gate.ContractSourceSHA256,
+			"--expected-oracle-policy-sha256", gate.OraclePolicySHA256, "--expected-oracle-policy-file-sha256", gate.OraclePolicyFileSHA256)
+		if gate.OracleSHA256 != "" {
+			args = append(args, "--expected-oracle-sha256", gate.OracleSHA256)
+		}
+	}
+	args = append(args, "--")
+	return append(args, command...)
+}
+
+func resolveSentinelExecutable() (string, error) {
+	path, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	path, err = filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return "", fmt.Errorf("%s is not an executable regular file", path)
+	}
+	return path, nil
 }
 
 func sessionStatusCommand(args []string) int {
@@ -151,6 +463,143 @@ func sessionStatusCommand(args []string) int {
 	}
 	fmt.Printf("session: %s\nrun: %s\nrole: %s (%s)\nstatus: %s\nenforcement: %s\nworkspace: %s\n", record.SessionID, record.RunID, record.RoleID, record.RoleKind, record.Status, record.Enforcement, record.Workspace)
 	return 0
+}
+
+func executeNativeSessionCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel session execute-native", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", "", "absolute project root containing the native session journal")
+	path := flags.String("path", "", "native session journal path relative to the project root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *root == "" || !filepath.IsAbs(*root) || *path == "" || len(flags.Args()) != 0 {
+		fmt.Fprintln(os.Stderr, "execute-native requires an absolute --root and relative --path")
+		return 2
+	}
+	if os.Getenv("HERDR_ENV") != "1" {
+		fmt.Fprintln(os.Stderr, "native session wrappers require HERDR_ENV=1; run this command inside the supported Herdr environment")
+		return 1
+	}
+	if err := nativesession.Execute(*root, *path); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func nativeSessionStatusCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel session native-status", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "project root containing the native session journal")
+	path := flags.String("path", "", "native session journal path relative to the project root")
+	format := flags.String("format", "text", "output format: text or json")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *path == "" || len(flags.Args()) != 0 || (*format != "text" && *format != "json") {
+		return 2
+	}
+	record, err := nativesession.Load(*root, *path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *format == "json" {
+		if err := nativesession.WriteJSON(os.Stdout, record); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+	fmt.Printf("native-session: %s\nrun: %s\nrole: %s (%s)\nstate: %s\nenforcement: %s\nassurance: %s\n", record.Intent.SessionID, record.Intent.RunID, record.Intent.RoleID, record.Intent.RoleKind, record.State, record.Enforcement, record.Assurance)
+	if host := recordHost(record); host != nil {
+		fmt.Printf("herdr-workspace: %s\npane: %s\nterminal: %s\n", host.WorkspaceID, host.PaneID, host.TerminalID)
+	}
+	return 0
+}
+
+func nativeSessionCollectCommand(args []string) int {
+	flags := flag.NewFlagSet("sentinel session native-collect", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "project root containing the native session journal")
+	path := flags.String("path", "", "native session journal path relative to the project root")
+	receipt := flags.String("receipt", "", "Sentinel lifecycle receipt path relative to the project root")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *path == "" || *receipt == "" || len(flags.Args()) != 0 {
+		return 2
+	}
+	record, err := nativesession.Collect(*root, *path, *receipt)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("collected native session %s (%s)\n", record.Intent.SessionID, record.State)
+	return 0
+}
+
+func nativeSessionCancelCommand(args []string) int {
+	return nativeSessionHostCommand("cancel", args)
+}
+
+func nativeSessionRecoverCommand(args []string) int {
+	return nativeSessionHostCommand("recover", args)
+}
+
+func nativeSessionHostCommand(operation string, args []string) int {
+	flags := flag.NewFlagSet("sentinel session native-"+operation, flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", ".", "project root containing the native session journal")
+	path := flags.String("path", "", "native session journal path relative to the project root")
+	socket := flags.String("socket", "", "explicit Herdr UNIX socket path")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *path == "" || *socket == "" || len(flags.Args()) != 0 {
+		fmt.Fprintf(os.Stderr, "native-%s requires --path and explicit --socket\n", operation)
+		return 2
+	}
+	if os.Getenv("HERDR_ENV") != "1" {
+		fmt.Fprintln(os.Stderr, "native Herdr operations require HERDR_ENV=1; run Sentinel inside the supported Herdr environment")
+		return 1
+	}
+	loaded, err := nativesession.Load(*root, *path)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if loaded.Intent.HerdrSocket != *socket {
+		fmt.Fprintln(os.Stderr, "--socket does not match the explicit Herdr endpoint bound to this native session journal")
+		return 2
+	}
+	client := &herdrclient.Client{SocketPath: *socket}
+	var record nativesession.Record
+	switch operation {
+	case "cancel":
+		record, err = nativesession.Cancel(context.Background(), *root, *path, client)
+	case "recover":
+		record, err = nativesession.Recover(context.Background(), *root, *path, client)
+	default:
+		return 2
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("native-session: %s\nstate: %s\n", record.Intent.SessionID, record.State)
+	return 0
+}
+
+func recordHost(record nativesession.Record) *nativejournal.Host {
+	for index := len(record.Events) - 1; index >= 0; index-- {
+		if record.Events[index].Host != nil {
+			host := *record.Events[index].Host
+			return &host
+		}
+	}
+	return nil
 }
 
 func sessionListCommand(args []string) int {
@@ -337,12 +786,28 @@ func freezeOracleCommand(args []string) int {
 	policyPath := flags.String("policy", ".ingen/policy/oracle.yaml", "Sorna oracle policy path relative to the project root")
 	outputDir := flags.String("output-dir", ".ingen/artifacts/oracle", "frozen oracle output directory relative to the project root")
 	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing Sorna")
+	governed := flags.Bool("governed", false, "require an existing Hammond approval before oracle freeze")
+	workspacePath := flags.String("workspace", ".ingen/workspace.yaml", "Sentinel workspace manifest path")
+	approvalPath := flags.String("approval", "", "Hammond approval record path (required with --governed)")
+	reviewPolicyPath := flags.String("review-policy", "", "active Hammond review policy path (required with --governed)")
 	force := flags.Bool("force", false, "replace an existing frozen oracle bundle")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if len(flags.Args()) != 0 {
 		usage()
+		return 2
+	}
+	if (*approvalPath != "" || *reviewPolicyPath != "") && !*governed {
+		fmt.Fprintln(os.Stderr, "--approval and --review-policy require --governed")
+		return 2
+	}
+	if *governed && (*approvalPath == "" || *reviewPolicyPath == "") {
+		fmt.Fprintln(os.Stderr, "--governed requires --approval and --review-policy")
+		return 2
+	}
+	if !*governed && flagWasSet(flags, "workspace") {
+		fmt.Fprintln(os.Stderr, "--workspace is only meaningful with --governed on oracle freeze")
 		return 2
 	}
 	projectRoot, err := absoluteDirectory(*root, "project")
@@ -365,6 +830,28 @@ func freezeOracleCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	var gate workflowgate.Result
+	if *governed {
+		workspaceFile, loadErr := rootedExistingFile(projectRoot, *workspacePath, "Sentinel workspace")
+		if loadErr != nil {
+			fmt.Fprintln(os.Stderr, loadErr)
+			return 1
+		}
+		ws, loadErr := workspace.LoadFile(workspaceFile)
+		if loadErr != nil {
+			fmt.Fprintln(os.Stderr, loadErr)
+			return 1
+		}
+		if filepath.Clean(*contractPath) != filepath.Clean(ws.Contract.Path) || filepath.Clean(*policyPath) != filepath.Clean(ws.Sorna.OraclePolicy) {
+			fmt.Fprintln(os.Stderr, "governed oracle freeze contract and policy must match the workspace manifest paths")
+			return 2
+		}
+		gate, err = workflowgate.Check(workflowgate.Request{Root: projectRoot, WorkspacePath: *workspacePath, ApprovalPath: *approvalPath, ReviewPolicyPath: *reviewPolicyPath, Stage: workflowgate.StageOracle})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
 	oracleDir, err := rootedOutputDirectory(projectRoot, *outputDir, "frozen oracle output")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -381,12 +868,16 @@ func freezeOracleCommand(args []string) int {
 		}
 	}
 
-	return runSornaCommand(toolRoot, "oracle", "freeze",
+	commandArgs := []string{"oracle", "freeze",
 		"--contract", contractFile,
 		"--policy", policyFile,
 		"--root", projectRoot,
 		"--output-dir", oracleDir,
-	)
+	}
+	if *governed {
+		commandArgs = append(commandArgs, "--expected-contract-sha256", gate.ContractSHA256, "--expected-policy-sha256", gate.OraclePolicySHA256)
+	}
+	return runSornaCommand(toolRoot, commandArgs...)
 }
 
 func verifyCommand(args []string) int {
@@ -1391,6 +1882,16 @@ func verifierAdapterCommand(args []string) int {
 
 type repeatedString []string
 
+func flagWasSet(flags *flag.FlagSet, name string) bool {
+	set := false
+	flags.Visit(func(item *flag.Flag) {
+		if item.Name == name {
+			set = true
+		}
+	})
+	return set
+}
+
 func (r *repeatedString) String() string {
 	return fmt.Sprint([]string(*r))
 }
@@ -1736,7 +2237,11 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       sentinel project check [--root <dir>] [--workspace <path>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "usage: sentinel workspace validate <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel workspace capabilities --workspace <path> [--root <dir>] [--output <path>]")
-	fmt.Fprintln(os.Stderr, "       sentinel session spawn --workspace <path> --receipt <path> --role <id> [--root <dir>] [--output <path>] [--stdout <path>] [--stderr <path>] -- <command> [args...]")
+	fmt.Fprintln(os.Stderr, "       sentinel session spawn --workspace <path> --receipt <path> --role <id> [--root <dir>] [--provider local|herdr] [--socket <path>] [--output <path>] [--stdout <path>] [--stderr <path>] -- <command> [args...]")
+	fmt.Fprintln(os.Stderr, "       sentinel session native-status --root <dir> --path <path> [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       sentinel session native-collect --root <dir> --path <path> --receipt <path>")
+	fmt.Fprintln(os.Stderr, "       sentinel session native-cancel --root <dir> --path <path> --socket <path>")
+	fmt.Fprintln(os.Stderr, "       sentinel session native-recover --root <dir> --path <path> --socket <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel session status --path <path> [--root <dir>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       sentinel session list [--root <dir>] [--dir <path>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       sentinel contract create [--root <dir>] [--spec <path>] [--ir-output <path>] [--output <path>] [--ingen-root <dir>] [--force]")

@@ -136,6 +136,97 @@ func TestSentinelSessionSchemaContract(t *testing.T) {
 	}
 }
 
+func TestSentinelRoleExecutionSchemaContract(t *testing.T) {
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() did not return source path")
+	}
+	contents, err := os.ReadFile(filepath.Join(filepath.Dir(sourcePath), "role-execution-v1.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		ID                   string                     `json:"$id"`
+		Draft                string                     `json:"$schema"`
+		Type                 string                     `json:"type"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+		Required             []string                   `json:"required"`
+		Properties           map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(contents, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.ID == "" || schema.Draft == "" || schema.Type != "object" || schema.AdditionalProperties {
+		t.Fatalf("incomplete or open role execution schema: %+v", schema)
+	}
+	for _, field := range []string{"schema", "execution_id", "manifest_sha256", "policy_sha256", "workspace_manifest_path", "policy_path", "executable_sha256", "backend", "enforcement", "assurance", "network_mode", "declared_deny_roots", "stdout_path", "stderr_path", "status"} {
+		if _, ok := schema.Properties[field]; !ok {
+			t.Fatalf("role execution schema is missing property %q", field)
+		}
+		if !contains(schema.Required, field) {
+			t.Fatalf("role execution schema is missing required field %q", field)
+		}
+	}
+	var discriminator struct {
+		Const string `json:"const"`
+	}
+	if err := json.Unmarshal(schema.Properties["schema"], &discriminator); err != nil {
+		t.Fatal(err)
+	}
+	if discriminator.Const != "ingen.sentinel-role-execution/v1" {
+		t.Fatalf("role execution discriminator = %q, want ingen.sentinel-role-execution/v1", discriminator.Const)
+	}
+}
+
+func TestNativeSessionJournalSchemaContract(t *testing.T) {
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() did not return source path")
+	}
+	contents, err := os.ReadFile(filepath.Join(filepath.Dir(sourcePath), "native-session-v1.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		ID                   string                     `json:"$id"`
+		Draft                string                     `json:"$schema"`
+		Type                 string                     `json:"type"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+		Required             []string                   `json:"required"`
+		Properties           map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(contents, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.ID == "" || schema.Draft == "" || schema.Type != "object" || schema.AdditionalProperties {
+		t.Fatalf("incomplete or open native session journal schema: %+v", schema)
+	}
+	for _, field := range []string{"schema", "origin", "enforcement", "assurance", "intent", "state", "events"} {
+		if !contains(schema.Required, field) {
+			t.Fatalf("native session journal schema is missing required field %q", field)
+		}
+		if _, ok := schema.Properties[field]; !ok {
+			t.Fatalf("native session journal schema is missing property %q", field)
+		}
+	}
+	for field, want := range map[string]string{
+		"schema":      "ingen.sentinel-native-session/v1",
+		"origin":      "sentinel-launch-journal",
+		"enforcement": "declaration-only",
+		"assurance":   "unverified",
+	} {
+		var discriminator struct {
+			Const string `json:"const"`
+		}
+		if err := json.Unmarshal(schema.Properties[field], &discriminator); err != nil {
+			t.Fatal(err)
+		}
+		if discriminator.Const != want {
+			t.Fatalf("native session journal %s discriminator = %q, want %q", field, discriminator.Const, want)
+		}
+	}
+}
+
 func TestSentinelPreflightSchemaContract(t *testing.T) {
 	_, sourcePath, _, ok := runtime.Caller(0)
 	if !ok {

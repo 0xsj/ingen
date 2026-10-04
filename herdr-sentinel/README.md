@@ -28,6 +28,14 @@ This captures session identity and output but reports `declaration-only`
 enforcement. It is a local workflow provider, not yet a sandbox or native
 Herdr session binding.
 
+An opt-in `--provider herdr` path uses Herdr 0.9.3/protocol 22 and a persistent
+Sentinel executable to launch noninteractive role commands in background
+workspaces. Sentinel owns the durable launch journal and captured process
+outcome. See [native session operations](FRESH-PROJECT-GUIDE.md#native-herdr-session-operations)
+for setup, inspection, collection, cancellation, and recovery. Native sessions
+also remain `declaration-only` and `unverified`; enforced role isolation and
+approval/oracle-freeze gates remain release requirements.
+
 Before launching roles, run the project preflight:
 
 ```sh
@@ -313,3 +321,22 @@ go run ./herdr-sentinel/cmd/sentinel run status \
 
 The same command can move a terminal receipt to `cleaned` after its artifacts
 are no longer needed locally.
+
+## Contained role execution and workflow gates
+
+`session spawn --isolate` selects Sorna's macOS Seatbelt boundary for a
+noninteractive child. Exact role capabilities, private execution scratch,
+sanitized environment, disabled networking, and pinned executable/tool bytes
+are recorded in a separate `ingen.sentinel-role-execution/v1` report. The native
+journal keeps its existing declaration-only/unverified meaning. Unsupported
+enforcement fails before child launch.
+
+Add `--governed --approval <relative-path> --review-policy <relative-path>` to
+contained session launches or `oracle freeze` to check an existing Hammond
+approval and the active review policy. Stages after oracle generation also
+require a frozen oracle bound to the approved contract and current policy.
+The role wrapper repeats the checks at launch. These are local artifact and
+lifecycle checks; they do not create an approval or supply independent attestation.
+
+See the [fresh-project guide](FRESH-PROJECT-GUIDE.md#contained-and-governed-role-commands)
+for commands, required grants, and assurance limits.

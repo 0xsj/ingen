@@ -1,13 +1,17 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"ingen/sorna/internal/campaign"
+	"ingen/sorna/internal/contract"
 	"ingen/sorna/internal/lifecycle"
 	"ingen/sorna/internal/mutation"
+	"ingen/sorna/internal/oracle"
+	"ingen/sorna/internal/policy"
 	"ingen/sorna/internal/runner"
 )
 
@@ -112,6 +116,106 @@ func TestVerifyCampaignPlanReferenceRejectsSemanticPlanDrift(t *testing.T) {
 	if err := verifyCampaignPlanReference(reference, "."); err == nil || !strings.Contains(err.Error(), "semantic hash") {
 		t.Fatalf("verifyCampaignPlanReference() after semantic drift = %v, want semantic hash mismatch", err)
 	}
+}
+
+func TestOracleFreezeExpectedDigestDriftCreatesNoOutput(t *testing.T) {
+	for _, mismatch := range []string{"contract", "policy"} {
+		t.Run(mismatch, func(t *testing.T) {
+			root, contractPath, policyPath, contractSHA, policySHA := writeOracleFreezeInputs(t)
+			outputDir := filepath.Join(root, "frozen")
+			args := []string{
+				"--root", root,
+				"--contract", contractPath,
+				"--policy", policyPath,
+				"--output-dir", outputDir,
+				"--expected-contract-sha256", contractSHA,
+				"--expected-policy-sha256", policySHA,
+			}
+			if mismatch == "contract" {
+				args[9] = strings.Repeat("0", 64)
+			} else {
+				args[11] = strings.Repeat("0", 64)
+			}
+			if status := freezeOracle(args); status == 0 {
+				t.Fatal("freezeOracle accepted expected digest drift")
+			}
+			if _, err := os.Stat(outputDir); !os.IsNotExist(err) {
+				t.Fatalf("output directory stat = %v; expected digest drift must be checked before creating output", err)
+			}
+		})
+	}
+}
+
+func TestOracleGeneratePreservesOptionalExpectedDigestBehavior(t *testing.T) {
+	root, contractPath, _, contractSHA, _ := writeOracleFreezeInputs(t)
+	policySHA := strings.Repeat("a", 64)
+	for _, withExpected := range []bool{true, false} {
+		outputPath := filepath.Join(root, map[bool]string{true: "expected.json", false: "legacy.json"}[withExpected])
+		args := []string{"--contract", contractPath, "--policy-sha256", policySHA, "--output", outputPath}
+		if withExpected {
+			args = append(args, "--expected-contract-sha256", contractSHA)
+		}
+		if status := generateOracle(args); status != 0 {
+			t.Fatalf("generateOracle(withExpected=%v) status = %d", withExpected, status)
+		}
+		artifact, err := oracle.LoadFile(outputPath)
+		if err != nil || artifact.Contract.SHA256 != contractSHA || artifact.PolicySHA256 != policySHA {
+			t.Fatalf("generated artifact = %+v, err %v", artifact, err)
+		}
+	}
+
+	changed := strings.ReplaceAll(string(mustReadFile(t, contractPath)), `"version":1`, `"version":2`)
+	if err := os.WriteFile(contractPath, []byte(changed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	driftPath := filepath.Join(root, "drift.json")
+	if status := generateOracle([]string{"--contract", contractPath, "--expected-contract-sha256", contractSHA, "--policy-sha256", policySHA, "--output", driftPath}); status == 0 {
+		t.Fatal("generateOracle accepted a contract changed after freeze")
+	}
+	if _, err := os.Stat(driftPath); !os.IsNotExist(err) {
+		t.Fatalf("drift output stat = %v; changed contract must not produce oracle", err)
+	}
+}
+
+func writeOracleFreezeInputs(t *testing.T) (root, contractPath, policyPath, contractSHA, policySHA string) {
+	t.Helper()
+	root = t.TempDir()
+	contractPath = filepath.Join(root, "contract.json")
+	policyPath = filepath.Join(root, "policy.json")
+	contractJSON := `{"contract":{"schema":"ingen.contract/v1","id":"freeze-test","version":1,"status":"draft","interface":{"kind":"http-json"},"rules":[{"id":"healthz","strength":"must","subject":"GET /healthz","given":{},"expect":{"status":200}}],"unspecified":[]}}`
+	policyJSON := `{"policy":{"schema":"ingen.policy/v1","id":"freeze-test-policy","version":1,"status":"draft","purpose":"oracle generation test","enforcement":"host-enforced","filesystem":{"read":[{"path":".","reason":"contract input"}],"write":[{"path":"frozen","reason":"oracle output"}],"deny":[]},"network":{"mode":"disabled"},"process":{"subject_id":"freeze-test","can_invoke_subject":false}}}`
+	if err := os.WriteFile(contractPath, []byte(contractJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policyPath, []byte(policyJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	document, err := contract.LoadFile(contractPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealedContract, err := contract.SealAt(document, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyDocument, err := policy.LoadFile(policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealedPolicy, err := policy.Seal(policyDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, contractPath, policyPath, sealedContract.SHA256, sealedPolicy.SHA256
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contents
 }
 
 func verificationPlan() campaign.Plan {

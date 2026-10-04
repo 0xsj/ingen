@@ -31,6 +31,8 @@ schema identities and meanings stable until an intentional interface review:
 | Nublar delivery receipt | `ingen.nublar-delivery-receipt/v1` | Nublar | One delivery attempt outcome, optionally preserved in a separate local receipt store, separate from the run decision. |
 | Sentinel lifecycle receipt | `ingen.sentinel-run/v1` | Sentinel | Workspace lifecycle and opaque artifact lineage around a verifier handoff. |
 | Herdr lifecycle event | `ingen.herdr-event/v1` | Sentinel adapter | Idempotent host-event ingress bound to one Sentinel run and workspace. |
+| Sentinel native session journal | `ingen.sentinel-native-session/v1` | Sentinel | Durable launch intent, one execution claim, observed host binding, and captured process outcome; declaration-only and unverified. Separate from host callback ingress. |
+| Sentinel role execution report | `ingen.sentinel-role-execution/v1` | Sentinel | Separate child policy, byte bindings, captures, and outcome for scoped host enforcement; unverified, without independent attestation. |
 | Sentinel CI explanation | `ingen.sentinel-ci-explanation/v1` | Sentinel | Closed producer-owned lifecycle, artifact, and optional audit context nested in the shared CI envelope. |
 
 The `v1` labels are alpha interfaces, not a claim that every field is already
