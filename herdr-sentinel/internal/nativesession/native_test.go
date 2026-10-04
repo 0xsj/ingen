@@ -262,6 +262,80 @@ func TestSignalTerminatedChildKeepsActualExitCode(t *testing.T) {
 	}
 }
 
+func TestDurableCancellationAllowsGracefulZeroExitAndKeepsCanceledState(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix process-group signal semantics")
+	}
+	marker := filepath.Join(t.TempDir(), "started")
+	command := []string{"/bin/sh", "-c", "trap 'exit 0' INT; printf started > \"$1\"; while :; do /bin/sleep 0.05; done", "sh", marker}
+	final, executeErr := executeAndCancelForTest(t, command, marker)
+	if executeErr != nil {
+		t.Fatalf("graceful child cancellation returned error: %v", executeErr)
+	}
+	terminal := terminalEvent(final)
+	if final.State != nativejournal.StateCanceled || terminal == nil || terminal.ExitCode == nil || *terminal.ExitCode != 0 {
+		t.Fatalf("graceful cancellation state/terminal = %s/%+v; want canceled with actual zero exit", final.State, terminal)
+	}
+}
+
+func TestDurableCancellationEscalatesAfterGraceForSignalIgnoringChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix process-group signal semantics")
+	}
+	marker := filepath.Join(t.TempDir(), "started")
+	command := []string{"/bin/sh", "-c", "trap '' INT; printf started > \"$1\"; exec /bin/sleep 30", "sh", marker}
+	final, executeErr := executeAndCancelForTest(t, command, marker)
+	if executeErr == nil {
+		t.Fatal("signal-ignoring child unexpectedly returned success")
+	}
+	terminal := terminalEvent(final)
+	if final.State != nativejournal.StateCanceled || terminal == nil || terminal.ExitCode == nil || *terminal.ExitCode != -1 {
+		t.Fatalf("escalated cancellation state/terminal = %s/%+v; want canceled with actual signal exit", final.State, terminal)
+	}
+	if !strings.Contains(terminal.Reason, "SIGKILL sent to child process group") {
+		t.Fatalf("escalated cancellation reason = %q", terminal.Reason)
+	}
+}
+
+func executeAndCancelForTest(t *testing.T, command []string, startedMarker string) (Record, error) {
+	t.Helper()
+	root, _, record, _ := spawnFixture(t, command)
+	path := filepath.Join(ArtifactDirectory, record.Intent.SessionID+".json")
+	executeDone := make(chan error, 1)
+	go func() { executeDone <- Execute(root, path) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(startedMarker); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(startedMarker); err != nil {
+		t.Fatal("native child did not start before cancellation test deadline")
+	}
+	current, err := Load(root, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != nativejournal.StateRunning {
+		t.Fatalf("native child start state = %s", current.State)
+	}
+	if _, _, err := appendEvent(root, path, "cancel-requested:"+record.Intent.SessionID, nativejournal.StateCancelRequested, lastHost(current), "operator requested cancellation", nil, "provider-cancel"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case executeErr := <-executeDone:
+		final, loadErr := Load(root, path)
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		return final, executeErr
+	case <-time.After(8 * time.Second):
+		t.Fatal("native child process group did not stop after bounded cancellation grace")
+		return Record{}, nil
+	}
+}
+
 func TestCancelDeliveryFailureIsNeverReportedAsSuccessOrRetried(t *testing.T) {
 	root, _, record, host := spawnFixture(t, []string{"/bin/sh", "-c", "sleep 10"})
 	path := filepath.Join(ArtifactDirectory, record.Intent.SessionID+".json")
@@ -448,17 +522,262 @@ func TestUncertainPaneSendIsNotRetriedAndTerminalWrapperCanRecover(t *testing.T)
 	}
 }
 
-func TestRecoverWrongTerminalIdentityMarksUncertainWithoutInterrupt(t *testing.T) {
+func TestRecoverWithoutActiveWrapperLeaseMarksClaimedOutcomeIndeterminate(t *testing.T) {
 	root, _, record, host := spawnFixture(t, []string{"/bin/true"})
 	path := filepath.Join(ArtifactDirectory, record.Intent.SessionID+".json")
-	claimAndStartForTest(t, root, path, record)
-	host.pane.TerminalID = "other-terminal"
-	recovered, err := Recover(context.Background(), root, path, host)
-	if err == nil || !strings.Contains(err.Error(), "identity does not match") {
-		t.Fatalf("Recover() = %v, want explicit terminal identity mismatch", err)
+	if _, claimed, err := nativejournal.ClaimExecution(root, path, record.Intent.SessionID, nativejournal.Event{
+		ID: "wrapper-claim:" + record.Intent.SessionID, Kind: nativejournal.KindWrapperClaim, At: nextTimestamp(record), State: nativejournal.StateSubmitted, Host: lastHost(record),
+	}); err != nil || !claimed {
+		t.Fatalf("ClaimExecution() = %v, %v", claimed, err)
 	}
-	if recovered.State != "indeterminate" || host.interrupts != 0 || host.runCalls != 1 {
-		t.Fatalf("wrong-terminal recovery state/interrupts/runs = %s/%d/%d", recovered.State, host.interrupts, host.runCalls)
+	recovered, err := Recover(context.Background(), root, path, host)
+	if err == nil || !strings.Contains(err.Error(), "lease was lost") {
+		t.Fatalf("Recover() error = %v; want explicit lease-loss diagnostic", err)
+	}
+	firstJournal, readErr := os.ReadFile(filepath.Join(root, path))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	recoveredAgain, againErr := Recover(context.Background(), root, path, host)
+	if againErr == nil || againErr.Error() != err.Error() {
+		t.Fatalf("repeated Recover() error = %v, first = %v", againErr, err)
+	}
+	secondJournal, readErr := os.ReadFile(filepath.Join(root, path))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(firstJournal) != string(secondJournal) || recoveredAgain.State != recovered.State {
+		t.Fatal("repeated recovery changed the indeterminate journal")
+	}
+	terminal := terminalEvent(recovered)
+	if recovered.State != nativejournal.StateIndeterminate || terminal != nil || host.interrupts != 0 || host.runCalls != 1 {
+		t.Fatalf("lease-lost recovery state/terminal/interrupts/runs = %s/%v/%d/%d", recovered.State, terminal, host.interrupts, host.runCalls)
+	}
+}
+
+func TestRecoverAfterWrapperCrashReleasesExecutionLease(t *testing.T) {
+	const helperEnv = "INGEN_NATIVE_WRAPPER_CRASH_HELPER"
+	if os.Getenv(helperEnv) == "1" {
+		if err := Execute(os.Getenv("INGEN_NATIVE_WRAPPER_CRASH_ROOT"), os.Getenv("INGEN_NATIVE_WRAPPER_CRASH_PATH")); err != nil {
+			t.Fatalf("helper Execute() = %v", err)
+		}
+		return
+	}
+
+	markerDir := t.TempDir()
+	startedPath := filepath.Join(markerDir, "child-started")
+	finishedPath := filepath.Join(markerDir, "child-finished")
+	command := []string{"/bin/sh", "-c", "printf started > \"$1\"; /bin/sleep 0.5; printf finished > \"$2\"; printf child-output", "sh", startedPath, finishedPath}
+	root, _, record, host := spawnFixture(t, command)
+	path := filepath.Join(ArtifactDirectory, record.Intent.SessionID+".json")
+	helper := osexec.Command(os.Args[0], "-test.run=^TestRecoverAfterWrapperCrashReleasesExecutionLease$")
+	helper.Env = append(os.Environ(), helperEnv+"=1", "INGEN_NATIVE_WRAPPER_CRASH_ROOT="+root, "INGEN_NATIVE_WRAPPER_CRASH_PATH="+path)
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if helper.Process != nil {
+			_ = helper.Process.Kill()
+			_ = helper.Wait()
+		}
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(startedPath); err == nil {
+			lease, acquired, leaseErr := nativejournal.TryExecutionLease(root, record.Intent.ExecutionLeasePath)
+			if leaseErr != nil {
+				t.Fatal(leaseErr)
+			}
+			if acquired {
+				_ = lease.Close()
+			} else {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(startedPath); err != nil {
+		t.Fatalf("native child never reached readiness: %v", err)
+	}
+	lease, acquired, err := nativejournal.TryExecutionLease(root, record.Intent.ExecutionLeasePath)
+	if err != nil || acquired {
+		if acquired {
+			_ = lease.Close()
+		}
+		t.Fatalf("wrapper did not hold its execution lease at child readiness: acquired=%v err=%v", acquired, err)
+	}
+	// Kill only the owned wrapper process. The child has a bounded natural exit
+	// and a completion marker; the test never guesses or signals its PID.
+	if err := helper.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if err := helper.Wait(); err == nil {
+		t.Fatal("wrapper helper unexpectedly exited without the requested kill")
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(finishedPath); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(finishedPath); err != nil {
+		t.Fatalf("child did not finish naturally after wrapper crash: %v", err)
+	}
+
+	recovered, recoverErr := Recover(context.Background(), root, path, host)
+	if recoverErr == nil || !strings.Contains(recoverErr.Error(), "lease was lost") {
+		t.Fatalf("Recover() = %v; want lease-loss diagnostic", recoverErr)
+	}
+	if recovered.State != nativejournal.StateIndeterminate || terminalEvent(recovered) != nil || host.runCalls != 1 {
+		t.Fatalf("crash recovery state/terminal/host dispatches = %s/%v/%d", recovered.State, terminalEvent(recovered), host.runCalls)
+	}
+	for _, event := range recovered.Events {
+		if event.State == nativejournal.StateIndeterminate && (event.ExitCode != nil || event.StdoutSHA256 != "" || event.StderrSHA256 != "") {
+			t.Fatalf("recovery fabricated process outcome: %+v", event)
+		}
+	}
+	journalPath := filepath.Join(root, path)
+	first, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, againErr := Recover(context.Background(), root, path, host)
+	second, readErr := os.ReadFile(journalPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if againErr == nil || againErr.Error() != recoverErr.Error() || string(first) != string(second) || again.State != recovered.State {
+		t.Fatalf("repeated crash recovery changed error/state/journal: %v / %s / byte-equal=%v", againErr, again.State, string(first) == string(second))
+	}
+}
+
+func TestCommandInterruptGraceUsesContainedChildPinWithoutConfusingSentinelPin(t *testing.T) {
+	root, err := filepath.Abs(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestSHA := testRoleDigest("manifest")
+	policySHA := testRoleDigest("policy")
+	sentinelSHA := testRoleDigest("sentinel executable")
+	childSHA := testRoleDigest("contained child executable")
+	if sentinelSHA == childSHA {
+		t.Fatal("test requires distinct Sentinel and contained child executable pins")
+	}
+	intent := nativejournal.Intent{
+		SentinelExecutable:       "/opt/ingen/sentinel",
+		SentinelExecutableSHA256: sentinelSHA,
+		ReceiptPath:              ".ingen/artifacts/run.json",
+		RoleID:                   "implementation",
+		WorkspaceManifestSHA256:  manifestSHA,
+		Argv: []string{
+			"/opt/ingen/sentinel", "role", "execute",
+			"--root", root,
+			"--workspace", ".ingen/workspace.yaml",
+			"--receipt", ".ingen/artifacts/run.json",
+			"--role", "implementation",
+			"--execution-id", "exec-child-pin-test",
+			"--policy-path", ".ingen/artifacts/role-executions/exec-child-pin-test.policy.json",
+			"--expected-manifest-sha256", manifestSHA,
+			"--expected-policy-sha256", policySHA,
+			"--expected-executable-sha256", childSHA,
+			"--", "/bin/true",
+		},
+	}
+	binding, recognized, parseErr := parseRoleExecutionIntent(intent)
+	if parseErr != nil || !recognized {
+		t.Fatalf("parseRoleExecutionIntent() recognized=%v err=%v", recognized, parseErr)
+	}
+	if binding.ExecutableSHA256 != childSHA || intent.SentinelExecutableSHA256 != sentinelSHA {
+		t.Fatal("test fixture did not keep contained-child and Sentinel executable pins distinct")
+	}
+	if grace := commandInterruptGrace(root, intent); grace != containedRoleExecutionInterruptGrace {
+		t.Fatalf("commandInterruptGrace() = %s, want contained role grace %s", grace, containedRoleExecutionInterruptGrace)
+	}
+	intent.RoleID = "different-role"
+	if grace := commandInterruptGrace(root, intent); grace != processInterruptGrace {
+		t.Fatalf("mismatched role got grace %s, want generic grace %s", grace, processInterruptGrace)
+	}
+}
+
+func TestRecoverBusyExecutionLeaseLeavesJournalBytesUnchanged(t *testing.T) {
+	root, _, record, host := spawnFixture(t, []string{"/bin/true"})
+	path := filepath.Join(ArtifactDirectory, record.Intent.SessionID+".json")
+	lease, acquired, err := nativejournal.TryExecutionLease(root, record.Intent.ExecutionLeasePath)
+	if err != nil || !acquired {
+		t.Fatalf("acquire wrapper execution lease = %v, %v", acquired, err)
+	}
+	defer lease.Close()
+	if _, claimed, err := nativejournal.ClaimExecution(root, path, record.Intent.SessionID, nativejournal.Event{
+		ID: "wrapper-claim:" + record.Intent.SessionID, Kind: nativejournal.KindWrapperClaim, At: nextTimestamp(record), State: nativejournal.StateSubmitted, Host: lastHost(record),
+	}); err != nil || !claimed {
+		t.Fatalf("ClaimExecution() = %v, %v", claimed, err)
+	}
+	before, err := os.ReadFile(filepath.Join(root, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Recover(context.Background(), root, path, host); err == nil || !strings.Contains(err.Error(), "holds the execution lease") {
+		t.Fatalf("Recover() error = %v, want active lease", err)
+	}
+	after, err := os.ReadFile(filepath.Join(root, path))
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("busy recovery changed journal bytes: %v", err)
+	}
+}
+
+func TestRecoverSettlesCancellationAfterClaimButBeforeChildStart(t *testing.T) {
+	root, receiptPath, record, host := spawnFixture(t, []string{"/bin/true"})
+	path := filepath.Join(ArtifactDirectory, record.Intent.SessionID+".json")
+	claimed, ok, err := nativejournal.ClaimExecution(root, path, record.Intent.SessionID, nativejournal.Event{
+		ID: "wrapper-claim:" + record.Intent.SessionID, Kind: nativejournal.KindWrapperClaim, At: nextTimestamp(record), State: nativejournal.StateSubmitted, Host: lastHost(record),
+	})
+	if err != nil || !ok {
+		t.Fatalf("ClaimExecution() = %v, %v", ok, err)
+	}
+	cancel, _, err := appendEvent(root, path, "cancel-requested:"+record.Intent.SessionID, nativejournal.StateCancelRequested, lastHost(claimed), "operator requested cancellation before child start", nil, "provider-cancel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := Recover(context.Background(), root, path, host)
+	if err != nil || recovered.State != nativejournal.StateCanceled {
+		t.Fatalf("Recover() = state %q, err %v; want truthful prestart cancellation", recovered.State, err)
+	}
+	terminal := terminalEvent(recovered)
+	if terminal == nil || terminal.Kind != nativejournal.KindProviderCanceledBeforeStart || terminal.ExitCode != nil || terminal.StdoutSHA256 != "" || terminal.StderrSHA256 != "" {
+		t.Fatalf("settlement event = %+v; want no child process evidence", terminal)
+	}
+	if hasWrapperStarted(recovered) || host.interrupts != 0 {
+		t.Fatalf("recovery fabricated child start or signaled host: started=%v interrupts=%d", hasWrapperStarted(recovered), host.interrupts)
+	}
+	if _, started, err := nativejournal.StartExecution(root, path, record.Intent.SessionID, nativejournal.Event{
+		ID: "wrapper-running:" + record.Intent.SessionID, Kind: nativejournal.KindWrapperStarted, At: nextTimestamp(cancel), State: nativejournal.StateRunning, Host: lastHost(recovered),
+	}); err != nil || started {
+		t.Fatalf("StartExecution after settled cancel = started %v err %v; want denied", started, err)
+	}
+	if _, err := Collect(root, path, receiptPath); err != nil {
+		t.Fatalf("collect canceled-before-start session: %v", err)
+	}
+}
+
+func TestCancelDefersPreclaimSettlementWhileWrapperLeaseIsBusy(t *testing.T) {
+	root, _, record, host := spawnFixture(t, []string{"/bin/true"})
+	path := filepath.Join(ArtifactDirectory, record.Intent.SessionID+".json")
+	lease, acquired, err := nativejournal.TryExecutionLease(root, record.Intent.ExecutionLeasePath)
+	if err != nil || !acquired {
+		t.Fatalf("acquire wrapper lease = %v, %v", acquired, err)
+	}
+	updated, err := Cancel(context.Background(), root, path, host)
+	if err == nil || !strings.Contains(err.Error(), "settlement is deferred") || updated.State != nativejournal.StateCancelRequested {
+		t.Fatalf("Cancel() = state %q, err %v; want pending cancellation while wrapper active", updated.State, err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := Recover(context.Background(), root, path, host)
+	if err != nil || recovered.State != nativejournal.StateCanceled {
+		t.Fatalf("Recover() after lease release = state %q err %v; want canceled-before-claim", recovered.State, err)
 	}
 }
 
@@ -482,9 +801,20 @@ func TestRecoveryIndeterminateDoesNotEraseDurableCancellationForWrapper(t *testi
 	if _, err := Cancel(context.Background(), root, path, host); err == nil {
 		t.Fatal("uncertain Herdr interrupt was reported as delivered")
 	}
-	host.pane.TerminalID = "different-terminal"
-	if recovered, err := Recover(context.Background(), root, path, host); err == nil || recovered.State != "indeterminate" {
-		t.Fatalf("Recover() = state %q, err %v; want indeterminate host identity", recovered.State, err)
+	beforeRecovery, err := Load(root, path)
+	if err != nil || beforeRecovery.State != nativejournal.StateCancelRequested {
+		t.Fatalf("state before active recovery = %q, err %v", beforeRecovery.State, err)
+	}
+	beforeBytes, err := os.ReadFile(filepath.Join(root, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := Recover(context.Background(), root, path, host); err == nil || recovered.State != nativejournal.StateCancelRequested {
+		t.Fatalf("Recover() = state %q, err %v; want active wrapper and unchanged cancellation", recovered.State, err)
+	}
+	afterBytes, err := os.ReadFile(filepath.Join(root, path))
+	if err != nil || string(beforeBytes) != string(afterBytes) {
+		t.Fatalf("active recovery changed cancellation journal: %v", err)
 	}
 	select {
 	case err := <-executeDone:

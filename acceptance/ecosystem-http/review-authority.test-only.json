@@ -1,0 +1,8 @@
+{
+  "schema": "ingen.hammond-authority/v1",
+  "id": "ecosystem-http-test-authority",
+  "version": 1,
+  "actors": {
+    "acceptance-fixture": ["product-reviewer"]
+  }
+}

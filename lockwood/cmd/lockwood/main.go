@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -10,10 +12,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
+	"ingen/core/ciresult"
+	"ingen/core/cliversion"
+	"ingen/herdr-sentinel/evidence"
 	ciresultadapter "ingen/lockwood/internal/adapters/ciresult"
+	roleexecadapter "ingen/lockwood/internal/adapters/roleexec"
 	"ingen/lockwood/internal/adapters/sorna"
 	"ingen/lockwood/internal/artifact"
 	"ingen/lockwood/internal/attestation"
@@ -28,6 +35,9 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if handled, code := cliversion.Dispatch("lockwood", args, stdout, stderr, cliversion.Legacy{}); handled {
+		return code
+	}
 	if len(args) == 0 {
 		usage(stderr)
 		return 2
@@ -39,6 +49,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runImportSorna(args[1:], stdout, stderr)
 	case "import-ci-result":
 		return runImportCIResult(args[1:], stdout, stderr)
+	case "import-role-execution":
+		return runImportRoleExecution(args[1:], stdout, stderr)
 	case "get":
 		return runGet(args[1:], stdout, stderr)
 	case "inspect":
@@ -105,6 +117,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runVerify(args[1:], stdout, stderr)
 	case "verify-report":
 		return runVerifyReport(args[1:], stdout, stderr)
+	case "ci-result":
+		return runCIResult(args[1:], stdout, stderr)
 	case "find":
 		return runFind(args[1:], stdout, stderr)
 	case "recover":
@@ -122,6 +136,263 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 }
+
+// runCIResult verifies an explicit custody-record set and all reachable
+// accepted lineage through Lockwood's public verification interfaces, then
+// emits a language-neutral producer result. Source producer status is data;
+// this command reports custody integrity only.
+func runCIResult(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood ci-result", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	output := flags.String("output", "", "exclusive CI result output path")
+	var selected stringFlags
+	flags.Var(&selected, "id", "required custody record ID to verify; repeatable")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *output == "" || len(selected) == 0 {
+		fmt.Fprintln(stderr, "usage: lockwood ci-result --root STORE --id CUSTODY_ID [--id CUSTODY_ID ...] --output FILE")
+		return 2
+	}
+	seen := map[string]bool{}
+	for _, id := range selected {
+		if strings.TrimSpace(id) == "" || seen[id] {
+			fmt.Fprintf(stderr, "ci-result: invalid or repeated custody id %q\n", id)
+			return 2
+		}
+		seen[id] = true
+	}
+	rootAbs, err := filepath.Abs(*root)
+	if err != nil {
+		fmt.Fprintln(stderr, "resolve Lockwood root:", err)
+		return 2
+	}
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		fmt.Fprintln(stderr, "resolve Lockwood root:", err)
+		return 2
+	}
+	outputAbs, err := canonicalPathForCreate(*output)
+	if err != nil {
+		fmt.Fprintln(stderr, "resolve output:", err)
+		return 2
+	}
+	if pathsOverlap(rootReal, outputAbs) {
+		fmt.Fprintln(stderr, "ci-result output must be outside the Lockwood store")
+		return 2
+	}
+	artifacts, records, err := openExistingStores(rootReal)
+	if err != nil {
+		fmt.Fprintln(stderr, "open Lockwood root:", err)
+		return 2
+	}
+	allRecords, err := records.List()
+	if err != nil {
+		fmt.Fprintln(stderr, "list custody records:", err)
+		return 2
+	}
+	byID := make(map[string]custody.Record, len(allRecords))
+	byDigest := make(map[string][]custody.Record, len(allRecords))
+	for _, record := range allRecords {
+		byID[record.CustodyID] = record
+		if record.Status == custody.Accepted {
+			byDigest[record.Artifact.Digest] = append(byDigest[record.Artifact.Digest], record)
+		}
+	}
+	sort.Strings(selected)
+	candidates := make([]custody.Record, 0, len(selected))
+	for _, id := range selected {
+		record, ok := byID[id]
+		if !ok {
+			fmt.Fprintf(stderr, "ci-result: selected custody record %q is missing\n", id)
+			return 2
+		}
+		// Get through the store interface binds the report to the canonical
+		// record snapshot and rejects malformed or noncanonical persisted bytes.
+		record, err = records.Get(id)
+		if err != nil {
+			fmt.Fprintf(stderr, "ci-result: load custody record %q: %v\n", id, err)
+			return 2
+		}
+		candidates = append(candidates, record)
+	}
+	report, err := custody.VerifyRecords(records, artifacts, candidates)
+	if err != nil {
+		fmt.Fprintln(stderr, "verify custody records:", err)
+		return 2
+	}
+	// Capture exact canonical record and content-addressed blob references for
+	// selected records and the accepted records reachable through their parents.
+	reachableRecords := map[string]custody.Record{}
+	reachableDigests := map[string]bool{}
+	queue := append([]custody.Record(nil), candidates...)
+	for len(queue) > 0 {
+		record := queue[0]
+		queue = queue[1:]
+		if _, seen := reachableRecords[record.CustodyID]; seen {
+			continue
+		}
+		reachableRecords[record.CustodyID] = record
+		reachableDigests[record.Artifact.Digest] = true
+		for _, parent := range record.Parents {
+			for _, candidate := range byDigest[parent.Digest] {
+				if _, seen := reachableRecords[candidate.CustodyID]; !seen {
+					queue = append(queue, candidate)
+				}
+			}
+		}
+	}
+	// Verify that the exact record/blob snapshots still match the successful
+	// verifier read before describing them as checked inputs. Store records are
+	// immutable by normal publication; this also detects external replacement.
+	var snapshotErrs []string
+	for id, before := range reachableRecords {
+		after, getErr := records.Get(id)
+		if getErr != nil {
+			snapshotErrs = append(snapshotErrs, fmt.Sprintf("record %s: %v", id, getErr))
+			continue
+		}
+		beforeHash, _ := custody.CanonicalDigest(before)
+		afterHash, _ := custody.CanonicalDigest(after)
+		if beforeHash != afterHash {
+			snapshotErrs = append(snapshotErrs, fmt.Sprintf("record %s changed during verification", id))
+		}
+	}
+	for digest := range reachableDigests {
+		data, getErr := artifacts.Get(digest)
+		if getErr != nil {
+			snapshotErrs = append(snapshotErrs, fmt.Sprintf("artifact %s: %v", digest, getErr))
+			continue
+		}
+		if artifact.DigestBytes(data) != digest {
+			snapshotErrs = append(snapshotErrs, fmt.Sprintf("artifact %s changed during verification", digest))
+		}
+	}
+	if len(snapshotErrs) > 0 {
+		sort.Strings(snapshotErrs)
+		message := "snapshot changed during verification: " + strings.Join(snapshotErrs, "; ")
+		for index := range report.Results {
+			if report.Results[index].Status == custody.VerificationVerified {
+				report.Results[index].Status = custody.VerificationFailed
+				report.Results[index].Error = message
+				report.Verified--
+				report.Failed++
+			}
+		}
+	}
+	inputs := make(map[string]ciresult.FileRef, len(reachableRecords)+len(reachableDigests))
+	for id, record := range reachableRecords {
+		digest, digestErr := custody.CanonicalDigest(record)
+		if digestErr != nil {
+			fmt.Fprintln(stderr, "encode custody record snapshot:", digestErr)
+			return 2
+		}
+		inputs["record:"+id] = ciresult.FileRef{Path: filepath.ToSlash(filepath.Join("records", id+".json")), SHA256: strings.TrimPrefix(digest, "sha256:")}
+	}
+	for digest := range reachableDigests {
+		hexDigest := strings.TrimPrefix(digest, "sha256:")
+		if len(hexDigest) != 64 {
+			fmt.Fprintf(stderr, "ci-result: invalid stored artifact digest %q\n", digest)
+			return 2
+		}
+		if _, decodeErr := hex.DecodeString(hexDigest); decodeErr != nil {
+			fmt.Fprintf(stderr, "ci-result: invalid stored artifact digest %q\n", digest)
+			return 2
+		}
+		inputs["artifact:"+hexDigest] = ciresult.FileRef{Path: filepath.ToSlash(filepath.Join("blobs", "sha256", hexDigest[:2], hexDigest[2:4], hexDigest)), SHA256: hexDigest}
+	}
+	status, exitCode := "passed", 0
+	if report.Failed > 0 {
+		status, exitCode = "failed", 1
+	}
+	encodedReport, _ := json.Marshal(struct {
+		Selected     []string                   `json:"selected_custody_ids"`
+		Verification custody.VerificationReport `json:"verification"`
+	}{Selected: selected, Verification: report})
+	explanation, _ := json.Marshal("Lockwood verified the selected custody records and reachable accepted lineage bytes; producer outcome fields are preserved as evidence and do not determine custody status.")
+	result := ciresult.Artifact{Schema: ciresult.Schema, Tool: "lockwood", Kind: "custody-verification", Status: status, ExitCode: exitCode, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Source: ciresult.Source{Root: rootReal}, Inputs: inputs, Report: encodedReport, Explanation: explanation}
+	if err := result.Validate(); err != nil {
+		fmt.Fprintln(stderr, "build Lockwood CI result:", err)
+		return 2
+	}
+	if err := writeExclusiveFile(outputAbs, result); err != nil {
+		fmt.Fprintln(stderr, "write Lockwood CI result:", err)
+		return 2
+	}
+	if exitCode != 0 {
+		fmt.Fprintln(stderr, "ci-result: one or more selected custody records or their reachable lineage failed verification")
+	}
+	return exitCode
+}
+
+func writeExclusiveFile(path string, value ciresult.Artifact) error {
+	var encoded bytes.Buffer
+	if err := ciresult.WriteJSON(&encoded, value); err != nil {
+		return err
+	}
+	directory := filepath.Dir(path)
+	temp, err := os.CreateTemp(directory, ".lockwood-ci-result-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	removeTemp := true
+	defer func() {
+		_ = temp.Close()
+		if removeTemp {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if _, err := temp.Write(encoded.Bytes()); err != nil {
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Link(tempPath, path); err != nil {
+		return err
+	}
+	if err := os.Remove(tempPath); err != nil {
+		return err
+	}
+	removeTemp = false
+	dir, err := os.Open(directory)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
+func openExistingStores(root string) (*store.Filesystem, *custody.Filesystem, error) {
+	if info, err := os.Lstat(root); err != nil {
+		return nil, nil, err
+	} else if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, fmt.Errorf("Lockwood root must be an existing real directory")
+	}
+	for _, relative := range []string{"blobs", "blobs/sha256", "references", "references/sha256", "records", "events", "locks", "locks/handling-events", "tmp"} {
+		path := filepath.Join(root, filepath.FromSlash(relative))
+		info, err := os.Lstat(path)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Lockwood store layout is incomplete at %s: %w", relative, err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, nil, fmt.Errorf("Lockwood store path %s must be an existing real directory", relative)
+		}
+	}
+	// Constructors are safe after the complete layout is proven to exist:
+	// their MkdirAll calls cannot create missing paths in this read-only flow.
+	return openStores(root)
+}
+
+type stringFlags []string
+
+func (values *stringFlags) String() string         { return strings.Join(*values, ",") }
+func (values *stringFlags) Set(value string) error { *values = append(*values, value); return nil }
 
 func runPut(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lockwood put", flag.ContinueOnError)
@@ -413,6 +684,156 @@ func runImportCIResult(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func runImportRoleExecution(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lockwood import-role-execution", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	root := flags.String("root", "", "Lockwood data root")
+	projectRoot := flags.String("project-root", "", "absolute Sentinel project root containing the report and referenced evidence")
+	reportPath := flags.String("path", "", "project-relative role execution report path")
+	schema := flags.String("schema", custody.SchemaV1, "custody record schema")
+	custodyID := flags.String("id", "", "custody record ID")
+	logicalName := flags.String("name", "", "artifact logical name")
+	expectedDigest := flags.String("expected-digest", "", "optional expected report SHA-256 digest")
+	receivedAt := flags.String("received-at", "", "RFC3339 receipt time")
+	retentionClass := flags.String("retention-class", "default", "retention class")
+	redaction := flags.String("redaction", "none", "redaction status")
+	maxBytes := flags.Int64("max-bytes", 0, "maximum aggregate evidence size in bytes; 0 means unlimited")
+	sourceURI := flags.String("source-uri", "", "source URI recorded in custody")
+	sourceVersion := flags.String("source-version", "", "source version recorded in custody")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *projectRoot == "" || *reportPath == "" || *custodyID == "" {
+		fmt.Fprintln(stderr, "import-role-execution requires --root, --project-root, --path, --id, and no positional arguments")
+		return 2
+	}
+	if !filepath.IsAbs(*projectRoot) {
+		fmt.Fprintln(stderr, "import-role-execution --project-root must be absolute")
+		return 2
+	}
+	if *maxBytes < 0 {
+		fmt.Fprintln(stderr, "import-role-execution --max-bytes cannot be negative")
+		return 2
+	}
+	parsedReceivedAt, err := parseTime(*receivedAt)
+	if err != nil {
+		fmt.Fprintf(stderr, "invalid --received-at: %v\n", err)
+		return 2
+	}
+	verified, err := evidence.Verify(*projectRoot, *reportPath, *expectedDigest)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-role-execution: verify Sentinel role execution evidence: %v\n", err)
+		return 1
+	}
+	if err := ensureStoreDoesNotOverlapEvidence(*root, *projectRoot, *reportPath, verified.Files); err != nil {
+		fmt.Fprintf(stderr, "import-role-execution: %v\n", err)
+		return 2
+	}
+	artifacts, records, err := openStores(*root)
+	if err != nil {
+		fmt.Fprintf(stderr, "open Lockwood root: %v\n", err)
+		return 1
+	}
+	ingestor, err := custody.NewIngestor(artifacts, records)
+	if err != nil {
+		fmt.Fprintf(stderr, "create ingestor: %v\n", err)
+		return 1
+	}
+	importer, err := roleexecadapter.NewImporter(ingestor, records)
+	if err != nil {
+		fmt.Fprintf(stderr, "create role execution importer: %v\n", err)
+		return 1
+	}
+	record, err := importer.ImportVerified(roleexecadapter.ImportRequest{
+		ProjectRoot:    *projectRoot,
+		ReportPath:     *reportPath,
+		ExpectedSHA256: *expectedDigest,
+		Schema:         *schema,
+		CustodyID:      *custodyID,
+		LogicalName:    *logicalName,
+		MaxBytes:       *maxBytes,
+		ReceivedAt:     parsedReceivedAt,
+		Source:         custody.Source{URI: *sourceURI, Version: *sourceVersion},
+		RetentionClass: *retentionClass,
+		Redaction:      *redaction,
+	}, verified)
+	if err != nil {
+		fmt.Fprintf(stderr, "import-role-execution: %v\n", err)
+		return 1
+	}
+	if err := writeJSON(stdout, record); err != nil {
+		fmt.Fprintf(stderr, "write result: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func ensureStoreDoesNotOverlapEvidence(storeRoot, projectRoot, reportPath string, files []evidence.File) error {
+	storeCanonical, err := canonicalPathForCreate(storeRoot)
+	if err != nil {
+		return fmt.Errorf("resolve Lockwood data root: %w", err)
+	}
+	projectCanonical, err := filepath.EvalSymlinks(projectRoot)
+	if err != nil {
+		return fmt.Errorf("resolve Sentinel project root: %w", err)
+	}
+	selected := []string{filepath.Join(projectCanonical, filepath.FromSlash(reportPath))}
+	for _, file := range files {
+		selected = append(selected, filepath.Join(projectCanonical, filepath.FromSlash(file.Path)))
+	}
+	for _, path := range selected {
+		canonical, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("resolve selected Sentinel evidence %q: %w", path, err)
+		}
+		if pathsOverlap(storeCanonical, canonical) {
+			return fmt.Errorf("Lockwood data root overlaps selected Sentinel evidence %q", path)
+		}
+	}
+	return nil
+}
+
+func canonicalPathForCreate(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	clean := filepath.Clean(abs)
+	missing := make([]string, 0)
+	probe := clean
+	for {
+		_, err = os.Lstat(probe)
+		if err == nil {
+			break
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return "", fmt.Errorf("no existing ancestor for %s", clean)
+		}
+		missing = append(missing, filepath.Base(probe))
+		probe = parent
+	}
+	resolved, err := filepath.EvalSymlinks(probe)
+	if err != nil {
+		return "", err
+	}
+	for index := len(missing) - 1; index >= 0; index-- {
+		resolved = filepath.Join(resolved, missing[index])
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func pathsOverlap(left, right string) bool {
+	within := func(root, candidate string) bool {
+		rel, err := filepath.Rel(root, candidate)
+		return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
+	}
+	return within(left, right) || within(right, left)
 }
 
 func runInspect(args []string, stdout, stderr io.Writer) int {
@@ -2301,11 +2722,13 @@ func (flags *lineageFlags) Set(value string) error {
 
 func usage(writer io.Writer) {
 	fmt.Fprintln(writer, "usage: lockwood <command> [options]")
+	fmt.Fprintln(writer, "       lockwood [--version | version [--format text|json]]")
 	fmt.Fprintln(writer, "")
 	fmt.Fprintln(writer, "commands:")
 	fmt.Fprintln(writer, "  put [options] <path|-> store bytes and create accepted custody")
 	fmt.Fprintln(writer, "  import-sorna [options] <dir> import a verified Sorna bundle")
 	fmt.Fprintln(writer, "  import-ci-result [options] <path> import a validated CI result")
+	fmt.Fprintln(writer, "  import-role-execution [options] import producer-verified Sentinel role execution evidence")
 	fmt.Fprintln(writer, "  get <digest>       retrieve verified bytes")
 	fmt.Fprintln(writer, "  inspect <id>       print one custody record")
 	fmt.Fprintln(writer, "  inspect-attestation inspect a published detached attestation")
@@ -2340,6 +2763,7 @@ func usage(writer io.Writer) {
 	fmt.Fprintln(writer, "  verify <digest>    verify stored bytes")
 	fmt.Fprintln(writer, "  verify --id <id>   verify a custody record and its blob")
 	fmt.Fprintln(writer, "  verify-report      batch-verify matched custody records")
+	fmt.Fprintln(writer, "  ci-result          emit a CI envelope after verifying selected custody records and reachable lineage")
 	fmt.Fprintln(writer, "  find               query custody records")
 	fmt.Fprintln(writer, "  recover            verify an existing blob and append a pending custody record")
 	fmt.Fprintln(writer, "  reconcile          report orphans, dangling records, and corrupt blobs")

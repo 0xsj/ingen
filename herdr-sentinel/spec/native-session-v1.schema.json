@@ -37,6 +37,7 @@
         "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
         "stdout_path": {"type": "string", "minLength": 1},
         "stderr_path": {"type": "string", "minLength": 1},
+        "execution_lease_path": {"type": "string", "minLength": 1},
         "herdr_socket": {"type": "string", "minLength": 1},
         "sentinel_executable": {"type": "string", "minLength": 1},
         "sentinel_executable_sha256": {"$ref": "#/$defs/sha256"}

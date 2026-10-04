@@ -178,6 +178,7 @@ func Spawn(ctx context.Context, request Request, host HostClient) (Record, strin
 		Argv:                     append([]string(nil), request.Command...),
 		StdoutPath:               stdoutPath,
 		StderrPath:               stderrPath,
+		ExecutionLeasePath:       recordPath + ".lease",
 		HerdrSocket:              request.SocketPath,
 		SentinelExecutable:       executable,
 		SentinelExecutableSHA256: executableHash,
@@ -297,6 +298,30 @@ func Execute(root, path string) error {
 	if record.State != nativejournal.StateDispatching {
 		return fmt.Errorf("native wrapper is not authorized in state %q; duplicate execution is refused", record.State)
 	}
+	var lease *nativejournal.ExecutionLease
+	if record.Intent.ExecutionLeasePath != "" {
+		var acquired bool
+		lease, acquired, err = nativejournal.TryExecutionLease(root, record.Intent.ExecutionLeasePath)
+		if err != nil {
+			return fmt.Errorf("acquire native wrapper execution lease: %w", err)
+		}
+		if !acquired {
+			return fmt.Errorf("native wrapper execution lease is already held; duplicate execution is refused")
+		}
+		defer lease.Close()
+		// Recovery uses the same lease. Reload after acquiring it so its
+		// decision and this wrapper's claim cannot race on a stale record.
+		record, err = nativejournal.Load(root, recordPath)
+		if err != nil {
+			return err
+		}
+		if err := validateRecordLocation(recordPath, record); err != nil {
+			return err
+		}
+		if record.State != nativejournal.StateDispatching {
+			return fmt.Errorf("native wrapper is not authorized in state %q; duplicate execution is refused", record.State)
+		}
+	}
 	if err := validateRecordLocation(recordPath, record); err != nil {
 		return err
 	}
@@ -318,7 +343,8 @@ func Execute(root, path string) error {
 		markTerminalFailure(root, recordPath, record.Intent.SessionID, err.Error())
 		return fmt.Errorf("validate native role workdir: %w", err)
 	}
-	runChild, stopSignals := prepareCommandRunner()
+	interruptGrace := commandInterruptGrace(root, record.Intent)
+	runChild, stopSignals := prepareCommandRunner(interruptGrace)
 	defer stopSignals()
 	claimed, ok, err := nativejournal.ClaimExecution(root, recordPath, record.Intent.SessionID, nativejournal.Event{
 		ID:    "wrapper-claim:" + record.Intent.SessionID,
@@ -383,7 +409,7 @@ func Execute(root, path string) error {
 		"INGEN_SENTINEL_ROLE_KIND="+record.Intent.RoleKind,
 		"INGEN_SENTINEL_CAPABILITY_ENFORCEMENT="+nativejournal.Enforcement,
 	)
-	processErr, interrupted, childStarted, interruptReason := runChild(command, func() bool {
+	processErr, interrupted, childStarted, interruptReason, processCleanupErr := runChild(command, func() bool {
 		latest, loadErr := nativejournal.Load(root, recordPath)
 		return loadErr == nil && hasCancellationRequest(latest)
 	})
@@ -425,6 +451,14 @@ func Execute(root, path string) error {
 		markIndeterminate(root, recordPath, record.Intent.SessionID, reason)
 		return fmt.Errorf("native output capture failed; session outcome is indeterminate: %w", errors.Join(processErr, captureErr))
 	}
+	if processCleanupErr != nil {
+		reason := "native child process group cleanup could not be confirmed: " + processCleanupErr.Error()
+		if interruptReason != "" {
+			reason += "; interruption: " + interruptReason
+		}
+		markIndeterminate(root, recordPath, record.Intent.SessionID, reason)
+		return fmt.Errorf("native child process-group outcome is indeterminate: %w", processCleanupErr)
+	}
 	stdoutHash, hashErr := hashUnderRoot(root, record.Intent.StdoutPath)
 	if hashErr != nil {
 		markIndeterminate(root, recordPath, record.Intent.SessionID, fmt.Sprintf("could not hash native stdout: %v", hashErr))
@@ -465,6 +499,21 @@ func Execute(root, path string) error {
 		return processErr
 	}
 	return nil
+}
+
+func commandInterruptGrace(root string, intent nativejournal.Intent) time.Duration {
+	roleBinding, recognized, parseErr := parseRoleExecutionIntent(intent)
+	if recognized && parseErr == nil && roleBinding.Root == root &&
+		roleBinding.ReceiptPath == intent.ReceiptPath && roleBinding.RoleID == intent.RoleID &&
+		roleBinding.ManifestSHA256 == intent.WorkspaceManifestSHA256 {
+		// The contained role runner owns its child signal escalation and report
+		// publication. Give it time to finish those bounded steps before this
+		// outer wrapper escalates and kills the role runner itself. The argv's
+		// expected executable digest pins the contained child, while
+		// validateExecutable separately pins this Sentinel wrapper.
+		return containedRoleExecutionInterruptGrace
+	}
+	return processInterruptGrace
 }
 
 func nativeChildExitCode(processErr error) (int, bool) {
@@ -556,6 +605,10 @@ func Collect(root, path, receiptPath string) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
+	roleArtifacts, err := verifyRoleExecutionEvidence(root, identity, record, terminal)
+	if err != nil {
+		return Record{}, err
+	}
 	_, err = run.UpdateFile(receiptFile, func(loaded *run.Receipt) (bool, error) {
 		if !sameReceiptIdentity(loaded, identity) {
 			return false, fmt.Errorf("Sentinel receipt identity changed during native collection")
@@ -577,40 +630,82 @@ func Collect(root, path, receiptPath string) (Record, error) {
 			changed = changed || added
 		}
 		sourceID := "native-session-collected:" + record.Intent.SessionID
+		baseCollected := false
 		for _, event := range loaded.Events {
 			if event.SourceID == sourceID {
 				if event.Role != record.Intent.RoleID || event.SessionID != record.Intent.SessionID || event.Outcome != nativeOutcome(record) || !sameIDs(event.ArtifactIDs, artifactIDs) {
 					return false, fmt.Errorf("native session collection source ID conflicts with existing receipt event")
 				}
-				return changed, nil
+				baseCollected = true
+				break
 			}
-		}
-		if loaded.Status == "completed" || loaded.Status == "failed" || loaded.Status == "blocked" || loaded.Status == "cleaned" {
-			return false, fmt.Errorf("cannot collect native session into terminal receipt status %q without an existing identical collection event", loaded.Status)
 		}
 		status := "completed"
 		if record.State == nativejournal.StateFailed || record.State == nativejournal.StateCanceled {
 			status = "failed"
 		}
-		at := time.Now().UTC().Format(time.RFC3339Nano)
+		if !baseCollected {
+			if loaded.Status == "completed" || loaded.Status == "failed" || loaded.Status == "blocked" || loaded.Status == "cleaned" {
+				return false, fmt.Errorf("cannot collect native session into terminal receipt status %q without an existing identical collection event", loaded.Status)
+			}
+			at := time.Now().UTC().Format(time.RFC3339Nano)
+			if err := loaded.AppendEvent(run.Event{
+				SourceID:    sourceID,
+				Type:        "role-completed",
+				At:          at,
+				Role:        record.Intent.RoleID,
+				Workspace:   record.Intent.Workdir,
+				SessionID:   record.Intent.SessionID,
+				Status:      status,
+				ArtifactIDs: artifactIDs,
+				Outcome:     nativeOutcome(record),
+				Reason:      terminal.Reason,
+			}); err != nil {
+				return false, err
+			}
+			changed = true
+			if status == "failed" {
+				if err := loaded.SetStatus("failed", time.Now().UTC()); err != nil {
+					return false, err
+				}
+			}
+		}
+		if len(roleArtifacts) == 0 {
+			return changed, nil
+		}
+		roleIDs := make([]string, 0, len(roleArtifacts))
+		for _, item := range roleArtifacts {
+			added, addErr := loaded.RegisterFileArtifactUnderRoot(item.ID, record.Intent.RoleID, item.Kind, root, item.Path)
+			if addErr != nil {
+				return false, addErr
+			}
+			if actual := receiptArtifactSHA(loaded, item.ID); actual != item.SHA256 {
+				return false, fmt.Errorf("contained role-execution artifact %s changed during collection", item.Path)
+			}
+			changed = changed || added
+			roleIDs = append(roleIDs, item.ID)
+		}
+		roleSourceID := "role-execution-collected:" + roleExecutionExecutionID(record.Intent)
+		for _, event := range loaded.Events {
+			if event.SourceID == roleSourceID {
+				if event.Type != "artifact-produced" || event.Role != record.Intent.RoleID || event.SessionID != record.Intent.SessionID || event.Outcome != "verified" || !sameIDs(event.ArtifactIDs, roleIDs) {
+					return false, fmt.Errorf("role-execution collection source ID conflicts with existing receipt event")
+				}
+				return changed, nil
+			}
+		}
 		if err := loaded.AppendEvent(run.Event{
-			SourceID:    sourceID,
-			Type:        "role-completed",
-			At:          at,
+			SourceID:    roleSourceID,
+			Type:        "artifact-produced",
+			At:          time.Now().UTC().Format(time.RFC3339Nano),
 			Role:        record.Intent.RoleID,
 			Workspace:   record.Intent.Workdir,
 			SessionID:   record.Intent.SessionID,
 			Status:      status,
-			ArtifactIDs: artifactIDs,
-			Outcome:     nativeOutcome(record),
-			Reason:      terminal.Reason,
+			ArtifactIDs: roleIDs,
+			Outcome:     "verified",
 		}); err != nil {
 			return false, err
-		}
-		if status == "failed" {
-			if err := loaded.SetStatus("failed", time.Now().UTC()); err != nil {
-				return false, err
-			}
 		}
 		return true, nil
 	})
@@ -650,6 +745,23 @@ func Cancel(ctx context.Context, root, path string, host HostClient) (Record, er
 			return updated, fmt.Errorf("prelaunch cancellation is recorded; reload journal before settlement: %w", loadErr)
 		}
 		if !hasWrapperClaim(latest) {
+			if latest.Intent.ExecutionLeasePath != "" {
+				lease, acquired, leaseErr := nativejournal.TryExecutionLease(root, latest.Intent.ExecutionLeasePath)
+				if leaseErr != nil {
+					return latest, fmt.Errorf("prelaunch cancellation is recorded; inspect wrapper lease before settlement: %w", leaseErr)
+				}
+				if !acquired {
+					return latest, fmt.Errorf("prelaunch cancellation is recorded; wrapper holds the execution lease, so settlement is deferred until native-recover")
+				}
+				defer lease.Close()
+				latest, loadErr = nativejournal.Load(root, recordPath)
+				if loadErr != nil {
+					return updated, fmt.Errorf("prelaunch cancellation is recorded; reload journal under wrapper lease: %w", loadErr)
+				}
+				if hasWrapperClaim(latest) {
+					return latest, fmt.Errorf("prelaunch cancellation is recorded after wrapper claim; recover before interrupting the owned pane")
+				}
+			}
 			settled, _, settleErr := appendEvent(root, recordPath, "canceled-before-claim:"+record.Intent.SessionID, nativejournal.StateCanceled, identity, "operator canceled before wrapper claim; no child process ran", nil, nativejournal.KindProviderCanceledBeforeClaim)
 			if settleErr != nil {
 				return latest, fmt.Errorf("prelaunch cancellation is recorded but could not be settled: %w", settleErr)
@@ -723,14 +835,56 @@ func Recover(ctx context.Context, root, path string, host HostClient) (Record, e
 	if terminalState(record.State) {
 		return record, nil
 	}
+	recordPath, err := nativeRecordPath(path)
+	if err != nil {
+		return record, err
+	}
+	if record.Intent.ExecutionLeasePath != "" {
+		lease, acquired, leaseErr := nativejournal.TryExecutionLease(root, record.Intent.ExecutionLeasePath)
+		if leaseErr != nil {
+			return record, fmt.Errorf("inspect native wrapper execution lease: %w", leaseErr)
+		}
+		if !acquired {
+			return record, fmt.Errorf("native wrapper holds the execution lease; journal was not changed")
+		}
+		defer lease.Close()
+		// Execute acquires the same lease before its claim. Reload under the
+		// lease so recovery's classification cannot race a wrapper start.
+		record, err = nativejournal.Load(root, recordPath)
+		if err != nil {
+			return Record{}, err
+		}
+		if err := validateRecordLocation(recordPath, record); err != nil {
+			return Record{}, err
+		}
+		if terminalState(record.State) {
+			return record, nil
+		}
+		if record.State == nativejournal.StateCancelRequested && !hasWrapperStarted(record) {
+			kind := nativejournal.KindProviderCanceledBeforeClaim
+			if hasWrapperClaim(record) {
+				kind = nativejournal.KindProviderCanceledBeforeStart
+			}
+			updated, _, settleErr := appendEvent(root, recordPath, "recovery-canceled-before-start:"+record.Intent.SessionID,
+				nativejournal.StateCanceled, lastHost(record), "durable cancellation prevented child start and the wrapper execution lease is free", nil, kind)
+			if settleErr != nil {
+				return record, fmt.Errorf("settle canceled native session before child start: %w", settleErr)
+			}
+			return updated, nil
+		}
+		if hasWrapperClaim(record) {
+			updated, _, markErr := appendEvent(root, recordPath, "recovery-wrapper-lease-lost:"+record.Intent.SessionID,
+				nativejournal.StateIndeterminate, lastHost(record), "native wrapper no longer holds its execution lease; child outcome is unknown and recovery did not resend or signal", nil, "provider-recovery")
+			if markErr != nil {
+				return record, fmt.Errorf("record indeterminate native wrapper outcome: %w", markErr)
+			}
+			return updated, fmt.Errorf("native wrapper lease was lost; state is indeterminate and no process outcome was inferred")
+		}
+	}
 	if host == nil {
 		return record, fmt.Errorf("native session Herdr client is required for recovery")
 	}
 	if err := checkSupportedHost(ctx, host); err != nil {
-		return record, err
-	}
-	recordPath, err := nativeRecordPath(path)
-	if err != nil {
 		return record, err
 	}
 	identity := lastHost(record)
@@ -1188,6 +1342,15 @@ func hasCancellationRequest(record Record) bool {
 func hasWrapperClaim(record Record) bool {
 	for _, event := range record.Events {
 		if event.Kind == nativejournal.KindWrapperClaim {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWrapperStarted(record Record) bool {
+	for _, event := range record.Events {
+		if event.Kind == nativejournal.KindWrapperStarted {
 			return true
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"ingen/core/cliversion"
 	"ingen/sattler"
 )
 
@@ -14,6 +15,9 @@ func main() {
 }
 
 func run(args []string) int {
+	if handled, code := cliversion.Dispatch("sattler", args, os.Stdout, os.Stderr, cliversion.Legacy{}); handled {
+		return code
+	}
 	if len(args) == 0 {
 		usage()
 		return 2
@@ -577,6 +581,7 @@ func (flag *stringListFlag) Set(value string) error {
 }
 
 func usage() {
+	fmt.Fprintln(os.Stderr, "usage: sattler [--version | version [--format text|json]]")
 	fmt.Fprintln(os.Stderr, "usage: sattler compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
 	fmt.Fprintln(os.Stderr, "       sattler run compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")
 	fmt.Fprintln(os.Stderr, "       sattler sorna compare [--format text|json] [--change-id id] [--output path] BEFORE AFTER")

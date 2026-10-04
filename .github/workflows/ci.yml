@@ -41,11 +41,173 @@ jobs:
       - name: Test all Go packages
         run: make test
 
+      - name: Check local bundle verification and installation failures
+        run: make ingen-package-check
+
       - name: Validate JSON Schema files
         run: find . -path './.git' -prune -o -name '*.schema.json' -print0 | xargs -0 -n 1 jq empty
 
       - name: Run the document workflow in a fresh workspace
         run: make nublar-run-collect-fresh
+
+      - name: Check contained role evidence handoffs in fresh projects
+        run: make sentinel-role-evidence-check
+
+      - name: Check fresh agent launch boundaries and wrapper recovery
+        run: make sentinel-native-context-check
+
+      - name: Check scoped Codex broker boundaries without provider calls
+        run: make sentinel-codex-broker-check
+
+      - name: Upload scoped Codex broker evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-broker-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /private/tmp/ingen-codex-broker.*/
+            !/private/tmp/ingen-codex-broker.*/bin/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload fresh agent boundary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-context-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /private/tmp/ingen-native-context.*/
+            !/private/tmp/ingen-native-context.*/bin/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Install Rust stable and distribution notices for the Malcolm handoff
+        run: rustup toolchain install stable --profile minimal --component rust-docs
+
+      - name: Set up Node.js for the local Amber package
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: amber/typescript/package-lock.json
+
+      - name: Install Amber package build dependencies
+        working-directory: amber/typescript
+        run: npm ci
+
+      - name: Check standalone archive installation, versions, and HTTP workflow
+        env:
+          INGEN_INSTALL_PROOF_DIR: ${{ runner.temp }}/ingen-local-install-proof
+        run: make ingen-install-check
+
+      - name: Prepare standalone archive verification inputs
+        run: |
+          mkdir "$RUNNER_TEMP/ingen-archive-inputs"
+          cp "$RUNNER_TEMP/ingen-local-install-proof/ingen.tar.gz" "$RUNNER_TEMP/ingen-archive-inputs/"
+          cp "$RUNNER_TEMP/ingen-local-install-proof/bundle/share/ingen-package.py" "$RUNNER_TEMP/ingen-archive-inputs/"
+          cp "$RUNNER_TEMP/ingen-local-install-proof/archive-acceptance-index.json" "$RUNNER_TEMP/ingen-archive-inputs/"
+
+      - name: Check authenticated file ingress with installed Sentinel
+        run: bash acceptance/callback-auth.sh --bin "$RUNNER_TEMP/ingen-local-install-proof/install/bin/sentinel"
+
+      - name: Check read-only recovery and runtime comparison with installed Sentinel
+        run: bash acceptance/runtime-review.sh --bin "$RUNNER_TEMP/ingen-local-install-proof/install/bin/sentinel"
+
+      - name: Upload recovery and runtime comparison evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /private/tmp/ingen-runtime-review.*/
+            /private/tmp/ingen-native-assess.*/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload trusted local archive inputs for the Linux verifier
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-archive-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ingen-archive-inputs/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload local installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-install-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /private/tmp/ingen-local-install.*/
+            ${{ runner.temp }}/ingen-local-install-proof/
+            /private/tmp/ingen-installed-tools.*/
+            !/private/tmp/ingen-local-install.*/bundle/bin/
+            !/private/tmp/ingen-local-install.*/install/bin/
+            !/private/tmp/ingen-local-install.*/ingen.tar.gz
+            !${{ runner.temp }}/ingen-local-install-proof/bundle/bin/
+            !${{ runner.temp }}/ingen-local-install-proof/install/bin/
+            !${{ runner.temp }}/ingen-local-install-proof/ingen.tar.gz
+            !/private/tmp/ingen-installed-tools.*/project/src/subject
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Check the nine-module HTTP workflow
+        env:
+          INGEN_ECOSYSTEM_HTTP_ROOT: ${{ runner.temp }}/ingen-ecosystem-http-proof
+        run: make ecosystem-http-check
+
+      - name: Check actual workflow decisions through synthetic GitHub Checks
+        run: |
+          bash acceptance/github-checks.sh \
+            --bin "$RUNNER_TEMP/ingen-ecosystem-http-proof/bin/nublar" \
+            --ecosystem-proof "$RUNNER_TEMP/ingen-ecosystem-http-proof"
+
+      - name: Upload authenticated ingress and synthetic delivery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-handoffs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /private/tmp/ingen-callback-auth.*/
+            /private/tmp/ingen-github-checks.*/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload nine-module HTTP evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecosystem-http-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /private/tmp/ingen-ecosystem-http.*/
+            ${{ runner.temp }}/ingen-ecosystem-http-proof/
+            !/private/tmp/ingen-ecosystem-http.*/bin/
+            !/private/tmp/ingen-ecosystem-http.*/**/.cache/
+            !/private/tmp/ingen-ecosystem-http.*/**/target/
+            !${{ runner.temp }}/ingen-ecosystem-http-proof/bin/
+            !${{ runner.temp }}/ingen-ecosystem-http-proof/**/.cache/
+            !${{ runner.temp }}/ingen-ecosystem-http-proof/**/target/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload contained role evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: role-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /private/tmp/ingen-role-evidence.*/passed/.ingen/artifacts/
+            /private/tmp/ingen-role-evidence.*/failed/.ingen/artifacts/
+            /private/tmp/ingen-role-evidence.*/comparison.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload fresh document workflow evidence
         if: always()
@@ -74,6 +236,81 @@ jobs:
             !/private/tmp/ingen-nublar-workspace.*/.artifacts/**/.cache/**
             !/private/tmp/ingen-nublar-workspace.*/.artifacts/**/.git/**
           include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+  standalone-archive-on-linux:
+    name: Standalone Darwin archive handling on Linux (no native execution)
+    needs: root-go-and-document-workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out trusted acceptance runner
+        uses: actions/checkout@v4
+
+      - name: Download this run's verified archive and bootstrap identities
+        uses: actions/download-artifact@v4
+        with:
+          name: standalone-archive-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ingen-archive-inputs
+
+      - name: Verify and install with isolated Python standard library
+        run: |
+          python3 -I -S - "$RUNNER_TEMP" "$GITHUB_WORKSPACE/acceptance/archive-cleanroom/run.py" <<'PY'
+          import json, pathlib, subprocess, sys
+          temp, runner = map(pathlib.Path, sys.argv[1:])
+          inputs = temp / 'ingen-archive-inputs'
+          index = json.loads((inputs / 'archive-acceptance-index.json').read_text())
+          result = subprocess.run([
+              sys.executable, '-I', '-S', str(runner),
+              '--helper', str(inputs / 'ingen-package.py'), '--helper-sha256', index['helper_sha256'],
+              '--archive', str(inputs / 'ingen.tar.gz'), '--archive-sha256', index['archive_sha256'],
+              '--manifest-sha256', index['manifest_sha256'], '--target', index['target']['goos'] + '/' + index['target']['goarch'],
+              '--work-parent', str(temp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+          (temp / 'standalone-archive.log').write_text(result.stdout)
+          print(result.stdout, end='')
+          raise SystemExit(result.returncode)
+          PY
+
+      - name: Upload standalone archive handling evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/standalone-archive.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  linux-platform-diagnostics:
+    name: Linux capability diagnostics (no enforcement claim)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Test bounded kernel probes and bundle validation
+        run: |
+          go test -race ./sorna/internal/platformprobe ./sorna/cmd/platform-probe ./sorna/spec
+          python3 -m unittest discover -s packaging -p 'test_*.py'
+
+      - name: Record and validate current kernel capabilities
+        run: |
+          go run ./sorna/cmd/platform-probe > linux-platform-probe.json
+          INGEN_LINUX_PROBE_REPORT="$PWD/linux-platform-probe.json" go test ./sorna/spec -run '^TestPublishedLinuxPlatformProbeReport$' -count=1
+
+      - name: Upload kernel observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-platform-${{ github.run_id }}-${{ github.run_attempt }}
+          path: linux-platform-probe.json
           if-no-files-found: warn
           retention-days: 14
 

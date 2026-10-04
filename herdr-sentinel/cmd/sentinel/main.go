@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -16,7 +17,9 @@ import (
 	"time"
 
 	"ingen/core/ciresult"
+	"ingen/core/cliversion"
 	sentineladapter "ingen/herdr-sentinel/internal/adapter"
+	"ingen/herdr-sentinel/internal/agentprobe"
 	sentinelaudit "ingen/herdr-sentinel/internal/audit"
 	"ingen/herdr-sentinel/internal/capability"
 	"ingen/herdr-sentinel/internal/herdrclient"
@@ -38,11 +41,16 @@ func main() {
 }
 
 func run(args []string) int {
+	if handled, code := cliversion.Dispatch("sentinel", args, os.Stdout, os.Stderr, cliversion.Legacy{}); handled {
+		return code
+	}
 	if len(args) == 0 {
 		usage()
 		return 2
 	}
 	switch args[0] {
+	case "agent":
+		return agentCommand(args[1:])
 	case "project":
 		return projectCommand(args[1:])
 	case "workspace":
@@ -63,6 +71,8 @@ func run(args []string) int {
 		return verifyCommand(args[1:])
 	case "evidence":
 		return evidenceCommand(args[1:])
+	case "provenance":
+		return provenanceCommand(args[1:])
 	default:
 		usage()
 		return 2
@@ -87,6 +97,14 @@ func sessionCommand(args []string) int {
 		return nativeSessionCancelCommand(args[1:])
 	case "native-recover":
 		return nativeSessionRecoverCommand(args[1:])
+	case "native-assess":
+		return nativeSessionAssessCommand(args[1:])
+	case "native-process-info":
+		return nativeSessionProcessInfoCommand(args[1:])
+	case "native-snapshot":
+		return nativeSessionSnapshotCommand(args[1:])
+	case "native-close":
+		return nativeSessionCloseCommand(args[1:])
 	case "status":
 		return sessionStatusCommand(args[1:])
 	case "list":
@@ -98,7 +116,14 @@ func sessionCommand(args []string) int {
 }
 
 func roleCommand(args []string) int {
-	if len(args) == 0 || args[0] != "execute" {
+	if len(args) == 0 {
+		usage()
+		return 2
+	}
+	if args[0] == "verify" {
+		return roleVerifyCommand(args[1:])
+	}
+	if args[0] != "execute" {
 		usage()
 		return 2
 	}
@@ -113,6 +138,17 @@ func roleCommand(args []string) int {
 	manifestHash := flags.String("expected-manifest-sha256", "", "expected raw workspace manifest SHA-256")
 	policyHash := flags.String("expected-policy-sha256", "", "expected sealed role policy SHA-256")
 	executableHash := flags.String("expected-executable-sha256", "", "expected child executable SHA-256")
+	agent := flags.String("agent", "", "fixed fresh-agent profile: codex")
+	agentExecutable := flags.String("agent-executable", "", "absolute path to the pinned Codex CLI executable")
+	promptFile := flags.String("prompt-file", "", "root-relative UTF-8 prompt file for the fresh Codex invocation")
+	promptHash := flags.String("expected-prompt-sha256", "", "immutable prompt source SHA-256")
+	agentModel := flags.String("agent-model", "", "optional Codex model name")
+	agentProvider := flags.String("agent-provider", "", "optional Codex provider: openai-broker")
+	agentCredentialEnv := flags.String("agent-credential-env", "OPENAI_API_KEY", "parent environment variable supplying broker upstream credentials")
+	agentBrokerPort := flags.Int("agent-broker-port", 0, "reserved local Responses broker port (immutable wrapper input)")
+	agentMaxRequests := flags.Int("agent-max-requests", 16, "maximum broker requests for this Codex run (1-64)")
+	agentMaxOutputTokens := flags.Int("agent-max-output-tokens", 4096, "maximum broker output tokens per request (1-8192)")
+	agentTimeoutSeconds := flags.Int("agent-timeout-seconds", 300, "broker request and Codex execution timeout in seconds (1-1800)")
 	governed := flags.Bool("governed", false, "recheck existing Hammond approval and workflow artifacts")
 	approvalPath := flags.String("approval", "", "Hammond approval record path")
 	reviewPolicyPath := flags.String("review-policy", "", "active Hammond review policy path")
@@ -132,9 +168,31 @@ func roleCommand(args []string) int {
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
-	if *root == "" || !filepath.IsAbs(*root) || *workspacePath == "" || *receiptPath == "" || *roleID == "" || *executionID == "" || *policyPath == "" || *manifestHash == "" || *policyHash == "" || *executableHash == "" || len(flags.Args()) == 0 {
-		fmt.Fprintln(os.Stderr, "role execute requires bound root/workspace/receipt/role/execution/policy hashes and a command after --")
+	typedAgent := *agent != ""
+	if flagWasSet(flags, "agent") && !typedAgent {
+		fmt.Fprintln(os.Stderr, "--agent cannot be empty")
 		return 2
+	}
+	if *root == "" || !filepath.IsAbs(*root) || *workspacePath == "" || *receiptPath == "" || *roleID == "" || *executionID == "" || *policyPath == "" || *manifestHash == "" || *policyHash == "" || *executableHash == "" {
+		fmt.Fprintln(os.Stderr, "role execute requires bound root/workspace/receipt/role/execution/policy hashes")
+		return 2
+	}
+	if typedAgent {
+		if !validAgentOptions(flags, *agent, *agentExecutable, *promptFile, *promptHash, *agentModel, *agentProvider, *agentCredentialEnv, *agentMaxRequests, *agentMaxOutputTokens, *agentTimeoutSeconds) || len(flags.Args()) != 0 || *agentProvider == "openai-broker" && (*agentBrokerPort < 1 || *agentBrokerPort > 65535 || !flagWasSet(flags, "agent-broker-port")) || *agentProvider == "" && flagWasSet(flags, "agent-broker-port") {
+			fmt.Fprintln(os.Stderr, "typed Codex execution requires a valid fixed profile, absolute executable, pinned prompt, and no arbitrary command after --")
+			return 2
+		}
+	} else {
+		for _, name := range []string{"agent-executable", "prompt-file", "expected-prompt-sha256", "agent-model", "agent-provider", "agent-credential-env", "agent-broker-port", "agent-max-requests", "agent-max-output-tokens", "agent-timeout-seconds"} {
+			if flagWasSet(flags, name) {
+				fmt.Fprintf(os.Stderr, "--%s requires --agent codex\n", name)
+				return 2
+			}
+		}
+		if len(flags.Args()) == 0 {
+			fmt.Fprintln(os.Stderr, "role execute requires a command after --")
+			return 2
+		}
 	}
 	if *governed && (*approvalPath == "" || *reviewPolicyPath == "" || *approvalHash == "" || *reviewHash == "" || *contractHash == "" || *oraclePolicyHash == "") {
 		fmt.Fprintln(os.Stderr, "governed role execute requires approval/review paths and expected approval, review policy, contract, and oracle policy digests")
@@ -153,21 +211,27 @@ func roleCommand(args []string) int {
 		return 2
 	}
 	request := roleexec.Request{Root: *root, WorkspacePath: *workspacePath, RoleID: *roleID, ExecutionID: *executionID, ReceiptPath: *receiptPath, PolicyPath: *policyPath, Command: flags.Args(), AllowedTools: tools, ExpectedToolSHA256: toolHashes, ProtectedPaths: protectedPaths, ExpectedManifestSHA256: *manifestHash, ExpectedPolicySHA256: *policyHash, ExpectedExecutableSHA256: *executableHash, Governed: *governed, ApprovalPath: *approvalPath, ReviewPolicyPath: *reviewPolicyPath, OraclePath: *oraclePath, ExpectedApprovalSHA256: *approvalHash, ExpectedReviewPolicySHA256: *reviewHash, ExpectedContractSHA256: *contractHash, ExpectedOraclePolicySHA256: *oraclePolicyHash, ExpectedContractSourceSHA256: *contractSourceHash, ExpectedOraclePolicyFileSHA256: *oraclePolicyFileHash, ExpectedOracleSHA256: *oracleHash}
+	if typedAgent {
+		request.Agent = makeAgentRequest(*agent, *agentExecutable, *promptFile, *promptHash, *agentModel, *agentProvider, *agentCredentialEnv, *agentMaxRequests, *agentMaxOutputTokens, *agentTimeoutSeconds, *agentBrokerPort)
+	}
 	report, path, err := roleexec.Execute(context.Background(), request)
 	if path != "" {
 		fmt.Printf("role-execution: %s\nreport: %s\nstatus: %s\n", *executionID, path, report.Status)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		if code := report.ExitCode; code != nil && *code >= 0 && *code <= 125 {
-			return *code
-		}
-		return 1
+		return roleExecuteErrorExitCode(report.ExitCode)
 	}
 	return 0
 }
 
 func spawnSessionCommand(args []string) int {
+	return spawnSessionCommandWithPreflight(args, runNativeCodexPreflight)
+}
+
+// spawnSessionCommandWithPreflight keeps the diagnostic injectable for tests
+// without adding an environment-controlled bypass to the production CLI.
+func spawnSessionCommandWithPreflight(args []string, runPreflight nativePreflightRunner) int {
 	flags := flag.NewFlagSet("sentinel session spawn", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	workspacePath := flags.String("workspace", "", "Sentinel workspace manifest relative to the project root")
@@ -180,6 +244,15 @@ func spawnSessionCommand(args []string) int {
 	provider := flags.String("provider", "local", "session provider: local or herdr")
 	socket := flags.String("socket", "", "explicit Herdr UNIX socket path (required for herdr provider)")
 	isolate := flags.Bool("isolate", false, "run the role command in a Sorna contained noninteractive execution")
+	agent := flags.String("agent", "", "fresh isolated agent profile: codex")
+	agentExecutable := flags.String("agent-executable", "", "absolute path to the Codex CLI executable")
+	promptFile := flags.String("prompt-file", "", "root-relative UTF-8 prompt file for Codex")
+	agentModel := flags.String("agent-model", "", "optional Codex model name")
+	agentProvider := flags.String("agent-provider", "", "optional Codex provider: openai-broker")
+	agentCredentialEnv := flags.String("agent-credential-env", "OPENAI_API_KEY", "parent environment variable supplying broker upstream credentials")
+	agentMaxRequests := flags.Int("agent-max-requests", 16, "maximum broker requests for this Codex run (1-64)")
+	agentMaxOutputTokens := flags.Int("agent-max-output-tokens", 4096, "maximum broker output tokens per request (1-8192)")
+	agentTimeoutSeconds := flags.Int("agent-timeout-seconds", 300, "broker request and Codex execution timeout in seconds (1-1800)")
 	governed := flags.Bool("governed", false, "require an existing approved contract and workflow gate")
 	approvalPath := flags.String("approval", "", "Hammond approval record path relative to project root (required with --governed)")
 	reviewPolicyPath := flags.String("review-policy", "", "active Hammond review policy path relative to project root (required with --governed)")
@@ -189,8 +262,18 @@ func spawnSessionCommand(args []string) int {
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if *workspacePath == "" || *receiptPath == "" || *roleID == "" || len(flags.Args()) == 0 {
+	typedAgent := *agent != ""
+	if flagWasSet(flags, "agent") && !typedAgent {
+		fmt.Fprintln(os.Stderr, "--agent cannot be empty")
+		return 2
+	}
+	agentOptionsSet := flagWasSet(flags, "agent-executable") || flagWasSet(flags, "prompt-file") || flagWasSet(flags, "agent-model") || flagWasSet(flags, "agent-provider") || flagWasSet(flags, "agent-credential-env") || flagWasSet(flags, "agent-max-requests") || flagWasSet(flags, "agent-max-output-tokens") || flagWasSet(flags, "agent-timeout-seconds")
+	if *workspacePath == "" || *receiptPath == "" || *roleID == "" || (typedAgent && (len(flags.Args()) != 0 || !validAgentOptions(flags, *agent, *agentExecutable, *promptFile, "pinned", *agentModel, *agentProvider, *agentCredentialEnv, *agentMaxRequests, *agentMaxOutputTokens, *agentTimeoutSeconds))) || (!typedAgent && (len(flags.Args()) == 0 || agentOptionsSet)) {
 		usage()
+		return 2
+	}
+	if typedAgent && !*isolate {
+		fmt.Fprintln(os.Stderr, "--agent codex requires --isolate")
 		return 2
 	}
 	if *provider != "local" && *provider != "herdr" {
@@ -241,10 +324,29 @@ func spawnSessionCommand(args []string) int {
 		}
 	}
 	childArgs := flags.Args()
+	var agentRequest *roleexec.AgentRequest
+	if typedAgent {
+		port := 0
+		if *agentProvider == "openai-broker" {
+			if value, ok := os.LookupEnv(*agentCredentialEnv); !ok || strings.TrimSpace(value) == "" {
+				fmt.Fprintf(os.Stderr, "selected broker credential environment variable %s is not set or empty\n", *agentCredentialEnv)
+				return 2
+			}
+			var reserveErr error
+			port, reserveErr = reserveBrokerPort()
+			if reserveErr != nil {
+				fmt.Fprintf(os.Stderr, "reserve local broker endpoint: %v\n", reserveErr)
+				return 1
+			}
+		}
+		agentRequest = makeAgentRequest(*agent, *agentExecutable, *promptFile, "", *agentModel, *agentProvider, *agentCredentialEnv, *agentMaxRequests, *agentMaxOutputTokens, *agentTimeoutSeconds, port)
+	}
 	var gateResult workflowgate.Result
 	var preparedRole roleexec.Prepared
 	var executionID, policyPath string
 	var toolHashes []string
+	var nativeReadinessReport *agentprobe.Report
+	var nativeReadinessExecutableSHA string
 	if *isolate {
 		projectRoot, rootErr := absoluteDirectory(*root, "project")
 		if rootErr != nil {
@@ -289,19 +391,52 @@ func spawnSessionCommand(args []string) int {
 				protected = append(protected, artifact.Path)
 			}
 		}
-		preparedRole, rootErr = roleexec.Prepare(roleexec.Request{Root: projectRoot, WorkspacePath: *workspacePath, RoleID: *roleID, ExecutionID: executionID, ReceiptPath: *receiptPath, Command: childArgs, AllowedTools: canonicalTools, ExpectedToolSHA256: toolHashes, ProtectedPaths: protected, ExpectedManifestSHA256: plan.Workspace.Manifest.SHA256, Governed: *governed, ApprovalPath: *approvalPath, ReviewPolicyPath: *reviewPolicyPath, OraclePath: *oraclePath})
+		if agentRequest != nil {
+			_, agentRequest.ExpectedPromptSHA256, rootErr = roleexec.PromptIdentity(projectRoot, agentRequest.PromptPath)
+			if rootErr != nil {
+				fmt.Fprintln(os.Stderr, rootErr)
+				return 2
+			}
+		}
+		preparedRole, rootErr = roleexec.Prepare(roleexec.Request{Root: projectRoot, WorkspacePath: *workspacePath, RoleID: *roleID, ExecutionID: executionID, ReceiptPath: *receiptPath, Command: childArgs, Agent: agentRequest, AllowedTools: canonicalTools, ExpectedToolSHA256: toolHashes, ProtectedPaths: protected, ExpectedManifestSHA256: plan.Workspace.Manifest.SHA256, Governed: *governed, ApprovalPath: *approvalPath, ReviewPolicyPath: *reviewPolicyPath, OraclePath: *oraclePath})
 		if rootErr != nil {
 			fmt.Fprintln(os.Stderr, rootErr)
 			return 1
+		}
+		if *provider == "herdr" && agentRequest != nil && agentRequest.Provider == "openai-broker" {
+			if runPreflight == nil {
+				readiness := fallbackReadiness(preparedRole.Command.ExecutablePath, "diagnostic-unavailable", "synthetic diagnostic is unavailable")
+				emitNativeReadiness(readiness)
+				return 2
+			}
+			agentRequest.ExecutablePath = preparedRole.Command.ExecutablePath
+			readiness, readinessErr := runPreflight(context.Background(), preparedRole.Command.ExecutablePath)
+			if readinessErr != nil {
+				emitNativeReadiness(readiness)
+				return nativeReadinessExitCode(readinessErr)
+			}
+			nativeReadinessExecutableSHA = readiness.ExecutableSHA256
+			nativeReadinessReport = &readiness
+		}
+		if nativeReadinessReport != nil && (preparedRole.Command.ExecutablePath != nativeReadinessReport.ExecutablePath || preparedRole.ExecutableSHA256 != nativeReadinessExecutableSHA) {
+			readiness := *nativeReadinessReport
+			readiness.Status = "indeterminate"
+			readiness.ReasonCode = "executable-changed-before-native-dispatch"
+			readiness.Reason = "prepared role executable differs from the binary checked by readiness preflight"
+			emitNativeReadiness(readiness)
+			return 2
 		}
 		policyPath = filepath.ToSlash(filepath.Join(".ingen", "artifacts", "role-executions", executionID+".policy.json"))
 		if err := roleexec.PersistPolicy(projectRoot, policyPath, preparedRole.Policy); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		childArgs = roleExecuteArgs(sentinelExecutable, projectRoot, *workspacePath, *receiptPath, *roleID, executionID, policyPath, preparedRole, canonicalTools, toolHashes, protected, *governed, *approvalPath, *reviewPolicyPath, *oraclePath, gateResult, flags.Args())
+		childArgs = roleExecuteArgs(sentinelExecutable, projectRoot, *workspacePath, *receiptPath, *roleID, executionID, policyPath, preparedRole, canonicalTools, toolHashes, protected, *governed, *approvalPath, *reviewPolicyPath, *oraclePath, gateResult, agentRequest, flags.Args())
 	}
 	if *provider == "herdr" {
+		if nativeReadinessReport != nil {
+			emitNativeReadiness(*nativeReadinessReport)
+		}
 		record, recordPath, err := nativesession.Spawn(context.Background(), nativesession.Request{
 			Root:               *root,
 			WorkspacePath:      *workspacePath,
@@ -385,7 +520,7 @@ func newExecutionID() (string, error) {
 	return hex.EncodeToString(random[:]), nil
 }
 
-func roleExecuteArgs(executable, root, workspacePath, receiptPath, roleID, executionID, policyPath string, prepared roleexec.Prepared, tools, toolHashes, protected []string, governed bool, approvalPath, reviewPolicyPath, oraclePath string, gate workflowgate.Result, command []string) []string {
+func roleExecuteArgs(executable, root, workspacePath, receiptPath, roleID, executionID, policyPath string, prepared roleexec.Prepared, tools, toolHashes, protected []string, governed bool, approvalPath, reviewPolicyPath, oraclePath string, gate workflowgate.Result, agent *roleexec.AgentRequest, command []string) []string {
 	args := []string{executable, "role", "execute", "--root", root, "--workspace", workspacePath, "--receipt", receiptPath, "--role", roleID, "--execution-id", executionID, "--policy-path", policyPath, "--expected-manifest-sha256", prepared.ManifestSHA256, "--expected-policy-sha256", prepared.Policy.SHA256, "--expected-executable-sha256", prepared.ExecutableSHA256}
 	for index, tool := range tools {
 		args = append(args, "--allow-tool", tool, "--allow-tool-sha256", toolHashes[index])
@@ -404,8 +539,85 @@ func roleExecuteArgs(executable, root, workspacePath, receiptPath, roleID, execu
 			args = append(args, "--expected-oracle-sha256", gate.OracleSHA256)
 		}
 	}
+	if agent != nil {
+		args = append(args, "--agent", agent.Name, "--agent-executable", agent.ExecutablePath, "--prompt-file", agent.PromptPath, "--expected-prompt-sha256", agent.ExpectedPromptSHA256)
+		if agent.Model != "" {
+			args = append(args, "--agent-model", agent.Model)
+		}
+		if agent.Provider == "openai-broker" {
+			args = append(args, "--agent-provider", agent.Provider, "--agent-credential-env", agent.CredentialEnv,
+				"--agent-broker-port", fmt.Sprintf("%d", agent.BrokerPort),
+				"--agent-max-requests", fmt.Sprintf("%d", agent.MaxRequests),
+				"--agent-max-output-tokens", fmt.Sprintf("%d", agent.MaxOutputTokens),
+				"--agent-timeout-seconds", fmt.Sprintf("%d", agent.TimeoutSeconds))
+		}
+		return args
+	}
 	args = append(args, "--")
 	return append(args, command...)
+}
+
+func validAgentOptions(flags *flag.FlagSet, agent, executable, prompt, promptHash, model, provider, credentialEnv string, maxRequests, maxOutputTokens, timeoutSeconds int) bool {
+	if agent != "codex" || executable == "" || !filepath.IsAbs(executable) || prompt == "" || promptHash == "" || flagWasSet(flags, "agent-model") && model == "" {
+		return false
+	}
+	if provider == "" {
+		if flagWasSet(flags, "agent-provider") {
+			return false
+		}
+		for _, name := range []string{"agent-credential-env", "agent-max-requests", "agent-max-output-tokens", "agent-timeout-seconds"} {
+			if flagWasSet(flags, name) {
+				return false
+			}
+		}
+		return true
+	}
+	if provider != "openai-broker" || !flagWasSet(flags, "agent-model") || model == "" || !safeEnvironmentName(credentialEnv) || maxRequests < 1 || maxRequests > 64 || maxOutputTokens < 1 || maxOutputTokens > 8192 || timeoutSeconds < 1 || timeoutSeconds > 1800 {
+		return false
+	}
+	if flagWasSet(flags, "agent-credential-env") && credentialEnv == "" {
+		return false
+	}
+	return true
+}
+
+func makeAgentRequest(agent, executable, prompt, promptHash, model, provider, credentialEnv string, maxRequests, maxOutputTokens, timeoutSeconds, brokerPort int) *roleexec.AgentRequest {
+	request := &roleexec.AgentRequest{Name: agent, ExecutablePath: executable, PromptPath: prompt, ExpectedPromptSHA256: promptHash, Model: model}
+	if provider == "openai-broker" {
+		request.Provider, request.CredentialEnv = provider, credentialEnv
+		request.MaxRequests, request.MaxOutputTokens, request.TimeoutSeconds = maxRequests, maxOutputTokens, timeoutSeconds
+		request.BrokerPort = brokerPort
+	}
+	return request
+}
+
+func safeEnvironmentName(value string) bool {
+	if value == "" || value == "INGEN_CODEX_BROKER_TOKEN" {
+		return false
+	}
+	for i, r := range value {
+		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func reserveBrokerPort() (int, error) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	address, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		_ = listener.Close()
+		return 0, fmt.Errorf("unexpected listener address type")
+	}
+	port := address.Port
+	if err := listener.Close(); err != nil {
+		return 0, err
+	}
+	return port, nil
 }
 
 func resolveSentinelExecutable() (string, error) {
@@ -681,6 +893,7 @@ func createContractCommand(args []string) int {
 	irPath := flags.String("ir-output", ".ingen/contract/spec.ir.json", "Malcolm IR output path relative to the project root")
 	contractPath := flags.String("output", ".ingen/contract/contract.json", "Sorna contract output path relative to the project root")
 	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing malcolm/ and sorna/")
+	toolDir := flags.String("tool-dir", "", "absolute directory containing installed InGen binaries")
 	malcolmManifest := flags.String("malcolm-manifest", "malcolm/Cargo.toml", "Malcolm Cargo manifest relative to the InGen checkout")
 	force := flags.Bool("force", false, "replace existing IR and contract outputs")
 	if err := flags.Parse(args); err != nil {
@@ -695,7 +908,7 @@ func createContractCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	tools, err := selectWorkflowTools(flags, *ingenRoot, *toolDir, "malcolm", "sorna-malcolm")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -726,14 +939,17 @@ func createContractCommand(args []string) int {
 			}
 		}
 	}
-	if filepath.IsAbs(*malcolmManifest) {
-		fmt.Fprintln(os.Stderr, "Malcolm manifest must be relative to the InGen checkout")
-		return 1
-	}
-	manifestPath, err := sentinelrun.ResolveFileRefUnderRoot(toolRoot, ciresult.FileRef{Path: *malcolmManifest})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "resolve Malcolm manifest: %v\n", err)
-		return 1
+	var manifestPath string
+	if !tools.installed {
+		if filepath.IsAbs(*malcolmManifest) {
+			fmt.Fprintln(os.Stderr, "Malcolm manifest must be relative to the InGen checkout")
+			return 1
+		}
+		manifestPath, err = sentinelrun.ResolveFileRefUnderRoot(tools.dir, ciresult.FileRef{Path: *malcolmManifest})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "resolve Malcolm manifest: %v\n", err)
+			return 1
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(irOutput), 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -744,8 +960,13 @@ func createContractCommand(args []string) int {
 		return 1
 	}
 
-	malcolm := osexec.Command("cargo", "run", "--manifest-path", manifestPath, "--", spec, "--output", irOutput)
-	malcolm.Dir = toolRoot
+	var malcolm *osexec.Cmd
+	if tools.installed {
+		malcolm = osexec.Command(filepath.Join(tools.dir, "malcolm"), spec, "--output", irOutput)
+	} else {
+		malcolm = osexec.Command("cargo", "run", "--manifest-path", manifestPath, "--", spec, "--output", irOutput)
+		malcolm.Dir = tools.dir
+	}
 	malcolm.Stdout = os.Stdout
 	malcolm.Stderr = os.Stderr
 	if err := malcolm.Run(); err != nil {
@@ -753,8 +974,13 @@ func createContractCommand(args []string) int {
 		return commandExitCode(err)
 	}
 
-	bridge := osexec.Command("go", "run", "./sorna/cmd/sorna-malcolm", irOutput, "--output", contractOutput)
-	bridge.Dir = toolRoot
+	var bridge *osexec.Cmd
+	if tools.installed {
+		bridge = osexec.Command(filepath.Join(tools.dir, "sorna-malcolm"), irOutput, "--output", contractOutput)
+	} else {
+		bridge = osexec.Command("go", "run", "./sorna/cmd/sorna-malcolm", irOutput, "--output", contractOutput)
+		bridge.Dir = tools.dir
+	}
 	bridge.Stdout = os.Stdout
 	bridge.Stderr = os.Stderr
 	if err := bridge.Run(); err != nil {
@@ -786,6 +1012,7 @@ func freezeOracleCommand(args []string) int {
 	policyPath := flags.String("policy", ".ingen/policy/oracle.yaml", "Sorna oracle policy path relative to the project root")
 	outputDir := flags.String("output-dir", ".ingen/artifacts/oracle", "frozen oracle output directory relative to the project root")
 	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing Sorna")
+	toolDir := flags.String("tool-dir", "", "absolute directory containing installed InGen binaries")
 	governed := flags.Bool("governed", false, "require an existing Hammond approval before oracle freeze")
 	workspacePath := flags.String("workspace", ".ingen/workspace.yaml", "Sentinel workspace manifest path")
 	approvalPath := flags.String("approval", "", "Hammond approval record path (required with --governed)")
@@ -815,7 +1042,7 @@ func freezeOracleCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	tools, err := selectWorkflowTools(flags, *ingenRoot, *toolDir, "sorna")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -877,7 +1104,7 @@ func freezeOracleCommand(args []string) int {
 	if *governed {
 		commandArgs = append(commandArgs, "--expected-contract-sha256", gate.ContractSHA256, "--expected-policy-sha256", gate.OraclePolicySHA256)
 	}
-	return runSornaCommand(toolRoot, commandArgs...)
+	return runSornaCommand(tools, commandArgs...)
 }
 
 func verifyCommand(args []string) int {
@@ -885,6 +1112,7 @@ func verifyCommand(args []string) int {
 	flags.SetOutput(os.Stderr)
 	root := flags.String("root", ".", "fresh project root")
 	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing Sorna")
+	toolDir := flags.String("tool-dir", "", "absolute directory containing installed InGen binaries")
 	oraclePath := flags.String("oracle", ".ingen/artifacts/oracle/oracle.json", "frozen oracle path relative to the project root")
 	policyPath := flags.String("policy", ".ingen/policy/oracle.yaml", "Sorna oracle policy path relative to the project root")
 	subjectPolicyPath := flags.String("subject-policy", ".ingen/policy/subject.yaml", "managed-subject policy path relative to the project root")
@@ -912,7 +1140,7 @@ func verifyCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	tools, err := selectWorkflowTools(flags, *ingenRoot, *toolDir, "sorna")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -975,13 +1203,11 @@ func verifyCommand(args []string) int {
 	for _, subjectArg := range subjectArgs {
 		commandArgs = append(commandArgs, "--subject-arg", subjectArg)
 	}
-	return runSornaCommand(toolRoot, commandArgs...)
+	return runSornaCommand(tools, commandArgs...)
 }
 
-func runSornaCommand(toolRoot string, args ...string) int {
-	commandArgs := append([]string{"run", "./sorna/cmd/sorna"}, args...)
-	command := osexec.Command("go", commandArgs...)
-	command.Dir = toolRoot
+func runSornaCommand(tools workflowTools, args ...string) int {
+	command := tools.sorna(args...)
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
@@ -1013,6 +1239,7 @@ func verifyEvidenceCommand(args []string) int {
 	flags.SetOutput(os.Stderr)
 	root := flags.String("root", ".", "fresh project root")
 	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing Sorna")
+	toolDir := flags.String("tool-dir", "", "absolute directory containing installed InGen binaries")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -1025,7 +1252,7 @@ func verifyEvidenceCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	tools, err := selectWorkflowTools(flags, *ingenRoot, *toolDir, "sorna")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -1035,7 +1262,7 @@ func verifyEvidenceCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	return runSornaCommand(toolRoot, "evidence", "verify", evidenceDir)
+	return runSornaCommand(tools, "evidence", "verify", evidenceDir)
 }
 
 func gateEvidenceCommand(args []string) int {
@@ -1043,6 +1270,7 @@ func gateEvidenceCommand(args []string) int {
 	flags.SetOutput(os.Stderr)
 	root := flags.String("root", ".", "fresh project root")
 	ingenRoot := flags.String("ingen-root", ".", "InGen checkout containing Sorna")
+	toolDir := flags.String("tool-dir", "", "absolute directory containing installed InGen binaries")
 	outputPath := flags.String("output", ".ingen/artifacts/evidence-ci-result.json", "shared CI result output path relative to the project root")
 	minimumCoverage := flags.String("minimum-observation-coverage", "", "minimum observation coverage required to pass")
 	force := flags.Bool("force", false, "replace an existing CI result")
@@ -1058,7 +1286,7 @@ func gateEvidenceCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	toolRoot, err := absoluteDirectory(*ingenRoot, "InGen")
+	tools, err := selectWorkflowTools(flags, *ingenRoot, *toolDir, "sorna")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -1091,13 +1319,12 @@ func gateEvidenceCommand(args []string) int {
 		fmt.Fprintf(os.Stderr, "create evidence CI result: %v\n", err)
 		return 1
 	}
-	commandArgs := []string{"run", "./sorna/cmd/sorna", "gate", "--format", "ci-result"}
+	commandArgs := []string{"gate", "--format", "ci-result"}
 	if strings.TrimSpace(*minimumCoverage) != "" {
 		commandArgs = append(commandArgs, "--minimum-observation-coverage", *minimumCoverage)
 	}
 	commandArgs = append(commandArgs, evidenceDir)
-	command := osexec.Command("go", commandArgs...)
-	command.Dir = toolRoot
+	command := tools.sorna(commandArgs...)
 	command.Stdin = os.Stdin
 	command.Stdout = resultOutput
 	command.Stderr = os.Stderr
@@ -1429,6 +1656,10 @@ func adapterCommand(args []string) int {
 		return herdrEventAdapterCommand(args[1:])
 	case "herdr-events":
 		return herdrEventsAdapterCommand(args[1:])
+	case "herdr-sign-events":
+		return herdrSignEventsCommand(args[1:])
+	case "herdr-auth-events":
+		return herdrAuthEventsCommand(args[1:])
 	case "herdr-host-envelope":
 		return herdrHostEnvelopeCommand(args[1:])
 	default:
@@ -1472,6 +1703,7 @@ func herdrEventAdapterCommand(args []string) int {
 		usage()
 		return 2
 	}
+	fmt.Fprintln(os.Stderr, "warning: unsigned Herdr event ingress is unauthenticated")
 	event, err := sentineladapter.LoadHerdrEvent(*eventPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -1543,6 +1775,7 @@ func herdrEventsAdapterCommand(args []string) int {
 		usage()
 		return 2
 	}
+	fmt.Fprintln(os.Stderr, "warning: unsigned Herdr event ingress is unauthenticated")
 	events, err := sentineladapter.LoadHerdrEventStream(*eventsPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -2233,17 +2466,27 @@ func auditFailureSummary(report sentinelaudit.Report) string {
 }
 
 func usage() {
+	fmt.Fprintln(os.Stderr, "usage: sentinel [--version | version [--format text|json]]")
 	fmt.Fprintln(os.Stderr, "usage: sentinel project init --root <dir> --id <id> [--implementation-root <dir>]")
+	fmt.Fprintln(os.Stderr, "       sentinel agent diagnose --agent-executable <absolute-path> [--timeout-seconds 1..120]")
+	fmt.Fprintln(os.Stderr, "       sentinel agent compare --agent-executable <absolute-path> [--agent-executable <absolute-path> ...] [--timeout-seconds 1..120]")
 	fmt.Fprintln(os.Stderr, "       sentinel project check [--root <dir>] [--workspace <path>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "usage: sentinel workspace validate <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel workspace capabilities --workspace <path> [--root <dir>] [--output <path>]")
 	fmt.Fprintln(os.Stderr, "       sentinel session spawn --workspace <path> --receipt <path> --role <id> [--root <dir>] [--provider local|herdr] [--socket <path>] [--output <path>] [--stdout <path>] [--stderr <path>] -- <command> [args...]")
+	fmt.Fprintln(os.Stderr, "       sentinel session spawn --workspace <path> --receipt <path> --role <id> --isolate --agent codex --agent-executable <absolute-path> --prompt-file <path> [--agent-model <name>]")
+	fmt.Fprintln(os.Stderr, "       sentinel session spawn ... --isolate --agent codex --agent-executable <absolute-path> --prompt-file <path> --agent-provider openai-broker --agent-model <name> [--agent-credential-env NAME --agent-max-requests N --agent-max-output-tokens N --agent-timeout-seconds N]")
 	fmt.Fprintln(os.Stderr, "       sentinel session native-status --root <dir> --path <path> [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       sentinel session native-collect --root <dir> --path <path> --receipt <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel session native-cancel --root <dir> --path <path> --socket <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel session native-recover --root <dir> --path <path> --socket <path>")
+	fmt.Fprintln(os.Stderr, "       sentinel session native-assess --root <absolute-dir> --path <relative-journal> [--format json|text]")
+	fmt.Fprintln(os.Stderr, "       sentinel session native-process-info --root <dir> --path <path> --socket <path>")
+	fmt.Fprintln(os.Stderr, "       sentinel session native-snapshot --socket <absolute-path>")
+	fmt.Fprintln(os.Stderr, "       sentinel session native-close --root <dir> --path <path> --socket <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel session status --path <path> [--root <dir>] [--format text|json]")
 	fmt.Fprintln(os.Stderr, "       sentinel session list [--root <dir>] [--dir <path>] [--format text|json]")
+	fmt.Fprintln(os.Stderr, "       sentinel role verify --root <absolute-dir> --path <relative-report> [--expected-sha256 <hash>] [--ci-result <relative-output>]")
 	fmt.Fprintln(os.Stderr, "       sentinel contract create [--root <dir>] [--spec <path>] [--ir-output <path>] [--output <path>] [--ingen-root <dir>] [--force]")
 	fmt.Fprintln(os.Stderr, "       sentinel contract validate <path> [--root <dir>]")
 	fmt.Fprintln(os.Stderr, "       sentinel contract seal <path> --output-dir <dir> [--root <dir>]")
@@ -2251,10 +2494,14 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "       sentinel verify --subject-command <exe> [--subject-arg <arg> ...] [--root <dir>] [--ingen-root <dir>] [--oracle <path>] [--policy <path>] [--subject-policy <path>] [--base-url <url>] [--ready-path <path>] [--subject-variant <label>] [--output-dir <dir>] [--force]")
 	fmt.Fprintln(os.Stderr, "       sentinel evidence verify <directory> [--root <dir>] [--ingen-root <dir>]")
 	fmt.Fprintln(os.Stderr, "       sentinel evidence gate <directory> [--root <dir>] [--ingen-root <dir>] [--output <path>] [--minimum-observation-coverage <state>] [--force]")
+	fmt.Fprintln(os.Stderr, "       sentinel provenance start --root <absolute-dir> --output <relative-context-path>")
+	fmt.Fprintln(os.Stderr, "       sentinel provenance execute --root <absolute-dir> --parent <relative-context> --output <relative-child-context> --receipt <relative-receipt> --operation <name> [--expected-parent-sha256 <hash>] -- <command> [args...]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter oracle --workspace <path> [--root <dir>] [--receipt <path>] -- <command> [args...]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter verifier --workspace <path> --oracle <path> --base-url <url> --subject-command <exe> [--subject-arg <arg> ...] [--root <dir>] [--subject-root <dir>] [--ready-path <path>] [--subject-variant <label>] [--output-dir <dir>] [--receipt <path>]")
-	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-event --receipt <path> --event <path> [--root <dir>] [--output <path>]")
-	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-events --receipt <path> --events <path> [--root <dir>] [--output <path>]")
+	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-event --receipt <path> --event <path> [--root <dir>] [--output <path>] (unauthenticated legacy ingress)")
+	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-events --receipt <path> --events <path> [--root <dir>] [--output <path>] (unauthenticated legacy ingress)")
+	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-sign-events --receipt <path> --events <path> --key <private-key> --sender <name> --output <new-path> [--root <dir>] [--lifetime-seconds 1..300]")
+	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-auth-events --receipt <path> --envelope <path> --key <private-key> --expected-sender <name> [--root <dir>]")
 	fmt.Fprintln(os.Stderr, "       sentinel adapter herdr-host-envelope --event <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel run bootstrap --workspace <path> [--root <dir>] --output <path>")
 	fmt.Fprintln(os.Stderr, "       sentinel run status --receipt <path> --status <status> [--root <dir>]")

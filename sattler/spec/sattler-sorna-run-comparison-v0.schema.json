@@ -104,7 +104,7 @@
       "properties": {
         "mode": {"type": "string", "minLength": 1},
         "outcome": {"type": "string", "minLength": 1},
-        "exit_code": {"type": "integer", "minimum": 0}
+        "exit_code": {"type": "integer", "minimum": -1}
       }
     },
     "totals": {

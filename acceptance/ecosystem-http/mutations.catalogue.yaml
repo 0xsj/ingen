@@ -1,0 +1,18 @@
+mutation_catalogue:
+  schema: ingen.mutation-catalogue/v1
+  id: document-flow-status-mutation
+  version: 1
+  contract_id: document_flow
+  contract_version: 2
+  mutations:
+    - id: status-200-create
+      plane: implementation
+      operator: response.status.replace
+      target: POST /documents
+      description: Return HTTP 200 instead of the contracted 202 for accepted documents.
+      change:
+        from: 202
+        to: 200
+      expected_rule_ids:
+        - create_document.requirement.1
+      status: candidate

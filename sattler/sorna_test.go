@@ -51,6 +51,59 @@ func TestCompareSornaRunsReportsRuleStatusChanges(t *testing.T) {
 	}
 }
 
+func TestCompareSornaManagedSignalStopPreservesNegativeOneExitCode(t *testing.T) {
+	root := t.TempDir()
+	beforePath := filepath.Join(root, "before-signal-stop.json")
+	afterPath := filepath.Join(root, "after-clean-stop.json")
+	beforeContents := strings.Replace(sornaRunFixture("run-before", 1, "pass", "all rules passed", "killed", "stopped", -1), `"mode":"managed"`, `"mode":"managed-process"`, 1)
+	afterContents := strings.Replace(sornaRunFixture("run-after", 1, "pass", "all rules passed", "killed", "stopped", 0), `"mode":"managed"`, `"mode":"managed-process"`, 1)
+	writeSornaRunFile(t, beforePath, beforeContents)
+	writeSornaRunFile(t, afterPath, afterContents)
+
+	report, err := CompareSornaRunFiles(beforePath, afterPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Compatible || report.Before.Lifecycle == nil || report.Before.Lifecycle.Mode != "managed-process" || report.Before.Lifecycle.Outcome != "stopped" || report.Before.Lifecycle.ExitCode != -1 {
+		t.Fatalf("signal-stopped producer lifecycle was not preserved: %+v", report.Before.Lifecycle)
+	}
+	if report.Before.ContractVerdict.Status != "pass" || report.After.ContractVerdict.Status != "pass" {
+		t.Fatalf("Sattler derived a contract verdict from lifecycle exit codes: before=%q after=%q", report.Before.ContractVerdict.Status, report.After.ContractVerdict.Status)
+	}
+	foundExitChange := false
+	for _, change := range report.Changes {
+		if change.Category == "lifecycle" && change.Field == "exit_code" && change.Before == -1 && change.After == 0 {
+			foundExitChange = true
+		}
+	}
+	if !foundExitChange {
+		t.Fatalf("comparison did not preserve lifecycle exit-code change: %+v", report.Changes)
+	}
+
+	var output bytes.Buffer
+	if err := WriteSornaJSON(&output, report); err != nil {
+		t.Fatal(err)
+	}
+	schema := loadSattlerSchema(t, filepath.Join("spec", "sattler-sorna-run-comparison-v0.schema.json"), sattlerSornaComparisonSchemaID)
+	var document any
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(document); err != nil {
+		t.Fatalf("comparison schema rejected signal-stopped lifecycle exit -1: %v", err)
+	}
+}
+
+func TestCompareSornaRejectsLifecycleExitCodeBelowSignalSentinel(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "invalid-exit-code.json")
+	invalid := strings.Replace(sornaRunFixture("run-invalid", 1, "pass", "all rules passed", "killed", "stopped", -2), `"mode":"managed"`, `"mode":"managed-process"`, 1)
+	writeSornaRunFile(t, path, invalid)
+	if _, err := CompareSornaRunFiles(path, path); err == nil || !strings.Contains(err.Error(), "valid exit code") {
+		t.Fatalf("lifecycle exit -2 error = %v, want rejection below signal sentinel", err)
+	}
+}
+
 func TestCompareSornaRunsMarksContractDriftIncompatible(t *testing.T) {
 	root := t.TempDir()
 	beforePath := filepath.Join(root, "before.json")

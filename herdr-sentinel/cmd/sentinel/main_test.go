@@ -216,12 +216,97 @@ func TestRoleExecuteArgsStartsWithPersistentSentinelExecutable(t *testing.T) {
 		ManifestSHA256:   strings.Repeat("a", 64),
 		Policy:           policy.Sealed{SHA256: strings.Repeat("b", 64)},
 		ExecutableSHA256: strings.Repeat("c", 64),
-	}, nil, nil, nil, false, "", "", "", workflowgate.Result{}, []string{"/bin/echo", "contained"})
+	}, nil, nil, nil, false, "", "", "", workflowgate.Result{}, nil, []string{"/bin/echo", "contained"})
 	if len(args) < 4 || args[0] != executable || args[1] != "role" || args[2] != "execute" {
 		t.Fatalf("role execution wrapper argv prefix = %q, want [%q role execute ...]", args[:min(3, len(args))], executable)
 	}
 	if args[len(args)-3] != "--" || args[len(args)-2] != "/bin/echo" || args[len(args)-1] != "contained" {
 		t.Fatalf("role execution wrapper command suffix = %q", args[len(args)-3:])
+	}
+}
+
+func TestCodexRoleExecuteArgsAreTypedAndContainNoArbitraryCommand(t *testing.T) {
+	const executable = "/opt/sentinel/bin/sentinel"
+	agent := &roleexec.AgentRequest{Name: "codex", ExecutablePath: "/opt/codex/bin/codex", PromptPath: ".ingen/prompts/task.txt", ExpectedPromptSHA256: strings.Repeat("d", 64), Model: "codex-test"}
+	args := roleExecuteArgs(executable, "/project", ".ingen/workspace.yaml", ".ingen/receipt.json", "implementation", "exec-456", ".ingen/artifacts/role-executions/exec-456.policy.json", roleexec.Prepared{
+		ManifestSHA256: strings.Repeat("a", 64), Policy: policy.Sealed{SHA256: strings.Repeat("b", 64)}, ExecutableSHA256: strings.Repeat("c", 64),
+	}, nil, nil, nil, false, "", "", "", workflowgate.Result{}, agent, nil)
+	for _, expected := range []string{"--agent", "codex", "--agent-executable", agent.ExecutablePath, "--prompt-file", agent.PromptPath, "--expected-prompt-sha256", agent.ExpectedPromptSHA256, "--agent-model", agent.Model} {
+		if !containsCLIArg(args, expected) {
+			t.Fatalf("typed wrapper argv omits %q: %q", expected, args)
+		}
+	}
+	if containsCLIArg(args, "--") || containsCLIArg(args, "/bin/sh") || args[0] != executable || args[1] != "role" || args[2] != "execute" {
+		t.Fatalf("typed wrapper argv contains arbitrary command or wrong prefix: %q", args)
+	}
+}
+
+func TestCodexBrokerWrapperArgsBindNonsecretBrokerSettings(t *testing.T) {
+	const executable = "/opt/sentinel/bin/sentinel"
+	agent := &roleexec.AgentRequest{Name: "codex", ExecutablePath: "/opt/codex/bin/codex", PromptPath: ".ingen/prompts/task.txt", ExpectedPromptSHA256: strings.Repeat("d", 64), Model: "codex-test", Provider: "openai-broker", CredentialEnv: "OPENAI_API_KEY", BrokerPort: 49123, MaxRequests: 16, MaxOutputTokens: 4096, TimeoutSeconds: 300}
+	args := roleExecuteArgs(executable, "/project", ".ingen/workspace.yaml", ".ingen/receipt.json", "implementation", "exec-broker", ".ingen/artifacts/role-executions/exec-broker.policy.json", roleexec.Prepared{ManifestSHA256: strings.Repeat("a", 64), Policy: policy.Sealed{SHA256: strings.Repeat("b", 64)}, ExecutableSHA256: strings.Repeat("c", 64)}, nil, nil, nil, false, "", "", "", workflowgate.Result{}, agent, nil)
+	for _, expected := range []string{"--agent-provider", "openai-broker", "--agent-credential-env", "OPENAI_API_KEY", "--agent-broker-port", "49123", "--agent-max-requests", "16", "--agent-max-output-tokens", "4096", "--agent-timeout-seconds", "300"} {
+		if !containsCLIArg(args, expected) {
+			t.Fatalf("wrapper argv omits %q: %q", expected, args)
+		}
+	}
+	for _, secret := range []string{"test-credential", "INGEN_CODEX_BROKER_TOKEN"} {
+		if containsCLIArg(args, secret) {
+			t.Fatalf("wrapper argv includes credential/token material %q", secret)
+		}
+	}
+}
+
+func TestCodexBrokerRequiresExplicitModelAndRejectsArbitraryCommand(t *testing.T) {
+	t.Setenv("SENTINEL_BROKER_TEST_KEY", "synthetic-not-real")
+	base := []string{"session", "spawn", "--workspace", "workspace.yaml", "--receipt", "receipt.json", "--role", "implementation", "--isolate", "--agent", "codex", "--agent-executable", "/opt/codex/bin/codex", "--prompt-file", "prompt.txt", "--agent-provider", "openai-broker", "--agent-credential-env", "SENTINEL_BROKER_TEST_KEY"}
+	if code := run(base); code != 2 {
+		t.Fatalf("broker launch without explicit model exit code=%d, want 2", code)
+	}
+	withModel := append(append([]string{}, base...), "--agent-model", "codex-test")
+	withCommand := append(append([]string{}, withModel...), "--", "/bin/true")
+	if code := run(withCommand); code != 2 {
+		t.Fatalf("broker launch with positional command exit code=%d, want 2", code)
+	}
+	valid := append(append([]string{}, base...), "--agent-model", "codex-test")
+	for _, tail := range [][]string{
+		{"--agent-credential-env", "BAD-NAME"},
+		{"--agent-credential-env", "INGEN_CODEX_BROKER_TOKEN"},
+		{"--agent-max-requests", "65"},
+		{"--agent-max-output-tokens", "8193"},
+		{"--agent-timeout-seconds", "1801"},
+	} {
+		args := append(append([]string{}, valid...), tail...)
+		if code := run(args); code != 2 {
+			t.Fatalf("broker invalid setting %q exit code=%d, want 2", tail, code)
+		}
+	}
+}
+
+func TestCodexBrokerRoleWrapperRequiresPinnedPort(t *testing.T) {
+	args := []string{"role", "execute", "--root", "/project", "--workspace", "workspace.yaml", "--receipt", "receipt.json", "--role", "implementation", "--execution-id", "broker-port-test", "--policy-path", ".ingen/artifacts/role-executions/broker-port-test.policy.json", "--expected-manifest-sha256", strings.Repeat("a", 64), "--expected-policy-sha256", strings.Repeat("b", 64), "--expected-executable-sha256", strings.Repeat("c", 64), "--agent", "codex", "--agent-executable", "/opt/codex/bin/codex", "--prompt-file", "prompt.txt", "--expected-prompt-sha256", strings.Repeat("d", 64), "--agent-provider", "openai-broker", "--agent-model", "codex-test"}
+	if code := run(args); code != 2 {
+		t.Fatalf("broker wrapper without reserved port exit code=%d, want 2", code)
+	}
+}
+
+func containsCLIArg(args []string, wanted string) bool {
+	for _, arg := range args {
+		if arg == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCodexSpawnRequiresIsolationAndRejectsPositionalCommands(t *testing.T) {
+	base := []string{"session", "spawn", "--workspace", "workspace.yaml", "--receipt", "receipt.json", "--role", "implementation", "--agent", "codex", "--agent-executable", "/opt/codex/bin/codex", "--prompt-file", "prompt.txt"}
+	if code := run(base); code != 2 {
+		t.Fatalf("unisolated Codex launch exit code = %d, want 2", code)
+	}
+	withCommand := append(append([]string{}, base...), "--isolate", "--", "/bin/true")
+	if code := run(withCommand); code != 2 {
+		t.Fatalf("Codex launch with arbitrary command exit code = %d, want 2", code)
 	}
 }
 

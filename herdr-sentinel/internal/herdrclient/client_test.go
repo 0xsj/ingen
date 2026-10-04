@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,6 +25,10 @@ type testRequest struct {
 func fakeSocket(t *testing.T, handler func(net.Conn, testRequest)) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "herdr-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err = filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +56,145 @@ func fakeSocket(t *testing.T, handler func(net.Conn, testRequest)) string {
 		}
 	}()
 	return path
+}
+
+func TestPeerUIDMismatchFailsBeforeRequestBytes(t *testing.T) {
+	dir, err := os.MkdirTemp("", "herdr-auth-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	path := filepath.Join(dir, "host.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	readResult := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			readResult <- err
+			return
+		}
+		defer conn.Close()
+		_ = conn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+		var one [1]byte
+		n, err := conn.Read(one[:])
+		if n != 0 {
+			readResult <- fmt.Errorf("read %d request byte(s) before authentication rejection", n)
+			return
+		}
+		readResult <- err
+	}()
+	client := &Client{
+		SocketPath: path,
+		peerUIDOverride: func(net.Conn) (uint32, error) {
+			return uint32(os.Geteuid() + 1), nil
+		},
+	}
+	err = client.Run(context.Background(), "owned-pane", "must-not-be-sent")
+	var auth *AuthenticationError
+	if !errors.As(err, &auth) {
+		t.Fatalf("Run() error = %#v, want AuthenticationError", err)
+	}
+	select {
+	case err := <-readResult:
+		if err != io.EOF {
+			if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
+				t.Fatalf("server read = %v; peer rejection must happen before any request bytes", err)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server did not finish checking for request bytes")
+	}
+}
+
+func TestPeerCredentialInspectionFailureFailsBeforeRequestBytes(t *testing.T) {
+	dir, err := os.MkdirTemp("", "herdr-auth-error-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	path := filepath.Join(dir, "host.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	readResult := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			readResult <- err
+			return
+		}
+		defer conn.Close()
+		_ = conn.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+		var one [1]byte
+		n, err := conn.Read(one[:])
+		if n != 0 {
+			readResult <- fmt.Errorf("read %d request byte(s) before credential inspection failure", n)
+			return
+		}
+		readResult <- err
+	}()
+	client := &Client{
+		SocketPath: path,
+		peerUIDOverride: func(net.Conn) (uint32, error) {
+			return 0, errors.New("test credential lookup failure")
+		},
+	}
+	err = client.Run(context.Background(), "owned-pane", "must-not-be-sent")
+	var auth *AuthenticationError
+	if !errors.As(err, &auth) || !strings.Contains(auth.Error(), "test credential lookup failure") {
+		t.Fatalf("Run() error = %#v, want failed peer AuthenticationError", err)
+	}
+	select {
+	case err := <-readResult:
+		if err != io.EOF {
+			if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
+				t.Fatalf("server read = %v; peer rejection must happen before any request bytes", err)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server did not finish checking for request bytes")
+	}
+}
+
+func TestSocketEndpointRejectsSymlinksAndNonSocketFiles(t *testing.T) {
+	dir, err := os.MkdirTemp("", "herdr-path-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	regular := filepath.Join(dir, "regular")
+	if err := os.WriteFile(regular, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(regular, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{regular, link} {
+		err := (&Client{SocketPath: path}).Run(context.Background(), "p", "never")
+		var auth *AuthenticationError
+		if !errors.As(err, &auth) {
+			t.Fatalf("Run(%q) error = %#v; want AuthenticationError", path, err)
+		}
+	}
 }
 
 func readTestRequest(conn net.Conn) (testRequest, error) {
@@ -184,6 +328,34 @@ func TestPaneValidatesPaneIdentityAndReadReturnsBoundObservation(t *testing.T) {
 	output, err := (&Client{SocketPath: path}).ReadPane(context.Background(), "p-expected")
 	if err != nil || output.Text != "ready" || output.PaneID != "p-expected" || output.Revision != 12 || output.Truncated {
 		t.Fatalf("ReadPane() = %+v, %v", output, err)
+	}
+}
+
+func TestProcessInfoUsesAndValidatesExactPane(t *testing.T) {
+	path := fakeSocket(t, func(conn net.Conn, request testRequest) {
+		if request.Method != "pane.process_info" || request.Params["pane_id"] != "p-exact" {
+			t.Errorf("process-info request = %+v", request)
+		}
+		reply(t, conn, request, map[string]any{"type": "pane_process_info", "process_info": map[string]any{
+			"pane_id": "p-exact", "shell_pid": 101, "foreground_process_group_id": 202,
+			"foreground_processes": []any{map[string]any{
+				"pid": 303, "name": "fixture", "argv0": "fixture", "argv": []string{"fixture", "--offline"},
+				"cmdline": "fixture --offline", "cwd": "/repo/.ingen/sessions/role",
+			}},
+		}})
+	})
+	info, err := (&Client{SocketPath: path}).ProcessInfo(context.Background(), "p-exact")
+	if err != nil || info.PaneID != "p-exact" || info.ShellPID == nil || *info.ShellPID != 101 || len(info.ForegroundProcesses) != 1 || info.ForegroundProcesses[0].PID != 303 || info.ForegroundProcesses[0].Name != "fixture" {
+		t.Fatalf("ProcessInfo() = %+v, %v", info, err)
+	}
+
+	path = fakeSocket(t, func(conn net.Conn, request testRequest) {
+		reply(t, conn, request, map[string]any{"type": "pane_process_info", "process_info": map[string]any{"pane_id": "other"}})
+	})
+	_, err = (&Client{SocketPath: path}).ProcessInfo(context.Background(), "p-exact")
+	var delivery *DeliveryError
+	if !errors.As(err, &delivery) || delivery.MayHaveApplied {
+		t.Fatalf("mismatched ProcessInfo() error = %#v, want definitive protocol error", err)
 	}
 }
 
@@ -356,6 +528,27 @@ func TestListWorkspacesMatchesExactLabelAndCWD(t *testing.T) {
 	matches, err := (&Client{SocketPath: path}).ListWorkspaces(context.Background(), "/repo", "wanted")
 	if err != nil || len(matches) != 1 || matches[0].WorkspaceID != "w1" || matches[0].PaneID != "p1" {
 		t.Fatalf("ListWorkspaces() = %+v, %v", matches, err)
+	}
+}
+
+func TestSnapshotReturnsCompleteReadOnlyHostSnapshot(t *testing.T) {
+	path := fakeSocket(t, func(conn net.Conn, request testRequest) {
+		if request.Method != "session.snapshot" || len(request.Params) != 0 {
+			t.Errorf("snapshot request = %+v", request)
+		}
+		reply(t, conn, request, map[string]any{"type": "session_snapshot", "snapshot": map[string]any{
+			"version": "0.9.3", "protocol": 22, "workspaces": []any{map[string]any{"workspace_id": "owned", "label": "fixture"}},
+			"tabs": []any{}, "panes": []any{map[string]any{"pane_id": "p", "focused": true}},
+			"layouts": []any{}, "agents": []any{}, "focused_workspace_id": "owned", "focused_tab_id": "t", "focused_pane_id": "p",
+		}})
+	})
+	snapshot, err := (&Client{SocketPath: path}).Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot() = %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(snapshot, &decoded); err != nil || decoded["focused_pane_id"] != "p" {
+		t.Fatalf("snapshot = %s, %v", snapshot, err)
 	}
 }
 

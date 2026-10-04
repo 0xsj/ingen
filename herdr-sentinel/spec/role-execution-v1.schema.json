@@ -5,51 +5,645 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema", "execution_id", "workspace_id", "role_id", "role_kind",
-    "manifest_sha256", "policy_sha256", "workspace_manifest_path", "policy_path", "executable_path", "executable_sha256",
-    "allowed_tools", "allowed_tool_sha256", "backend", "enforcement", "assurance",
-    "enforcement_scope", "limitations", "network_mode", "declared_read_roots",
-    "declared_write_roots", "declared_deny_roots", "derived_read_roots", "derived_write_roots",
-    "stdout_path", "stderr_path", "started_at", "finished_at", "status"
+    "schema",
+    "execution_id",
+    "workspace_id",
+    "role_id",
+    "role_kind",
+    "manifest_sha256",
+    "policy_sha256",
+    "workspace_manifest_path",
+    "policy_path",
+    "executable_path",
+    "executable_sha256",
+    "allowed_tools",
+    "allowed_tool_sha256",
+    "backend",
+    "enforcement",
+    "assurance",
+    "enforcement_scope",
+    "limitations",
+    "network_mode",
+    "declared_read_roots",
+    "declared_write_roots",
+    "declared_deny_roots",
+    "derived_read_roots",
+    "derived_write_roots",
+    "stdout_path",
+    "stderr_path",
+    "started_at",
+    "finished_at",
+    "status"
   ],
   "properties": {
-    "schema": { "const": "ingen.sentinel-role-execution/v1" },
-    "execution_id": { "type": "string", "minLength": 1 },
-    "workspace_id": { "type": "string", "minLength": 1 },
-    "role_id": { "type": "string", "minLength": 1 },
-    "role_kind": { "type": "string", "minLength": 1 },
-    "manifest_sha256": { "$ref": "#/$defs/sha256" },
-    "policy_sha256": { "$ref": "#/$defs/sha256" },
-    "workspace_manifest_path": { "type": "string", "minLength": 1 },
-    "policy_path": { "type": "string", "minLength": 1 },
-    "executable_path": { "type": "string", "minLength": 1 },
-    "executable_sha256": { "$ref": "#/$defs/sha256" },
-    "allowed_tools": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-    "allowed_tool_sha256": { "type": "array", "items": { "$ref": "#/$defs/sha256" } },
-    "backend": { "const": "macos-seatbelt" },
-    "enforcement": { "const": "host-enforced" },
-    "assurance": { "const": "unverified" },
-    "enforcement_scope": { "type": "string", "minLength": 1 },
-    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-    "network_mode": { "const": "disabled" },
-    "declared_read_roots": { "$ref": "#/$defs/paths" },
-    "declared_write_roots": { "$ref": "#/$defs/paths" },
-    "declared_deny_roots": { "$ref": "#/$defs/paths" },
-    "derived_read_roots": { "$ref": "#/$defs/paths" },
-    "derived_write_roots": { "$ref": "#/$defs/paths" },
-    "stdout_path": { "type": "string", "minLength": 1 },
-    "stdout_sha256": { "$ref": "#/$defs/sha256" },
-    "stderr_path": { "type": "string", "minLength": 1 },
-    "stderr_sha256": { "$ref": "#/$defs/sha256" },
-    "started_at": { "type": "string", "format": "date-time" },
-    "finished_at": { "type": "string", "format": "date-time" },
-    "status": { "enum": ["completed", "failed", "canceled", "indeterminate"] },
-    "exit_code": { "type": "integer" },
-    "reason": { "type": "string" },
-    "governance": { "type": "object" }
+    "schema": {
+      "const": "ingen.sentinel-role-execution/v1"
+    },
+    "execution_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "role_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "role_kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "policy_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "workspace_manifest_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executable_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "executable_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "allowed_tools": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "allowed_tool_sha256": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sha256"
+      }
+    },
+    "backend": {
+      "const": "macos-seatbelt"
+    },
+    "enforcement": {
+      "const": "host-enforced"
+    },
+    "assurance": {
+      "const": "unverified"
+    },
+    "enforcement_scope": {
+      "type": "string",
+      "minLength": 1
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "network_mode": {
+      "enum": [
+        "disabled",
+        "allowlist"
+      ]
+    },
+    "declared_read_roots": {
+      "$ref": "#/$defs/paths"
+    },
+    "declared_write_roots": {
+      "$ref": "#/$defs/paths"
+    },
+    "declared_deny_roots": {
+      "$ref": "#/$defs/paths"
+    },
+    "derived_read_roots": {
+      "$ref": "#/$defs/paths"
+    },
+    "derived_write_roots": {
+      "$ref": "#/$defs/paths"
+    },
+    "stdout_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stdout_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "stderr_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stderr_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed",
+        "canceled",
+        "indeterminate"
+      ]
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "governance": {
+      "type": "object"
+    },
+    "agent_context": {
+      "$ref": "#/$defs/agentContext"
+    },
+    "broker_execution": {
+      "$ref": "#/$defs/brokerExecution"
+    }
   },
   "$defs": {
-    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "paths": { "type": "array", "items": { "type": "string", "minLength": 1 } }
-  }
+    "agentContext": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://ingen.dev/schemas/sentinel/agent-context-v1.schema.json",
+      "title": "Sentinel Codex launch context v1",
+      "description": "Exact prompt and private local state for an opt-in Codex exec launch. This is unverified local launch evidence, not provider or model attestation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "agent",
+        "mode",
+        "execution_id",
+        "root",
+        "working_directory",
+        "home_path",
+        "codex_home_path",
+        "prompt_source_path",
+        "prompt_source_sha256",
+        "prompt_snapshot_path",
+        "prompt_snapshot_sha256",
+        "prompt_bytes",
+        "args",
+        "stdin",
+        "network_mode"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ingen.sentinel-agent-context/v1"
+        },
+        "agent": {
+          "const": "codex-cli"
+        },
+        "mode": {
+          "const": "exec-ephemeral"
+        },
+        "execution_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "root": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "working_directory": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "home_path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "codex_home_path": {
+          "$ref": "#/$defs/absolutePath"
+        },
+        "prompt_source_path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "prompt_source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "prompt_snapshot_path": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "prompt_snapshot_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "prompt_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$"
+        },
+        "args": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        "stdin": {
+          "const": "hash-pinned-prompt-snapshot"
+        },
+        "network_mode": {
+          "enum": [
+            "disabled",
+            "allowlist"
+          ]
+        },
+        "broker": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "endpoint",
+            "credential_source",
+            "credential_env",
+            "max_requests",
+            "max_output_tokens",
+            "timeout_seconds"
+          ],
+          "properties": {
+            "provider": {
+              "const": "openai-responses"
+            },
+            "endpoint": {
+              "type": "string",
+              "pattern": "^http://127\\.0\\.0\\.1:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])/v1$"
+            },
+            "credential_source": {
+              "const": "environment"
+            },
+            "credential_env": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "not": {
+                "const": "INGEN_CODEX_BROKER_TOKEN"
+              }
+            },
+            "max_requests": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
+            "max_output_tokens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8192
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1800
+            }
+          }
+        }
+      },
+      "$defs": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "absolutePath": {
+          "type": "string",
+          "pattern": "^/",
+          "minLength": 2
+        },
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/\\\\]+(/[^/\\\\]+)*$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "broker"
+            ]
+          },
+          "then": {
+            "required": [
+              "model"
+            ],
+            "properties": {
+              "network_mode": {
+                "const": "allowlist"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "network_mode": {
+                "const": "disabled"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "brokerExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "provider",
+        "endpoint",
+        "model",
+        "max_requests",
+        "max_output_tokens",
+        "timeout_seconds",
+        "stats"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "unavailable",
+            "closed",
+            "indeterminate"
+          ]
+        },
+        "provider": {
+          "const": "openai-responses"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^http://127\\.0\\.0\\.1:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])/v1$"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$"
+        },
+        "max_requests": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1800
+        },
+        "stats": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requests_received",
+            "requests_forwarded",
+            "requests_rejected",
+            "upstream_failures",
+            "in_flight",
+            "started_at",
+            "last_status"
+          ],
+          "properties": {
+            "requests_received": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "requests_forwarded": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "requests_rejected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "upstream_failures": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "in_flight": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "started_at": {
+              "type": "string"
+            },
+            "closed_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "last_completed_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "last_status": {
+              "type": "integer",
+              "anyOf": [
+                {
+                  "const": 0
+                },
+                {
+                  "minimum": 100,
+                  "maximum": 599
+                }
+              ]
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "closed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stats": {
+                "required": [
+                  "closed_at"
+                ],
+                "properties": {
+                  "in_flight": {
+                    "const": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unavailable"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stats": {
+                "properties": {
+                  "started_at": {
+                    "const": ""
+                  },
+                  "requests_received": {
+                    "const": 0
+                  },
+                  "requests_forwarded": {
+                    "const": 0
+                  },
+                  "requests_rejected": {
+                    "const": 0
+                  },
+                  "upstream_failures": {
+                    "const": 0
+                  },
+                  "in_flight": {
+                    "const": 0
+                  },
+                  "last_status": {
+                    "const": 0
+                  }
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "closed_at"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "last_completed_at"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "stats": {
+                "properties": {
+                  "started_at": {
+                    "format": "date-time",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "network_mode": {
+            "const": "allowlist"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "agent_context",
+          "broker_execution"
+        ],
+        "properties": {
+          "agent_context": {
+            "required": [
+              "broker"
+            ],
+            "properties": {
+              "network_mode": {
+                "const": "allowlist"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "broker_execution"
+          ]
+        },
+        "properties": {
+          "agent_context": {
+            "not": {
+              "required": [
+                "broker"
+              ]
+            },
+            "properties": {
+              "network_mode": {
+                "const": "disabled"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "broker_execution"
+        ],
+        "properties": {
+          "broker_execution": {
+            "properties": {
+              "status": {
+                "const": "unavailable"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "enum": [
+              "failed",
+              "indeterminate"
+            ]
+          }
+        },
+        "not": {
+          "required": [
+            "exit_code"
+          ]
+        }
+      }
+    }
+  ]
 }

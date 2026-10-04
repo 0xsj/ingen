@@ -16,11 +16,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"ingen/core/ciresult"
+	"ingen/herdr-sentinel/internal/agentlaunch"
 	"ingen/herdr-sentinel/internal/capability"
+	"ingen/herdr-sentinel/internal/codexbroker"
 	sentinelrun "ingen/herdr-sentinel/internal/run"
 	"ingen/herdr-sentinel/internal/workflowgate"
 	"ingen/herdr-sentinel/internal/workspace"
@@ -47,6 +50,36 @@ type Request struct {
 	ExpectedContractSHA256, ExpectedOraclePolicySHA256           string
 	ExpectedContractSourceSHA256, ExpectedOraclePolicyFileSHA256 string
 	ExpectedOracleSHA256                                         string
+	Agent                                                        *AgentRequest
+}
+
+type AgentRequest struct {
+	Name, ExecutablePath, PromptPath, ExpectedPromptSHA256, Model string
+	Provider, CredentialEnv                                       string
+	BrokerPort, MaxRequests, MaxOutputTokens, TimeoutSeconds      int
+}
+
+type BrokerStats struct {
+	StartedAt         string `json:"started_at"`
+	ClosedAt          string `json:"closed_at,omitempty"`
+	RequestsReceived  int64  `json:"requests_received"`
+	RequestsForwarded int64  `json:"requests_forwarded"`
+	RequestsRejected  int64  `json:"requests_rejected"`
+	UpstreamFailures  int64  `json:"upstream_failures"`
+	InFlight          int64  `json:"in_flight"`
+	LastStatus        int    `json:"last_status"`
+	LastCompletedAt   string `json:"last_completed_at,omitempty"`
+}
+
+type BrokerExecution struct {
+	Status          string      `json:"status"`
+	Provider        string      `json:"provider"`
+	Endpoint        string      `json:"endpoint"`
+	Model           string      `json:"model"`
+	MaxRequests     int         `json:"max_requests"`
+	MaxOutputTokens int         `json:"max_output_tokens"`
+	TimeoutSeconds  int         `json:"timeout_seconds"`
+	Stats           BrokerStats `json:"stats"`
 }
 
 type Prepared struct {
@@ -59,43 +92,47 @@ type Prepared struct {
 	ExecutableSHA256, ManifestSHA256    string
 	AllowedToolSHA256                   []string
 	DerivedReadRoots, DerivedWriteRoots []string
+	AgentContext                        *agentlaunch.CodexContext
+	PromptSnapshot                      []byte
 }
 
 type Report struct {
-	Schema                string               `json:"schema"`
-	ExecutionID           string               `json:"execution_id"`
-	WorkspaceID           string               `json:"workspace_id"`
-	RoleID                string               `json:"role_id"`
-	RoleKind              string               `json:"role_kind"`
-	ManifestSHA256        string               `json:"manifest_sha256"`
-	PolicySHA256          string               `json:"policy_sha256"`
-	WorkspaceManifestPath string               `json:"workspace_manifest_path"`
-	PolicyPath            string               `json:"policy_path"`
-	ExecutablePath        string               `json:"executable_path"`
-	ExecutableSHA256      string               `json:"executable_sha256"`
-	AllowedTools          []string             `json:"allowed_tools"`
-	AllowedToolSHA256     []string             `json:"allowed_tool_sha256"`
-	Backend               string               `json:"backend"`
-	Enforcement           string               `json:"enforcement"`
-	Assurance             string               `json:"assurance"`
-	EnforcementScope      string               `json:"enforcement_scope"`
-	Limitations           []string             `json:"limitations"`
-	NetworkMode           string               `json:"network_mode"`
-	DeclaredReadRoots     []string             `json:"declared_read_roots"`
-	DeclaredWriteRoots    []string             `json:"declared_write_roots"`
-	DeclaredDenyRoots     []string             `json:"declared_deny_roots"`
-	DerivedReadRoots      []string             `json:"derived_read_roots"`
-	DerivedWriteRoots     []string             `json:"derived_write_roots"`
-	StdoutPath            string               `json:"stdout_path"`
-	StdoutSHA256          string               `json:"stdout_sha256,omitempty"`
-	StderrPath            string               `json:"stderr_path"`
-	StderrSHA256          string               `json:"stderr_sha256,omitempty"`
-	StartedAt             string               `json:"started_at"`
-	FinishedAt            string               `json:"finished_at"`
-	Status                string               `json:"status"`
-	ExitCode              *int                 `json:"exit_code,omitempty"`
-	Reason                string               `json:"reason,omitempty"`
-	Governance            *workflowgate.Result `json:"governance,omitempty"`
+	Schema                string                    `json:"schema"`
+	ExecutionID           string                    `json:"execution_id"`
+	WorkspaceID           string                    `json:"workspace_id"`
+	RoleID                string                    `json:"role_id"`
+	RoleKind              string                    `json:"role_kind"`
+	ManifestSHA256        string                    `json:"manifest_sha256"`
+	PolicySHA256          string                    `json:"policy_sha256"`
+	WorkspaceManifestPath string                    `json:"workspace_manifest_path"`
+	PolicyPath            string                    `json:"policy_path"`
+	ExecutablePath        string                    `json:"executable_path"`
+	ExecutableSHA256      string                    `json:"executable_sha256"`
+	AllowedTools          []string                  `json:"allowed_tools"`
+	AllowedToolSHA256     []string                  `json:"allowed_tool_sha256"`
+	Backend               string                    `json:"backend"`
+	Enforcement           string                    `json:"enforcement"`
+	Assurance             string                    `json:"assurance"`
+	EnforcementScope      string                    `json:"enforcement_scope"`
+	Limitations           []string                  `json:"limitations"`
+	NetworkMode           string                    `json:"network_mode"`
+	DeclaredReadRoots     []string                  `json:"declared_read_roots"`
+	DeclaredWriteRoots    []string                  `json:"declared_write_roots"`
+	DeclaredDenyRoots     []string                  `json:"declared_deny_roots"`
+	DerivedReadRoots      []string                  `json:"derived_read_roots"`
+	DerivedWriteRoots     []string                  `json:"derived_write_roots"`
+	StdoutPath            string                    `json:"stdout_path"`
+	StdoutSHA256          string                    `json:"stdout_sha256,omitempty"`
+	StderrPath            string                    `json:"stderr_path"`
+	StderrSHA256          string                    `json:"stderr_sha256,omitempty"`
+	StartedAt             string                    `json:"started_at"`
+	FinishedAt            string                    `json:"finished_at"`
+	Status                string                    `json:"status"`
+	ExitCode              *int                      `json:"exit_code,omitempty"`
+	Reason                string                    `json:"reason,omitempty"`
+	Governance            *workflowgate.Result      `json:"governance,omitempty"`
+	AgentContext          *agentlaunch.CodexContext `json:"agent_context,omitempty"`
+	BrokerExecution       *BrokerExecution          `json:"broker_execution,omitempty"`
 }
 
 // Prepare compiles the exact manifest capabilities for one role and asks
@@ -106,8 +143,28 @@ func Prepare(request Request) (Prepared, error) {
 	if strings.TrimSpace(request.Root) == "" || strings.TrimSpace(request.WorkspacePath) == "" || strings.TrimSpace(request.RoleID) == "" || strings.TrimSpace(request.ExecutionID) == "" {
 		return Prepared{}, fmt.Errorf("role execution requires root, workspace, role, and execution ID")
 	}
-	if len(request.Command) == 0 || strings.TrimSpace(request.Command[0]) == "" {
+	if request.Agent == nil && (len(request.Command) == 0 || strings.TrimSpace(request.Command[0]) == "") {
 		return Prepared{}, fmt.Errorf("role execution command is required")
+	}
+	if request.Agent != nil && (request.Agent.Name != agentlaunch.CodexAgent || len(request.Command) != 0) {
+		return Prepared{}, fmt.Errorf("typed agent execution supports only Codex and rejects arbitrary command arguments")
+	}
+	if request.Agent != nil && request.Agent.Provider == "openai-broker" {
+		credential, ok := os.LookupEnv(request.Agent.CredentialEnv)
+		if !ok || strings.TrimSpace(credential) == "" {
+			return Prepared{}, fmt.Errorf("selected broker credential environment variable %s is not set or empty", request.Agent.CredentialEnv)
+		}
+	}
+	if request.Agent != nil {
+		if request.Agent.Provider != "" && request.Agent.Provider != "openai-broker" {
+			return Prepared{}, fmt.Errorf("unsupported typed Codex provider %q", request.Agent.Provider)
+		}
+		if request.Agent.Provider == "openai-broker" && (request.Agent.Model == "" || request.Agent.BrokerPort < 1 || request.Agent.BrokerPort > 65535 || !validCredentialEnvName(request.Agent.CredentialEnv) || request.Agent.MaxRequests < 1 || request.Agent.MaxRequests > 64 || request.Agent.MaxOutputTokens < 1 || request.Agent.MaxOutputTokens > 8192 || request.Agent.TimeoutSeconds < 1 || request.Agent.TimeoutSeconds > 1800) {
+			return Prepared{}, fmt.Errorf("openai-broker profile requires an explicit model, valid selected credential environment, reserved port, and bounded limits")
+		}
+		if request.Agent.Provider == "" && (request.Agent.BrokerPort != 0 || request.Agent.CredentialEnv != "" || request.Agent.MaxRequests != 0 || request.Agent.MaxOutputTokens != 0 || request.Agent.TimeoutSeconds != 0) {
+			return Prepared{}, fmt.Errorf("broker settings require the openai-broker provider")
+		}
 	}
 	root, err := filepath.Abs(request.Root)
 	if err != nil {
@@ -227,7 +284,13 @@ func Prepare(request Request) (Prepared, error) {
 		return Prepared{}, err
 	}
 	allowedTools := canonicalTools(request.AllowedTools)
-	commandPath, err := resolveExecutable(request.Command[0])
+	commandArgument := ""
+	if request.Agent != nil {
+		commandArgument = request.Agent.ExecutablePath
+	} else {
+		commandArgument = request.Command[0]
+	}
+	commandPath, err := resolveExecutable(commandArgument)
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -252,8 +315,13 @@ func Prepare(request Request) (Prepared, error) {
 		return Prepared{}, fmt.Errorf("role command executable digest changed")
 	}
 	command := append([]string(nil), request.Command...)
-	command[0] = commandPath
+	if request.Agent == nil {
+		command[0] = commandPath
+	}
 	scratchRel := filepath.Join(role.Workspace, ".sentinel-roleexec", request.ExecutionID)
+	if request.Agent != nil {
+		scratchRel = filepath.Join(".ingen", "artifacts", "role-executions", ".runtime", request.ExecutionID)
+	}
 	if err := validID(request.ExecutionID); err != nil {
 		return Prepared{}, err
 	}
@@ -268,6 +336,57 @@ func Prepare(request Request) (Prepared, error) {
 		return Prepared{}, fmt.Errorf("private scratch execution ID already exists")
 	} else if !os.IsNotExist(err) {
 		return Prepared{}, fmt.Errorf("inspect private scratch: %w", err)
+	}
+	var promptSnapshot []byte
+	var agentContext *agentlaunch.CodexContext
+	if request.Agent != nil {
+		promptSnapshot, err = loadPromptUnderRoot(root, request.Agent.PromptPath)
+		if err != nil {
+			return Prepared{}, fmt.Errorf("load Codex prompt: %w", err)
+		}
+		if err := agentlaunch.ValidatePrompt(promptSnapshot); err != nil {
+			return Prepared{}, err
+		}
+		promptSHA := hashBytes(promptSnapshot)
+		if request.Agent.ExpectedPromptSHA256 == "" || request.Agent.ExpectedPromptSHA256 != promptSHA {
+			return Prepared{}, fmt.Errorf("Codex prompt does not match the immutable prompt digest")
+		}
+		promptAbsolute := filepath.Join(root, filepath.FromSlash(request.Agent.PromptPath))
+		if !execution.PathCovered(absoluteRoots(root, role.ReadRoots), promptAbsolute) {
+			return Prepared{}, fmt.Errorf("Codex prompt must be inside an explicit role read root")
+		}
+		for _, denied := range denyPaths {
+			if execution.PathCovered([]string{denied}, promptAbsolute) {
+				return Prepared{}, fmt.Errorf("Codex prompt is beneath denied role root %q", denied)
+			}
+		}
+		for _, writable := range absoluteRoots(root, role.WriteRoots) {
+			if execution.PathCovered([]string{writable}, promptAbsolute) {
+				return Prepared{}, fmt.Errorf("Codex prompt must not be in a role write root")
+			}
+		}
+		promptSnapshotPath := filepath.ToSlash(filepath.Join(".ingen", "artifacts", "role-executions", request.ExecutionID+".prompt"))
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(promptSnapshotPath))); err == nil {
+			return Prepared{}, fmt.Errorf("Codex prompt snapshot already exists")
+		} else if !os.IsNotExist(err) {
+			return Prepared{}, fmt.Errorf("inspect Codex prompt snapshot: %w", err)
+		}
+		private := filepath.Join(scratchRoot, "rw")
+		var brokerContext *agentlaunch.BrokerContext
+		if request.Agent.Provider == "openai-broker" {
+			brokerContext = &agentlaunch.BrokerContext{Provider: "openai-responses", Endpoint: fmt.Sprintf("http://127.0.0.1:%d/v1", request.Agent.BrokerPort), CredentialSource: "environment", CredentialEnv: request.Agent.CredentialEnv, MaxRequests: request.Agent.MaxRequests, MaxOutputTokens: request.Agent.MaxOutputTokens, TimeoutSeconds: request.Agent.TimeoutSeconds}
+		}
+		context, args, buildErr := agentlaunch.BuildCodex(agentlaunch.CodexRequest{
+			ExecutionID: request.ExecutionID, Root: root, WorkingDir: scratchRoot,
+			HomePath: filepath.Join(private, "home"), CodexHome: filepath.Join(private, "codex-home"),
+			PromptSourcePath: filepath.ToSlash(filepath.Clean(filepath.FromSlash(request.Agent.PromptPath))), PromptSourceSHA256: promptSHA,
+			PromptSnapshotPath: promptSnapshotPath, PromptSnapshotSHA256: promptSHA, PromptBytes: len(promptSnapshot), Model: request.Agent.Model, Broker: brokerContext,
+		})
+		if buildErr != nil {
+			return Prepared{}, buildErr
+		}
+		agentContext = &context
+		command = append([]string{commandPath}, args...)
 	}
 	for _, capabilityRoot := range append(append([]string{}, role.ReadRoots...), role.WriteRoots...) {
 		for _, protected := range []string{".ingen/receipt.json", ".ingen/workspace.yaml", ".ingen/artifacts/native-sessions", ".ingen/artifacts/role-executions", ".ingen/artifacts/sessions"} {
@@ -288,7 +407,16 @@ func Prepare(request Request) (Prepared, error) {
 			return Prepared{}, fmt.Errorf("role deny capability overlaps private scratch")
 		}
 	}
-	policyDocument := makePolicy(plan, *role, request.ExecutionID, readRoots, writeRoots, denyRoots, allowedTools)
+	networkMode := "disabled"
+	if request.Agent != nil && request.Agent.Provider == "openai-broker" {
+		networkMode = "allowlist"
+	}
+	policyDocument := makePolicy(plan, *role, request.ExecutionID, readRoots, writeRoots, denyRoots, allowedTools, networkMode, func() int {
+		if request.Agent != nil && request.Agent.Provider == "openai-broker" {
+			return request.Agent.BrokerPort
+		}
+		return 0
+	}())
 	sealed, err := policy.Seal(policyDocument)
 	if err != nil {
 		return Prepared{}, fmt.Errorf("seal role execution policy: %w", err)
@@ -300,8 +428,12 @@ func Prepare(request Request) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, fmt.Errorf("prepare host-enforced role command: %w", err)
 	}
-	if prepared.Enforcement != "host-enforced" || prepared.Backend != "macos-seatbelt" || prepared.NetworkMode != "disabled" {
-		return Prepared{}, fmt.Errorf("role execution requires macOS Seatbelt host enforcement with network disabled (got backend=%q enforcement=%q network=%q)", prepared.Backend, prepared.Enforcement, prepared.NetworkMode)
+	wantNetwork := "disabled"
+	if request.Agent != nil && request.Agent.Provider == "openai-broker" {
+		wantNetwork = "allowlist"
+	}
+	if prepared.Enforcement != "host-enforced" || prepared.Backend != "macos-seatbelt" || prepared.NetworkMode != wantNetwork {
+		return Prepared{}, fmt.Errorf("role execution requires macOS Seatbelt host enforcement with expected network mode %q (got backend=%q enforcement=%q network=%q)", wantNetwork, prepared.Backend, prepared.Enforcement, prepared.NetworkMode)
 	}
 	if prepared.ExecutableSHA256 != executableHash {
 		return Prepared{}, fmt.Errorf("role executable changed during policy preparation")
@@ -310,6 +442,9 @@ func Prepare(request Request) (Prepared, error) {
 		return Prepared{}, fmt.Errorf("resolved allowed tool identity changed during policy preparation")
 	}
 	protectedPaths := append([]string{workspacePath, request.ReceiptPath, request.ApprovalPath, request.ReviewPolicyPath, manifest.Contract.Path, plan.Workspace.OraclePolicy.Path, plan.Workspace.SubjectPolicy.Path}, request.ProtectedPaths...)
+	if request.Agent != nil {
+		protectedPaths = append(protectedPaths, request.Agent.PromptPath)
+	}
 	for _, protected := range protectedPaths {
 		if protected == "" {
 			continue
@@ -331,7 +466,7 @@ func Prepare(request Request) (Prepared, error) {
 			}
 		}
 	}
-	return Prepared{Policy: sealed, Command: prepared, Plan: plan, Role: *role, ExecutionID: request.ExecutionID, Root: root, RoleWorkspace: roleWorkspace, ScratchRoot: scratchRoot, ExecutableSHA256: executableHash, ManifestSHA256: plan.Workspace.Manifest.SHA256, DerivedReadRoots: derivedReads, DerivedWriteRoots: []string{scratchWritable}, AllowedToolSHA256: toolHashes}, nil
+	return Prepared{Policy: sealed, Command: prepared, Plan: plan, Role: *role, ExecutionID: request.ExecutionID, Root: root, RoleWorkspace: roleWorkspace, ScratchRoot: scratchRoot, ExecutableSHA256: executableHash, ManifestSHA256: plan.Workspace.Manifest.SHA256, DerivedReadRoots: derivedReads, DerivedWriteRoots: []string{scratchWritable}, AllowedToolSHA256: toolHashes, AgentContext: agentContext, PromptSnapshot: promptSnapshot}, nil
 }
 
 // PersistPolicy writes a canonical sealed execution policy without replacing
@@ -480,6 +615,21 @@ func executePrepared(ctx context.Context, request Request, prepared Prepared, ga
 			return Report{}, "", fmt.Errorf("secure private role scratch: %w", err)
 		}
 	}
+	if prepared.AgentContext != nil {
+		private := filepath.Join(prepared.ScratchRoot, "rw")
+		for _, path := range []string{
+			filepath.Join(private, "codex-home"), filepath.Join(private, "xdg", "config"),
+			filepath.Join(private, "xdg", "data"), filepath.Join(private, "xdg", "state"),
+		} {
+			relative, _ := filepath.Rel(prepared.Root, path)
+			if err := rooted.MkdirAll(filepath.ToSlash(relative), 0o700); err != nil {
+				return Report{}, "", fmt.Errorf("create private Codex state directory: %w", err)
+			}
+		}
+		if err := publishPromptSnapshot(rooted, prepared.AgentContext.PromptSnapshotPath, prepared.PromptSnapshot); err != nil {
+			return Report{}, "", fmt.Errorf("publish pinned Codex prompt snapshot: %w", err)
+		}
+	}
 	stdoutRel, stderrRel, reportRel := filepath.ToSlash(filepath.Join(artifactDir, request.ExecutionID+".stdout")), filepath.ToSlash(filepath.Join(artifactDir, request.ExecutionID+".stderr")), filepath.ToSlash(filepath.Join(artifactDir, request.ExecutionID+".json"))
 	stdout, err := rooted.OpenFile(stdoutRel, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -493,7 +643,10 @@ func executePrepared(ctx context.Context, request Request, prepared Prepared, ga
 	started := time.Now().UTC()
 	command := exec.Command(prepared.Command.Command[0], prepared.Command.Command[1:]...)
 	command.Dir = prepared.ScratchRoot
-	command.Env = privateEnvironment(prepared.ScratchRoot)
+	command.Env = privateEnvironment(prepared)
+	if prepared.AgentContext != nil {
+		command.Stdin = bytes.NewReader(prepared.PromptSnapshot)
+	}
 	command.Stdout, command.Stderr = stdout, stderr
 	latestGate, identityErr := verifyLaunchInputs(rooted, request, prepared)
 	if identityErr != nil {
@@ -504,7 +657,71 @@ func executePrepared(ctx context.Context, request Request, prepared Prepared, ga
 	if gate != nil {
 		gate = latestGate
 	}
-	runErr, startErr, canceled, cancelReason := runWithCancellation(ctx, command)
+	var runErr, startErr error
+	var canceled bool
+	var cancelReason string
+	var brokerServer *codexbroker.Server
+	var brokerLifeCancel context.CancelFunc
+	var runTimeoutCancel context.CancelFunc
+	var brokerExecution *BrokerExecution
+	var brokerEndpointMismatch bool
+	runContext := ctx
+	if prepared.AgentContext != nil && prepared.AgentContext.Broker != nil {
+		broker := prepared.AgentContext.Broker
+		brokerExecution = &BrokerExecution{Status: "unavailable", Provider: broker.Provider, Endpoint: broker.Endpoint, Model: prepared.AgentContext.Model, MaxRequests: broker.MaxRequests, MaxOutputTokens: broker.MaxOutputTokens, TimeoutSeconds: broker.TimeoutSeconds}
+		credential, ok := os.LookupEnv(broker.CredentialEnv)
+		if !ok || strings.TrimSpace(credential) == "" {
+			startErr = fmt.Errorf("selected broker credential environment variable %s is not set or empty", broker.CredentialEnv)
+		} else {
+			lifeContext, cancelLife := context.WithCancel(context.Background())
+			brokerLifeCancel = cancelLife
+			server, brokerErr := codexbroker.Start(lifeContext, codexbroker.Config{Port: brokerPortFromEndpoint(broker.Endpoint), APIKey: credential, Model: prepared.AgentContext.Model, MaxRequests: broker.MaxRequests, MaxOutputTokens: broker.MaxOutputTokens, Timeout: time.Duration(broker.TimeoutSeconds) * time.Second})
+			if brokerErr != nil {
+				startErr = fmt.Errorf("start local Responses broker: %w", brokerErr)
+			} else {
+				brokerServer = server
+				if server.Endpoint() != broker.Endpoint {
+					brokerEndpointMismatch = true
+					startErr = fmt.Errorf("local Responses broker endpoint did not match the pinned endpoint")
+				} else {
+					token := server.Token()
+					if token == "" {
+						brokerEndpointMismatch = true
+						startErr = fmt.Errorf("local Responses broker did not provide a scoped client token")
+					} else {
+						brokerExecution.Status = "indeterminate"
+						runContext, runTimeoutCancel = context.WithTimeout(ctx, time.Duration(broker.TimeoutSeconds)*time.Second)
+						command.Env = privateEnvironmentWithBrokerToken(prepared, token)
+					}
+				}
+			}
+		}
+	}
+	if startErr == nil {
+		runErr, startErr, canceled, cancelReason = runWithCancellation(runContext, command)
+	}
+	if runTimeoutCancel != nil {
+		runTimeoutCancel()
+	}
+	var brokerCloseErr error
+	if brokerServer != nil {
+		if brokerLifeCancel != nil {
+			brokerLifeCancel()
+		}
+		brokerCloseErr = brokerServer.Close()
+		stats := brokerServer.Snapshot()
+		brokerExecution.Stats = brokerStats(stats)
+		if brokerCloseErr == nil {
+			brokerExecution.Status = "closed"
+		} else {
+			brokerExecution.Status = "indeterminate"
+		}
+		if brokerEndpointMismatch {
+			brokerExecution.Status = "indeterminate"
+		}
+	} else if brokerLifeCancel != nil {
+		brokerLifeCancel()
+	}
 	stdoutSyncErr := stdout.Sync()
 	stderrSyncErr := stderr.Sync()
 	stdoutCloseErr := stdout.Close()
@@ -512,10 +729,18 @@ func executePrepared(ctx context.Context, request Request, prepared Prepared, ga
 	stdoutHash, stdoutHashErr := hashRootFile(rooted, stdoutRel)
 	stderrHash, stderrHashErr := hashRootFile(rooted, stderrRel)
 	finished := time.Now().UTC()
-	report := Report{Schema: ReportSchema, ExecutionID: request.ExecutionID, WorkspaceID: prepared.Plan.Workspace.ID, RoleID: prepared.Role.ID, RoleKind: prepared.Role.Kind, ManifestSHA256: prepared.ManifestSHA256, PolicySHA256: prepared.Policy.SHA256, WorkspaceManifestPath: filepath.ToSlash(request.WorkspacePath), PolicyPath: filepath.ToSlash(request.PolicyPath), ExecutablePath: prepared.Command.ExecutablePath, ExecutableSHA256: prepared.ExecutableSHA256, AllowedTools: canonicalTools(request.AllowedTools), AllowedToolSHA256: prepared.AllowedToolSHA256, Backend: prepared.Command.Backend, Enforcement: prepared.Command.Enforcement, Assurance: "unverified", EnforcementScope: "filesystem, tool, and network rules", Limitations: []string{"executable digest is a prelaunch byte check, not running-image identity", "Darwin runtime bootstrap and ancestor metadata are available", "no process namespace", "no control over prior role context", "no host attestation", "noninteractive execution only"}, NetworkMode: prepared.Command.NetworkMode, DeclaredReadRoots: absoluteRoots(prepared.Root, prepared.Role.ReadRoots), DeclaredWriteRoots: absoluteRoots(prepared.Root, prepared.Role.WriteRoots), DeclaredDenyRoots: absoluteRoots(prepared.Root, prepared.Role.DenyRoots), DerivedReadRoots: prepared.DerivedReadRoots, DerivedWriteRoots: prepared.DerivedWriteRoots, StdoutPath: filepath.ToSlash(filepath.Join(".ingen", "artifacts", "role-executions", request.ExecutionID+".stdout")), StderrPath: filepath.ToSlash(filepath.Join(".ingen", "artifacts", "role-executions", request.ExecutionID+".stderr")), StartedAt: started.Format(time.RFC3339Nano), FinishedAt: finished.Format(time.RFC3339Nano), Status: "completed"}
+	limitations := []string{"executable digest is a prelaunch byte check, not running-image identity", "Darwin runtime bootstrap and ancestor metadata are available", "no process namespace", "no control over prior role context", "no host attestation", "noninteractive execution only"}
+	if prepared.AgentContext != nil {
+		limitations = []string{"Codex was requested in a fresh ephemeral CLI mode; Sentinel cannot attest provider-side model context or retention", "provider credentials are not inherited and network access is disabled; remote inference is not available in this profile", "executable digest is a prelaunch byte check, not running-image identity", "Darwin runtime bootstrap and ancestor metadata are available", "no process namespace", "no host attestation", "noninteractive execution only"}
+		if prepared.AgentContext.Broker != nil {
+			limitations = []string{"provider-side model context and retention are not attested", "upstream credentials are read by Sentinel and are not inherited by the Codex child", "the upstream credential remains in Sentinel process memory during the broker lifetime; process memory isolation is not attested", "broker counters are local request lifecycle observations and do not attest provider inference or retention", "macOS Seatbelt localhost network permission includes local host addresses at the pinned TCP port; it is not an IPv4-only grant", "executable digest is a prelaunch byte check, not running-image identity", "Darwin runtime bootstrap and ancestor metadata are available", "no process namespace", "no host attestation", "noninteractive execution only"}
+		}
+	}
+	report := Report{Schema: ReportSchema, ExecutionID: request.ExecutionID, WorkspaceID: prepared.Plan.Workspace.ID, RoleID: prepared.Role.ID, RoleKind: prepared.Role.Kind, ManifestSHA256: prepared.ManifestSHA256, PolicySHA256: prepared.Policy.SHA256, WorkspaceManifestPath: filepath.ToSlash(request.WorkspacePath), PolicyPath: filepath.ToSlash(request.PolicyPath), ExecutablePath: prepared.Command.ExecutablePath, ExecutableSHA256: prepared.ExecutableSHA256, AllowedTools: canonicalTools(request.AllowedTools), AllowedToolSHA256: prepared.AllowedToolSHA256, Backend: prepared.Command.Backend, Enforcement: prepared.Command.Enforcement, Assurance: "unverified", EnforcementScope: "filesystem, tool, and network rules", Limitations: limitations, NetworkMode: prepared.Command.NetworkMode, DeclaredReadRoots: absoluteRoots(prepared.Root, prepared.Role.ReadRoots), DeclaredWriteRoots: absoluteRoots(prepared.Root, prepared.Role.WriteRoots), DeclaredDenyRoots: absoluteRoots(prepared.Root, prepared.Role.DenyRoots), DerivedReadRoots: prepared.DerivedReadRoots, DerivedWriteRoots: prepared.DerivedWriteRoots, StdoutPath: filepath.ToSlash(filepath.Join(".ingen", "artifacts", "role-executions", request.ExecutionID+".stdout")), StderrPath: filepath.ToSlash(filepath.Join(".ingen", "artifacts", "role-executions", request.ExecutionID+".stderr")), StartedAt: started.Format(time.RFC3339Nano), FinishedAt: finished.Format(time.RFC3339Nano), Status: "completed", AgentContext: prepared.AgentContext}
 	if gate != nil {
 		report.Governance = gate
 	}
+	report.BrokerExecution = brokerExecution
 	if startErr == nil && runErr != nil {
 		var exitErr *exec.ExitError
 		if errors.As(runErr, &exitErr) {
@@ -545,7 +770,7 @@ func executePrepared(ctx context.Context, request Request, prepared Prepared, ga
 	if stderrHashErr == nil {
 		report.StderrSHA256 = stderrHash
 	}
-	captureErr := errors.Join(stdoutSyncErr, stderrSyncErr, stdoutCloseErr, stderrCloseErr, stdoutHashErr, stderrHashErr)
+	captureErr := errors.Join(stdoutSyncErr, stderrSyncErr, stdoutCloseErr, stderrCloseErr, stdoutHashErr, stderrHashErr, brokerCloseErr)
 	if captureErr != nil {
 		report.Status = "indeterminate"
 		report.Reason = "capture durability or digest failed: " + captureErr.Error()
@@ -585,6 +810,15 @@ func verifyLaunchInputs(rooted *os.Root, request Request, prepared Prepared) (*w
 	}
 	if err != nil || hashBytes(manifestBytes) != prepared.ManifestSHA256 {
 		return nil, fmt.Errorf("workspace manifest changed before child start")
+	}
+	if prepared.AgentContext != nil {
+		if err := rejectSymlinkComponents(prepared.Root, prepared.AgentContext.PromptSourcePath); err != nil {
+			return nil, fmt.Errorf("Codex prompt source path changed before child start: %w", err)
+		}
+		promptBytes, err := readPromptUnderRoot(rooted, prepared.AgentContext.PromptSourcePath)
+		if err != nil || !bytes.Equal(promptBytes, prepared.PromptSnapshot) || hashBytes(promptBytes) != prepared.AgentContext.PromptSourceSHA256 {
+			return nil, fmt.Errorf("Codex prompt source changed before child start")
+		}
 	}
 	policyFile, err := rooted.Open(filepath.ToSlash(request.PolicyPath))
 	if err != nil {
@@ -678,7 +912,7 @@ func validateGateProtectedPaths(request Request, prepared Prepared, result workf
 	return nil
 }
 
-func makePolicy(plan capability.Plan, role capability.Role, id string, reads, writes, denies []string, tools []string) policy.Document {
+func makePolicy(plan capability.Plan, role capability.Role, id string, reads, writes, denies []string, tools []string, networkMode string, brokerPort int) policy.Document {
 	entries := func(paths []string, reason string) []any {
 		output := make([]any, 0, len(paths))
 		for _, path := range paths {
@@ -690,12 +924,66 @@ func makePolicy(plan capability.Plan, role capability.Role, id string, reads, wr
 	for _, tool := range tools {
 		allowed = append(allowed, map[string]any{"name": tool, "purpose": "explicitly approved child tool"})
 	}
-	return policy.Document{Policy: map[string]any{"schema": policy.Schema, "id": "sentinel-role-" + id, "version": 1, "status": "draft", "purpose": "noninteractive Sentinel role execution", "enforcement": "host-enforced", "filesystem": map[string]any{"read": entries(reads, "manifest read capability or derived role workspace"), "write": entries(writes, "manifest write capability or private execution scratch"), "deny": entries(denies, "manifest deny capability")}, "network": map[string]any{"mode": "disabled"}, "process": map[string]any{"subject_id": plan.Workspace.ID + "/" + role.ID, "can_invoke_subject": false, "allowed_tools": allowed}}}
+	network := map[string]any{"mode": networkMode}
+	if networkMode == "allowlist" {
+		network["allow"] = []any{map[string]any{"host": "localhost", "ports": []any{brokerPort}, "purpose": "local Codex Responses broker", "direction": "outbound"}}
+	}
+	return policy.Document{Policy: map[string]any{"schema": policy.Schema, "id": "sentinel-role-" + id, "version": 1, "status": "draft", "purpose": "noninteractive Sentinel role execution", "enforcement": "host-enforced", "filesystem": map[string]any{"read": entries(reads, "manifest read capability or derived role workspace"), "write": entries(writes, "manifest write capability or private execution scratch"), "deny": entries(denies, "manifest deny capability")}, "network": network, "process": map[string]any{"subject_id": plan.Workspace.ID + "/" + role.ID, "can_invoke_subject": false, "allowed_tools": allowed}}}
 }
 
-func privateEnvironment(scratch string) []string {
-	private := filepath.Join(scratch, "rw")
-	return []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + filepath.Join(private, "home"), "TMPDIR=" + filepath.Join(private, "tmp"), "XDG_CACHE_HOME=" + filepath.Join(private, "cache"), "LANG=C", "LC_ALL=C"}
+func validCredentialEnvName(value string) bool {
+	if value == "" || value == "INGEN_CODEX_BROKER_TOKEN" {
+		return false
+	}
+	for index, char := range value {
+		if !(char == '_' || char >= 'A' && char <= 'Z' || char >= 'a' && char <= 'z' || index > 0 && char >= '0' && char <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func privateEnvironment(prepared Prepared) []string {
+	return privateEnvironmentWithBrokerToken(prepared, "")
+}
+
+func privateEnvironmentWithBrokerToken(prepared Prepared, brokerToken string) []string {
+	private := filepath.Join(prepared.ScratchRoot, "rw")
+	environment := []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + filepath.Join(private, "home"), "TMPDIR=" + filepath.Join(private, "tmp"), "XDG_CACHE_HOME=" + filepath.Join(private, "cache"), "LANG=C", "LC_ALL=C"}
+	if prepared.AgentContext != nil {
+		environment = append(environment,
+			"CODEX_HOME="+filepath.Join(private, "codex-home"),
+			"XDG_CONFIG_HOME="+filepath.Join(private, "xdg", "config"),
+			"XDG_DATA_HOME="+filepath.Join(private, "xdg", "data"),
+			"XDG_STATE_HOME="+filepath.Join(private, "xdg", "state"),
+		)
+	}
+	if brokerToken != "" {
+		environment = append(environment, "INGEN_CODEX_BROKER_TOKEN="+brokerToken)
+	}
+	return environment
+}
+
+func brokerPortFromEndpoint(endpoint string) int {
+	port, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(endpoint, "http://127.0.0.1:"), "/v1"))
+	if err != nil {
+		return 0
+	}
+	return port
+}
+
+func brokerStats(stats codexbroker.Stats) BrokerStats {
+	result := BrokerStats{RequestsReceived: int64(stats.RequestsReceived), RequestsForwarded: int64(stats.RequestsForwarded), RequestsRejected: int64(stats.RequestsRejected), UpstreamFailures: int64(stats.UpstreamFailures), InFlight: int64(stats.InFlight), LastStatus: stats.LastStatus}
+	if !stats.StartedAt.IsZero() {
+		result.StartedAt = stats.StartedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if stats.ClosedAt != nil {
+		result.ClosedAt = stats.ClosedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if stats.LastCompletedAt != nil {
+		result.LastCompletedAt = stats.LastCompletedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return result
 }
 
 func validateToolPins(tools, expected []string) ([]string, error) {

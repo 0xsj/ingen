@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"os"
@@ -8,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"ingen/core/ciresult"
 	"ingen/hammond/internal/governance"
 	"ingen/hammond/internal/store"
 )
@@ -56,6 +59,164 @@ func TestCLIFullGovernanceLifecycle(t *testing.T) {
 	}
 	if !strings.Contains(output, "document-pipeline/document-pipeline@1 state=superseded") || !strings.Contains(output, "document-pipeline/document-pipeline@2 state=approved") {
 		t.Fatalf("lineage output = %q, want both lifecycle states", output)
+	}
+}
+
+func TestCLIGateEmitsHashBoundApprovedContractResultWithoutMutation(t *testing.T) {
+	root := t.TempDir()
+	copyHammondGateFixture(t, root, "../../examples/document-pipeline/contract-v3.canonical.json", "hammond/examples/document-pipeline/contract-v3.canonical.json")
+	for _, name := range []string{"record-v3.json", "event-review-opened-v3.json", "event-approved-v3.json", "review-policy-v1.json", "review-authority-v1.json"} {
+		copyHammondGateFixture(t, root, "../../examples/solo/"+name, "hammond/examples/solo/"+name)
+	}
+	storeRoot := filepath.Join(root, "hammond-store")
+	approvalPath := filepath.Join(root, "hammond", "examples", "solo", "record-v3.json")
+	if code := run([]string{"register", "--store", storeRoot, "--record", approvalPath}); code != 0 {
+		t.Fatalf("register fixture exit = %d", code)
+	}
+	for _, event := range []string{"event-review-opened-v3.json", "event-approved-v3.json"} {
+		eventPath := filepath.Join(root, "hammond", "examples", "solo", event)
+		if code := run([]string{"append-event", "--store", storeRoot, "--record", approvalPath, "--event", eventPath}); code != 0 {
+			t.Fatalf("append fixture %s exit = %d", event, code)
+		}
+	}
+	identityRecord, err := loadRecord(filepath.Join(root, "hammond", "examples", "solo", "record-v3.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileStore, err := store.NewFileStore(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvedRecord, err := fileStore.Get(identityRecord.Contract.Identity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvalPath = writeCLIJSON(t, root, "approved.json", approvedRecord)
+	before, err := os.ReadFile(approvalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contractPath := "hammond/examples/document-pipeline/contract-v3.canonical.json"
+	contractBytes, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(contractPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(contractBytes)
+	digestText := hex.EncodeToString(digest[:])
+	outputDir := filepath.Join(root, "reports")
+	if err := os.Mkdir(outputDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	output := "reports/hammond-approved.json"
+	args := []string{"gate", "--root", root, "--approval", "approved.json", "--review-policy", "hammond/examples/solo/review-policy-v1.json", "--contract", contractPath, "--project-id", "document-pipeline", "--contract-id", "document-pipeline", "--contract-version", "3", "--contract-schema", "ingen.contract/v1", "--contract-sha256", digestText, "--output", output}
+	if code := run(args); code != 0 {
+		t.Fatalf("gate exit = %d", code)
+	}
+	result, err := ciresult.LoadFile(filepath.Join(root, output))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tool != "hammond" || result.Kind != "approved-contract" || result.Status != "passed" || result.ExitCode != 0 {
+		t.Fatalf("unexpected gate result: %+v", result)
+	}
+	if len(result.Inputs) < 4 || result.Inputs["sorna-contract"].SHA256 != digestText {
+		t.Fatalf("gate inputs do not pin expected contract: %+v", result.Inputs)
+	}
+	after, err := os.ReadFile(approvalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("gate changed the Hammond approval record")
+	}
+	badArgs := append([]string(nil), args...)
+	badArgs[len(badArgs)-1] = "reports/rejected.json"
+	badArgs[len(badArgs)-3] = strings.Repeat("0", 64)
+	if code := run(badArgs); code != 2 {
+		t.Fatalf("mismatched expected contract digest exit = %d, want 2", code)
+	}
+	failed, err := ciresult.LoadFile(filepath.Join(root, "reports", "rejected.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != "error" || failed.ExitCode != 2 || failed.Error == "" {
+		t.Fatalf("mismatch did not produce an error envelope: %+v", failed)
+	}
+	if err := os.WriteFile(filepath.Join(root, "contract-alias.canonical.json"), contractBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	aliasArgs := append([]string(nil), args...)
+	aliasArgs[8] = "contract-alias.canonical.json"
+	aliasArgs[len(aliasArgs)-1] = "reports/alias-rejected.json"
+	if code := run(aliasArgs); code != 2 {
+		t.Fatalf("same-bytes alternate contract path exit = %d, want 2", code)
+	}
+	aliasResult, err := ciresult.LoadFile(filepath.Join(root, "reports", "alias-rejected.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aliasResult.Status != "error" {
+		t.Fatalf("alternate contract URI was accepted: %+v", aliasResult)
+	}
+	missingPathArgs := append([]string(nil), args...)
+	missingPathArgs[4] = "reports/missing-approval.json"
+	missingPathArgs[len(missingPathArgs)-1] = "reports/missing-approval.json"
+	if code := run(missingPathArgs); code != 2 {
+		t.Fatalf("overlapping missing approval/output exit = %d, want 2", code)
+	}
+	if _, err := os.Stat(filepath.Join(root, "reports", "missing-approval.json")); !os.IsNotExist(err) {
+		t.Fatalf("overlap created/replaced approval path: %v", err)
+	}
+	aliasedDir := filepath.Join(root, "alias-governance")
+	if err := os.Symlink(filepath.Join(root, "hammond", "examples", "solo"), aliasedDir); err != nil {
+		t.Fatal(err)
+	}
+	aliasedMissingArgs := append([]string(nil), args...)
+	aliasedMissingArgs[4] = "hammond/examples/solo/missing-approval.json"
+	aliasedMissingArgs[len(aliasedMissingArgs)-1] = "alias-governance/missing-approval.json"
+	if code := run(aliasedMissingArgs); code != 2 {
+		t.Fatalf("aliased missing approval/output exit = %d, want 2", code)
+	}
+	if _, err := os.Lstat(filepath.Join(aliasedDir, "missing-approval.json")); !os.IsNotExist(err) {
+		t.Fatalf("aliased output created/replaced selected approval path: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "hammond", "examples", "solo", "missing-approval.json")); !os.IsNotExist(err) {
+		t.Fatalf("aliased output changed physical approval path: %v", err)
+	}
+	existingOutput := filepath.Join(root, output)
+	existingBytes, err := os.ReadFile(existingOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protectedArgs := append([]string(nil), args...)
+	protectedArgs[4] = "hammond/examples/solo/missing-approval.json"
+	if code := run(protectedArgs); code != 2 {
+		t.Fatalf("existing output protection exit = %d, want 2", code)
+	}
+	afterExisting, err := os.ReadFile(existingOutput)
+	if err != nil || string(existingBytes) != string(afterExisting) {
+		t.Fatalf("existing output changed after failed gate: err=%v", err)
+	}
+	relativeRootArgs := append([]string(nil), args...)
+	relativeRootArgs[2] = "."
+	relativeRootArgs[len(relativeRootArgs)-1] = "reports/relative-root.json"
+	if code := run(relativeRootArgs); code != 2 {
+		t.Fatalf("relative --root exit = %d, want 2", code)
+	}
+}
+
+func copyHammondGateFixture(t *testing.T, root, source, destination string) {
+	t.Helper()
+	contents, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, filepath.FromSlash(destination))
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, contents, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

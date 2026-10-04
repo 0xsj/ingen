@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use malcolm::{compile, parse, ParseError, ValidationError};
 
-const HELP: &str = "Usage: malcolm <INPUT> [-o <OUTPUT>]\n\nParse and validate a Malcolm specification, then emit malcolm.ir/v1 JSON.\n\nINPUT may be a file path or - to read from stdin. Without -o, JSON is written to stdout.\n\nOptions:\n  -o, --output PATH  Write JSON to PATH instead of stdout\n  -h, --help         Show this help\n";
+const HELP: &str = "Usage: malcolm <INPUT> [-o <OUTPUT>]\n       malcolm [--version | version [--format text|json]]\n\nParse and validate a Malcolm specification, then emit malcolm.ir/v1 JSON.\n\nINPUT may be a file path or - to read from stdin. Without -o, JSON is written to stdout.\n\nOptions:\n  -o, --output PATH  Write JSON to PATH instead of stdout\n  -h, --help         Show this help\n";
 
 fn main() {
     if let Err(error) = run(env::args().skip(1), &mut io::stdout()) {
@@ -20,7 +20,23 @@ where
     I: IntoIterator<Item = String>,
     W: Write,
 {
-    let options = match parse_args(args)? {
+    let arguments: Vec<String> = args.into_iter().collect();
+    if arguments.first().map(String::as_str) == Some("--version") {
+        if arguments.len() != 1 {
+            return Err(CliError::usage("--version does not accept arguments"));
+        }
+        return write_version("text", stdout);
+    }
+    if arguments.first().map(String::as_str) == Some("version") {
+        let format = match arguments.as_slice() {
+            [_] => "text",
+            [_, flag, format] if flag == "--format" || flag == "-f" => format.as_str(),
+            _ => return Err(CliError::usage("version accepts only --format text|json")),
+        };
+        return write_version(format, stdout);
+    }
+
+    let options = match parse_args(arguments)? {
         Some(options) => options,
         None => {
             stdout
@@ -44,6 +60,83 @@ where
             source,
         }),
         None => stdout.write_all(json.as_bytes()).map_err(CliError::output),
+    }
+}
+
+fn write_version<W: Write>(format: &str, stdout: &mut W) -> Result<(), CliError> {
+    let version = option_env!("INGEN_VERSION").unwrap_or("dev");
+    let revision = option_env!("INGEN_REVISION").unwrap_or("unknown");
+    let build_date = option_env!("INGEN_BUILD_DATE").unwrap_or("unknown");
+    let source_inputs_sha256 = option_env!("INGEN_SOURCE_INPUTS_SHA256").unwrap_or("unknown");
+    let dirty = option_env!("INGEN_DIRTY").unwrap_or("unknown");
+    let toolchain = option_env!("INGEN_TOOLCHAIN").unwrap_or("unknown");
+    let goos = goos_name(std::env::consts::OS);
+    let goarch = goarch_name(std::env::consts::ARCH);
+    let name = env!("CARGO_PKG_NAME");
+    match format {
+        "text" => {
+            let text = format!(
+                "{name} {version}\ncommit {revision}\nbuilt {build_date}\nrevision {revision}\nsource_inputs_sha256 {source_inputs_sha256}\ndirty {dirty}\nplatform {goos}/{goarch}\ntoolchain {toolchain}\n"
+            );
+            stdout.write_all(text.as_bytes()).map_err(CliError::output)
+        }
+        "json" => {
+            let json = format!(
+                "{{\n  \"schema\": \"ingen.tool-version/v1\",\n  \"name\": {},\n  \"version\": {},\n  \"revision\": {},\n  \"commit\": {},\n  \"build_date\": {},\n  \"source_inputs_sha256\": {},\n  \"dirty\": {},\n  \"goos\": {},\n  \"goarch\": {},\n  \"toolchain\": {}\n}}\n",
+                json_string(name), json_string(version), json_string(revision), json_string(revision),
+                json_string(build_date), json_string(source_inputs_sha256), json_string(dirty),
+                json_string(goos), json_string(goarch), json_string(toolchain),
+            );
+            stdout.write_all(json.as_bytes()).map_err(CliError::output)
+        }
+        _ => Err(CliError::usage(format!(
+            "unsupported version format {format:?}; use text or json"
+        ))),
+    }
+}
+
+fn json_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for character in value.chars() {
+        match character {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c < ' ' => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn goos_name(os: &str) -> &'static str {
+    match os {
+        "macos" => "darwin",
+        "windows" => "windows",
+        "linux" => "linux",
+        "freebsd" => "freebsd",
+        "android" => "android",
+        "ios" => "ios",
+        "illumos" => "illumos",
+        "solaris" => "solaris",
+        _ => "unknown",
+    }
+}
+
+fn goarch_name(arch: &str) -> &'static str {
+    match arch {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        "x86" => "386",
+        "arm" => "arm",
+        "powerpc64" => "ppc64",
+        "powerpc64le" => "ppc64le",
+        "s390x" => "s390x",
+        "riscv64" => "riscv64",
+        _ => "unknown",
     }
 }
 
@@ -201,6 +294,52 @@ mod tests {
     #[test]
     fn help_is_requested_without_parsing_a_contract() {
         assert_eq!(parse_args(["--help".into()]).expect("help is valid"), None);
+    }
+
+    #[test]
+    fn version_json_uses_the_shared_tool_schema() {
+        let mut output = Vec::new();
+        run(
+            ["version".into(), "--format".into(), "json".into()],
+            &mut output,
+        )
+        .expect("version JSON should succeed");
+        let output = String::from_utf8(output).expect("version JSON should be UTF-8");
+        assert!(output.contains("\"schema\": \"ingen.tool-version/v1\""));
+        assert!(output.contains("\"name\": \"malcolm\""));
+        assert!(output.contains("\"revision\": \"unknown\""));
+        assert!(output.contains("\"commit\": \"unknown\""));
+        assert!(output.contains("\"source_inputs_sha256\": \"unknown\""));
+        assert!(output.contains("\"dirty\": \"unknown\""));
+        assert!(output.contains(&format!(
+            "\"goos\": \"{}\"",
+            goos_name(std::env::consts::OS)
+        )));
+        assert!(output.contains(&format!(
+            "\"goarch\": \"{}\"",
+            goarch_name(std::env::consts::ARCH)
+        )));
+        assert!(output.contains("\"toolchain\": \"unknown\""));
+    }
+
+    #[test]
+    fn version_flags_are_strict_and_text_is_supported() {
+        let mut output = Vec::new();
+        run(["--version".into()], &mut output).expect("text version should succeed");
+        assert!(String::from_utf8(output)
+            .expect("text version should be UTF-8")
+            .starts_with("malcolm dev\n"));
+
+        for arguments in [
+            vec!["version".into(), "--format".into()],
+            vec!["version".into(), "--format".into(), "yaml".into()],
+            vec!["version".into(), "extra".into()],
+            vec!["--version".into(), "--format".into(), "json".into()],
+        ] {
+            let error =
+                run(arguments, &mut Vec::new()).expect_err("invalid version args must fail");
+            assert!(matches!(error, CliError::Usage(_)));
+        }
     }
 
     #[test]

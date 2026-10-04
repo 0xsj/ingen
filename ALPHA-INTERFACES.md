@@ -1,6 +1,6 @@
 # InGen alpha interfaces
 
-This is the current Sorna/Nublar/Sentinel alpha boundary. It names the artifacts and
+This is the current InGen alpha boundary. It names the artifacts and
 semantics that another tool may consume today; it does not promise that the
 alpha is a long-term compatibility commitment.
 
@@ -34,11 +34,24 @@ schema identities and meanings stable until an intentional interface review:
 | Sentinel native session journal | `ingen.sentinel-native-session/v1` | Sentinel | Durable launch intent, one execution claim, observed host binding, and captured process outcome; declaration-only and unverified. Separate from host callback ingress. |
 | Sentinel role execution report | `ingen.sentinel-role-execution/v1` | Sentinel | Separate child policy, byte bindings, captures, and outcome for scoped host enforcement; unverified, without independent attestation. |
 | Sentinel CI explanation | `ingen.sentinel-ci-explanation/v1` | Sentinel | Closed producer-owned lifecycle, artifact, and optional audit context nested in the shared CI envelope. |
+| Sentinel role execution CI explanation | `ingen.sentinel-role-execution-explanation/v1` | Sentinel | Separate execution result and exact report/input byte references; passing describes command completion and evidence integrity. |
+| Amber context | Amber v1 (`version: 1`) | Amber | Raw SDK work, execution, correlation, and causation identities; no process outcome or host attestation. |
+| Sentinel provenance execution receipt | `ingen.sentinel-provenance-execution/v1` | Sentinel | Separate nonisolated coordinator argv, byte references, captures, and actual outcome; unverified. |
+| Hammond approval record | `ingen.hammond-governance/v1` | Hammond | Contract identity, active review policy, authority snapshots, and replayed review state. |
+| Lockwood custody verification report | `lockwood.verification-report/v1` | Lockwood | Selected record verification outcomes; producer verdicts remain separate. |
 
 The `v1` labels are alpha interfaces, not a claim that every field is already
 ideal. A breaking field or semantic change must be deliberate, documented, and
 accompanied by a version or migration decision; it must not be smuggled into a
 producer because the current repository happens to be a monorepo.
+
+The shared CI envelope also supports Hammond's `approved-contract` kind and
+Lockwood's `custody-verification` kind. Hammond verifies an existing approval;
+it does not create one or authenticate an organization. Lockwood requires an
+explicit, nonempty custody record selection and checks reachable lineage;
+an intact failed producer result can pass custody verification. These producer
+reports remain opaque to Nublar. A Sentinel provenance receipt is not a shared
+CI result and must not be relabeled as one by a consumer.
 
 ## Cross-boundary invariants
 

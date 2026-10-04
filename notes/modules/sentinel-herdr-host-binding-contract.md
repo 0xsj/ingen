@@ -1,11 +1,21 @@
-# Sentinel's native Herdr binding needs a host contract first
+# Sentinel's Herdr callback binding needs a host contract
+
+## Current native provider — 2026-10-04
+
+The opt-in Herdr 0.9.3 socket provider is implemented separately from callback
+ingress. It launches an owned wrapper, retains durable Sentinel journal IDs and
+process evidence, and uses an execution lease for local interruption recovery.
+Socket checks authenticate a same-effective-UID local boundary; they do not
+authenticate host callbacks or provide replay history. Read-only pane process
+information remains an unverified observation. The callback requirements below
+and the historical 0.9.0 probe remain open inputs to a production event binding.
 
 ## Claim
 
 The provider-neutral `ingen.herdr-event/v1` ingress is ready, but a native
 Herdr plugin cannot be implemented responsibly from Sentinel alone. The host
 must first expose callback, identity, durability, and failure semantics. This
-note is the intake contract for that future binding; it is not a proposed
+note is the intake contract for that future callback binding; it is not a proposed
 Herdr SDK.
 
 ## Required host inputs
@@ -50,7 +60,7 @@ behavior, and which remain unsupported. Once complete, it becomes the input to
 the thin binding review; it does not change the provider-neutral Sentinel event
 contract by itself.
 
-The installed Herdr 0.9.0 surface is now recorded in
+The historical installed Herdr 0.9.0 surface is recorded in
 [`sentinel-herdr-v0-9-compatibility.md`](sentinel-herdr-v0-9-compatibility.md).
 It supplies a usable plugin and event-hook surface, but the event envelope does
 not supply the durable event identity, host timestamp, replay cursor, or

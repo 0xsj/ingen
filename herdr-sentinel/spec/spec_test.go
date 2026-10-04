@@ -1,11 +1,18 @@
 package spec
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
+
+	"github.com/santhosh-tekuri/jsonschema/v5"
+	"ingen/herdr-sentinel/internal/provenance"
 )
 
 func TestHerdrEventSchemaContract(t *testing.T) {
@@ -91,6 +98,116 @@ func TestSentinelCIExplanationSchemaContract(t *testing.T) {
 	}
 	if discriminator.Const != "ingen.sentinel-ci-explanation/v1" {
 		t.Fatalf("Sentinel CI explanation discriminator = %q, want ingen.sentinel-ci-explanation/v1", discriminator.Const)
+	}
+}
+
+func TestSentinelRoleExecutionExplanationSchemaContract(t *testing.T) {
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() did not return source path")
+	}
+	contents, err := os.ReadFile(filepath.Join(filepath.Dir(sourcePath), "role-execution-explanation-v1.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		ID                   string                     `json:"$id"`
+		Draft                string                     `json:"$schema"`
+		Type                 string                     `json:"type"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+		Required             []string                   `json:"required"`
+		Properties           map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(contents, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.ID == "" || schema.Draft == "" || schema.Type != "object" || schema.AdditionalProperties {
+		t.Fatalf("incomplete or open Sentinel role execution explanation schema: %+v", schema)
+	}
+	for _, field := range []string{"schema", "execution_id", "workspace_id", "role_id", "role_kind", "outcome", "report_status", "report_sha256", "enforcement", "assurance", "meaning"} {
+		if _, ok := schema.Properties[field]; !ok || !contains(schema.Required, field) {
+			t.Fatalf("Sentinel role execution explanation schema is missing required property %q", field)
+		}
+	}
+	var discriminator struct {
+		Const string `json:"const"`
+	}
+	if err := json.Unmarshal(schema.Properties["schema"], &discriminator); err != nil {
+		t.Fatal(err)
+	}
+	if discriminator.Const != "ingen.sentinel-role-execution-explanation/v1" {
+		t.Fatalf("role execution explanation discriminator = %q", discriminator.Const)
+	}
+}
+
+func TestSentinelProvenancePublishedReceiptsMatchSchema(t *testing.T) {
+	_, sourcePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() did not return source path")
+	}
+	schemaPath := filepath.Join(filepath.Dir(sourcePath), "provenance-execution-v1.schema.json")
+	schemaBytes, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.AssertFormat = true
+	const schemaURL = "https://ingen.dev/schemas/sentinel/provenance-execution-v1.schema.json"
+	if err := compiler.AddResource(schemaURL, bytes.NewReader(schemaBytes)); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile(schemaURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if _, _, err := provenance.Start(root, ".ingen/provenance/root.json"); err != nil {
+		t.Fatal(err)
+	}
+	falseCommand, err := exec.LookPath("false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name    string
+		command []string
+		cancel  bool
+	}{
+		{name: "completed", command: []string{"/bin/echo", "complete"}},
+		{name: "failed", command: []string{falseCommand}},
+		{name: "canceled", command: []string{"/bin/sleep", "2"}, cancel: true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if test.cancel {
+				time.AfterFunc(100*time.Millisecond, cancel)
+			}
+			receipt, execErr := provenance.Execute(ctx, provenance.Request{
+				Root: root, ParentPath: ".ingen/provenance/root.json",
+				OutputPath:  ".ingen/provenance/" + test.name + ".context.json",
+				ReceiptPath: ".ingen/provenance/" + test.name + ".receipt.json",
+				Operation:   "schema-check", Command: test.command,
+			})
+			if receipt.Schema != provenance.ReceiptSchema || test.name == "completed" && execErr != nil || test.name != "completed" && execErr == nil {
+				t.Fatalf("Execute %s returned receipt %+v and err %v", test.name, receipt, execErr)
+			}
+			contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(receipt.ReceiptPath)))
+			if err != nil {
+				t.Fatalf("read %s receipt (status %s): %v", test.name, receipt.Status, err)
+			}
+			var document any
+			if err := json.Unmarshal(contents, &document); err != nil {
+				t.Fatal(err)
+			}
+			if err := schema.Validate(document); err != nil {
+				t.Fatalf("generated %s receipt does not satisfy schema: %v", test.name, err)
+			}
+			if receipt.Status != test.name {
+				t.Fatalf("receipt status = %s, want %s", receipt.Status, test.name)
+			}
+		})
 	}
 }
 

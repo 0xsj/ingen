@@ -244,8 +244,8 @@ func validateSornaRunSummary(side string, summary SornaRunSummary) error {
 		}
 	}
 	if summary.Lifecycle != nil {
-		if strings.TrimSpace(summary.Lifecycle.Mode) == "" || strings.TrimSpace(summary.Lifecycle.Outcome) == "" || summary.Lifecycle.ExitCode < 0 {
-			return fmt.Errorf("Sorna %s lifecycle is incomplete", side)
+		if strings.TrimSpace(summary.Lifecycle.Mode) == "" || strings.TrimSpace(summary.Lifecycle.Outcome) == "" || summary.Lifecycle.ExitCode < -1 {
+			return fmt.Errorf("Sorna %s lifecycle is incomplete or has an invalid exit code", side)
 		}
 	}
 	if summary.Summary.Passed < 0 || summary.Summary.Failed < 0 || summary.Summary.Errors < 0 || summary.Summary.Inconclusive < 0 || summary.Summary.Skipped < 0 {
@@ -474,8 +474,8 @@ func validateSornaRun(path string, document sornaRunDocument) error {
 	if strings.TrimSpace(document.Assurance.Status) == "" || document.Assurance.Level < 0 {
 		return fmt.Errorf("Sorna run %s needs a valid assurance summary", path)
 	}
-	if document.Lifecycle != nil && strings.TrimSpace(document.Lifecycle.Mode) == "" {
-		return fmt.Errorf("Sorna run %s lifecycle needs a mode", path)
+	if document.Lifecycle != nil && (strings.TrimSpace(document.Lifecycle.Mode) == "" || document.Lifecycle.ExitCode < -1) {
+		return fmt.Errorf("Sorna run %s lifecycle needs a mode and a valid exit code", path)
 	}
 	if document.Summary.Passed < 0 || document.Summary.Failed < 0 || document.Summary.Errors < 0 || document.Summary.Inconclusive < 0 || document.Summary.Skipped < 0 {
 		return fmt.Errorf("Sorna run %s summary counts must not be negative", path)

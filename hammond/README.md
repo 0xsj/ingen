@@ -138,6 +138,28 @@ go run ./hammond/cmd/hammond append-event \
 go run ./hammond/cmd/hammond lineage --store "$STORE"
 ```
 
+`hammond gate` is a read-only CI producer. It takes an explicit project root,
+approval record, active review policy, and exact expected contract identity and
+digest, then writes an exclusive `ingen.ci-result/v1` envelope:
+
+```sh
+go run ./hammond/cmd/hammond gate \
+  --root "$PROJECT" \
+  --approval .ingen/governance/approval.json \
+  --review-policy .ingen/governance/review-policy.json \
+  --contract .ingen/contracts/contract.json \
+  --project-id example --contract-id contract --contract-version 1 \
+  --contract-schema ingen.contract/v1 --contract-sha256 <lowercase-64-hex> \
+  --output .ingen/ci/hammond.json
+```
+
+The output is `tool=hammond`, `kind=approved-contract`. Hammond verifies the
+existing approved state, active policy, and rooted artifacts, then rechecks
+the exact returned input hashes before reporting success. A missing or
+mismatched input writes an `error` envelope when the output can be published
+safely. This result records governance state only; it does not verify contract
+behavior, authenticate a caller, or create an approval or attestation.
+
 Use `hammond revision --store "$STORE" --record <path>` to obtain the current
 record revision. Pass it as `--if-revision <revision>` to `append-event`,
 `amend`, or `supersede`; a stale token fails with a conflict and should be

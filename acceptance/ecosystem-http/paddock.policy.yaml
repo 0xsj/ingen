@@ -1,0 +1,42 @@
+schema: paddock.architecture/v1
+project: document-flow-http
+
+source:
+  language: go
+  unit: package
+  roots: [examples/document-pipeline-lab/subject]
+
+components:
+  document-service:
+    match: examples/document-pipeline-lab/subject
+    labels:
+      role: service
+  composition:
+    match: examples/document-pipeline-lab/subject/cmd/**
+    labels:
+      role: composition
+
+rules:
+  - id: every-go-package-is-classified
+    kind: component-owns
+    allow: [document-service, composition]
+    message: every HTTP subject Go package belongs to the service or composition root
+
+  - id: composition-assembles-service
+    kind: allow-dependencies
+    from: {role: composition}
+    allow:
+      - {role: service}
+      - {standard-library: approved}
+      - external: approved
+    message: the command package may assemble the document service
+
+  - id: service-does-not-import-composition
+    kind: deny-dependencies
+    from: {role: service}
+    deny: [{role: composition}]
+    message: the document service must not depend on command composition
+
+  - id: no-package-cycles
+    kind: no-cycles
+    message: the document HTTP service graph must remain acyclic

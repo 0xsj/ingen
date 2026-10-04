@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"ingen/core/ciresult"
+	"ingen/core/cliversion"
 	"ingen/sorna/internal/campaign"
 	"ingen/sorna/internal/contract"
 	"ingen/sorna/internal/evidence"
@@ -38,14 +39,17 @@ func main() {
 }
 
 func run(args []string) int {
+	if handled, code := cliversion.Dispatch("sorna", args, os.Stdout, os.Stderr, cliversion.Legacy{
+		Version: sornaversion.Version, Commit: sornaversion.Commit, BuildDate: sornaversion.BuildDate,
+	}); handled {
+		return code
+	}
 	if len(args) == 0 {
 		usage()
 		return 2
 	}
 
 	switch args[0] {
-	case "version":
-		return versionCommand(args[1:])
 	case "release":
 		return releaseCommand(args[1:])
 	case "contract":
@@ -69,56 +73,6 @@ func run(args []string) int {
 	default:
 		fmt.Fprintln(os.Stderr, "unknown command:", args[0])
 		usage()
-		return 2
-	}
-}
-
-func versionCommand(args []string) int {
-	format := "text"
-	for index := 0; index < len(args); index++ {
-		switch args[index] {
-		case "--format", "-f":
-			if index+1 >= len(args) {
-				fmt.Fprintln(os.Stderr, "version: --format requires text or json")
-				return 2
-			}
-			index++
-			format = args[index]
-		default:
-			fmt.Fprintf(os.Stderr, "version: unknown option %q\n", args[index])
-			return 2
-		}
-	}
-
-	info := struct {
-		Name      string `json:"name"`
-		Version   string `json:"version"`
-		Commit    string `json:"commit"`
-		BuildDate string `json:"build_date"`
-	}{
-		Name:      "sorna",
-		Version:   sornaversion.Version,
-		Commit:    sornaversion.Commit,
-		BuildDate: sornaversion.BuildDate,
-	}
-
-	switch format {
-	case "text":
-		if _, err := fmt.Fprintf(os.Stdout, "%s %s\ncommit %s\nbuilt %s\n", info.Name, info.Version, info.Commit, info.BuildDate); err != nil {
-			fmt.Fprintln(os.Stderr, "version:", err)
-			return 1
-		}
-		return 0
-	case "json":
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(info); err != nil {
-			fmt.Fprintln(os.Stderr, "version:", err)
-			return 1
-		}
-		return 0
-	default:
-		fmt.Fprintf(os.Stderr, "version: unsupported format %q; use text or json\n", format)
 		return 2
 	}
 }
@@ -1793,9 +1747,8 @@ func runMutationCampaign(args []string) int {
 	startedAt := time.Now().UTC()
 	entries := make([]campaign.EntryResult, 0, len(plan.Mutations))
 	for _, planned := range plan.Mutations {
-		address := net.JoinHostPort(host, strconv.Itoa(port+planned.Sequence-1))
-		baseURL := "http://" + address
-		prepared, err := provider.Resolve(planned.Spec.ID, address, baseURL)
+		listenerAddress, baseURL := campaignEndpoint(host, port+planned.Sequence-1)
+		prepared, err := provider.Resolve(planned.Spec.ID, listenerAddress, baseURL)
 		if err != nil {
 			entries = append(entries, campaign.EntryResult{Sequence: planned.Sequence, MutationID: planned.Spec.ID, EvidencePath: campaignEntryPath(*outputDir, planned), Status: "error", ExitCode: -1, Reason: err.Error()})
 			continue
@@ -2069,6 +2022,18 @@ func emitCIResult(artifact ciresult.Artifact, outputPath, label string) int {
 	}
 	fmt.Printf("CI result: %s\nstatus: %s\n", outputPath, artifact.Status)
 	return artifact.ExitCode
+}
+
+// campaignEndpoint gives the subject a literal loopback bind address when the
+// client-facing URL uses localhost. This avoids requiring the contained
+// subject to resolve localhost through DNS while keeping the HTTP URL stable.
+func campaignEndpoint(host string, port int) (listenerAddress, baseURL string) {
+	urlAddress := net.JoinHostPort(host, strconv.Itoa(port))
+	listenHost := host
+	if host == "localhost" {
+		listenHost = "127.0.0.1"
+	}
+	return net.JoinHostPort(listenHost, strconv.Itoa(port)), "http://" + urlAddress
 }
 
 func campaignEntryPath(outputDir string, planned campaign.MutationEntry) string {

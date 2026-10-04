@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ingen.tool-version/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "name",
+    "version",
+    "revision",
+    "commit",
+    "build_date",
+    "source_inputs_sha256",
+    "dirty",
+    "goos",
+    "goarch",
+    "toolchain"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ingen.tool-version/v1"
+    },
+    "name": {
+      "enum": [
+        "malcolm",
+        "sorna",
+        "sentinel",
+        "hammond",
+        "paddock",
+        "lockwood",
+        "nublar",
+        "sattler",
+        "sorna-malcolm"
+      ]
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "build_date": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_inputs_sha256": {
+      "type": "string",
+      "pattern": "^(unknown|[0-9a-f]{64})$"
+    },
+    "dirty": {
+      "enum": [
+        "unknown",
+        "clean",
+        "dirty"
+      ]
+    },
+    "goos": {
+      "type": "string",
+      "minLength": 1
+    },
+    "goarch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "toolchain": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

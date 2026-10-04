@@ -1,0 +1,41 @@
+policy:
+  schema: ingen.policy/v1
+  id: ecosystem-http-subject
+  version: 1
+  status: draft
+  purpose: managed-document-http-subject
+  enforcement: host-enforced
+  filesystem:
+    read:
+      - path: .ingen/artifacts/document-pipeline
+        reason: prepared HTTP subject binary
+      - path: .ingen/artifacts/go-mutations
+        reason: generated mutation subject binaries
+    write: []
+    deny:
+      - path: .ingen/contract
+        reason: subject must not read contract inputs
+      - path: .ingen/policy
+        reason: subject must not read Sorna policies
+      - path: .ingen/artifacts/oracle
+        reason: subject must not read the oracle judging it
+      - path: .ingen/artifacts/evidence
+        reason: subject must not read behavioral evidence
+      - path: .ingen/artifacts/checks
+        reason: subject must not read governance or CI results
+      - path: .ingen/governance
+        reason: subject must not read governance inputs
+      - path: .ingen/provenance
+        reason: subject must not read coordinator provenance
+      - path: .git
+        reason: repository metadata is outside the subject boundary
+  network:
+    mode: allowlist
+    allow:
+      - host: localhost
+        ports: [@PORT@]
+        direction: inbound
+        purpose: local Sorna and Amber HTTP acceptance requests
+  process:
+    subject_id: document_flow
+    can_invoke_subject: false

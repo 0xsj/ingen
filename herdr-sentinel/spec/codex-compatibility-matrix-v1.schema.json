@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "codex-compatibility-matrix-v1.schema.json",
+  "title": "Contained Codex synthetic compatibility matrix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "scope", "status", "started_at", "finished_at", "timeout_seconds",
+    "synthetic", "assurance", "network_mode", "candidates", "limitations"
+  ],
+  "properties": {
+    "schema": {"const": "ingen.sentinel-codex-compatibility-matrix/v1"},
+    "scope": {"const": "local-synthetic-codex-compatibility-matrix"},
+    "status": {"enum": ["supported", "unsupported", "indeterminate"]},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"type": "string", "format": "date-time"},
+    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120},
+    "synthetic": {"const": true},
+    "assurance": {"const": "unverified"},
+    "network_mode": {"const": "allowlist"},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["executable_path", "executable_sha256_before", "status"],
+        "properties": {
+          "executable_path": {"type": "string", "pattern": "^/"},
+          "executable_sha256_before": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "executable_sha256_after": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "status": {"enum": ["supported", "unsupported", "indeterminate"]},
+          "diagnostic": {"$ref": "codex-readiness-v1.schema.json"},
+          "reason_code": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"status": {"const": "supported"}}, "required": ["status"]},
+            "then": {
+              "required": ["executable_sha256_after", "diagnostic"],
+              "properties": {"diagnostic": {"properties": {"status": {"const": "supported"}}}}
+            }
+          },
+          {
+            "if": {"properties": {"status": {"const": "unsupported"}}, "required": ["status"]},
+            "then": {
+              "required": ["executable_sha256_after", "diagnostic"],
+              "properties": {"diagnostic": {"properties": {"status": {"const": "unsupported"}}}}
+            }
+          },
+          {
+            "if": {"properties": {"status": {"const": "indeterminate"}}, "required": ["status"]},
+            "then": {
+              "anyOf": [
+                {"required": ["reason_code", "reason"]},
+                {"required": ["diagnostic"]}
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "limitations": {"type": "array", "minItems": 8, "maxItems": 9, "items": {"type": "string", "minLength": 1}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "supported"}}, "required": ["status"]},
+      "then": {"properties": {"candidates": {"contains": {"properties": {"status": {"const": "supported"}}, "required": ["status"]}}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "unsupported"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "candidates": {
+            "items": {"properties": {"status": {"const": "unsupported"}}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "indeterminate"}}, "required": ["status"]},
+      "then": {
+        "properties": {"candidates": {"contains": {"properties": {"status": {"const": "indeterminate"}}, "required": ["status"]}}},
+        "not": {"properties": {"candidates": {"contains": {"properties": {"status": {"const": "supported"}}, "required": ["status"]}}}}
+      }
+    }
+  ]
+}

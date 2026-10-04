@@ -1,0 +1,15 @@
+{
+  "schema": "ingen.hammond-review-policy/v1",
+  "id": "ecosystem-http-test-approval",
+  "version": 1,
+  "minimum_approvals": 1,
+  "authority": {
+    "id": "ecosystem-http-test-authority",
+    "version": 1,
+    "schema": "ingen.hammond-authority/v1",
+    "artifact": {
+      "uri": ".ingen/governance/review-authority.json",
+      "sha256": "@AUTHORITY_SHA256@"
+    }
+  }
+}

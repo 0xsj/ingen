@@ -266,15 +266,49 @@ func TestCancellationAndHostBindingPreventUnsafeLaunchDrift(t *testing.T) {
 	if err != nil || started || updated.State != StateCancelRequested {
 		t.Fatalf("child start after cancellation = state %q started %v err %v", updated.State, started, err)
 	}
-	observed, changed, err := Append(fixture.root, fixture.journalPath, startedEvent)
-	if err != nil || !changed || observed.State != StateCancelRequested {
-		t.Fatalf("late child start observation = state %q changed %v err %v", observed.State, changed, err)
+	if _, _, err := Append(fixture.root, fixture.journalPath, startedEvent); err == nil || !strings.Contains(err.Error(), "must use StartExecution") {
+		t.Fatalf("generic late child start append = %v, want CAS-only rejection", err)
+	}
+	observed, err := Load(fixture.root, fixture.journalPath)
+	if err != nil || observed.State != StateCancelRequested {
+		t.Fatalf("reloaded cancellation record = state %q err %v", observed.State, err)
+	}
+	for _, event := range observed.Events {
+		if event.Kind == KindWrapperStarted {
+			t.Fatal("denied StartExecution left fabricated wrapper-started history")
+		}
 	}
 
 	changedHost := fixture.event("bad-host-update", "host-observation", StateCancelRequested, 4)
 	changedHost.Host = &Host{WorkspaceID: "herdr-workspace", SentinelWorkspaceID: fixture.record.Intent.WorkspaceID, PaneID: "pane-2"}
 	if _, _, err := Append(fixture.root, fixture.journalPath, changedHost); err == nil || !strings.Contains(err.Error(), "pane binding is immutable") {
 		t.Fatalf("host pane swap error = %v", err)
+	}
+}
+
+func TestExecutionLeaseIsExclusiveAndReleasesOnClose(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.record.Intent.ExecutionLeasePath = filepath.ToSlash(filepath.Join(".ingen", "artifacts", "sessions", "native.lease"))
+	if err := Create(fixture.root, fixture.journalPath, fixture.record); err != nil {
+		t.Fatal(err)
+	}
+	first, acquired, err := TryExecutionLease(fixture.root, fixture.record.Intent.ExecutionLeasePath)
+	if err != nil || !acquired {
+		t.Fatalf("first TryExecutionLease() = %v, %v", acquired, err)
+	}
+	second, acquired, err := TryExecutionLease(fixture.root, fixture.record.Intent.ExecutionLeasePath)
+	if err != nil || acquired || second != nil {
+		t.Fatalf("second TryExecutionLease() = lease %v acquired %v err %v; want busy", second, acquired, err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first execution lease: %v", err)
+	}
+	third, acquired, err := TryExecutionLease(fixture.root, fixture.record.Intent.ExecutionLeasePath)
+	if err != nil || !acquired {
+		t.Fatalf("third TryExecutionLease() = %v, %v after release", acquired, err)
+	}
+	if err := third.Close(); err != nil {
+		t.Fatalf("close third execution lease: %v", err)
 	}
 }
 

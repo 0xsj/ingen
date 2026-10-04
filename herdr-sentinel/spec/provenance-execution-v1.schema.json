@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.dev/schemas/sentinel/provenance-execution-v1.schema.json",
+  "title": "Sentinel coordinator provenance execution receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "execution_id", "work_id", "parent_path", "parent_sha256",
+    "context_path", "context_sha256", "receipt_path", "operation", "argv",
+    "executable_path", "executable_sha256", "started_at", "finished_at",
+    "status", "stdout_path", "stderr_path", "enforcement", "assurance", "limitations"
+  ],
+  "properties": {
+    "schema": { "const": "ingen.sentinel-provenance-execution/v1" },
+    "execution_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "work_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+    "parent_path": { "type": "string", "minLength": 1 },
+    "parent_sha256": { "$ref": "#/$defs/sha256" },
+    "context_path": { "type": "string", "minLength": 1 },
+    "context_sha256": { "$ref": "#/$defs/sha256" },
+    "receipt_path": { "type": "string", "minLength": 1 },
+    "operation": { "type": "string", "minLength": 1 },
+    "argv": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "executable_path": { "type": "string", "minLength": 1 },
+    "executable_sha256": { "$ref": "#/$defs/sha256" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["completed", "failed", "canceled", "indeterminate"] },
+    "exit_code": { "type": "integer", "minimum": -1, "maximum": 255 },
+    "reason": { "type": "string" },
+    "stdout_path": { "type": "string", "minLength": 1 },
+    "stdout_sha256": { "$ref": "#/$defs/sha256" },
+    "stderr_path": { "type": "string", "minLength": 1 },
+    "stderr_sha256": { "$ref": "#/$defs/sha256" },
+    "enforcement": { "const": "not-isolated" },
+    "assurance": { "const": "unverified" },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+      "then": {
+        "required": ["exit_code", "stdout_sha256", "stderr_sha256"],
+        "properties": { "exit_code": { "const": 0 } },
+        "not": { "required": ["reason"] }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["failed", "canceled", "indeterminate"] } }, "required": ["status"] },
+      "then": { "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 1 } } }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

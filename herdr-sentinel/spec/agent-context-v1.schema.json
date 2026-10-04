@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.dev/schemas/sentinel/agent-context-v1.schema.json",
+  "title": "Sentinel Codex launch context v1",
+  "description": "Exact prompt and private local state for an opt-in Codex exec launch. This is unverified local launch evidence, not provider or model attestation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "agent",
+    "mode",
+    "execution_id",
+    "root",
+    "working_directory",
+    "home_path",
+    "codex_home_path",
+    "prompt_source_path",
+    "prompt_source_sha256",
+    "prompt_snapshot_path",
+    "prompt_snapshot_sha256",
+    "prompt_bytes",
+    "args",
+    "stdin",
+    "network_mode"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ingen.sentinel-agent-context/v1"
+    },
+    "agent": {
+      "const": "codex-cli"
+    },
+    "mode": {
+      "const": "exec-ephemeral"
+    },
+    "execution_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "root": {
+      "$ref": "#/$defs/absolutePath"
+    },
+    "working_directory": {
+      "$ref": "#/$defs/absolutePath"
+    },
+    "home_path": {
+      "$ref": "#/$defs/absolutePath"
+    },
+    "codex_home_path": {
+      "$ref": "#/$defs/absolutePath"
+    },
+    "prompt_source_path": {
+      "$ref": "#/$defs/relativePath"
+    },
+    "prompt_source_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "prompt_snapshot_path": {
+      "$ref": "#/$defs/relativePath"
+    },
+    "prompt_snapshot_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "prompt_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65536
+    },
+    "model": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$"
+    },
+    "args": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "string"
+      }
+    },
+    "stdin": {
+      "const": "hash-pinned-prompt-snapshot"
+    },
+    "network_mode": {
+      "enum": [
+        "disabled",
+        "allowlist"
+      ]
+    },
+    "broker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "endpoint",
+        "credential_source",
+        "credential_env",
+        "max_requests",
+        "max_output_tokens",
+        "timeout_seconds"
+      ],
+      "properties": {
+        "provider": {
+          "const": "openai-responses"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^http://127\\.0\\.0\\.1:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])/v1$"
+        },
+        "credential_source": {
+          "const": "environment"
+        },
+        "credential_env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "not": {
+            "const": "INGEN_CODEX_BROKER_TOKEN"
+          }
+        },
+        "max_requests": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1800
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "absolutePath": {
+      "type": "string",
+      "pattern": "^/",
+      "minLength": 2
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/\\\\]+(/[^/\\\\]+)*$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "broker"
+        ]
+      },
+      "then": {
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "network_mode": {
+            "const": "allowlist"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "network_mode": {
+            "const": "disabled"
+          }
+        }
+      }
+    }
+  ]
+}

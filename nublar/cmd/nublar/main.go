@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ingen/core/ciresult"
+	"ingen/core/cliversion"
 	"ingen/nublar/internal/aggregate"
 	nublardelivery "ingen/nublar/internal/delivery"
 	nublargithubchecks "ingen/nublar/internal/delivery/githubchecks"
@@ -27,6 +28,9 @@ func main() {
 }
 
 func run(args []string) int {
+	if handled, code := cliversion.Dispatch("nublar", args, os.Stdout, os.Stderr, cliversion.Legacy{}); handled {
+		return code
+	}
 	if len(args) == 0 {
 		usage()
 		return 2
@@ -647,6 +651,7 @@ func writeReceiptList(output string, receipts []nublardelivery.Receipt) error {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
+	fmt.Fprintln(os.Stderr, "  nublar [--version | version [--format text|json]]")
 	fmt.Fprintln(os.Stderr, "  nublar workflow validate <path>")
 	fmt.Fprintln(os.Stderr, "  nublar run collect --workflow <path> [--root <dir>] [--run-id <id>] [--store <dir>] [--output <path>] [--external-system <name> --external-id <id> --attempt <n>]")
 	fmt.Fprintln(os.Stderr, "  nublar run show --store <dir> --run-id <id> [--output <path>]")

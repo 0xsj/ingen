@@ -3,6 +3,7 @@
 package sandbox
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os/exec"
@@ -121,18 +122,41 @@ func TestAccessCaptureCanMissShortLivedTransitionBetweenSamples(t *testing.T) {
 		processIDs:       make(map[int]struct{}),
 		samplingInterval: 500 * time.Millisecond,
 	}
-	command := exec.Command("/bin/sh", "-c", "sleep 0.25; exec /bin/sleep 0.05")
+	// Control the two sampling points instead of assuming the scheduler will
+	// keep a short-lived image between ticker events. The shell waits until the
+	// first sample finishes; the second sample happens after the image exits.
+	command := exec.Command("/bin/sh", "-c", "printf 'ready\\n'; read -r proceed; exec /bin/sleep 0.01")
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdin.Close()
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		if command.ProcessState == nil {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+		}
+	}()
 	rootPID := command.Process.Pid
-	if err := capture.Attach(rootPID); err != nil {
+	if ready, err := bufio.NewReader(stdout).ReadString('\n'); err != nil || ready != "ready\n" {
+		t.Fatalf("shell readiness = %q, %v", ready, err)
+	}
+	capture.processIDs[rootPID] = struct{}{}
+	capture.extendProcessTree(rootPID)
+	if _, err := stdin.Write([]byte("proceed\n")); err != nil {
 		t.Fatal(err)
 	}
 	if err := command.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	capture.stopSampler()
+	capture.extendProcessTree(rootPID)
 
 	rootObservations := make([]ExecutableObservation, 0)
 	for _, observation := range capture.snapshotExecutableHistory() {
@@ -143,8 +167,8 @@ func TestAccessCaptureCanMissShortLivedTransitionBetweenSamples(t *testing.T) {
 	if len(rootObservations) != 1 || !strings.HasSuffix(rootObservations[0].Path, "/sh") {
 		t.Fatalf("root executable observations = %+v; want only the initial shell identity", rootObservations)
 	}
-	if capture.executableSamples < 2 {
-		t.Fatalf("executable sample count = %d; want initial synchronous and sampler attempts", capture.executableSamples)
+	if capture.executableSamples != 2 {
+		t.Fatalf("executable sample count = %d; want controlled before/after samples", capture.executableSamples)
 	}
 }
 

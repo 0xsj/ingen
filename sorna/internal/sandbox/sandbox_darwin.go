@@ -4,12 +4,18 @@ package sandbox
 
 import (
 	"fmt"
+	"net"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
 func preparePlatform(command []string, commandPath, _ string, readPaths, writePaths, denyPaths []string, networkRules []NetworkRule, allowedTools []string) (Prepared, error) {
+	for _, rule := range networkRules {
+		if err := validateSeatbeltNetworkRule(rule); err != nil {
+			return Prepared{}, err
+		}
+	}
 	profile := seatbeltProfile(commandPath, readPaths, writePaths, denyPaths, networkRules, allowedTools)
 	wrapped := make([]string, 0, len(command)+3)
 	wrapped = append(wrapped, "/usr/bin/sandbox-exec", "-p", profile)
@@ -96,6 +102,19 @@ func seatbeltProfile(commandPath string, readPaths, writePaths, denyPaths []stri
 		writeDenyRule(&builder, "file-write*", "subpath", path)
 	}
 	return builder.String()
+}
+
+// validateSeatbeltNetworkRule rejects host identities that Seatbelt cannot
+// express. Mapping a literal IP to localhost would silently widen the grant:
+// the localhost token covers local host addresses at the selected port.
+func validateSeatbeltNetworkRule(rule NetworkRule) error {
+	if net.ParseIP(rule.Host) != nil {
+		return fmt.Errorf("macOS Seatbelt cannot enforce literal IP network host %q; use localhost for the measured local-host-per-port scope or *", rule.Host)
+	}
+	if rule.Host != "localhost" && rule.Host != "*" {
+		return fmt.Errorf("macOS Seatbelt network host %q is unsupported; network filters accept only localhost or *", rule.Host)
+	}
+	return nil
 }
 
 func writeNetworkRule(builder *strings.Builder, operation, relation, protocol, endpoint string) {

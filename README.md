@@ -123,6 +123,20 @@ Malcolm spec -> Sorna contract -> sealed snapshot -> frozen oracle
 Sentinel exposes the project handoffs with `contract create`, `oracle freeze`,
 and `verify`; Herdr is optional coordination around that path.
 
+Contained Sentinel role reports can be verified with `role verify`, consumed
+as required Nublar checks, and preserved with Lockwood's
+`import-role-execution`. `make sentinel-role-evidence-check` exercises these
+handoffs with actual success and failure commands in fresh macOS projects.
+
+`make ecosystem-http-check` exercises all nine modules on a fresh document
+HTTP service: one Malcolm specification, a sealed Sorna contract and oracle,
+Hammond approval verification, Paddock architecture checks, generated mutations,
+Amber coordinator provenance through Sentinel, Lockwood custody, Nublar
+collection and local webhook delivery, and Sattler comparison. It uses an
+explicit synthetic review fixture and an unsealed architecture test policy.
+These fixtures are acceptance inputs, not operator approvals. See the
+[acceptance guide](acceptance/ecosystem-http/README.md) for artifacts and limits.
+
 The current cross-tool alpha boundary is recorded in
 [ALPHA-INTERFACES.md](ALPHA-INTERFACES.md). The focused verification command
 is `make alpha-interface-check`; the complete clean workflow is
@@ -137,6 +151,19 @@ The current cross-vertical freeze surfaces are documented in
 status and known limitations are tracked in [`status.md`](status.md).
 
 ## Quick start
+
+Build and exercise a local nine-module toolchain bundle with
+`make ingen-install-check` on macOS. See [local packaging](packaging/README.md)
+for verified installation, installed Sentinel workflows, and remaining release
+requirements. `sentinel agent diagnose --agent-executable <absolute-path>`
+checks contained Codex startup against a synthetic broker without provider
+calls. `make linux-platform-probe` reports kernel interfaces without claiming
+Linux enforcement support.
+
+InGen source is licensed under [MIT](LICENSE). Dependency and compiler runtime
+notices retain their original licenses and accompany the local bundle. Every
+module command supports `--version` and `version --format json`; the latter
+records the build-input fingerprint when the bundle builder supplied one.
 
 ```sh
 make help

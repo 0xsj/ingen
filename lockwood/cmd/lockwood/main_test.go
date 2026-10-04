@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"ingen/core/ciresult"
+	"ingen/herdr-sentinel/evidence"
 	"ingen/lockwood/internal/attestation"
 	"ingen/lockwood/internal/custody"
 	"ingen/lockwood/internal/store"
@@ -119,6 +121,137 @@ func TestCLIEndToEnd(t *testing.T) {
 	}
 }
 
+func TestCLICIResultChecksSelectedReachableCustodyOnly(t *testing.T) {
+	emptyRoot := t.TempDir()
+	if code := run([]string{"ci-result", "--root", emptyRoot, "--id", "absent", "--output", filepath.Join(t.TempDir(), "empty.json")}, strings.NewReader(""), new(bytes.Buffer), new(bytes.Buffer)); code != 2 {
+		t.Fatalf("empty store exit = %d, want storage error 2", code)
+	}
+	unchanged, err := os.ReadDir(emptyRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unchanged) != 0 {
+		t.Fatalf("read-only ci-result created store entries: %v", unchanged)
+	}
+	root := t.TempDir()
+	fixtures := t.TempDir()
+	failedProducer := filepath.Join(fixtures, "producer-failed.json")
+	producerFile := mustCreate(t, failedProducer)
+	if err := ciresult.WriteJSON(producerFile, ciresult.Artifact{
+		Schema: ciresult.Schema, Tool: "sorna", Kind: "behavioral-verification", Status: "failed", ExitCode: 1,
+		CreatedAt: "2026-09-30T12:00:00Z", Source: ciresult.Source{Root: fixtures}, Report: json.RawMessage(`{"failed":true}`), Explanation: json.RawMessage(`"intentional failed-source fixture"`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := producerFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var parent custody.Record
+	parentOutput := new(bytes.Buffer)
+	if code := run([]string{"import-ci-result", "--root", root, "--id", "failed-source", "--name", "producer-result.json", "--received-at", "2026-09-30T12:01:00Z", failedProducer}, strings.NewReader(""), parentOutput, new(bytes.Buffer)); code != 0 {
+		t.Fatalf("import failed producer result exit = %d", code)
+	}
+	if err := json.Unmarshal(parentOutput.Bytes(), &parent); err != nil {
+		t.Fatal(err)
+	}
+	childPath := filepath.Join(fixtures, "child.json")
+	if err := os.WriteFile(childPath, []byte(`{"custody":"child"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	childOutput := new(bytes.Buffer)
+	if code := run([]string{"put", "--root", root, "--id", "child-record", "--media-type", "application/json", "--producer", "sentinel", "--kind", "role-report", "--received-at", "2026-09-30T12:02:00Z", "--parent", "references=" + parent.Artifact.Digest, childPath}, strings.NewReader(""), childOutput, new(bytes.Buffer)); code != 0 {
+		t.Fatalf("put child exit = %d", code)
+	}
+	var child custody.Record
+	if err := json.Unmarshal(childOutput.Bytes(), &child); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedPath := filepath.Join(fixtures, "unrelated.json")
+	if err := os.WriteFile(unrelatedPath, []byte(`{"custody":"unrelated"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"put", "--root", root, "--id", "unrelated-record", "--media-type", "application/json", "--producer", "test", "--kind", "unrelated", "--received-at", "2026-09-30T12:03:00Z", unrelatedPath}, strings.NewReader(""), new(bytes.Buffer), new(bytes.Buffer)); code != 0 {
+		t.Fatalf("put unrelated record exit = %d", code)
+	}
+	output := filepath.Join(fixtures, "custody-ci.json")
+	args := []string{"ci-result", "--root", root, "--id", "child-record", "--output", output}
+	if code := run(args, strings.NewReader(""), new(bytes.Buffer), new(bytes.Buffer)); code != 0 {
+		t.Fatalf("intact custody CI exit = %d", code)
+	}
+	result, err := ciresult.LoadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tool != "lockwood" || result.Kind != "custody-verification" || result.Status != "passed" || result.ExitCode != 0 {
+		t.Fatalf("failed producer status incorrectly affected custody verification: %+v", result)
+	}
+	if _, ok := result.Inputs["record:failed-source"]; !ok {
+		t.Fatalf("reachable parent record missing from inputs: %+v", result.Inputs)
+	}
+	if _, ok := result.Inputs["record:child-record"]; !ok {
+		t.Fatalf("selected record missing from inputs: %+v", result.Inputs)
+	}
+	if _, ok := result.Inputs["record:unrelated-record"]; ok {
+		t.Fatalf("unselected record was claimed as checked: %+v", result.Inputs)
+	}
+	for name, ref := range result.Inputs {
+		data, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(ref.Path)))
+		if readErr != nil {
+			t.Fatalf("read bound input %s: %v", name, readErr)
+		}
+		digest := sha256.Sum256(data)
+		if hex.EncodeToString(digest[:]) != ref.SHA256 {
+			t.Fatalf("input %s hash does not match its stored snapshot", name)
+		}
+	}
+	var report struct {
+		Selected     []string                   `json:"selected_custody_ids"`
+		Verification custody.VerificationReport `json:"verification"`
+	}
+	if err := json.Unmarshal(result.Report, &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Selected) != 1 || report.Selected[0] != "child-record" || report.Verification.Checked != 1 || report.Verification.Failed != 0 {
+		t.Fatalf("unexpected custody report: %+v", report)
+	}
+	if code := run(args, strings.NewReader(""), new(bytes.Buffer), new(bytes.Buffer)); code != 2 {
+		t.Fatalf("reusing existing output exit = %d, want 2", code)
+	}
+	alias := filepath.Join(fixtures, "store-alias")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	aliasOutput := filepath.Join(alias, "alias-result.json")
+	if code := run([]string{"ci-result", "--root", root, "--id", "child-record", "--output", aliasOutput}, strings.NewReader(""), new(bytes.Buffer), new(bytes.Buffer)); code != 2 {
+		t.Fatalf("aliased store output exit = %d, want 2", code)
+	}
+	blobPath := filepath.Join(root, "blobs", "sha256", parent.Artifact.Digest[len("sha256:"):len("sha256:")+2], parent.Artifact.Digest[len("sha256:")+2:len("sha256:")+4], parent.Artifact.Digest[len("sha256:"):])
+	if err := os.WriteFile(blobPath, []byte("corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	badOutput := filepath.Join(fixtures, "corrupt-result.json")
+	args[len(args)-1] = badOutput
+	if code := run(args, strings.NewReader(""), new(bytes.Buffer), new(bytes.Buffer)); code != 1 {
+		t.Fatalf("corrupt reachable parent exit = %d, want 1", code)
+	}
+	badResult, err := ciresult.LoadFile(badOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if badResult.Status != "failed" || badResult.ExitCode != 1 {
+		t.Fatalf("corrupt parent result = %s/%d", badResult.Status, badResult.ExitCode)
+	}
+}
+
+func mustCreate(t *testing.T, path string) *os.File {
+	t.Helper()
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
 func TestCLIFindRejectsInvalidQueryBeforeOpeningStore(t *testing.T) {
 	var stderr bytes.Buffer
 	if code := run([]string{"find", "--root", t.TempDir(), "--digest", "not-a-digest"}, strings.NewReader(""), &bytes.Buffer{}, &stderr); code != 2 {
@@ -212,6 +345,57 @@ func TestCLIVerifyReportContinuesAfterFailure(t *testing.T) {
 	}
 	if inspected.Status != custody.Accepted {
 		t.Fatalf("verify-report changed failed record status to %q", inspected.Status)
+	}
+}
+
+func TestCLIImportRoleExecutionVerifiesBeforeCreatingStore(t *testing.T) {
+	projectRoot := t.TempDir()
+	reportPath := filepath.Join(projectRoot, ".ingen", "artifacts", "role-executions", "bad.json")
+	if err := os.MkdirAll(filepath.Dir(reportPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reportPath, []byte(`{"schema":"wrong"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	storeRoot := filepath.Join(t.TempDir(), "lockwood-store")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{
+		"import-role-execution",
+		"--root", storeRoot,
+		"--project-root", projectRoot,
+		"--path", ".ingen/artifacts/role-executions/bad.json",
+		"--id", "role-evidence-invalid",
+	}, strings.NewReader(""), &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "verify Sentinel role execution evidence") {
+		t.Fatalf("import-role-execution exit=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Lstat(storeRoot); !os.IsNotExist(err) {
+		t.Fatalf("failed producer verification created Lockwood store: stat err=%v", err)
+	}
+}
+
+func TestRoleExecutionStoreOverlapProtectsSelectedFilesButAllowsCustodySubtree(t *testing.T) {
+	projectRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".ingen", "artifacts", "role-executions"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(projectRoot, ".ingen", "artifacts", "role-executions", "run.json")
+	manifest := filepath.Join(projectRoot, ".ingen", "workspace.yaml")
+	for _, path := range []string{report, manifest} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("evidence"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := []evidence.File{{Path: ".ingen/workspace.yaml"}}
+	storeRoot := filepath.Join(projectRoot, ".ingen", "artifacts", "custody")
+	if err := ensureStoreDoesNotOverlapEvidence(storeRoot, projectRoot, ".ingen/artifacts/role-executions/run.json", files); err != nil {
+		t.Fatalf("normal in-project custody subtree was rejected: %v", err)
+	}
+	if err := ensureStoreDoesNotOverlapEvidence(filepath.Dir(report), projectRoot, ".ingen/artifacts/role-executions/run.json", files); err == nil {
+		t.Fatal("store rooted at evidence directory was accepted")
 	}
 }
 

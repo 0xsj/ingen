@@ -1,0 +1,31 @@
+schema: ingen.nublar-workflow/v1
+id: ecosystem-document-flow-http
+checks:
+  - id: approved-contract
+    tool: hammond
+    result: .ingen/artifacts/checks/hammond.json
+    required: true
+  - id: subject-architecture
+    tool: paddock
+    result: .ingen/artifacts/checks/paddock.json
+    required: true
+  - id: behavioral-verification
+    tool: sorna
+    result: .ingen/artifacts/checks/behavior.json
+    required: true
+  - id: generated-mutation
+    tool: sorna
+    result: .ingen/artifacts/checks/mutation.json
+    required: true
+  - id: mutation-provider-review
+    tool: sorna
+    result: .ingen/artifacts/checks/mutation-provider.json
+    required: true
+  - id: mutation-preparation-review
+    tool: sorna
+    result: .ingen/artifacts/checks/mutation-preparation.json
+    required: true
+  - id: custody-lineage
+    tool: lockwood
+    result: .ingen/artifacts/checks/lockwood.json
+    required: true

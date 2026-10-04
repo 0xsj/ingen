@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -28,6 +29,7 @@ type Client struct {
 	SocketPath       string
 	Timeout          time.Duration
 	MaxResponseBytes int64
+	peerUIDOverride  func(net.Conn) (uint32, error)
 }
 
 // ServerInfo identifies the protocol exposed by the selected socket.
@@ -73,6 +75,25 @@ type PaneOutput struct {
 	Truncated   bool
 }
 
+// ProcessInfo reports Herdr's read-only process observation for one exact
+// pane. It is useful for correlating an owned terminal to a live process; it
+// is not a Sentinel journal event or a host-authenticated lifecycle verdict.
+type ProcessInfo struct {
+	PaneID                   string    `json:"pane_id"`
+	ShellPID                 *uint32   `json:"shell_pid,omitempty"`
+	ForegroundProcessGroupID *uint32   `json:"foreground_process_group_id,omitempty"`
+	ForegroundProcesses      []Process `json:"foreground_processes"`
+}
+
+type Process struct {
+	PID     uint32   `json:"pid"`
+	Name    string   `json:"name"`
+	Argv0   *string  `json:"argv0,omitempty"`
+	Argv    []string `json:"argv"`
+	Cmdline *string  `json:"cmdline,omitempty"`
+	CWD     *string  `json:"cwd,omitempty"`
+}
+
 // HostError is a rejection returned by Herdr. Unlike a transport error, it
 // confirms that the host processed the request and returned an error response.
 type HostError struct {
@@ -94,6 +115,32 @@ type DeliveryError struct {
 	Method         string
 	MayHaveApplied bool
 	Err            error
+}
+
+// AuthenticationError means the selected UNIX endpoint or connected peer did
+// not pass local same-effective-UID checks. It is always returned before any
+// request bytes are written. This authenticates a local UID boundary only; it
+// does not authenticate Herdr as an application or distinguish same-UID apps.
+type AuthenticationError struct {
+	Reason string
+	Err    error
+}
+
+func (e *AuthenticationError) Error() string {
+	if e == nil {
+		return "Herdr peer authentication failed"
+	}
+	if e.Err != nil {
+		return fmt.Sprintf("Herdr peer authentication failed: %s: %v", e.Reason, e.Err)
+	}
+	return fmt.Sprintf("Herdr peer authentication failed: %s", e.Reason)
+}
+
+func (e *AuthenticationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
 }
 
 func (e *DeliveryError) Error() string {
@@ -214,6 +261,37 @@ func (c *Client) ListWorkspaces(ctx context.Context, cwd, label string) ([]Bindi
 	return matched, nil
 }
 
+// Snapshot returns the exact host session snapshot result as bounded JSON for
+// read-only preservation checks. It is an observation, not an event cursor.
+func (c *Client) Snapshot(ctx context.Context) (json.RawMessage, error) {
+	var result struct {
+		Type     string          `json:"type"`
+		Snapshot json.RawMessage `json:"snapshot"`
+	}
+	if err := c.call(ctx, "session.snapshot", map[string]any{}, false, &result); err != nil {
+		return nil, err
+	}
+	if result.Type != "session_snapshot" || len(result.Snapshot) == 0 || string(result.Snapshot) == "null" {
+		return nil, c.protocolError("session.snapshot", false, errors.New("snapshot response omitted the host session snapshot"))
+	}
+	var identity struct {
+		Version    string `json:"version"`
+		Protocol   uint32 `json:"protocol"`
+		Workspaces []any  `json:"workspaces"`
+		Tabs       []any  `json:"tabs"`
+		Panes      []any  `json:"panes"`
+		Layouts    []any  `json:"layouts"`
+		Agents     []any  `json:"agents"`
+	}
+	if err := json.Unmarshal(result.Snapshot, &identity); err != nil {
+		return nil, c.protocolError("session.snapshot", false, fmt.Errorf("decode session snapshot: %w", err))
+	}
+	if identity.Version == "" || identity.Protocol == 0 || identity.Workspaces == nil || identity.Tabs == nil || identity.Panes == nil || identity.Layouts == nil || identity.Agents == nil {
+		return nil, c.protocolError("session.snapshot", false, errors.New("session snapshot omitted required version, protocol, or collection fields"))
+	}
+	return append(json.RawMessage(nil), result.Snapshot...), nil
+}
+
 // Pane returns live identity for the exact requested pane. It rejects a host
 // reply that names a different pane, which prevents binding to stale ordinals.
 func (c *Client) Pane(ctx context.Context, paneID string) (Pane, error) {
@@ -269,6 +347,51 @@ func (c *Client) ReadPane(ctx context.Context, paneID string) (PaneOutput, error
 		Revision:    result.Read.Revision,
 		Truncated:   result.Read.Truncated,
 	}, nil
+}
+
+// ProcessInfo returns Herdr's current process metadata for one exact pane ID.
+func (c *Client) ProcessInfo(ctx context.Context, paneID string) (ProcessInfo, error) {
+	if strings.TrimSpace(paneID) == "" {
+		return ProcessInfo{}, errors.New("pane ID is required")
+	}
+	var result struct {
+		Type        string `json:"type"`
+		ProcessInfo struct {
+			PaneID                   string  `json:"pane_id"`
+			ShellPID                 *uint32 `json:"shell_pid"`
+			ForegroundProcessGroupID *uint32 `json:"foreground_process_group_id"`
+			ForegroundProcesses      []struct {
+				PID     uint32   `json:"pid"`
+				Name    string   `json:"name"`
+				Argv0   *string  `json:"argv0"`
+				Argv    []string `json:"argv"`
+				Cmdline *string  `json:"cmdline"`
+				CWD     *string  `json:"cwd"`
+			} `json:"foreground_processes"`
+		} `json:"process_info"`
+	}
+	if err := c.call(ctx, "pane.process_info", map[string]any{"pane_id": paneID}, false, &result); err != nil {
+		return ProcessInfo{}, err
+	}
+	if result.Type != "pane_process_info" || result.ProcessInfo.PaneID != paneID {
+		return ProcessInfo{}, c.protocolError("pane.process_info", false, errors.New("process info response omitted or mismatched pane identity"))
+	}
+	info := ProcessInfo{
+		PaneID:                   paneID,
+		ShellPID:                 result.ProcessInfo.ShellPID,
+		ForegroundProcessGroupID: result.ProcessInfo.ForegroundProcessGroupID,
+		ForegroundProcesses:      make([]Process, 0, len(result.ProcessInfo.ForegroundProcesses)),
+	}
+	for _, process := range result.ProcessInfo.ForegroundProcesses {
+		if process.PID == 0 || strings.TrimSpace(process.Name) == "" {
+			return ProcessInfo{}, c.protocolError("pane.process_info", false, errors.New("process info contains an incomplete process identity"))
+		}
+		info.ForegroundProcesses = append(info.ForegroundProcesses, Process{
+			PID: process.PID, Name: process.Name, Argv0: process.Argv0,
+			Argv: append([]string(nil), process.Argv...), Cmdline: process.Cmdline, CWD: process.CWD,
+		})
+	}
+	return info, nil
 }
 
 // Run sends command text and Enter in one atomic pane.send_input request.
@@ -370,8 +493,8 @@ func (c *Client) call(ctx context.Context, method string, params any, mutation b
 	if ctx == nil {
 		return errors.New("context must not be nil")
 	}
-	if strings.TrimSpace(c.SocketPath) == "" {
-		return errors.New("Herdr socket path must be explicit")
+	if err := validateSocketEndpoint(c.SocketPath); err != nil {
+		return &AuthenticationError{Reason: "unsafe or unavailable explicit socket endpoint", Err: err}
 	}
 	timeout := c.Timeout
 	if timeout == 0 {
@@ -404,6 +527,17 @@ func (c *Client) call(ctx context.Context, method string, params any, mutation b
 		stopClose()
 		_ = conn.Close()
 	}()
+	peerUID := peerUID
+	if c.peerUIDOverride != nil {
+		peerUID = c.peerUIDOverride
+	}
+	uid, err := peerUID(conn)
+	if err != nil {
+		return &AuthenticationError{Reason: "could not inspect connected UNIX peer credentials", Err: err}
+	}
+	if uid != uint32(os.Geteuid()) {
+		return &AuthenticationError{Reason: fmt.Sprintf("connected peer effective UID %d does not match caller effective UID %d", uid, os.Geteuid())}
+	}
 	if deadline, ok := requestCtx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
 			return transportFailure(0, err)

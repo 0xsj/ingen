@@ -86,7 +86,7 @@ reinterpreting their producer-owned decisions. An offline deterministic
 fixture path covers the existing adapters and generic custody handoff.
 
 The initial local CLI exposes `put`, `import-sorna`, `import-ci-result`,
-`import-attestation`, `import-redaction-provenance`, `get`, `inspect`, `lineage-status`, `append-event`,
+`import-role-execution`, `import-attestation`, `import-redaction-provenance`, `get`, `inspect`, `lineage-status`, `append-event`,
 `list-events`, `handling-status`, `redaction-status`, `check-handling-guard`, `register-redaction`, `promote-redaction`, `inspect-attestation`, `inspect-attestation-link`,
 `inspect-redaction-provenance`, `inspect-redaction-provenance-link`,
 `find-attestation`, `find-redaction-provenance`, `record-digest`, `sign-attestation`,
@@ -97,12 +97,38 @@ The initial local CLI exposes `put`, `import-sorna`, `import-ci-result`,
 `verify-redaction-provenance`, `verify-redaction-provenance-trusted`,
 `find-trusted-redaction-provenance`,
 `verify`, `verify-report`, `find`, `recover`, read-only `reconcile`, and
-read-only `cleanup-plan` reporting for
+read-only `cleanup-plan`, and `ci-result` reporting for
 orphaned or damaged storage. `recover` accepts a saved pending custody record,
 re-verifies its existing blob, and retries record publication. Intake commands
 accept `--max-bytes`; zero means unlimited and a positive value rejects
 oversized input before custody publication. Use `--pending-record <path>` to
 save a recoverable record when publication fails.
+
+`import-role-execution --root <lockwood-root> --project-root <absolute-project-root>
+--path <project-relative-report> --id <custody-id> [--expected-digest <sha256>]`
+asks Sentinel's producer-owned evidence verifier to validate the report and
+its referenced workspace manifest, sealed policy, captures, and any available
+governance inputs before Lockwood publishes custody. The report and each
+related file are stored as their exact original bytes. The report custody
+record uses generic `references` lineage to the related file records, so
+`verify --id` and `verify-report` check every reachable blob and report
+missing or damaged parents. Failed, canceled, and indeterminate Sentinel
+outcomes remain valid evidence outcomes; Lockwood's accepted custody status
+records byte intake and does not convert those outcomes into a pass.
+
+`--expected-digest` accepts the report's raw-byte SHA-256 as lowercase 64-hex
+characters without a `sha256:` prefix. If omitted, Sentinel's verifier
+validates the current report and its internal bindings, but the first
+local collection has no prior report digest supplied by the operator; its
+collector provenance is therefore not independently pinned. The Lockwood data
+root may live inside the project, but must not overlap the report or any
+referenced file path. Governed reports preserve and verify the exact available approval and
+review-policy artifacts. The frozen oracle is recorded by digest without a
+path in the current Sentinel report shape, so Lockwood cannot import or
+re-verify its bytes through this command. Related records may already have
+been accepted if a later storage operation fails; the error identifies the
+published custody IDs and digests so the operator can inspect those records
+before retrying.
 
 `reconcile --orphan-grace <duration>` can classify sufficiently old, still
 valid orphan blobs as cleanup candidates. This report is read-only; Lockwood
@@ -127,6 +153,21 @@ record, returns deterministic per-record outcomes, continues after individual
 failures, and exits non-zero when any match fails. It is diagnostic only: a
 failed verification does not change the custody record status. Its versioned
 output contract is [`spec/lockwood.verification-report-v1.schema.json`](spec/lockwood.verification-report-v1.schema.json).
+
+`ci-result --root <root> --id <custody-id> [--id <custody-id> ...] --output
+<file>` verifies the required selected records and their reachable accepted
+lineage, then writes an exclusive `ingen.ci-result/v1` envelope with
+`tool=lockwood`, `kind=custody-verification`. Its report lists only the
+selected IDs and their `verification-report/v1` results. Inputs pin the
+canonical bytes of each selected/reachable custody record and each referenced
+content-addressed blob. The result status describes custody integrity only:
+an intact accepted record remains custody-passed when its producer report
+records a failed source outcome. A damaged record or reachable blob produces
+a failed result; missing IDs, incomplete store layout, and storage errors
+return exit 2. The command requires an existing store layout and publishes the
+result outside the store, without modifying custody data. It does not make a
+durable guarantee that another actor cannot later alter files outside
+Lockwood's immutable publication rules.
 
 The append-only `handling-event/v1` contract records redaction observations,
 retention classification, and legal-hold placement or release as separate

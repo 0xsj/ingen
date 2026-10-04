@@ -238,7 +238,40 @@ SORNA_RELEASE_WORKSPACE ?=
 	sorna-external-run evidence-verify sorna-replay sorna-replay-ci-result sorna-replay-fresh sorna-replay-defect-fresh sorna-replay-stateful-defect-fresh sorna-replay-process-defect-fresh sorna-replay-persistence-defect-fresh sorna-replay-remove-name-defect-fresh sorna-replay-accepts-png-defect-fresh sorna-replay-regression sorna-replay-matrix-ci-result sorna-replay-matrix-verify sorna-replay-matrix-ci-result-fresh sorna-alpha-check sorna-release-check oracle-evidence-verify sorna-gate sorna-ci-result nublar-aggregate nublar-run-collect nublar-run-collect-fresh nublar-aggregate-fresh sorna-oracle-freeze \
 	subject-defect-run sorna-defect-run mutation-catalogue-validate mutation-plan mutation-provider-validate mutation-provider-conformance mutation-typescript-provider-conformance mutation-provider-inspect mutation-provider-ci-result mutation-campaign-run mutation-campaign-verify mutation-campaign-ci-result mutation-go-provider-build mutation-go-provider-ci-result mutation-go-preparation-ci-result mutation-go-campaign-run mutation-go-campaign-verify mutation-go-campaign-ci-result mutation-go-campaign-ci-result-fresh mutation-go-survivor-run mutation-go-survivor-ci-result mutation-go-survivor-ci-result-fresh sandbox-contract-read defect-remove-name-build defect-unsupported-type-build defect-process-stays-queued-build defect-persistence-wrong-key-build defect-accepts-png-build webhook-contract-validate webhook-policy-validate webhook-subject-policy-validate webhook-subject-test webhook-subject-build webhook-oracle-freeze webhook-run webhook-ci-result webhook-alpha webhook-mutation-catalogue-validate webhook-defect-build webhook-mutation-plan webhook-mutation-provider-validate webhook-mutation-provider-inspect webhook-mutation-provider-ci-result webhook-mutation-run webhook-mutation-verify webhook-mutation-ci-result webhook-mutation-alpha webhook-go-provider-build webhook-go-provider-ci-result webhook-go-preparation-ci-result webhook-go-campaign-run webhook-go-campaign-verify webhook-go-campaign-ci-result webhook-go-mutation-alpha nublar-webhook-aggregate nublar-webhook-run-collect nublar-webhook-aggregate-fresh sentinel-workspace-validate sentinel-run-bootstrap sentinel-capability-plan sentinel-adapter-oracle-probe sentinel-adapter-verifier-probe sentinel-ci-result nublar-sentinel-aggregate nublar-sentinel-run-collect nublar-sentinel-run-collect-fresh nublar-sentinel-run-collect-external-root-fresh sentinel-adapter-verifier-failure-probe sentinel-ci-result-failure nublar-sentinel-run-collect-failure nublar-sentinel-run-collect-failure-fresh
 
-.PHONY: nublar-sentinel-run-collect-external-root-failure-fresh sentinel-project-check sentinel-project-contract-create sentinel-project-contract-seal sentinel-project-oracle-freeze sentinel-project-verify sentinel-project-evidence-verify sentinel-project-evidence-gate sentinel-project-nublar-aggregate sentinel-project-nublar-run-collect sentinel-herdr-probe-fixture sentinel-herdr-contract-status-check sentinel-herdr-host-envelope-check
+.PHONY: nublar-sentinel-run-collect-external-root-failure-fresh sentinel-project-check sentinel-project-contract-create sentinel-project-contract-seal sentinel-project-oracle-freeze sentinel-project-verify sentinel-project-evidence-verify sentinel-project-evidence-gate sentinel-project-nublar-aggregate sentinel-project-nublar-run-collect sentinel-herdr-probe-fixture sentinel-herdr-contract-status-check sentinel-herdr-host-envelope-check sentinel-role-evidence-check
+
+.PHONY: ecosystem-http-check
+
+.PHONY: sentinel-native-context-check
+
+.PHONY: sentinel-codex-broker-check
+
+sentinel-codex-broker-check: ## Check scoped Codex broker access and evidence with synthetic credentials on macOS
+	GOCACHE="$(abspath $(GO_CACHE))" GOMODCACHE="$(abspath $(GO_MOD_CACHE))" bash acceptance/codex-broker.sh
+
+.PHONY: ingen-package-check ingen-install-check linux-platform-probe sentinel-runtime-review-check
+
+sentinel-runtime-review-check: ## Check installed Sentinel recovery assessment and synthetic runtime comparison
+	@test -n "$(SENTINEL_BIN)" || { echo 'Set SENTINEL_BIN to an installed absolute Sentinel executable.' >&2; exit 2; }
+	GOCACHE="$(abspath $(GO_CACHE))" GOMODCACHE="$(abspath $(GO_MOD_CACHE))" bash acceptance/runtime-review.sh --bin "$(SENTINEL_BIN)"
+
+ingen-package-check: ## Verify source snapshots, archive bounds, and safe local installation
+	python3 -m unittest discover -s packaging -p 'test_*.py'
+
+ingen-install-check: ## Build/archive/install nine-module tools and test versions and HTTP handoffs on macOS
+	GOCACHE="$(abspath $(GO_CACHE))" GOMODCACHE="$(abspath $(GO_MOD_CACHE))" bash acceptance/local-install.sh
+
+linux-platform-probe: ## Report Linux kernel capabilities without claiming enforcement readiness
+	$(GO_CMD) run ./sorna/cmd/platform-probe
+
+sentinel-native-context-check: ## Check fresh Codex launch boundaries and native wrapper recovery with offline fixtures on macOS
+	GOCACHE="$(abspath $(GO_CACHE))" GOMODCACHE="$(abspath $(GO_MOD_CACHE))" bash acceptance/native-context-recovery.sh
+
+ecosystem-http-check: ## Exercise all nine modules against a fresh HTTP service with explicit test review fixtures
+	GOCACHE="$(abspath $(GO_CACHE))" GOMODCACHE="$(abspath $(GO_MOD_CACHE))" bash acceptance/ecosystem-http.sh
+
+sentinel-role-evidence-check: ## Exercise contained role evidence through CI, custody, and comparison in fresh macOS workspaces
+	GOCACHE="$(abspath $(GO_CACHE))" GOMODCACHE="$(abspath $(GO_MOD_CACHE))" bash acceptance/role-evidence.sh
 
 help: ## Show the available development commands
 	@awk 'BEGIN {FS = ":.*## "; printf "InGen commands:\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-20s %s\n", $$1, $$2} END {printf "\n"}' $(MAKEFILE_LIST)

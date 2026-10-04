@@ -1,0 +1,221 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "purpose",
+    "operating_system",
+    "architecture",
+    "kernel_release_status",
+    "landlock",
+    "no_new_privileges",
+    "seccomp_filter",
+    "proc_executable_observation",
+    "scope"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ingen.linux-platform-probe/v1"
+    },
+    "purpose": {
+      "const": "bounded kernel capability diagnostics; no capability grants or product readiness claim"
+    },
+    "operating_system": {
+      "type": "string"
+    },
+    "architecture": {
+      "type": "string"
+    },
+    "kernel_release": {
+      "type": "string"
+    },
+    "kernel_release_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "available",
+            "unavailable",
+            "indeterminate"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "landlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "required_access_bits"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "available",
+            "unavailable",
+            "indeterminate"
+          ]
+        },
+        "abi": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        },
+        "required_access_bits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "domain",
+              "mask",
+              "introduced_abi",
+              "required_for_baseline",
+              "status"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "domain": {
+                "enum": [
+                  "filesystem",
+                  "network_port_only"
+                ]
+              },
+              "mask": {
+                "type": "string",
+                "pattern": "^0x[0-9a-f]+$"
+              },
+              "introduced_abi": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "required_for_baseline": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "available",
+                  "unavailable",
+                  "indeterminate"
+                ]
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "available"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "abi"
+            ],
+            "properties": {
+              "required_access_bits": {
+                "minItems": 18
+              }
+            }
+          }
+        }
+      ]
+    },
+    "no_new_privileges": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "available",
+            "unavailable",
+            "indeterminate"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "seccomp_filter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "available",
+            "unavailable",
+            "indeterminate"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "proc_executable_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "available",
+            "unavailable",
+            "indeterminate"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 4
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ingen.linux-platform-probe/v1"
+}

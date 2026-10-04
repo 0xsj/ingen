@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.dev/schemas/sentinel-role-execution-explanation-v1.schema.json",
+  "title": "Sentinel role execution explanation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "execution_id",
+    "workspace_id",
+    "role_id",
+    "role_kind",
+    "outcome",
+    "report_status",
+    "report_sha256",
+    "enforcement",
+    "assurance",
+    "meaning"
+  ],
+  "properties": {
+    "schema": { "const": "ingen.sentinel-role-execution-explanation/v1" },
+    "execution_id": { "type": "string", "minLength": 1 },
+    "workspace_id": { "type": "string", "minLength": 1 },
+    "role_id": { "type": "string", "minLength": 1 },
+    "role_kind": { "type": "string", "minLength": 1 },
+    "outcome": { "enum": ["passed", "failed", "error"] },
+    "report_status": { "enum": ["completed", "failed", "canceled", "indeterminate"] },
+    "report_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "enforcement": { "const": "host-enforced" },
+    "assurance": { "const": "unverified" },
+    "meaning": { "type": "string", "minLength": 1 }
+  }
+}

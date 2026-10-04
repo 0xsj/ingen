@@ -43,6 +43,7 @@ const (
 	KindWrapperTerminal             = "wrapper-terminal"
 	KindWrapperCanceledBeforeStart  = "wrapper-canceled-before-start"
 	KindProviderCanceledBeforeClaim = "provider-canceled-before-claim"
+	KindProviderCanceledBeforeStart = "provider-canceled-before-start"
 
 	preparedEventID = "native-journal-prepared"
 )
@@ -65,6 +66,7 @@ type Intent struct {
 	Argv                     []string `json:"argv"`
 	StdoutPath               string   `json:"stdout_path"`
 	StderrPath               string   `json:"stderr_path"`
+	ExecutionLeasePath       string   `json:"execution_lease_path,omitempty"`
 	HerdrSocket              string   `json:"herdr_socket"`
 	SentinelExecutable       string   `json:"sentinel_executable"`
 	SentinelExecutableSHA256 string   `json:"sentinel_executable_sha256"`
@@ -152,11 +154,18 @@ func Create(root, journalPath string, record Record) error {
 	if err := validateIntentPaths(rootHandle, record.Intent); err != nil {
 		return err
 	}
+	if record.Intent.ExecutionLeasePath != "" {
+		if _, err := rootHandle.Lstat(record.Intent.ExecutionLeasePath); err == nil {
+			return fmt.Errorf("native journal: refusing to reuse existing execution lease %q", record.Intent.ExecutionLeasePath)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("native journal: inspect execution lease %q: %w", record.Intent.ExecutionLeasePath, err)
+		}
+	}
 	if err := validateExecutable(record.Intent); err != nil {
 		return err
 	}
-	if cleanPath == record.Intent.ReceiptPath || cleanPath == record.Intent.StdoutPath || cleanPath == record.Intent.StderrPath {
-		return fmt.Errorf("native journal: journal, receipt, stdout, and stderr paths must be distinct")
+	if cleanPath == record.Intent.ReceiptPath || cleanPath == record.Intent.StdoutPath || cleanPath == record.Intent.StderrPath || cleanPath == record.Intent.ExecutionLeasePath {
+		return fmt.Errorf("native journal: journal, receipt, stdout, stderr, and execution lease paths must be distinct")
 	}
 	if err := checkPath(rootHandle, cleanPath, true); err != nil {
 		return fmt.Errorf("native journal path: %w", err)
@@ -206,6 +215,33 @@ func Load(root, journalPath string) (Record, error) {
 	return record, nil
 }
 
+// LoadSnapshot replay-validates caller-supplied journal bytes against the
+// record path and existing referenced paths under root. It never reads the
+// journal path itself, allowing bounded/read-only observers to validate the
+// exact bytes obtained from a regular rooted file descriptor.
+func LoadSnapshot(root, journalPath string, contents []byte) (Record, error) {
+	rootHandle, err := openRoot(root)
+	if err != nil {
+		return Record{}, err
+	}
+	defer rootHandle.Close()
+	cleanPath, err := rootedPath(journalPath)
+	if err != nil {
+		return Record{}, err
+	}
+	if err := checkPath(rootHandle, cleanPath, false); err != nil {
+		return Record{}, fmt.Errorf("native journal path: %w", err)
+	}
+	record, err := decode(cleanPath, contents)
+	if err != nil {
+		return Record{}, err
+	}
+	if err := validateExistingIntentPaths(rootHandle, record.Intent); err != nil {
+		return Record{}, err
+	}
+	return record, nil
+}
+
 // Append serializes the read/replay/append/publish cycle with a process-shared
 // advisory lock on supported Unix platforms. The bool reports whether an
 // event was appended; an exact retry returns false without rewriting bytes.
@@ -234,8 +270,8 @@ func Append(root, journalPath string, event Event) (Record, bool, error) {
 	if event.Kind == KindWrapperClaim {
 		return Record{}, false, fmt.Errorf("native journal: wrapper claims must use ClaimExecution")
 	}
-	if event.Kind == KindWrapperStarted && record.State == StateSubmitted {
-		return Record{}, false, fmt.Errorf("native journal: wrapper starts from submitted must use StartExecution")
+	if event.Kind == KindWrapperStarted {
+		return Record{}, false, fmt.Errorf("native journal: wrapper starts must use StartExecution")
 	}
 	updated, changed, err := appendRecord(record, event)
 	if err != nil || !changed {
@@ -249,6 +285,49 @@ func Append(root, journalPath string, event Event) (Record, bool, error) {
 		return Record{}, false, err
 	}
 	return updated, true, nil
+}
+
+// ExecutionLease is held by the one Sentinel wrapper invocation allowed to
+// claim a new native session. Closing it releases the process-shared lease.
+type ExecutionLease struct {
+	file *os.File
+}
+
+// TryExecutionLease returns immediately with acquired=false if another
+// process holds the lease. An empty path identifies a legacy journal without
+// lease semantics.
+func TryExecutionLease(root, leasePath string) (*ExecutionLease, bool, error) {
+	if leasePath == "" {
+		return nil, false, nil
+	}
+	rootHandle, err := openRoot(root)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rootHandle.Close()
+	cleanPath, err := rootedPath(leasePath)
+	if err != nil {
+		return nil, false, fmt.Errorf("native journal execution lease: %w", err)
+	}
+	file, acquired, err := tryLockPath(rootHandle, cleanPath)
+	if err != nil {
+		return nil, false, err
+	}
+	if !acquired {
+		return nil, false, nil
+	}
+	return &ExecutionLease{file: file}, true, nil
+}
+
+// Close releases an execution lease. It is safe to call more than once.
+func (lease *ExecutionLease) Close() error {
+	if lease == nil || lease.file == nil {
+		return nil
+	}
+	file := lease.file
+	lease.file = nil
+	unlockPath(file)
+	return nil
 }
 
 // ClaimExecution atomically claims one already-reserved dispatch for the
@@ -645,7 +724,7 @@ func nextState(current string, event Event) (string, error) {
 	case StateRunning:
 		allowed = next == StateCompleted || next == StateFailed || next == StateCancelRequested || next == StateIndeterminate || (next == StateCanceled && (event.Kind == KindWrapperTerminal || event.Kind == KindWrapperCanceledBeforeStart) && strings.TrimSpace(event.Reason) != "")
 	case StateCancelRequested:
-		allowed = next == StateRunning || next == StateCompleted || next == StateFailed || (next == StateCanceled && (event.Kind == KindWrapperTerminal || event.Kind == KindWrapperCanceledBeforeStart || event.Kind == KindProviderCanceledBeforeClaim) && strings.TrimSpace(event.Reason) != "") || next == StateIndeterminate
+		allowed = next == StateRunning || next == StateCompleted || next == StateFailed || (next == StateCanceled && (event.Kind == KindWrapperTerminal || event.Kind == KindWrapperCanceledBeforeStart || event.Kind == KindProviderCanceledBeforeClaim || event.Kind == KindProviderCanceledBeforeStart) && strings.TrimSpace(event.Reason) != "") || next == StateIndeterminate
 	case StateIndeterminate:
 		// Recovery is always explicit and records its evidence in the reason.
 		allowed = strings.TrimSpace(event.Reason) != "" && (next == StateIndeterminate || next == StateRunning || next == StateCompleted || next == StateFailed || (next == StateCanceled && (event.Kind == KindWrapperTerminal || event.Kind == KindWrapperCanceledBeforeStart)))
@@ -657,6 +736,24 @@ func nextState(current string, event Event) (string, error) {
 }
 
 func validateCancellationEvidence(events []Event, current string, event Event) error {
+	if event.Kind == KindProviderCanceledBeforeStart {
+		if current != StateCancelRequested {
+			return fmt.Errorf("native journal: provider pre-start cancellation requires cancel-requested state")
+		}
+		hasClaim := false
+		for _, prior := range events {
+			if prior.Kind == KindWrapperStarted || isTerminal(prior.State) {
+				return fmt.Errorf("native journal: provider pre-start cancellation is invalid after wrapper start")
+			}
+			if prior.Kind == KindWrapperClaim {
+				hasClaim = true
+			}
+		}
+		if !hasClaim {
+			return fmt.Errorf("native journal: provider pre-start cancellation requires a prior wrapper claim")
+		}
+		return nil
+	}
 	if event.Kind != KindProviderCanceledBeforeClaim {
 		return nil
 	}
@@ -725,6 +822,11 @@ func validateIntent(intent Intent) error {
 			return fmt.Errorf("native journal: intent.%s: %w", label, err)
 		}
 	}
+	if intent.ExecutionLeasePath != "" {
+		if _, err := rootedPath(intent.ExecutionLeasePath); err != nil {
+			return fmt.Errorf("native journal: intent.execution_lease_path: %w", err)
+		}
+	}
 	for _, endpointValue := range []string{intent.HerdrSocket, intent.SentinelExecutable} {
 		if strings.ContainsAny(endpointValue, "\x00\r\n") {
 			return fmt.Errorf("native journal: endpoint/path contains NUL or newline")
@@ -736,8 +838,20 @@ func validateIntent(intent Intent) error {
 	if !sha256Pattern.MatchString(intent.SentinelExecutableSHA256) {
 		return fmt.Errorf("native journal: intent.sentinel_executable_sha256 must be lowercase SHA-256 hex")
 	}
-	if intent.StdoutPath == intent.StderrPath || intent.ReceiptPath == intent.StdoutPath || intent.ReceiptPath == intent.StderrPath {
-		return fmt.Errorf("native journal: receipt/stdout/stderr paths must be distinct")
+	paths := []string{intent.ReceiptPath, intent.StdoutPath, intent.StderrPath}
+	if intent.ExecutionLeasePath != "" {
+		paths = append(paths, intent.ExecutionLeasePath)
+	}
+	seenPaths := make(map[string]bool, len(paths))
+	for _, raw := range paths {
+		clean, err := rootedPath(raw)
+		if err != nil {
+			return err
+		}
+		if seenPaths[clean] {
+			return fmt.Errorf("native journal: receipt/stdout/stderr/execution lease paths must be distinct")
+		}
+		seenPaths[clean] = true
 	}
 	return nil
 }
@@ -778,11 +892,11 @@ func validateEvent(event Event, intent Intent) error {
 		if strings.TrimSpace(event.Reason) == "" {
 			return fmt.Errorf("native journal: canceled state requires a reason")
 		}
-		if event.Kind != KindWrapperTerminal && event.Kind != KindWrapperCanceledBeforeStart && event.Kind != KindProviderCanceledBeforeClaim {
+		if event.Kind != KindWrapperTerminal && event.Kind != KindWrapperCanceledBeforeStart && event.Kind != KindProviderCanceledBeforeClaim && event.Kind != KindProviderCanceledBeforeStart {
 			return fmt.Errorf("native journal: canceled state requires wrapper terminal or pre-start cancellation evidence")
 		}
 	}
-	if event.Kind == KindWrapperCanceledBeforeStart || event.Kind == KindProviderCanceledBeforeClaim {
+	if event.Kind == KindWrapperCanceledBeforeStart || event.Kind == KindProviderCanceledBeforeClaim || event.Kind == KindProviderCanceledBeforeStart {
 		if event.State != StateCanceled || strings.TrimSpace(event.Reason) == "" {
 			return fmt.Errorf("native journal: pre-start cancellation evidence requires canceled state and a reason")
 		}
@@ -938,17 +1052,21 @@ func checkPath(root *os.Root, relative string, allowMissingLeaf bool) error {
 }
 
 func validateIntentPaths(root *os.Root, intent Intent) error {
-	for label, raw := range map[string]string{
+	paths := map[string]string{
 		"workdir":      intent.Workdir,
 		"receipt_path": intent.ReceiptPath,
 		"stdout_path":  intent.StdoutPath,
 		"stderr_path":  intent.StderrPath,
-	} {
+	}
+	if intent.ExecutionLeasePath != "" {
+		paths["execution_lease_path"] = intent.ExecutionLeasePath
+	}
+	for label, raw := range paths {
 		clean, err := rootedPath(raw)
 		if err != nil {
 			return err
 		}
-		allowMissing := label == "stdout_path" || label == "stderr_path"
+		allowMissing := label == "stdout_path" || label == "stderr_path" || label == "execution_lease_path"
 		if err := checkPath(root, clean, allowMissing); err != nil {
 			return fmt.Errorf("native journal: intent.%s: %w", label, err)
 		}
@@ -968,18 +1086,31 @@ func validateIntentPaths(root *os.Root, intent Intent) error {
 }
 
 func validateExistingIntentPaths(root *os.Root, intent Intent) error {
-	for label, raw := range map[string]string{
+	paths := map[string]string{
 		"workdir":      intent.Workdir,
 		"receipt_path": intent.ReceiptPath,
 		"stdout_path":  intent.StdoutPath,
 		"stderr_path":  intent.StderrPath,
-	} {
+	}
+	if intent.ExecutionLeasePath != "" {
+		paths["execution_lease_path"] = intent.ExecutionLeasePath
+	}
+	for label, raw := range paths {
 		clean, err := rootedPath(raw)
 		if err != nil {
 			return fmt.Errorf("native journal: intent.%s: %w", label, err)
 		}
 		if err := checkExistingPath(root, clean); err != nil {
 			return fmt.Errorf("native journal: intent.%s: %w", label, err)
+		}
+		if label == "execution_lease_path" {
+			info, err := root.Lstat(clean)
+			if err == nil && !info.Mode().IsRegular() {
+				return fmt.Errorf("native journal: intent.execution_lease_path is not a regular file")
+			}
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("native journal: inspect intent.execution_lease_path: %w", err)
+			}
 		}
 	}
 	if err := validateExistingExecutablePath(intent.SentinelExecutable); err != nil {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"ingen/core/ciresult"
+	"ingen/core/cliversion"
 	paddockadapterprofile "ingen/paddock/internal/adapterprofile"
 	paddockadaptertest "ingen/paddock/internal/adaptertest"
 	paddockartifact "ingen/paddock/internal/artifact"
@@ -36,6 +37,14 @@ import (
 )
 
 func main() {
+	if handled, code := cliversion.Dispatch("paddock", os.Args[1:], os.Stdout, os.Stderr, cliversion.Legacy{
+		Version: paddockversion.Version, Commit: paddockversion.Commit, BuildDate: paddockversion.BuildDate,
+	}); handled {
+		if code != 0 {
+			os.Exit(code)
+		}
+		return
+	}
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -157,11 +166,6 @@ func main() {
 		}
 	case "explain":
 		if err := explainReport(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "paddock:", err)
-			os.Exit(2)
-		}
-	case "version":
-		if err := versionCommand(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "paddock:", err)
 			os.Exit(2)
 		}
@@ -2891,46 +2895,6 @@ func explanationProvenance(path string, artifact paddockartifact.Artifact) (*pad
 		}
 	}
 	return provenance, nil
-}
-
-func versionCommand(args []string) error {
-	format := "text"
-	for index := 0; index < len(args); index++ {
-		switch args[index] {
-		case "--format", "-f":
-			if index+1 >= len(args) {
-				return fmt.Errorf("%s requires text or json", args[index])
-			}
-			index++
-			format = args[index]
-		default:
-			return fmt.Errorf("unknown option %q", args[index])
-		}
-	}
-
-	info := struct {
-		Name      string `json:"name"`
-		Version   string `json:"version"`
-		Commit    string `json:"commit"`
-		BuildDate string `json:"build_date"`
-	}{
-		Name:      "paddock",
-		Version:   paddockversion.Version,
-		Commit:    paddockversion.Commit,
-		BuildDate: paddockversion.BuildDate,
-	}
-
-	switch format {
-	case "text":
-		_, err := fmt.Fprintf(os.Stdout, "%s %s\ncommit %s\nbuilt %s\n", info.Name, info.Version, info.Commit, info.BuildDate)
-		return err
-	case "json":
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(info)
-	default:
-		return fmt.Errorf("unsupported format %q; use text or json", format)
-	}
 }
 
 func releaseCommand(args []string) (int, error) {

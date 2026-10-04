@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ingen.local/spec/release-evidence-inventory-v1.schema.json",
+  "title": "InGen local release evidence inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "scope", "evidence_root", "project", "gates"],
+  "properties": {
+    "schema": {"const": "ingen.release-evidence-inventory/v1"},
+    "scope": {"const": "local-review"},
+    "evidence_root": {"type": "string", "minLength": 1},
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "release_version", "target"],
+      "properties": {
+        "revision": {"type": "string", "pattern": "^(unknown|[0-9a-f]{40}|[0-9a-f]{64})$"},
+        "release_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["goos", "goarch"],
+          "properties": {
+            "goos": {"type": "string", "minLength": 1, "maxLength": 32},
+            "goarch": {"type": "string", "minLength": 1, "maxLength": 32}
+          }
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundle_install", "ecosystem_workflow", "signed_file_ingress", "github_protocol",
+        "native_governed_workflow", "runtime_containment", "linux_enforcement",
+        "host_signed_callbacks_restart", "live_github_delivery", "native_install_matrix",
+        "hosted_ci", "distribution_signature_rebuild", "provider_test"
+      ],
+      "properties": {
+        "bundle_install": {"$ref": "#/$defs/gate"},
+        "ecosystem_workflow": {"$ref": "#/$defs/gate"},
+        "signed_file_ingress": {"$ref": "#/$defs/gate"},
+        "github_protocol": {"$ref": "#/$defs/gate"},
+        "native_governed_workflow": {"$ref": "#/$defs/gate"},
+        "runtime_containment": {"$ref": "#/$defs/gate"},
+        "linux_enforcement": {"$ref": "#/$defs/gate"},
+        "host_signed_callbacks_restart": {"$ref": "#/$defs/gate"},
+        "live_github_delivery": {"$ref": "#/$defs/gate"},
+        "native_install_matrix": {"$ref": "#/$defs/gate"},
+        "hosted_ci": {"$ref": "#/$defs/gate"},
+        "distribution_signature_rebuild": {"$ref": "#/$defs/gate"},
+        "provider_test": {"$ref": "#/$defs/gate"}
+      }
+    }
+  },
+  "$defs": {
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "evidence"],
+      "properties": {
+        "status": {"enum": ["passed", "failed", "missing", "deferred"]},
+        "reason": {"type": "string", "maxLength": 2048},
+        "evidence": {
+          "type": "array",
+          "maxItems": 512,
+          "items": {"$ref": "#/$defs/reference"}
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1, "maxLength": 80},
+        "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

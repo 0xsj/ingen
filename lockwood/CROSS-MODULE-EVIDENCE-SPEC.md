@@ -1,6 +1,6 @@
 # Lockwood cross-module evidence handoff
 
-Status: workflow contract with an implemented offline fixture path. It defines
+Status: workflow contract with offline fixtures and executable local handoffs. It defines
 how existing module artifacts may be preserved and related without introducing
 a combined cross-module envelope.
 
@@ -9,6 +9,14 @@ The deterministic fixture path is implemented by
 producer-shaped fixtures under [`testdata/`](testdata/). It uses the existing
 Sorna and CI-result adapters plus generic custody intake for Hammond and
 Nublar artifacts; it does not call live module or delivery services.
+
+The separate [`ecosystem-http.sh`](../acceptance/ecosystem-http.sh) acceptance
+driver calls real module CLIs against a fresh HTTP project, uses an explicitly
+synthetic Hammond review fixture, and delivers a stored Nublar decision to an
+owned loopback receiver. Its custody records preserve producer bytes and
+explicit digest relationships. This is a local integration check, without
+operator approval, remote retention, or independent attestation. See
+[the evidence index](../docs/finish-line-plan.md) for reviewed runs and limits.
 
 ## Ownership map
 

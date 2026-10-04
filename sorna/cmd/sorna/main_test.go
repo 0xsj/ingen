@@ -75,6 +75,36 @@ func TestParseReplayMatrixCases(t *testing.T) {
 	}
 }
 
+func TestCampaignEndpointSeparatesLoopbackListenerFromClientURL(t *testing.T) {
+	cases := []struct {
+		name, host, listener, baseURL string
+	}{
+		{name: "localhost", host: "localhost", listener: "127.0.0.1:8081", baseURL: "http://localhost:8081"},
+		{name: "IPv6", host: "::1", listener: "[::1]:8081", baseURL: "http://[::1]:8081"},
+		{name: "other host", host: "example.test", listener: "example.test:8081", baseURL: "http://example.test:8081"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			listener, baseURL := campaignEndpoint(test.host, 8081)
+			if listener != test.listener || baseURL != test.baseURL {
+				t.Fatalf("campaignEndpoint(%q) = (%q, %q), want (%q, %q)", test.host, listener, baseURL, test.listener, test.baseURL)
+			}
+		})
+	}
+
+	provider := campaign.ProviderManifest{Entries: []campaign.ProviderEntry{{
+		MutationID: "m1", Command: "subject", Args: []string{"--listen", "${SORA_ADDR}", "--client-url", "${SORA_URL}"},
+	}}}
+	listener, baseURL := campaignEndpoint("localhost", 8081)
+	prepared, err := provider.Resolve("m1", listener, baseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.Command) != 5 || prepared.Command[2] != "127.0.0.1:8081" || prepared.Command[4] != "http://localhost:8081" {
+		t.Fatalf("prepared argv = %q; want listener loopback and unchanged client URL", prepared.Command)
+	}
+}
+
 func TestVerifyCampaignPlanReferenceRejectsExactPlanDrift(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "plan.json")
 	plan := verificationPlan()

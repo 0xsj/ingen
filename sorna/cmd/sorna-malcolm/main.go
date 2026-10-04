@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"ingen/core/cliversion"
 	malcolmcontract "ingen/sorna/internal/malcolm"
 )
 
@@ -15,6 +16,9 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	if handled, code := cliversion.Dispatch("sorna-malcolm", args, stdout, stderr, cliversion.Legacy{}); handled {
+		return code
+	}
 	if len(args) == 0 {
 		printUsage(stderr)
 		return 2
@@ -91,6 +95,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func printUsage(writer io.Writer) {
+	fmt.Fprintln(writer, "usage: sorna-malcolm [--version | version [--format text|json]]")
 	fmt.Fprintln(writer, "usage: sorna-malcolm <malcolm-ir.json> [--output <contract.json>] [--mutations-output <catalogue.json>]")
 	fmt.Fprintln(writer, "translate Malcolm IR into a Sorna draft contract and, when requested, a mutation catalogue")
 }

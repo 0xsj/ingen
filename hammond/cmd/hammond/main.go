@@ -1,12 +1,22 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
+	"ingen/core/ciresult"
+	"ingen/core/cliversion"
+	publicgovernance "ingen/hammond/governance"
 	"ingen/hammond/internal/governance"
 	"ingen/hammond/internal/store"
 )
@@ -16,6 +26,9 @@ func main() {
 }
 
 func run(args []string) int {
+	if handled, code := cliversion.Dispatch("hammond", args, os.Stdout, os.Stderr, cliversion.Legacy{}); handled {
+		return code
+	}
 	if len(args) == 0 {
 		usage()
 		return 2
@@ -41,11 +54,272 @@ func run(args []string) int {
 		return lineageCommand(args[1:])
 	case "membership-current":
 		return membershipCurrentCommand(args[1:])
+	case "gate":
+		return gateCommand(args[1:])
 	default:
 		fmt.Fprintln(os.Stderr, "unknown Hammond command:", args[0])
 		usage()
 		return 2
 	}
+}
+
+// gateCommand emits a producer-owned CI result after Hammond's read-only
+// approval verifier accepts the exact contract and active review-policy bytes.
+func gateCommand(args []string) int {
+	flags := flag.NewFlagSet("gate", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	root := flags.String("root", "", "project root for all referenced files")
+	approval := flags.String("approval", "", "project-relative Hammond approval record")
+	policy := flags.String("review-policy", "", "project-relative active Hammond review policy")
+	contract := flags.String("contract", "", "project-relative expected contract artifact")
+	projectID := flags.String("project-id", "", "expected contract project ID")
+	contractID := flags.String("contract-id", "", "expected contract ID")
+	version := flags.Int("contract-version", 0, "expected contract version")
+	schema := flags.String("contract-schema", "", "expected contract schema")
+	contractSHA := flags.String("contract-sha256", "", "expected lowercase SHA-256 of exact contract bytes")
+	output := flags.String("output", "", "project-relative exclusive CI result path")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 || *root == "" || *approval == "" || *policy == "" || *contract == "" || *projectID == "" || *contractID == "" || *version < 1 || *schema == "" || !validHexDigest(*contractSHA) || *output == "" {
+		fmt.Fprintln(os.Stderr, "usage: hammond gate --root ABS --approval REL --review-policy REL --contract REL --project-id ID --contract-id ID --contract-version N --contract-schema SCHEMA --contract-sha256 LOWERHEX --output REL")
+		return 2
+	}
+	if !filepath.IsAbs(*root) {
+		fmt.Fprintln(os.Stderr, "hammond gate: --root must be an absolute path")
+		return 2
+	}
+	rootAbs, err := filepath.Abs(*root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	rootAbs, err = filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "resolve project root:", err)
+		return 2
+	}
+	if err := rejectGateOutputOverlap(rootAbs, *output, *approval, *policy, *contract); err != nil {
+		fmt.Fprintln(os.Stderr, "hammond gate:", err)
+		return 2
+	}
+	selectedContract, selectedErr := readRooted(rootAbs, *contract)
+	if selectedErr != nil || sha256Hex(selectedContract) != *contractSHA {
+		if selectedErr == nil {
+			selectedErr = fmt.Errorf("selected contract bytes do not match --contract-sha256")
+		}
+	}
+	contractRef := publicgovernance.ContractReference{ProjectID: *projectID, ID: *contractID, Version: *version, Schema: *schema, Artifact: publicgovernance.Artifact{URI: *contract, SHA256: *contractSHA}}
+	var verified publicgovernance.ApprovedVerification
+	verifyErr := selectedErr
+	if verifyErr == nil {
+		verified, verifyErr = publicgovernance.VerifyApproved(rootAbs, *approval, *policy, contractRef)
+	}
+	if verifyErr == nil && filepath.ToSlash(filepath.Clean(filepath.FromSlash(verified.Contract.Artifact.URI))) != *contract {
+		verifyErr = fmt.Errorf("selected contract path does not match the contract URI in the approved record")
+	}
+	var result ciresult.Artifact
+	status, exit := "passed", 0
+	var report any
+	inputs := map[string]ciresult.FileRef{}
+	if verifyErr != nil {
+		status, exit = "error", 2
+		report = map[string]any{"approved": false, "error": verifyErr.Error()}
+	} else {
+		// Re-read every exact verified path before reporting success. Hammond's
+		// verifier returns path/hash snapshots, not the bytes themselves.
+		for _, input := range verified.Artifacts {
+			contents, readErr := readRooted(rootAbs, input.Path)
+			if readErr != nil || sha256Hex(contents) != input.SHA256 {
+				if readErr == nil {
+					readErr = fmt.Errorf("verified bytes changed after approval verification")
+				}
+				verifyErr = fmt.Errorf("recheck Hammond input %s: %w", input.Kind, readErr)
+				break
+			}
+			inputs[input.Kind] = ciresult.FileRef{Path: filepath.Join(rootAbs, filepath.FromSlash(input.Path)), SHA256: input.SHA256}
+		}
+		if verifyErr != nil {
+			status, exit = "error", 2
+			report = map[string]any{"approved": false, "error": verifyErr.Error()}
+			inputs = nil
+		} else {
+			report = verified
+		}
+	}
+	encodedReport, _ := json.Marshal(report)
+	explanationText := "Hammond verified an existing approved contract record against the explicitly selected active review policy and exact contract bytes. This is a governance-state check; it is not behavioral verification, authentication, or attestation."
+	if verifyErr != nil {
+		explanationText = "Hammond could not verify the requested approved contract under the selected active review policy. This is a governance-state check; it is not behavioral verification, authentication, or attestation."
+	}
+	explanation, _ := json.Marshal(explanationText)
+	result = ciresult.Artifact{Schema: ciresult.Schema, Tool: "hammond", Kind: "approved-contract", Status: status, ExitCode: exit, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Source: ciresult.Source{Root: rootAbs}, Inputs: inputs, Report: encodedReport, Explanation: explanation}
+	if verifyErr != nil {
+		result.Error = verifyErr.Error()
+	}
+	if err := result.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, "build Hammond CI result:", err)
+		return 2
+	}
+	if err := writeExclusiveRooted(rootAbs, *output, result); err != nil {
+		fmt.Fprintln(os.Stderr, "write Hammond CI result:", err)
+		return 2
+	}
+	if exit != 0 {
+		fmt.Fprintln(os.Stderr, verifyErr)
+		return exit
+	}
+	return 0
+}
+
+func validHexDigest(value string) bool {
+	if len(value) != 64 || strings.ToLower(value) != value {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func sha256Hex(data []byte) string {
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func readRooted(root, relative string) ([]byte, error) {
+	clean := filepath.Clean(filepath.FromSlash(relative))
+	if relative == "" || filepath.IsAbs(relative) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.ToSlash(clean) != relative {
+		return nil, fmt.Errorf("path is not normalized and project-relative")
+	}
+	h, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer h.Close()
+	f, err := h.OpenFile(clean, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("input is not a regular file")
+	}
+	return io.ReadAll(f)
+}
+
+func rejectGateOutputOverlap(root, output string, inputs ...string) error {
+	cleanOutput := filepath.Clean(filepath.FromSlash(output))
+	if output == "" || filepath.IsAbs(output) || cleanOutput == "." || cleanOutput == ".." || strings.HasPrefix(cleanOutput, ".."+string(filepath.Separator)) || filepath.ToSlash(cleanOutput) != output {
+		return fmt.Errorf("output must be a normalized project-relative path")
+	}
+	if err := rejectOutputSymlinks(root, output); err != nil {
+		return err
+	}
+	for _, input := range inputs {
+		cleanInput := filepath.Clean(filepath.FromSlash(input))
+		if cleanInput == cleanOutput {
+			return fmt.Errorf("output must not overlap selected approval, policy, or contract inputs")
+		}
+	}
+	return nil
+}
+
+func rejectOutputSymlinks(root, relative string) error {
+	h, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer h.Close()
+	current := ""
+	for _, component := range strings.Split(filepath.ToSlash(relative), "/") {
+		if current == "" {
+			current = component
+		} else {
+			current = filepath.ToSlash(filepath.Join(filepath.FromSlash(current), filepath.FromSlash(component)))
+		}
+		info, err := h.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("inspect output component %s: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("output path contains symbolic-link component %s", current)
+		}
+	}
+	return nil
+}
+
+func writeExclusiveRooted(root, relative string, value ciresult.Artifact) error {
+	clean := filepath.Clean(filepath.FromSlash(relative))
+	if relative == "" || filepath.IsAbs(relative) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.ToSlash(clean) != relative {
+		return fmt.Errorf("output must be a normalized project-relative path")
+	}
+	if err := rejectOutputSymlinks(root, relative); err != nil {
+		return err
+	}
+	for _, input := range value.Inputs {
+		if input.Path == "" {
+			continue
+		}
+		abs, err := filepath.Abs(input.Path)
+		if err != nil {
+			return err
+		}
+		out := filepath.Join(root, clean)
+		if abs == out {
+			return fmt.Errorf("output overlaps a verified input")
+		}
+	}
+	var encoded bytes.Buffer
+	if err := ciresult.WriteJSON(&encoded, value); err != nil {
+		return err
+	}
+	h, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer h.Close()
+	dir := filepath.Dir(clean)
+	name := filepath.Base(clean)
+	temp := filepath.Join(dir, fmt.Sprintf(".%s.tmp-%d-%d", name, os.Getpid(), time.Now().UnixNano()))
+	f, err := h.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	removeTemp := true
+	defer func() {
+		_ = f.Close()
+		if removeTemp {
+			_ = h.Remove(temp)
+		}
+	}()
+	if _, err := f.Write(encoded.Bytes()); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := h.Link(temp, clean); err != nil {
+		return err
+	}
+	if err := h.Remove(temp); err != nil {
+		return err
+	}
+	removeTemp = false
+	directory, err := h.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func registerCommand(args []string) int {
@@ -452,6 +726,7 @@ func printError(err error) int {
 
 func usage() {
 	message := `usage:
+  hammond [--version | version [--format text|json]]
   hammond register --store <dir> --record <path>
   hammond validate --record <path>
   hammond append-event --store <dir> --record <path> --event <path> [--if-revision <revision>]
@@ -460,6 +735,7 @@ func usage() {
   hammond show --store <dir> --record <path>
   hammond revision --store <dir> --record <path>
   hammond list --store <dir>
-  hammond lineage --store <dir>`
+  hammond lineage --store <dir>
+  hammond gate --root <project> --approval <rel> --review-policy <rel> --contract <rel> --project-id <id> --contract-id <id> --contract-version <n> --contract-schema <schema> --contract-sha256 <lowercase-hex> --output <rel>`
 	fmt.Fprintln(os.Stderr, strings.TrimSpace(message))
 }

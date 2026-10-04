@@ -1,0 +1,313 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "scope",
+    "status",
+    "checked_at",
+    "started_at",
+    "finished_at",
+    "executable_path",
+    "backend",
+    "enforcement",
+    "assurance",
+    "network_mode",
+    "model",
+    "synthetic",
+    "process_started",
+    "mock_round_trips",
+    "reply_observed",
+    "output_truncated",
+    "capture_complete",
+    "broker",
+    "limitations",
+    "broker_status"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ingen.sentinel-codex-readiness/v1"
+    },
+    "scope": {
+      "const": "local-synthetic-codex-startup-and-protocol"
+    },
+    "status": {
+      "enum": [
+        "supported",
+        "unsupported",
+        "indeterminate"
+      ]
+    },
+    "checked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "executable_path": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "executable_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "policy_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "backend": {
+      "enum": [
+        "unavailable",
+        "macos-seatbelt"
+      ]
+    },
+    "enforcement": {
+      "enum": [
+        "unavailable",
+        "host-enforced"
+      ]
+    },
+    "assurance": {
+      "const": "unverified"
+    },
+    "network_mode": {
+      "const": "allowlist"
+    },
+    "model": {
+      "const": "sentinel-offline-readiness"
+    },
+    "synthetic": {
+      "const": true
+    },
+    "process_started": {
+      "type": "boolean"
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "mock_round_trips": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "reply_observed": {
+      "type": "boolean"
+    },
+    "output_truncated": {
+      "type": "boolean"
+    },
+    "capture_complete": {
+      "type": "boolean"
+    },
+    "broker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started_at",
+        "requests_received",
+        "requests_forwarded",
+        "requests_rejected",
+        "upstream_failures",
+        "in_flight",
+        "last_status"
+      ],
+      "properties": {
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "closed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "requests_received": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "requests_forwarded": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "requests_rejected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "upstream_failures": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "in_flight": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "last_status": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 599
+        },
+        "last_completed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reason": {
+      "type": "string"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 5
+    },
+    "broker_status": {
+      "enum": [
+        "unavailable",
+        "closed",
+        "indeterminate"
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ingen.sentinel-codex-readiness/v1",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "supported"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "policy_sha256",
+          "exit_code",
+          "executable_sha256"
+        ],
+        "properties": {
+          "backend": {
+            "const": "macos-seatbelt"
+          },
+          "enforcement": {
+            "const": "host-enforced"
+          },
+          "process_started": {
+            "const": true
+          },
+          "exit_code": {
+            "const": 0
+          },
+          "mock_round_trips": {
+            "const": 1
+          },
+          "reply_observed": {
+            "const": true
+          },
+          "output_truncated": {
+            "const": false
+          },
+          "capture_complete": {
+            "const": true
+          },
+          "broker": {
+            "required": [
+              "closed_at",
+              "last_completed_at"
+            ],
+            "properties": {
+              "requests_received": {
+                "const": 1
+              },
+              "requests_forwarded": {
+                "const": 1
+              },
+              "requests_rejected": {
+                "const": 0
+              },
+              "upstream_failures": {
+                "const": 0
+              },
+              "in_flight": {
+                "const": 0
+              },
+              "last_status": {
+                "const": 200
+              }
+            }
+          },
+          "broker_status": {
+            "const": "closed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "unsupported"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "required": [
+          "exit_code",
+          "executable_sha256"
+        ],
+        "properties": {
+          "process_started": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "broker_status": {
+            "const": "closed"
+          }
+        },
+        "required": [
+          "broker_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "broker": {
+            "required": [
+              "closed_at"
+            ],
+            "properties": {
+              "in_flight": {
+                "const": 0
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

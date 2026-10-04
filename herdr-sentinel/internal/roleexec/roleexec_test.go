@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+	"ingen/herdr-sentinel/internal/agentlaunch"
 	"ingen/herdr-sentinel/internal/capability"
 	"ingen/herdr-sentinel/internal/project"
 	"ingen/herdr-sentinel/internal/workspace"
@@ -47,6 +48,192 @@ func TestPrepareKeepsManifestWritesWriteOnlyAndRejectsDrift(t *testing.T) {
 	request.ExpectedManifestSHA256 = strings.Repeat("0", 64)
 	if _, err := Prepare(request); err == nil {
 		t.Fatal("Prepare accepted a drifted workspace manifest hash")
+	}
+}
+
+func TestPrepareBuildsFreshCodexInvocationFromPinnedReadablePrompt(t *testing.T) {
+	root := testProject(t)
+	promptPath := ".ingen/prompts/implementation.txt"
+	prompt := []byte("Inspect only the approved task. Preserve this exact line.\n")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, promptPath)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, promptPath), prompt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestFile := filepath.Join(root, project.WorkspacePath)
+	manifestBytes, err := os.ReadFile(manifestFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := workspace.LoadBytes(project.WorkspacePath, manifestBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range manifest.Roles {
+		if manifest.Roles[i].ID == "implementation" {
+			manifest.Roles[i].ReadRoots = append(manifest.Roles[i].ReadRoots, filepath.ToSlash(filepath.Dir(promptPath)))
+		}
+	}
+	changed, err := yaml.Marshal(workspace.Document{Workspace: manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestFile, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := capability.FromFileUnderRoot(root, project.WorkspacePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, promptSHA, err := PromptIdentity(root, promptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		Root: root, WorkspacePath: project.WorkspacePath, RoleID: "implementation", ExecutionID: "codex-fresh-test",
+		ExpectedManifestSHA256: plan.Workspace.Manifest.SHA256,
+		Agent:                  &AgentRequest{Name: "codex", ExecutablePath: "/usr/bin/true", PromptPath: promptPath, ExpectedPromptSHA256: promptSHA, Model: "codex-test-model"},
+	}
+	prepared, err := Prepare(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := prepared.AgentContext
+	if ctx == nil || ctx.Agent != "codex-cli" || ctx.Mode != "exec-ephemeral" || ctx.NetworkMode != "disabled" || ctx.PromptBytes != len(prompt) || ctx.PromptSourceSHA256 != promptSHA || ctx.PromptSnapshotSHA256 != promptSHA {
+		t.Fatalf("unexpected typed Codex context: %#v", ctx)
+	}
+	wantScratch := filepath.Join(prepared.Root, ".ingen", "artifacts", "role-executions", ".runtime", request.ExecutionID)
+	if prepared.ScratchRoot != wantScratch || !strings.HasPrefix(ctx.HomePath, wantScratch+string(filepath.Separator)) || !strings.HasPrefix(ctx.CodexHomePath, wantScratch+string(filepath.Separator)) {
+		t.Fatalf("Codex scratch/home paths escape unique runtime subtree: %#v", ctx)
+	}
+	policyReads := policyPaths(prepared.Policy.Document.Policy, "read")
+	if containsPath(policyReads, filepath.Join(prepared.Root, ".ingen", "artifacts", "role-executions", ".runtime")) || !containsPath(policyReads, wantScratch) {
+		t.Fatalf("Codex policy must read only its unique runtime subtree, not sibling sessions: %v", policyReads)
+	}
+	want := []string{"--no-daemon", "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", "--json", "--color", "never", "-c", "memories.use_memories=false", "-c", "memories.generate_memories=false", "-c", "project_doc_max_bytes=0", "-m", "codex-test-model", "-"}
+	fullCommand := append([]string{"/usr/bin/true"}, want...)
+	if !equalStrings(ctx.Args, want) || len(prepared.Command.Command) < len(fullCommand) || !equalStrings(prepared.Command.Command[len(prepared.Command.Command)-len(fullCommand):], fullCommand) || prepared.Command.ExecutablePath != "/usr/bin/true" {
+		t.Fatalf("typed Codex argv = %q, want exact fixed arguments %q", prepared.Command.Command, append([]string{"/usr/bin/true"}, want...))
+	}
+	if _, err := os.Stat(prepared.ScratchRoot); !os.IsNotExist(err) {
+		t.Fatalf("Prepare created Codex runtime directory before execution: %v", err)
+	}
+	env := privateEnvironment(prepared)
+	for _, forbidden := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CODEX_HOME=" + ctx.CodexHomePath, "HOME=" + ctx.HomePath} {
+		if strings.HasPrefix(forbidden, "OPENAI_") || strings.HasPrefix(forbidden, "ANTHROPIC_") {
+			for _, item := range env {
+				if strings.HasPrefix(item, forbidden+"=") {
+					t.Fatalf("private agent environment inherited credential variable %q", forbidden)
+				}
+			}
+		} else if !containsPath(env, forbidden) {
+			t.Fatalf("private Codex environment omits %q: %v", forbidden, env)
+		}
+	}
+}
+
+func TestBrokerPolicyAndChildEnvironmentAreNarrow(t *testing.T) {
+	plan := capability.Plan{Workspace: capability.WorkspaceRef{ID: "workspace-test"}}
+	role := capability.Role{ID: "implementation"}
+	document := makePolicy(plan, role, "exec-broker", nil, nil, nil, nil, "allowlist", 49123)
+	network := document.Policy["network"].(map[string]any)
+	if network["mode"] != "allowlist" {
+		t.Fatalf("network mode = %#v", network)
+	}
+	rules := network["allow"].([]any)
+	if len(rules) != 1 {
+		t.Fatalf("network rules = %#v", rules)
+	}
+	rule := rules[0].(map[string]any)
+	if rule["host"] != "localhost" || rule["direction"] != "outbound" || rule["purpose"] != "local Codex Responses broker" || !equalInts(rule["ports"], 49123) {
+		t.Fatalf("unexpected broker network rule: %#v", rule)
+	}
+	prepared := Prepared{ScratchRoot: "/project/scratch", AgentContext: &agentlaunch.CodexContext{}}
+	env := privateEnvironmentWithBrokerToken(prepared, "scoped-test-token")
+	if !containsEnv(env, "INGEN_CODEX_BROKER_TOKEN=scoped-test-token") || containsEnvPrefix(env, "OPENAI_API_KEY=") || containsEnvPrefix(env, "ANTHROPIC_API_KEY=") {
+		t.Fatalf("broker child environment did not expose only scoped token: %v", env)
+	}
+}
+
+func equalInts(raw any, want int) bool {
+	values, ok := raw.([]any)
+	return ok && len(values) == 1 && values[0] == want
+}
+
+func containsEnv(env []string, value string) bool {
+	for _, item := range env {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEnvPrefix(env []string, prefix string) bool {
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPrepareRejectsUnpinnedOrWritableCodexPrompt(t *testing.T) {
+	root := testProject(t)
+	promptPath := ".ingen/prompts/task.txt"
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, promptPath)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, promptPath), []byte("prompt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := capability.FromFileUnderRoot(root, project.WorkspacePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, promptSHA, err := PromptIdentity(root, promptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Root: root, WorkspacePath: project.WorkspacePath, RoleID: "implementation", ExecutionID: "codex-no-read", ExpectedManifestSHA256: plan.Workspace.Manifest.SHA256, Agent: &AgentRequest{Name: "codex", ExecutablePath: "/usr/bin/true", PromptPath: promptPath, ExpectedPromptSHA256: promptSHA}}
+	if _, err := Prepare(request); err == nil || !strings.Contains(err.Error(), "explicit role read root") {
+		t.Fatalf("Prepare accepted a prompt not granted by role ReadRoots: %v", err)
+	}
+	request.Agent.ExpectedPromptSHA256 = strings.Repeat("0", 64)
+	if _, err := Prepare(request); err == nil {
+		t.Fatal("Prepare accepted a stale immutable prompt digest")
+	}
+	manifestPath := filepath.Join(root, project.WorkspacePath)
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := workspace.LoadBytes(project.WorkspacePath, manifestBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range manifest.Roles {
+		if manifest.Roles[i].ID == "implementation" {
+			manifest.Roles[i].ReadRoots = append(manifest.Roles[i].ReadRoots, ".ingen/prompts")
+			manifest.Roles[i].WriteRoots = append(manifest.Roles[i].WriteRoots, ".ingen/prompts")
+		}
+	}
+	changed, err := yaml.Marshal(workspace.Document{Workspace: manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err = capability.FromFileUnderRoot(root, project.WorkspacePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.ExpectedManifestSHA256 = plan.Workspace.Manifest.SHA256
+	request.Agent.ExpectedPromptSHA256 = promptSHA
+	if _, err := Prepare(request); err == nil || !strings.Contains(err.Error(), "must not be in a role write root") {
+		t.Fatalf("Prepare accepted a role-writable prompt: %v", err)
 	}
 }
 
